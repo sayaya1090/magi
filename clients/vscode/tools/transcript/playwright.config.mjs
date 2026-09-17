@@ -9,17 +9,23 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 const testMatch = process.env.PLAYWRIGHT_TEST_MATCH
   ? new RegExp(process.env.PLAYWRIGHT_TEST_MATCH)
-  : /markdown\.spec\.mjs$/;
+  : /transcript\.spec\.mjs$/;
+
+const maxFailures = process.env.PLAYWRIGHT_MAX_FAILURES !== undefined
+  ? parseInt(process.env.PLAYWRIGHT_MAX_FAILURES, 10)
+  : 1;
 
 export default defineConfig({
   testDir: currentDir,
   testMatch,
+  maxFailures,
   workers: 1,
   fullyParallel: false,
   retries: 0,
   outputDir: path.join(currentDir, 'artifacts'),
   use: {
     headless: true,
+    viewport: { width: 420, height: 600 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
