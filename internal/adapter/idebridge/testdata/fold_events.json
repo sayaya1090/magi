@@ -384,5 +384,71 @@
       "reason": "no run"
     },
     "ts": "2026-09-14T10:00:21Z"
+  },
+  {
+    "seq": 23,
+    "type": "prompt.submitted",
+    "actor": {
+      "kind": "user",
+      "id": "attach"
+    },
+    "data": {
+      "messageId": "m4",
+      "parts": [
+        {
+          "kind": "text",
+          "text": "and this one too"
+        }
+      ]
+    },
+    "ts": "2026-09-14T10:00:22Z"
+  },
+  {
+    "seq": 24,
+    "type": "interjection.deferred",
+    "actor": {
+      "kind": "system",
+      "id": "interject"
+    },
+    "data": {
+      "messageId": "m4"
+    },
+    "ts": "2026-09-14T10:00:23Z"
+  },
+  {
+    "seq": 25,
+    "type": "part.appended",
+    "actor": {
+      "kind": "agent",
+      "id": "magi"
+    },
+    "data": {
+      "messageId": "r2",
+      "role": "assistant",
+      "part": {
+        "kind": "text",
+        "text": "answering the first"
+      }
+    },
+    "ts": "2026-09-14T10:00:24Z"
+  },
+  {
+    "seq": 26,
+    "type": "prompt.submitted",
+    "actor": {
+      "kind": "user",
+      "id": "tui"
+    },
+    "data": {
+      "messageId": "m5",
+      "resurfacedFrom": "m4",
+      "parts": [
+        {
+          "kind": "text",
+          "text": "and this one too"
+        }
+      ]
+    },
+    "ts": "2026-09-14T10:00:25Z"
   }
 ]

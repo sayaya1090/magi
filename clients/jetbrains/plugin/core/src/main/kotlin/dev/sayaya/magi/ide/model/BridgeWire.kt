@@ -44,6 +44,26 @@ data class BridgeRow(
     val folded: Boolean = false,
     val summary: String = "",
     val id: String = "",
+    /**
+     * 도구 호출의 **원문 인자 전체**. `args` 는 그 요약이다.
+     *
+     * ⚠ 이 셋(`rawArgs`·`fileNav`·`outputId`)은 VS Code 레인이 공용 행에 늘린 칸이고, 이 모델이 그것을
+     * 선언하지 않아 **읽을 수가 없던 상태**였다 — `@Serializable` 은 선언 없는 칸을 아예 안 읽으므로,
+     * 문이 보내는 사실이 이 창에 닿을 길이 없고 아무것도 안 터진다. 대조가 그것을 잡았다(2026-09-19).
+     * 그리는 코드는 아직 없지만, **모양은 문이 보내는 대로** 들고 있는 것이 이 파일의 일이다.
+     */
+    val rawArgs: String = "",
+    /** 도구 호출에서 뽑아낸 파일·줄 이동 지점. 없으면 이동할 자리가 없는 호출이다. */
+    val fileNav: BridgeFileNav? = null,
+    /** 확정된 답이나 도구 결과의 읽기 전용 가상 문서 식별자. */
+    val outputId: String = "",
+)
+
+/** 이동 지점 하나. [BridgeRow.fileNav] 참조. */
+@Serializable
+data class BridgeFileNav(
+    val path: String = "",
+    val line: Int? = null,
 )
 
 /**

@@ -33,7 +33,7 @@ class WireConformanceTest {
         // 브리지가 답하는 행과 그 변화. 이름 앞에 `Bridge` 를 붙인 것은 **어느 프로세스가 하는 말인지**
         // 가 읽히게 하려는 것이다 — 이 창은 데몬과도 브리지와도 말하고, 같은 낱말(`Row`)이 두 전선에
         // 다른 모양으로 있으면 부르는 자리에서 구별이 안 된다.
-        "BridgeRow" to "Row", "BridgeOp" to "Op",
+        "BridgeRow" to "Row", "BridgeOp" to "Op", "BridgeFileNav" to "FileNav",
     )
 
     /**

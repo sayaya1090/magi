@@ -97,10 +97,35 @@ class CanonicalFoldTest {
             o["silent"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.silent.toString(), "[$i] `silent` 가 갈린다") }
             o["opened"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.opened.toString(), "[$i] `opened` 가 갈린다") }
             o["confidence"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.confidence?.toString(), "[$i] `confidence` 가 갈린다") }
+
+            // ⚠ **사람이 화면에서 읽는 표시들도 번역되지 않는다.** 대기 중인 질문의 바, 큐에 걸린
+            // 표시, 취소된 질문 — 여기서 갈리면 한쪽 화면의 바가 영영 안 내려가거나, 내려가야 할 때
+            // 안 내려간다. 종류와 구조 칸만 맞으면 그 사실은 대조 밖에 있었다.
+            o["pending"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.pending.toString(), "[$i] `pending` 이 갈린다 — 한쪽 화면의 대기 바가 다르게 선다") }
+            o["queued"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.queued.toString(), "[$i] `queued` 가 갈린다") }
+            o["abandoned"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.abandoned.toString(), "[$i] `abandoned` 가 갈린다") }
+            o["draft"]?.jsonPrimitive?.content?.let { checked++; assertEquals(it, r.draft.toString(), "[$i] `draft` 가 갈린다 — 한쪽은 흐르는 조각을 사실로 그린다") }
+            same("msgId", r.msgId.ifEmpty { null })
+
+            // ⚠ **시간은 순간으로 견준다, 글자로 견주지 않는다.** 정본은 사건의 시각을 파싱해
+            // RFC3339Nano 로 다시 적고 이쪽은 전선의 글자를 그대로 든다 — 같은 순간을 `22.100Z` 와
+            // `22.1Z` 로 적을 수 있고, 그 차이는 드리프트가 아니다. 갈리면 안 되는 것은 **어느 사건의
+            // 시각을 실었는가**다: 되살아난 질문이 처음 물은 시각을 지키는지가 그 자리이고, 정본에서
+            // 그 규칙이 깨진 채 통과한 적이 있다(#198).
+            o["at"]?.jsonPrimitive?.content?.let { want ->
+                checked++
+                val mineAt = r.at
+                assertTrue(!mineAt.isNullOrBlank(), "[$i] 정본은 시간을 싣는데 이쪽 행에는 없다 — 화면에서 시각이 사라진다")
+                assertEquals(
+                    java.time.Instant.parse(want),
+                    java.time.Instant.parse(mineAt),
+                    "[$i] `at` 이 다른 사건의 시각이다 — 정본 `$want`, 이쪽 `$mineAt`",
+                )
+            }
         }
         // ⚠ 바닥은 「무언가를 쟀다」의 유일한 증거다. 픽스처가 구조 칸 없는 행만 남으면 이 규칙은
         // 위반이 없어서가 아니라 **잴 것이 없어서** 초록이 된다.
-        assertTrue(checked >= 15, "구조 칸을 $checked 개밖에 대조하지 않았다 — 픽스처가 얕아졌거나 읽기가 깨졌다")
+        assertTrue(checked >= 40, "구조 칸을 $checked 개밖에 대조하지 않았다 — 픽스처가 얕아졌거나 읽기가 깨졌다")
         assertTrue(JsonArray(emptyList()).isEmpty() && JsonObject(emptyMap()).isEmpty())
     }
 }

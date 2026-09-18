@@ -9,21 +9,21 @@
     "id": "1"
   },
   {
+    "at": "2026-09-14T10:00:04Z",
     "seq": 5,
     "who": "thinking",
     "text": "  let me look  ",
     "folded": true,
     "summary": "let me look",
-    "id": "5",
-    "at": "2026-09-14T10:00:04Z"
+    "id": "5"
   },
   {
+    "at": "2026-09-14T10:00:05Z",
     "seq": 6,
     "who": "agent",
     "text": "  Looking now.  ",
     "summary": "Looking now.",
-    "id": "6",
-    "at": "2026-09-14T10:00:05Z"
+    "id": "6"
   },
   {
     "at": "2026-09-14T10:00:06Z",
@@ -156,5 +156,23 @@
     "text": "⚠ Unverified — nothing ran to confirm this: no run",
     "summary": "⚠ Unverified — nothing ran to confirm this: no run",
     "id": "22"
+  },
+  {
+    "at": "2026-09-14T10:00:24Z",
+    "seq": 25,
+    "who": "agent",
+    "text": "answering the first",
+    "summary": "answering the first",
+    "id": "25"
+  },
+  {
+    "at": "2026-09-14T10:00:22Z",
+    "seq": 26,
+    "who": "user",
+    "text": "and this one too",
+    "pending": true,
+    "msgId": "m5",
+    "summary": "and this one too",
+    "id": "26"
   }
 ]
