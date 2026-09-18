@@ -21,8 +21,14 @@ import java.nio.file.Paths
  */
 class LiveDaemonTest {
 
-    /** 데몬을 찾는 일은 [dev.sayaya.magi.ide.live.Probe] 하나가 한다 — 두 벌이면 갈라진다. */
-    private fun socket(): java.nio.file.Path? = dev.sayaya.magi.ide.live.Probe.socket()
+    /**
+     * 데몬을 찾는 일은 [dev.sayaya.magi.ide.live.Probe] 하나가 한다 — 두 벌이면 갈라진다.
+     *
+     * ⚠ `socket()` 이 아니라 `alive()` 다. **있다는 것은 살아 있다는 것이 아니다**: 소켓 파일을
+     * 못 치우고 죽은 데몬이 남긴 시체에 `Files.exists` 는 참을 주고, 그러면 이 전제가 서서 연결이
+     * 거절되고 **건너뜀이 빨강이 된다**(실측 2026-09-14, `Probe.alive` 의 주석에 숫자와 경로가 있다).
+     */
+    private fun socket(): java.nio.file.Path? = dev.sayaya.magi.ide.live.Probe.alive()
 
     @Test
     fun `한 줄에 객체 하나로 주고받고, 핸드셰이크를 읽는다`() {

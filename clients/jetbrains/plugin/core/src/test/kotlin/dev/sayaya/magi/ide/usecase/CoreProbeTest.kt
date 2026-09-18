@@ -34,6 +34,21 @@ class CoreProbeTest {
     }
 
     /**
+     * 대역에게 **줄을 건네는** 한 자리 — base64 로 싼다.
+     *
+     * ⚠ 인용부호는 argv 를 건너지 못한다. 실측 2026-09-14(Windows 11): `{"features":[...]}` 를 보내면
+     * 자식은 `{features:[...]}` 를 받는다 — **큰따옴표가 전부 사라진다.** 윈도우에는 argv 배열이 없고
+     * 명령줄 한 줄뿐이라, 자바가 조립한 그 줄의 따옴표를 자식의 C 런타임이 구분자로 먹는다. 그래서
+     * 대역이 뱉는 줄이 JSON 이 아니게 되고 조회는 빈 집합을 내며, 이 묶음의 한 시험이 그 플랫폼에서만
+     * 빨갰다(#195 — 셸 픽스처를 걷어낸 뒤에도 남아 있던 마지막 하나).
+     *
+     * 싸는 자리를 여기 하나로 둔다. 시험마다 `Base64.encode` 를 쓰면 다음 시험이 잊고, 잊은 그 시험만
+     * 윈도우에서 빨개진다 — 방금 고친 것과 똑같은 모양으로.
+     */
+    private fun says(line: String): String =
+        java.util.Base64.getEncoder().encodeToString(line.toByteArray())
+
+    /**
      * JVM 을 하나 띄우는 값이 있으므로 **기한은 그 값보다 넉넉해야 한다.**
      *
      * ⚠ 앞 판본의 300ms 를 그대로 두면 이 시험들은 「자식이 stdout 을 열어 둔 채 조용하다」가 아니라
@@ -44,7 +59,7 @@ class CoreProbeTest {
 
     @Test
     fun `알린 이름을 그대로 읽는다`() {
-        val got = CoreProbe.features(stand("print", """{"features":["raw-socket-v1","owned-daemon-v1"],"protocol":1}"""))
+        val got = CoreProbe.features(stand("print", says("""{"features":["raw-socket-v1","owned-daemon-v1"],"protocol":1}""")))
         assertEquals(setOf("raw-socket-v1", "owned-daemon-v1"), got)
     }
 
@@ -93,13 +108,13 @@ class CoreProbeTest {
      */
     @Test
     fun `말은 하지만 거절한 바이너리는 빈 집합이다`() {
-        val refuses = stand("refuse", """{"features":["raw-socket-v1"]}""")
+        val refuses = stand("refuse", says("""{"features":["raw-socket-v1"]}"""))
         assertEquals(emptySet<String>(), CoreProbe.features(refuses))
     }
 
     @Test
     fun `깨진 줄은 빈 집합이다`() {
-        assertEquals(emptySet<String>(), CoreProbe.features(stand("print", "not json at all")))
+        assertEquals(emptySet<String>(), CoreProbe.features(stand("print", says("not json at all"))))
     }
 
     @Test
