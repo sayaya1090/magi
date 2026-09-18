@@ -1,6 +1,6 @@
 # VS Code 확장 — 화면 설계
 
-[↑ 클라이언트 개요](../README.md) · [사용자 매뉴얼](./MANUAL.ko.md) · [설계](./DESIGN.ko.md) · [테스트 안내](./TESTING.ko.md) · [플랫폼 규약 대조표](./PLATFORM.ko.md) · [형제: 젯브레인 화면 설계](../../jetbrains/docs/UI.ko.md)
+[↑ 클라이언트 개요](../README.md) · [사용자 매뉴얼](./MANUAL.ko.md) · [설계](./DESIGN.ko.md) · [화면 설계](./UI.ko.md) · [시스템 구조도](./DIAGRAMS.ko.md) · [테스트 안내](./TESTING.ko.md) · [플랫폼 규약 대조표](./PLATFORM.ko.md) · [형제: 젯브레인 화면 설계](../../jetbrains/docs/UI.ko.md)
 
 > **상태: 화면 설계 및 구현 사양**
 >
