@@ -274,6 +274,36 @@ class MagiToolWindow : ToolWindowFactory {
         private val opened = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
         /**
+         * 기본이 **펼침**인 행에서 사람이 접은 것. [opened] 의 짝이다.
+         *
+         * 두 집합이 필요한 이유: 기본이 종류마다 다르다(`RowText.openByDefault`). 한 집합으로 하면
+         * 「아직 안 건드린 행」과 「일부러 접은 행」이 같은 얼굴이 되고, 그러면 생각 행은 다시 그릴
+         * 때마다 접힌 채로 돌아온다.
+         */
+        private val closed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+        /** 이 행의 본문을 지금 보이나. 기본값은 코어가 정하고([RowText.openByDefault]) 사람이 뒤집는다. */
+        private fun shows(r: Row): Boolean {
+            val k = RowText.foldKey(r)
+            return if (RowText.openByDefault(r)) k !in closed else k in opened
+        }
+
+        /**
+         * 이 행의 접힘을 뒤집는다. **뒤집는 자리는 하나다** — 마우스와 키보드 두 경로가 있고, 한쪽만
+         * 고치면 생각 행에서 키보드가 아무 일도 안 한다(기본이 펼침인 행은 [closed] 를 보므로 [opened]
+         * 에 적는 경로는 화면을 안 바꾼다). 이 트리가 되풀이해 값을 치른 「한 사실, 두 기전」이다.
+         */
+        private fun flip(r: Row) {
+            val k = RowText.foldKey(r)
+            if (RowText.openByDefault(r)) {
+                if (!closed.remove(k)) closed.add(k)
+            } else {
+                if (!opened.remove(k)) opened.add(k)
+            }
+            redrawLog()
+        }
+
+        /**
          * 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다.
          *
          * **`init` 보다 위에 선다.** 코틀린은 선언 순서대로 초기화하고, `init` 의 못-붙음 보고가
@@ -937,12 +967,18 @@ class MagiToolWindow : ToolWindowFactory {
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     }
                 }
-                // 추론 과정(Thinking)은 기본 접힘 상태로 렌더링하며 클릭 시 토글됩니다. 펼침 상태는 재렌더링 시에도 [opened] 집합으로 유지됩니다.
+                // 추론 과정(Thinking)은 **기본 펼침**으로 렌더링하고 클릭 시 접습니다. 길다는 이유로
+                // 접지 않는 것이 사용자 요구이며(`docs/IDE_NATIVE.ko.md` §5.4), VS Code 판은 그것을
+                // 지키고 있었습니다 — 이 창만 접고 있었습니다(2026-09-19). 판정은 코어에 있고
+                // (`RowText.openByDefault`) 사람이 접은 것은 [closed] 가, 펼친 것은 [opened] 가 듭니다.
                 Who.Thinking -> {
                     val long = r.text.contains('\n') || r.text.length > 120
-                    val open = RowText.foldKey(r) in opened
+                    val open = shows(r)
                     if (open) {
-                        p.add(Look.aside(MagiBundle.msg("chat.think") + " ⌃"), BorderLayout.NORTH)
+                        // ⚠ 글리프는 **접을 수 있을 때만** 붙인다. 기본이 펼침이 된 뒤로 짧은 생각도 이
+                        // 갈래로 오는데(그쪽은 `long` 이 아니라 토글이 안 걸린다), 그때 ⌃ 를 그리면
+                        // 눌러도 아무 일이 없는 조작을 그리는 것이다.
+                        p.add(Look.aside(MagiBundle.msg("chat.think") + if (long) " ⌃" else ""), BorderLayout.NORTH)
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     } else {
                         val head = r.text.lineSequence().firstOrNull().orEmpty().take(120)
@@ -957,7 +993,7 @@ class MagiToolWindow : ToolWindowFactory {
                         r.ok == true -> "✓" to Look.success
                         else -> "✗" to Look.error
                     }
-                    val open = RowText.foldKey(r) in opened
+                    val open = shows(r)
                     p.add(Look.toolHead(r.tool.orEmpty(), glyph, hue,
                         if (open) "⌃" else RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄", RowText.clock(r.at)),
                         BorderLayout.NORTH)
@@ -996,7 +1032,7 @@ class MagiToolWindow : ToolWindowFactory {
                 Who.Council -> if (r.opened) {
                     // 카운슬 세션 라운드 개시 헤더: 개별 멤버 판정과 시각적으로 구별되도록 렌더링합니다.
                     val has = !r.evidence.isNullOrBlank()
-                    val open = has && RowText.foldKey(r) in opened
+                    val open = has && shows(r)
                     val head = MagiBundle.msg("chat.council.round", r.round)
                     p.add(Look.rowHead("⚖ $head", Look.body,
                         if (has) listOf((if (open) "⌃" else MagiBundle.msg("chat.council.saw") + "  ⌄") to Look.faint)
@@ -1075,11 +1111,7 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun foldable(p: JBPanel<JBPanel<*>>, r: Row) {
             val flip = object : java.awt.event.MouseAdapter() {
-                override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    val k = RowText.foldKey(r)
-                    if (!opened.remove(k)) opened.add(k)
-                    redrawLog()
-                }
+                override fun mouseClicked(e: java.awt.event.MouseEvent) = flip(r)
             }
             fun hook(c: java.awt.Component) {
                 // 내부 버튼 컴포넌트(예: Diff 보기)는 접기 이벤트 대상에서 제외합니다(리뷰 F1).
@@ -1100,9 +1132,7 @@ class MagiToolWindow : ToolWindowFactory {
                         e.keyCode != java.awt.event.KeyEvent.VK_ENTER
                     ) return
                     e.consume()
-                    val k = RowText.foldKey(r)
-                    if (!opened.remove(k)) opened.add(k)
-                    redrawLog()
+                    flip(r)
                 }
             })
             val plain = p.border

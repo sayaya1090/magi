@@ -257,4 +257,28 @@ class RowTextTest {
         assertNull(RowText.diffSides(row(ok = null, tool = "edit", args = args)), "모르는 것도 그리지 않는다")
         assertTrue(RowText.diffSides(row(ok = true, tool = "edit", args = args)) != null)
     }
+
+    /**
+     * **생각은 접힌 채로 오지 않는다.**
+     *
+     * 길다는 이유로 접지 않는 것이 사용자 요구다(`docs/IDE_NATIVE.ko.md` §5.4: 「전문을 펼쳐 공통 세로
+     * 스크롤로 읽는 것은 사용자 요구입니다」). VS Code 판은 그것을 지키고 있었다 — 흐리게 그리되 접지
+     * 않는다. 이 창만 기본 접힘이었다(2026-09-19 실측, `MagiToolWindow` 의 그 주석이 그렇게 적고
+     * 있었다).
+     *
+     * 판정을 불러서 재는 이유: 화면 코드 안의 `if` 는 소스 글자로밖에 못 재고, 이 저장소는 그 방식이
+     * 「낱말을 다 남긴 채 검사만 끄는」 변이를 통과시킨 것을 이미 봤다.
+     */
+    @Test
+    fun `생각은 기본 펼침이고 도구 본문은 기본 접힘이다`() {
+        assertTrue(RowText.openByDefault(Row(Who.Thinking, "긴 생각\n두 줄")), "생각이 기본 접힘이다 — 사용자 요구와 반대다")
+        // 도구 인자·결과는 수백 줄일 수 있다. 그 요구는 읽을 것을 고르는 사람의 것이고, 흐름을 덮는
+        // 것이 아니다 — 카운슬 소집 행의 증거도 같은 사유를 제 자리에 적고 있다.
+        assertFalse(RowText.openByDefault(Row(Who.Tool, "bash", tool = "bash", args = "{}")), "도구 본문이 기본 펼침이 됐다")
+        assertFalse(RowText.openByDefault(Row(Who.Council, "melchior", member = "melchior", opened = true, evidence = "task: x")), "소집 행의 증거가 기본 펼침이 됐다")
+        // 나머지 종류는 애초에 접는 본문이 없다 — 여기서 참이 되면 접기 조작이 없는 행이 접힌다.
+        for (w in listOf(Who.User, Who.Agent, Who.System, Who.Error, Who.Image)) {
+            assertFalse(RowText.openByDefault(Row(w, "x")), "$w 가 기본 펼침 판정에 들어왔다")
+        }
+    }
 }
