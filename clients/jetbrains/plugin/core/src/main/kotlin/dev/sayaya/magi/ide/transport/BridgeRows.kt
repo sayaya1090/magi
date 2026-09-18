@@ -12,48 +12,46 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * **`magi ide-bridge` 에게 한 대화를 물어 계속 받는 것** — 공용 접기를 이 창으로 들이는 전송로.
+ * **`magi ide-bridge` 세션 구독 및 행 갱신 스트림 전송 계층.**
  *
- * 이 창은 지금 제 셰이퍼로 행을 짓는다(`usecase/Rows.kt`, 878줄). 같은 규칙이 코어에도 있고
- * (`internal/adapter/idebridge`), 두 벌이 갈린 적이 있다 — 그래서 문이 열렸고 이것이 그 문으로 가는
- * 길이다. 옮기는 동안 두 사본이 공존하며, 갈리지 않는지는 `CanonicalFoldTest` 가 본다.
+ * 코어 브리지(`internal/adapter/idebridge`)가 제공하는 표준 롤업/폴딩 행 목록을 수신하여
+ * 클라이언트 로컬 셰이퍼(`usecase/Rows.kt`)와의 일관성을 유지합니다.
+ * 이관 과정 중 양측 로직 간의 정합성은 `CanonicalFoldTest`에서 검증합니다.
  *
- * # 구독마다 프로세스 하나
+ * # 구독당 단일 프로세스 할당
  *
- * 문은 한 연결에서 여러 구독을 다중화할 수 있고(`sub` 번호가 그래서 있다), 이 클라이언트는 그러지
- * **않는다**. 구독 하나가 프로세스 하나를 가지면 읽는 쪽이 하나이므로 id 대응이 필요 없고, 그 판이
- * 닫힐 때 프로세스를 끝내는 것이 곧 구독을 끝내는 것이다 — 브리지 자신이 구독마다 데몬 연결을 하나
- * 주는 것과 같은 결이다(`live_door.go`: 「스트림은 계속 읽는 쪽에게 주어진다」). 판은 창마다 하나뿐이라
- * 프로세스 수도 그만큼이다.
+ * 브리지 프로토콜은 단일 연결에서 여러 세션 구독을 다중화(`sub`)할 수 있으나, 본 클라이언트는
+ * 구독마다 독립 프로세스를 할당합니다. 단일 구독-단일 프로세스 구조를 취함으로써 채널 식별자 라우팅 복잡성을
+ * 제거하고, 도구 창 종료 시 프로세스를 함께 종료하여 안전하게 구독을 정리합니다(`live_door.go` 참조).
  *
- * # 스트림으로 받는 이유
+ * # I/O 스트림 주입 기반 설계
  *
- * 프레이밍과 분배는 **자식 프로세스 없이** 재야 한다. 이 저장소의 다른 탐침 시험들은 `#!/bin/sh`
- * 픽스처를 쓰는데 그것이 윈도우에서 안 돌아 값을 치렀다(#195). 여기서는 [BridgeRows] 가 스트림 둘과
- * 「끝내는 법」만 받으므로, 시험은 파이프로 이 규칙 전부를 잴 수 있고 실물 프로세스는 [open] 이 만든다.
+ * 프로세스 생성과 프레이밍/디스패치 로직을 분리하여 자식 프로세스 없이 단위 테스트가 가능하도록 설계했습니다.
+ * [BridgeRows] 생성자는 입출력 스트림과 종료 콜백만 주입받으므로, 모의 파이프를 통해 플랫폼에 독립적으로
+ * 프로토콜 파싱 및 예외 처리를 검증할 수 있습니다([open] 메서드에서 실제 프로세스 생성).
  */
 class BridgeRows internal constructor(
     private val incoming: BufferedReader,
     private val outgoing: BufferedWriter,
     private val stop: () -> Unit,
-    /** 자식이 말없이 끝났을 때 **왜인지** 말할 수 있는 것 — 종료 코드와 stderr 꼬리. */
+    /** 프로세스 비정상 종료 시 원인을 진단하기 위한 콜백 (종료 코드 및 stderr 출력 버퍼). */
     private val diagnose: () -> String = { "" },
 ) : AutoCloseable {
 
-    /** 문이 보내는 것을 화면 쪽이 받는 자리. 순서는 `reset` → `changed`* → `ended`. */
+    /** 브리지 이벤트 수신 인터페이스. 호출 순서: `reset` → `changed`* → `ended`. */
     interface Sink {
-        /** 첫 프레임: 이 대화 전체를 접은 것. 창을 지금 연 사람이 받는 것과 같다. */
+        /** 최초 전체 프레임 수신. 현재 세션의 전체 롤업 행 목록을 전달합니다. */
         fun reset(rows: List<BridgeRow>, events: Int)
-        /** 그 뒤의 변화. 순서대로 적용하면 다시 접은 것과 같아진다(`live.go` 의 보증). */
+        /** 후속 변경 사항 수신. `live.go` 명세에 따라 오퍼레이션을 순차 적용합니다. */
         fun changed(ops: List<BridgeOp>)
         /**
-         * 구독이 끝났다. [why] 가 비어 있으면 **우리가 끝낸 것**이고, 있으면 그 사유다.
+         * 세션 구독 정상/비정상 종료. [why]가 비어 있으면 클라이언트 요청에 의한 정상 종료이며,
+         * 값이 존재하면 서버 또는 스트림 종료 사유입니다.
          *
-         * ⚠ 사유 없이 끝나는 것과 끝을 아예 안 말하는 것은 다르다 — 후자는 화면이 계속 살아 있다고
-         * 말하게 만든다. 그 비대칭 거짓을 막는 것이 문 쪽 계약이고, 이쪽은 그것을 그대로 전한다.
+         * 스트림 연결이 닫혔을 때 종료 이벤트가 누락되어 UI가 영구 대기 상태로 남는 현상을 방지합니다.
          */
         fun ended(why: String)
-        /** 물음 자체가 거절됐다(구형 컴패니언, 데몬 없음, 세션 없음). 구독은 서지 않았다. */
+        /** 세션 요청 거절 (호환되지 않는 데몬, 세션 미존재 등). 구독이 개시되지 않은 상태입니다. */
         fun failed(why: String)
     }
 
@@ -116,8 +114,7 @@ class BridgeRows internal constructor(
                 f.done -> { sink.ended(f.why); return }
                 f.ops.isNotEmpty() -> sink.changed(f.ops)
                 f.sub > 0 && !started -> { started = true; sink.reset(f.rows, f.events) }
-                // 첫 프레임이 아직인데 행만 온 경우는 없다. 오면 그것도 첫 프레임으로 읽는다 —
-                // 모르는 프레임을 버리는 것이 이 트리가 되풀이해 값을 치른 모양이다.
+                // 초기 프레임 수신 플래그 이전에 행 데이터가 도착한 경우에도 초기 상태로 처리하여 유실을 방지합니다.
                 f.rows.isNotEmpty() -> { started = true; sink.reset(f.rows, f.events) }
             }
         }
@@ -130,12 +127,11 @@ class BridgeRows internal constructor(
 
     companion object {
         /**
-         * 브리지를 띄운다. [command] 는 `magi ide-bridge` 를 부르는 방법 전부다.
+         * 브리지 프로세스를 실행합니다. [command]는 `magi ide-bridge` 실행 명령 인자 목록입니다.
          *
-         * ⚠ **stderr 를 stdout 에 섞지 않는다.** 섞으면 자식이 쓰는 진단 한 줄이 프레임 사이에 끼어
-         * JSONL 을 깨뜨린다 — 그리고 그 깨짐은 「답이 이상하다」로 보인다. 그렇다고 버리지도 않는다:
-         * 자식이 말없이 죽는 가장 흔한 이유가 그쪽에 적히므로, 따로 읽어 **꼬리를 들고 있다가** 끝날 때
-         * 사유로 쓴다.
+         * stderr 출력 스트림을 stdout에 병합하지 않고 분리하여 처리합니다.
+         * stderr 진단 출력이 JSONL 프레임 데이터와 혼합되어 파싱 오류가 발생하는 현상을 방지하며,
+         * 비정상 종료 시 원인 파악을 위해 stderr 버퍼 꼬리(tail)를 보존하여 에러 메시지에 활용합니다.
          */
         fun open(command: List<String>, workdir: File? = null): BridgeRows {
             val p = ProcessBuilder(command)

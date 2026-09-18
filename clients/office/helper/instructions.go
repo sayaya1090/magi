@@ -7,41 +7,31 @@ import (
 	"strings"
 )
 
-// 사람이 **한 번 적어 두면 매번 지켜지는 말** — 지속 지시.
+// 패키지 내 워크스페이스 지속 지시(Custom Instructions) 관리 모듈.
 //
-// # 왜 필요한가
+// # 배경 및 구조
+// 문서 서식 규칙(예: "글머리 기호 1줄 유지", "기업 브랜드 색상 적용", "표 머리글 굵게" 등)은
+// 대화 턴마다 반복 전달하지 않고 영속적으로 유지되어야 합니다.
+// magi 코어는 워크스페이스 루트의 `AGENTS.md` 내용을 매 시스템 프롬프트에 포함시키며,
+// 컨텍스트 압축(Compaction) 시에도 이를 보존합니다(`internal/app/memory.go`).
+// Office 컴패니언은 전용 워크스페이스를 보유하므로(`own.go`), 해당 경로에 `AGENTS.md`를
+// 배치함으로써 추가적인 프로토콜 확장 없이 오피스 전용 지속 지시를 주입합니다.
 //
-// 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」, 「표는 항상 머리글 굵게」. 이런 것은 부탁이
-// 아니라 **취향이고 규칙**이라, 대화마다 다시 말하게 하면 쓰는 사람이 지친다. 그리고 지치면
-// 안 말하게 되고, 안 말하면 결과가 매번 조금씩 다르다 — 발표 자료에서 그건 눈에 띈다.
-//
-// # 왜 파일 하나로 되는가
-//
-// magi 는 워크스페이스의 `AGENTS.md` 를 **매 시스템 프롬프트에 넣고 압축에도 안 날린다**
-// (`internal/app/memory.go`). 파워포인트 컴패니언은 자기 워크스페이스를 갖고 있으므로
-// (`own.go`), 거기 그 파일 하나를 쓰면 「파워포인트에서만 적용되는 지시」가 그대로 된다 —
-// 새 개념도, 새 배선도 없다.
-//
-// # 우리가 안 하는 것
-//
-// **해석하지 않는다.** 사람이 적은 글을 그대로 싣고 그대로 돌려준다. 「이건 규칙 문법에 안 맞아요」
-// 같은 것을 우리가 판단하기 시작하면, 사람은 자기가 뭘 적을 수 있는지를 매번 겪어 봐야 알게 된다.
+// # 처리 원칙
+// 사용자가 입력한 지시 텍스트를 파싱하거나 변경하지 않고 원문 그대로 보존하여 파일에 기록합니다.
 
-// instructionsFile 은 그 파일의 자리.
+// instructionsFile 은 해당 워크스페이스의 AGENTS.md 절대 경로를 반환합니다.
 func instructionsFile(app *App, configDir string) string {
 	return filepath.Join(app.DeckSpace(configDir), "AGENTS.md")
 }
 
-// maxInstructions 는 받아 줄 길이의 천장.
-//
-// 넉넉하다 — 이 파일은 **매 턴 프롬프트에 들어가므로** 길면 그 값을 사람이 매번 치른다. 다만
-// 자르지 않고 **거절한다**: 조용히 자르면 사람이 적어 둔 규칙의 뒷부분이 어느 날부터 안 지켜지는데,
-// 화면에는 저장됐다고 적혀 있다.
+// maxInstructions 는 지속 지시 텍스트의 최대 허용 길이(8,000자)입니다.
+// 본 지시 내용은 매 턴마다 시스템 프롬프트에 포함되어 토큰을 소모하므로 상한을 설정합니다.
+// 부분 절삭(Truncate)할 경우 후반부 규칙이 조용히 누락되는 현상이 발생하므로, 초과 시 오류로 명시적 거절합니다.
 const maxInstructions = 8000
 
-// ReadInstructions 는 지금 적혀 있는 것.
-//
-// 파일이 없는 것은 **실패가 아니다** — 아직 아무것도 안 적은 것이고, 그게 기본 상태다.
+// ReadInstructions 는 워크스페이스의 지속 지시(AGENTS.md) 내용을 반환합니다.
+// 파일이 존재하지 않는 경우는 오류가 아니며, 빈 문자열을 반환합니다.
 func ReadInstructions(app *App, configDir string) (string, error) {
 	data, err := os.ReadFile(instructionsFile(app, configDir))
 	if os.IsNotExist(err) {
@@ -50,21 +40,15 @@ func ReadInstructions(app *App, configDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("지시를 못 읽었습니다(%s): %w", instructionsFile(app, configDir), err)
 	}
-	// **쓴 것과 같은 모양으로 돌려준다.** 우리는 저장할 때 앞뒤를 다듬으므로, 읽을 때 안 다듬으면
-	// 화면이 보여 주는 글과 저장될 글이 서로 다르다 — 사람이 고치지도 않았는데 「바뀜」이 뜬다.
-	// 사람이 편집기로 직접 고쳐 둔 파일도 같은 규칙으로 읽는다.
+	// 저장 시점과 일관되게 앞뒤 공백을 정규화하여 불필요한 변경 플래그 오탐을 방지합니다.
 	return strings.TrimSpace(string(data)), nil
 }
 
-// WriteInstructions 는 적어 둔다. 빈 글이면 파일을 치운다.
-//
-// **비우는 것이 지우는 것**이다. 빈 파일을 남겨 두면 「아무것도 안 적혀 있음」과 「파일이 없음」이
-// 두 상태가 되는데, 사람에게는 같은 뜻이고 우리에게만 다르다.
+// WriteInstructions 는 전달받은 지시 내용을 AGENTS.md에 저장합니다. 본문이 비어 있으면 기존 파일을 삭제합니다.
 func WriteInstructions(app *App, configDir, text string) (string, error) {
 	body := strings.TrimSpace(text)
 	if len(body) > maxInstructions {
-		// **자르지 않고 거절한다.** 조용히 자르면 규칙의 뒷부분이 어느 날부터 안 지켜지는데
-		// 화면에는 저장됐다고 적혀 있다 — 이 저장소가 최악이라고 적은 그 모양이다.
+		// 조용한 절삭으로 인한 규칙 누락을 방지하기 위해 상한 초과 시 명시적 오류를 반환합니다.
 		return "", fmt.Errorf("지시가 너무 깁니다(%d자, 최대 %d자) — 이 글은 매번 모델에게 "+
 			"통째로 실려 가므로 길면 그 값을 매 턴 치릅니다. 줄여서 다시 저장해 주세요",
 			len([]rune(body)), maxInstructions)
@@ -79,23 +63,20 @@ func WriteInstructions(app *App, configDir, text string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("덱 작업 폴더 %s 를 못 만들었습니다: %w", filepath.Dir(path), err)
 	}
-	// 끝에 줄바꿈 하나 — 사람이 편집기로 열어 볼 파일이다.
+	// 외부 편집기 조회 및 POSIX 표준을 고려하여 개행을 추가합니다.
 	if err := os.WriteFile(path, []byte(body+"\n"), 0o600); err != nil {
 		return "", fmt.Errorf("지시를 못 적었습니다(%s): %w", path, err)
 	}
 	return body, nil
 }
 
-// DefaultInstructions 는 **워크스페이스가 처음 생길 때 한 번** AGENTS.md 에 심는 운영 지침이다.
-//
-// 왜 여기 있나: 사람은 내용만 말한다. 「document 인자를 쓰지 마라」「ea_font 는 맨 마지막」「장마다 한 번
-// 렌더」 같은 것은 부탁이 아니라 이 도구를 쓰는 **방법**이고, 그것이 브리프에 들어 있으면 사람이
-// 매번 적어야 한다(2026-09-05 까지 실제로 그랬다 — 사용자가 짚었다). 스킬은 모델이 읽어야 들어오지만
-// AGENTS.md 는 매 시스템 프롬프트에 들어간다(`internal/app/memory.go`). 사람이 고치면 그 뒤로는 사람
-// 것이다 — 비어 있거나 없을 때만 심는다.
+// DefaultInstructions 는 워크스페이스 초기 생성 시 AGENTS.md에 주입되는 기본 운영 지침 메타데이터를 의미합니다.
+// 도구 사용 제약(예: 불필요한 인자 제외, 글꼴 적용 순서, 슬라이드당 렌더링 빈도 등)을 사전에 정의하여
+// 사용자가 매 대화마다 운영 규칙을 직접 작성해야 하는 번거로움을 방지합니다(2026-09-05 사용자 피드백 반영).
+// 사용자가 직접 내용을 수정한 이후에는 덮어쓰지 않고 사용자 설정을 최우선으로 보존합니다.
 
-// SeedInstructions 는 파일이 없거나 비어 있을 때만 DefaultInstructions 를 적는다. 사람이 적은 글은
-// 한 글자도 안 건드린다. 심었으면 true.
+// SeedInstructions 는 지속 지시 파일이 존재하지 않거나 비어 있는 초기 상태일 때만 기본 지시를 주입합니다.
+// 사용자 입력 내용이 이미 존재하는 경우 수정을 가하지 않습니다. 주입 성공 시 true를 반환합니다.
 func SeedInstructions(app *App, configDir string) (bool, error) {
 	have, err := ReadInstructions(app, configDir)
 	if err != nil {

@@ -138,9 +138,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
         row(MagiBundle.msg("set.look"), lookTyping)
         note(MagiBundle.msg("set.look.why"))
         row(MagiBundle.msg("set.complete"), autoComplete)
-        // **왜 아무것도 안 뜨는지**를 여기 적는다. 매 타건마다 말하면 잡음이고, 고치는 자리가
-        // 이 화면이다 — 라우팅 키(`autocomplete.code_profile`)가 바로 아래 문이 준 칸에 선다.
-        // 이 값이 없으면 사람은 체크를 켜 놓고 아무것도 안 뜨는 채로 이유를 알 길이 없다.
+        // 자동완성 미동작 사유(`completeWhy`)를 표시합니다. 타건마다 팝업으로 알리는 대신 설정 화면에 안내하여
+        // 라우팅 키(`autocomplete.code_profile`) 미설정 등 기능이 활성화되지 않는 원인을 사용자가 명확히 인지하도록 합니다.
         row("", completeWhy)
         row(MagiBundle.msg("set.suggest"), composerSuggest)
         row(MagiBundle.msg("set.autostart"), autostart)
@@ -149,12 +148,9 @@ class MagiConfigurable(private val project: Project) : Configurable {
         note(MagiBundle.msg("set.model.why"))
         row(MagiBundle.msg("set.backend"), backend)
         note(MagiBundle.msg("set.backend.why"))
-        // 데몬이 **열거한** 키들이 여기 선다. 손으로 나열하지 않는다는 규칙은 그대로고(모델을
-        // 정하는 자리가 여럿이라 조각조각 늘어난다는 그 사유), 열거를 문에 맡겨서 지킨다 —
-        // 새 키가 늘면 이 화면은 고치지 않아도 칸이 는다.
-        //
-        // 예전에는 그 규칙을 「데몬에 나머지 문이 없다」는 한 줄로 대신했는데, 문이 생긴 뒤에도
-        // 그 줄이 남아 거짓이 됐다. 화면이 시스템에 대해 단언하면 그 단언은 늙는다.
+        // 데몬의 설정 열거 엔드포인트에서 전달받은 동적 설정 키들을 렌더링합니다.
+        // 클라이언트 코드에 설정 키를 하드코딩하지 않고 데몬 메타데이터를 기반으로 UI를 구성함으로써,
+        // 데몬 측에 신규 설정 키가 추가되더라도 클라이언트 코드 수정 없이 자동으로 입력 항목이 확장됩니다.
         p.add(doorPane, GridBagConstraints().apply {
             gridx = 0; gridy = y++; gridwidth = 2
             anchor = GridBagConstraints.LINE_START
@@ -163,23 +159,20 @@ class MagiConfigurable(private val project: Project) : Configurable {
         })
         row(MagiBundle.msg("set.cron"), Look.note(MagiBundle.msg("set.cron.none"), Look.body))
         row(MagiBundle.msg("set.more"), Look.note(MagiBundle.msg("set.more.none"), Look.body))
-        // 플릿·대기 작업은 여기 없다 — 설정보다 자주 보는 것이라 우측 magi 판이 그 자리다
-        // (사용자가 세운 빈도 기준, docs/UI.ko.md §4.2).
+        // 플릿·대기 작업은 설정보다 빈번히 조회되므로 도구 창(magi 패널)에서 관리합니다(docs/UI.ko.md §4.2).
         return p
     }
 
     override fun isModified(): Boolean =
-        // **못 읽었으면 견줄 것이 없다.** `read` 는 데몬이 답해야 채워지는데, 데몬이 없으면
-        // 콤보는 첫 항목(`ask`)에 서 있고 `read` 는 null 이라 이 줄이 늘 참이었다 — 화면을 연
-        // 것만으로 「바뀜」이 되고, OK 를 누르면 아무도 고르지 않은 `ask` 가 데몬으로 나간다.
-        // 모르는 것을 「사람이 고른 것」으로 다루면 안 된다(헤드리스 시험이 잡았다).
+        // 데몬에서 설정값을 성공적으로 읽어온 경우(`read != null`)에만 변경 여부를 비교합니다.
+        // 미연결 상태에서 기본 선택값(`ask`)과 null을 비교하여 항상 변경된 것으로 오판정되어,
+        // 단순 설정창 조회 후 저장 시 원치 않는 `ask` 권한이 전송되는 결함을 방지합니다.
         (read != null && (permission.selectedItem as? String) != read) ||
             (model.selectedItem as? String).orEmpty().isNotBlank() ||
             backend.text.isNotBlank() ||
-            // 새 칸을 여기 안 적으면 **OK 가 조용히 아무것도 안 한다** — 플랫폼은 이 술어가
-            // false 면 apply 를 부르지 않는다(라이브 실측: 체크는 켜졌는데 기능이 안 켜졌다).
-            // 문이 준 칸도 여기 든다 — 이 술어가 false 면 플랫폼은 apply 를 부르지도 않는다.
-            // 이 파일이 이미 그 값을 치렀다(체크는 켜졌는데 기능이 안 켜졌다).
+            // 모든 동적 및 로컬 설정 항목의 변경 여부를 검사합니다.
+            // IntelliJ 플랫폼은 isModified()가 true를 반환할 때만 apply()를 호출하므로,
+            // 검사 누락 시 UI 변경 사항이 실제 설정에 반영되지 않고 유실되는 문제를 방지합니다.
             byDoor.any { doorFields[it.key]?.text?.trim() != it.value.orEmpty().trim() } ||
             lookTyping.isSelected != LocalPrefs.look(project) ||
             autoComplete.isSelected != LocalPrefs.complete(project) ||
@@ -187,18 +180,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
             autostart.isSelected != LocalPrefs.autostart(project)
 
     /**
-     * 쓴다 — 그리고 **다시 읽는다.** 쓴 값이 아니라 읽은 값을 화면에 남겨야, 데몬이 거절했거나
-     * 다르게 알아들은 것이 그대로 보인다. 소켓은 EDT 밖에서.
-     */
-    /**
-     * 문이 준 키들로 판을 다시 짓는다.
+     * 데몬이 제공한 설정 키 목록을 기반으로 동적 설정 패널(`doorPane`)을 구성합니다.
      *
-     * **못 읽은 층은 값보다 먼저 말한다.** 오타가 든 설정 파일과 아무 말 없는 파일은 값만 보면
-     * 같은 부재다 — 문이 `unreadable` 로 그 차이를 실어 보내므로, 그것을 안 그리면 이 화면은
-     * 「비어 있음」이라고 거짓말을 한다.
-     *
-     * 「언제 듣나」는 **키마다** 적는다. 한 문장으로 뭉쳐 「다시 켜세요」라고 하면, 지금 듣는 키를
-     * 위해 사람이 헛되이 껐다 켠다.
+     * - 설정 파일 파싱 실패 계층은 값보다 우선하여 오류 메시지(`unreadable`)로 표시합니다(설정 오류와 미설정 상태의 시각적 구분).
+     * - 각 설정 키의 적용 시점(`applies`) 및 출처(`source`)를 함께 안내하여 재기동 필요 여부를 명시합니다.
      */
     private fun paintDoor() {
         doorPane.removeAll()
@@ -216,8 +201,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
             item.unreadable?.takeIf { it.isNotBlank() }?.let {
                 line(Look.note(it, Look.error), 0, 2, Insets(4, 0, 0, 0)); dy++
             }
-            // 프로파일 모양 키에는 **목록**을 준다. 문이 그 사실을 실어 보내므로 이 화면은
-            // 어느 키가 그런지 알 필요가 없다 — 알면 그 목록이 클라이언트마다 한 벌씩 생긴다.
+            // 프로필 타입 설정 키의 경우 선택 가능한 후보 목록(ComboBox)을 제공합니다.
+            // 데몬 메타데이터(`profile: true`)에 기반하여 렌더링 형태를 결정하므로 클라이언트별 키 하드코딩을 방지합니다.
             val f: javax.swing.text.JTextComponent = if (item.profile) {
                 val combo = JComboBox<String>().apply {
                     isEditable = true
@@ -225,7 +210,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
                     choices.forEach(::addItem)
                     selectedItem = item.value.orEmpty()
                 }
-                // 편집 가능한 콤보의 편집칸이 값을 든다 — 읽는 자리를 하나로 맞춘다.
+                // 편집 가능한 ComboBox의 내부 에디터 컴포넌트를 참조하여 텍스트 필드와 동일한 인터페이스로 값을 읽습니다.
                 combo.editor.editorComponent as javax.swing.text.JTextComponent
             } else {
                 javax.swing.JTextField(item.value.orEmpty(), 24)
@@ -334,9 +319,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
             perm.text = Perms.label(f.permission)
             // 거절 메시지는 데몬이 반환한 원문 문자열을 그대로 표시하고, 정형화된 코드 사유(off, unrouted 등)만 리소스 번역을 적용합니다.
             val assist = dev.sayaya.magi.ide.usecase.Assist
-            // 아는 코드만 문장으로. 모르는 코드를 열쇠로 만들면 없는 열쇠라 화면에
-            // `!set.complete.why.throttled!` 같은 배관이 뜬다 — 사유를 알리려던 자리가 사유
-            // 대신 제 구현을 보인다. 모르면 데몬의 낱말 그대로(짝인 VS Code 와 같은 규칙).
+            // 기정의된 리소스 키에 매핑되는 오류 코드만 번역 문장으로 변환하고,
+            // 미정의 코드는 데몬이 반환한 원문 그대로 표시하여 리소스 번들 누락 키(`!key!`)가 노출되지 않도록 합니다(VS Code 클라이언트와 동일 규칙).
             completeWhy.text = assist.lastRefused?.let { MagiBundle.msg("set.complete.refused", it) }
                 ?: assist.lastEmpty?.let { code ->
                     val key = dev.sayaya.magi.ide.usecase.Assist.emptyKey(code)
@@ -344,10 +328,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 }.orEmpty()
             modelNow.text = f.model ?: MagiBundle.msg("set.unsaid")
             backendNow.text = f.backend ?: MagiBundle.msg("set.unsaid")
-            // 모르는 모드를 **모델에 넣어 준다.** 편집 불가 콤보는 모델에 없는 값을 조용히
-            // 거부하고 첫 항목(`ask`)으로 되돌린다 — 그러면 사람이 아무것도 안 만졌는데
-            // `isModified` 가 참이 되고 OK 가 `set-permission ask` 를 보낸다(리뷰 R6).
-            // `Perms` 가 「모르는 것은 날것으로」라고 적어 두었으니, 설 자리를 만들어 준다.
+            // 데몬이 반환한 권한 모드가 표준 토큰 목록(`Perms.TOKENS`)에 없는 경우 콤보박스 모델에 동적으로 추가합니다.
+            // 편집 불가 콤보박스가 미등록 값을 기본값(`ask`)으로 자동 롤백시켜, 사용자가 수정하지 않았음에도 `isModified`가 참이 되어 의도치 않은 저장이 발생하는 결함을 방지합니다(리뷰 R6).
             f.permission?.takeIf { it !in Perms.TOKENS }?.let { unknown ->
                 val model = permission.model as javax.swing.DefaultComboBoxModel<String>
                 if (model.getIndexOf(unknown) < 0) model.addElement(unknown)
@@ -367,15 +349,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
     }
 
     /**
-     * 이 화면의 한 문장.
+     * 상태 메시지 및 강조 색상 갱신.
      *
-     * ⚠ **색과 글자는 한 사건이다.** 눈에 띄는 색만 남고 문장이 지워지거나 그 반대이면, 화면이
-     * 지난 사실을 계속 주장한다 — 이 트리가 되풀이해 값을 치른 그 모양이다. 그래서 둘을 같은
-     * 자리에서 정한다.
-     *
-     * 색을 쓰는 이유. 이 저장소는 색을 아껴 쓴다(대기는 오류가 아니므로 상태 표시줄은 색을 안
-     * 쓴다). 그런데 여기는 다르다: 붙지 않았으면 **아래 칸들이 보여 주는 값이 데몬의 값이 아니고**,
-     * 사람이 그것을 모른 채 OK 를 누르면 화면이 보인 대로 저장된다. 읽히지 않으면 안 되는 문장이다.
+     * ⚠ 메시지 텍스트와 색상 스타일(`trouble`)을 단일 메서드에서 원자적으로 갱신하여 텍스트와 상태 색상이 불일치하는 렌더링 결함을 방지합니다.
+     * 데몬 미연결 상태에서는 표시된 필드값이 실제 런타임 상태가 아니므로, 사용자가 인지하지 못한 채 저장하여 덮어쓰지 않도록 오류 색상(`Look.warn`)으로 명확히 경고합니다.
      */
     private fun tell(text: String, trouble: Boolean = false) = SwingUtilities.invokeLater {
         said.text = text

@@ -14,49 +14,42 @@ import (
 	"strings"
 )
 
-// 애드인 페이지를 **헬퍼가 직접 내준다**(DESIGN.md §5.5, §12 #7).
+// 오피스 웹 작업창 애드인 정적 에셋 서빙 및 부트스트랩 주입 모듈(DESIGN.md §5.5, §12 #7).
 //
-// 그러면 토큰은 애드인에게 **전달할 것이 아니라 페이지에 박혀 나오는 것**이고, 주소는 그 페이지의
-// 자기 오리진이라 「어떻게 도달하는가」가 통째로 사라진다. 기각된 둘 — 사람이 코드를 한 번 붙여
-// 넣기, `<SourceLocation>` 에 실어 보내기 — 과 그 사유는 §5.5 에 있다.
+// # 헬퍼 직접 호스팅 구조
+// 헬퍼가 애드인 웹 에셋을 직접 HTTPS로 제공함으로써, 세션 인증 토큰을 HTML 생성 시점에 안전하게 주입(`window.MAGI = {...}`)합니다.
+// 이를 통해 사용자 수동 토큰 복사/붙여넣기나 `<SourceLocation>` URL 인자 노출 등의 보안 및 편의성 문제를 배제합니다(§5.5).
 //
-// 값이 셋 붙는다: 인증서가 필수가 되고(§5.5 값 1 · certs.go), 포트가 고정이어야 하고(값 2 ·
-// claim.go), LNA·혼합 콘텐츠의 모양이 달라진다(값 3 — 요청하는 쪽이 공개 오리진이 아니게 된다).
+// # 아키텍처적 전제 조건 3가지
+// 1) 자체 서명 TLS 인증서 생성 및 신뢰 등록 필수(§5.5, certs.go).
+// 2) 매니페스트 고정 포트 바인딩 준수(claim.go).
+// 3) LNA(Local Network Access) 및 혼합 콘텐츠 보안 정책 준수(로컬 HTTPS 오리진 기반 통신).
 
-// tokenMarker 는 페이지에 토큰을 심는 자리. 애드인 쪽 HTML 이 이 주석을 들고 있고, 여기서
-// 스크립트 한 줄로 바뀐다. **애드인이 주소를 안 적는 것과 같은 이유로 토큰도 안 적는다** —
-// 소스에 있는 값은 넷을 다섯으로 만든다.
+// tokenMarker 는 애드인 HTML 내 부팅 스크립트가 주입될 위치를 나타내는 주석 태그입니다.
 const tokenMarker = "<!--magi:boot-->"
 
-// Pages 는 애드인 트리를 내주는 쪽.
+// Pages 는 애드인 정적 리소스를 제공하는 HTTP 핸들러 구조체입니다.
 type Pages struct {
-	// Root 는 애드인 소스 디렉토리.
+	// Root 는 애드인 웹 소스 루트 디렉터리 경로입니다.
 	Root string
-	// Token 은 페이지에 박아 보낼 값. 비면 안 박는다(브라우저에서 맨몸으로 열어 보는 길).
+	// Token 은 페이지에 주입될 세션 인증 토큰입니다. 빈 문자열인 경우 주입을 생략합니다(개발용 브라우저 직접 조회 지원).
 	Token string
-	// Boot 는 페이지가 부팅할 때 알아야 하는 것들. 토큰과 같이 실린다.
+	// Boot 는 애드인 초기화 시 전달할 설정 메타데이터 맵입니다.
 	Boot map[string]any
-	// Base 는 이 판이 걸린 URL 접두(`/word`). 페이지가 제 자산을 절대 경로로 가리키므로 여기 붙는다 —
-	// 없으면 `/v/<id>/src/main.js` 가 뿌리로 가서 404 다.
+	// Base 는 라우팅 접두 URL 경로(예: `/word`, `/ppt`, `/xl`)입니다. 절대 경로 리소스 매핑에 사용됩니다.
 	Base string
 }
 
-// Handler 는 정적 파일을 내주되 `taskpane.html` 만 손본다.
+// Handler 는 정적 에셋 서빙 및 `taskpane.html` 동적 토큰 주입을 수행하는 HTTP 핸들러를 반환합니다.
 func (p *Pages) Handler() http.Handler {
 	files := http.FileServer(http.Dir(p.Root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !loopbackOnly(w, r) {
 			return
 		}
-		// **아무것도 캐시하지 않는다.** 페이지만 no-store 로 두고 스크립트와 스타일을 캐시에
-		// 맡겼더니, 실물에서 **낡은 JS 와 새 CSS 가 한 화면에 섞여** 떴다 — 새 요약 칸은 비고
-		// 카드에는 패딩이 없는, 어느 쪽 코드도 만든 적 없는 화면이었다. 웹뷰의 캐시는 우리가
-		// 못 보는 자리라, 거기서 섞인 것을 화면만 보고 되짚는 데 값이 크게 든다.
-		//
-		// 캐시로 아낄 것이 없기도 하다 — 루프백이고, 파일은 한 줌이며, 창은 하루에 몇 번 뜬다.
+		// 로컬 개발 및 실시간 갱신 환경에서 구버전 JS/CSS 혼합 렌더링 결함을 방지하기 위해 캐시를 비활성화합니다.
 		w.Header().Set("Cache-Control", "no-store, must-revalidate")
-		// **마크는 그려서 낸다.** 파일서버보다 먼저 서는 것이 요점이다 — 뒤에 두면 디스크에
-		// 남아 있는 옛 파일이 이긴다. 그 옛 파일이 단색 네모였고, 리본에 그게 떴다.
+		// 동적 아이콘 생성 요청을 우선 처리하여 정적 디스크 파일과의 충돌을 방지합니다.
 		if serveIcon(w, r) {
 			return
 		}
@@ -70,11 +63,8 @@ func (p *Pages) Handler() http.Handler {
 			p.serveTaskpane(w, r)
 			return
 		}
-		// **판본이 낀 주소를 벗겨서 같은 파일을 낸다**(`buildID`). Office 의 작업창 캐시는
-		// 주소로 돌고 헤더로 못 끄므로, 파일이 바뀌면 주소가 바뀌게 해서 새로 받게 만든다.
-		// 벗기기만 하고 판본은 안 따진다 — 낡은 판본으로 들어온 요청도 **지금 파일**을 받는
-		// 것이 맞다. 우리는 옛 판본을 갖고 있지 않고, 없는 것을 404 로 답하면 열려 있던 창이
-		// 그 자리에서 죽는다.
+		// 빌드 식별자 접두사(`/v/<buildID>/`)를 제거하여 실제 디스크 경로 파일로 라우팅합니다.
+		// 이전 빌드 ID를 포함한 요청이 유입되더라도 404를 반환하지 않고 현재 파일을 정상 제공합니다.
 		if rest, ok := strings.CutPrefix(clean, "/v/"); ok {
 			if i := strings.IndexByte(rest, '/'); i >= 0 {
 				r2 := *r
@@ -89,18 +79,12 @@ func (p *Pages) Handler() http.Handler {
 	})
 }
 
-// buildID 는 지금 디스크에 있는 애드인의 판본. 파일이 하나라도 바뀌면 달라진다.
+// buildID 는 애드인 소스 트리의 파일 크기 및 수정 시각 기반 해시값(12자)을 계산합니다.
 //
-// **왜 필요한가.** Office 는 작업창 자산을 **자기 캐시**에 물고, 그 캐시는 `Cache-Control` 로
-// 못 끈다 — 이 저장소가 재 봤다(TESTING §5.1.3): `no-store` 를 줘도, 창을 껐다 열어도,
-// PowerPoint 를 재시작해도, WebView2 캐시를 지워도 옛 화면이었다. 그래서 문서는 「화면은
-// 목업에서 잰다」로 물러나 있었는데, 그건 대안이지 해결이 아니다 — **사람이 쓰는 화면은 고쳐도
-// 안 바뀐다**는 뜻이기 때문이다.
-//
-// 캐시가 **주소로** 도는 이상 답은 주소를 바꾸는 것이다. 그런데 `?v=` 를 붙이는 흔한 수는 여기서
-// 안 듣는다: 페이지가 부르는 것은 `src/main.js` 하나뿐이고 나머지는 그 안의 `import` 로 오므로,
-// 진입점 주소만 바뀌면 **모듈 스무 개는 옛 주소 그대로** 온다. 그래서 판본을 **경로**에 넣는다 —
-// `/v/<id>/src/main.js` 가 `./ui/view.js` 를 부르면 `/v/<id>/src/ui/view.js` 로 저절로 간다.
+// # 도입 배경 (WebView2 캐시 무효화)
+// Office WebView2 런타임은 작업창 에셋을 강력하게 캐싱하며 `Cache-Control` 헤더를 무시하는 경우가 있습니다(TESTING §5.1.3).
+// 단순 쿼리 파라미터(`?v=`) 방식은 진입점(`main.js`)만 변경되고 내부 상대 `import` 모듈들에는 적용되지 않으므로,
+// URL 경로 자체에 버전 식별자(`/v/<id>/`)를 부여하여 상대 경로 임포트 모듈까지 일괄적으로 캐시가 무효화되도록 처리합니다.
 func buildID(root string) string {
 	h := sha256.New()
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -149,8 +133,7 @@ func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
 		boot[k] = v
 	}
 	boot["token"] = p.Token
-	// `template.JSStr` 이 아니라 JSON 으로 심는다 — 값이 문자열이 아닌 것도 있고, 이스케이프를
-	// 손으로 하는 자리를 만들지 않는다.
+	// 안전한 직렬화를 위해 JSON 인코딩을 거쳐 script 태그에 주입합니다.
 	var buf bytes.Buffer
 	if err := bootTemplate.Execute(&buf, template.JS(mustJSON(boot))); err != nil {
 		http.Error(w, "부팅 값을 못 심었습니다: "+err.Error(), http.StatusInternalServerError)
@@ -159,8 +142,7 @@ func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
 	out := bytes.Replace(body, []byte(tokenMarker), buf.Bytes(), 1)
 	out = versionAssets(out, p.Base, buildID(p.Root))
 	if !bytes.Contains(body, []byte(tokenMarker)) {
-		// **조용히 넘어가지 않는다.** 마커가 없으면 페이지는 토큰 없이 뜨고, 증상은 화면이
-		// 아무 말 없이 비는 것이다 — 그 실패를 여기서 한 번 말한다.
+		// 마커 누락으로 인해 토큰이 주입되지 않은 경우 경고 헤더를 설정하여 진단 가능하도록 합니다.
 		w.Header().Set("X-Magi-Warning", "taskpane.html has no "+tokenMarker+" marker; the page was served without a token")
 	}
 	_, _ = w.Write(out)
@@ -169,9 +151,7 @@ func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
 var bootTemplate = template.Must(template.New("boot").Parse(
 	`<script>window.MAGI = {{.}};</script>`))
 
-// mustJSON 은 우리가 만든 맵을 싣는 자리에서만 쓴다. 실패하면 그건 코드 결함이지 입력 문제가
-// 아니라서, 빈 객체로 떨어뜨리고 페이지는 계속 뜬다 — 토큰 없는 페이지는 401 을 받고 **그 사유가
-// 화면에 뜬다**(§5.3 「끝내 못 붙으면 말한다」).
+// mustJSON 은 내부 데이터 직렬화용 헬퍼입니다. 직렬화 오류 발생 시 빈 객체("{}")를 반환합니다.
 func mustJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {

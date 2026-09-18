@@ -6,15 +6,14 @@ import (
 	"testing"
 )
 
-// TestAnswersGoToStdoutAndDiagnosticsToStderr 는 **물어본 것에 답하는 출력이 파이프로 받아지는가**를
-// 잰다.
+// TestAnswersGoToStdoutAndDiagnosticsToStderr 는 질의성 출력(stdout)과 진단 로그(stderr)의 스트림 분리 여부를 검증합니다.
 //
-// 실물에서 나왔다(2026-09-04). `run` 이 한 곳(stderr)에만 쓰고 있어서, 매뉴얼 §7 이 시키는 대로
-// `magi-word -allow-rules > config.toml` 을 하면 **빈 파일이 조용히 생겼다.** 화면에는 규칙이
-// 보이므로 사람은 받은 줄 알고, 그 컴패니언은 읽기 도구마다 사람에게 물어보게 된다 — §2.1 이
-// 「안 뜰 이유를 없앤다」고 적어 둔 스냅샷이 제일 먼저 무너지는 자리다.
-//
-// 가르는 축은 길이가 아니라 **「사람이 물어본 것인가」**다. 그래서 기동 배너는 여기서 안 잰다.
+// [2026-09-04 실측 결함 방지]
+// 이전 구현에서는 `run`이 stderr 단일 스트림으로만 출력하여, 매뉴얼 §7 안내에 따라
+// `magi-word -allow-rules > config.toml`로 리다이렉션 시 빈 파일이 생성되고
+// 모든 읽기 도구 호출마다 권한 확인 팝업이 발생하는 결함이 있었습니다(§2.1).
+// 사용자가 요청한 데이터 출력(버전, 허용 규칙, 인증서 힌트 등)은 stdout으로,
+// 기동 배너 및 진단 메시지는 stderr로 명확히 분리하여 파이프라인 연동 무결성을 보장합니다.
 func TestAnswersGoToStdoutAndDiagnosticsToStderr(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {

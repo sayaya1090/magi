@@ -13,36 +13,32 @@ import (
 	"time"
 )
 
-// MCP 서버 쪽 얼굴. **Streamable HTTP 다, stdio 가 아니다**(DESIGN.md §4.5).
+// MCP(Model Context Protocol) 서버 구현체. Streamable HTTP 전송 방식을 사용하며 stdio를 사용하지 않습니다(DESIGN.md §4.5).
 //
-// stdio 면 데몬이 서버를 자식으로 띄우는데, magi 데몬은 워크스페이스당 하나라 여럿이고 각자
-// 자기 헬퍼를 띄우면 **같은 애드인 하나를 두고 헬퍼 N 개가 싸운다.** HTTP 면 헬퍼가 먼저 서고
-// 데몬들이 클라이언트로 붙는다 — 그게 §5.2 의 「머신에 하나」가 실제로 필요한 이유다.
+// # Streamable HTTP 채택 이유
+// stdio 방식을 채택할 경우 데몬이 서버를 하위 프로세스로 직접 기동해야 합니다.
+// magi 데몬은 워크스페이스마다 독립적으로 실행되므로, 다중 워크스페이스 환경에서 각 데몬이 자체 헬퍼를 실행하면
+// 단일 오피스 애드인 작업창을 두고 여러 헬퍼 프로세스 간 충돌이 발생합니다.
+// 따라서 HTTP 기반 단일 헬퍼 프로세스(머신당 1개, §5.2)를 상시 구동하고 각 데몬이 클라이언트로 접속하는 구조를 채택했습니다.
 
-// mcpProtocolVersion 은 우리가 답하는 리비전이다.
-//
-// **맞춰 주는 쪽이 우리다**(§4.4). magi 는 핸드셰이크 응답을 통째로 버려서(`Initialize` 가
-// 결과를 `&struct{}{}` 로 받는다) 우리가 무엇을 답하든 그냥 이어지는데, 그게 좋은 소식이
-// 아니다 — 어긋남이 핸드셰이크가 아니라 **한참 뒤 이상한 호출 실패**로 나타난다. 그래서
-// magi 의 상수와 같은 값을 그대로 답한다.
+// mcpProtocolVersion 은 본 서버가 지원하는 MCP 프로토콜 리비전입니다.
+// 코어 측 상수와 동일한 버전을 명시하여 핸드셰이크 정합성을 유지합니다(§4.4).
 const mcpProtocolVersion = "2025-06-18"
 
-// MCPServer 는 `/mcp` 를 답하는 쪽.
+// MCPServer 는 `/mcp` 엔드포인트 요청을 처리하는 HTTP 핸들러 구조체입니다.
 type MCPServer struct {
-	// App 은 이 서버가 광고하는 도구 표의 주인.
+	// App 은 호스트 애플리케이션 사양 및 도구 카탈로그 정의를 보유합니다.
 	App *App
-	// Hand 는 덱에 닿는 구멍. nil 이면 손이 없는 것과 같다.
+	// Hand 는 오피스 문서 조작 인터페이스를 제공합니다(nil인 경우 비활성).
 	Hand Hand
-	// Token 이 비어 있지 않으면 `Authorization: Bearer <token>` 을 요구한다. 루프백이라고
-	// 신뢰하지 않는 이유는 §8 에 있다 — 토큰이 새면 같은 머신의 아무 프로세스나 이 포트를
-	// 두드릴 수 있다.
+	// Token 은 API 인증 토큰입니다. 설정 시 `Authorization: Bearer <token>` 헤더를 필수로 검증하여
+	// 로컬 머신 내 비인가 프로세스의 무단 도구 호출을 차단합니다(§8).
 	Token string
-	// Now 는 결과의 `as_of` 를 찍는다. 시험이 시계를 안 재게 주입한다.
+	// Now 는 결과 페이로드의 `as_of` 타임스탬프를 생성하는 함수입니다(테스트용 시간 주입 지원).
 	Now func() time.Time
-	// Council 은 **붙은 컴패니언이 카운슬로 끝내는가**를 답한다. 도구 설명문의 마무리 안내가
-	// 이 값으로 갈린다 — 없는 도구를 이름으로 적으면 모델이 그것을 부른다(`tools.go` 의
-	// `declare`). nil 이면 「모른다」이고, 그때는 **안 적는다**: 지어낸 안내가 없는 문을
-	// 가리키는 쪽이, 있는 문을 안 알려 주는 쪽보다 나쁘다.
+	// Council 은 연결된 컴패니언이 카운슬(합의 게이트) 방식으로 턴을 종료하는지 여부를 판별합니다.
+	// `tools.go`의 `declare`에서 도구 설명문의 턴 종료 안내 문구를 동적으로 분기하는 데 사용됩니다.
+	// nil인 경우 비활성으로 간주합니다.
 	Council func() bool
 }
 
@@ -92,11 +88,8 @@ func (s *MCPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRPCError(w, nil, -32700, "parse error: "+err.Error())
 		return
 	}
-
-	// **알림에는 202 다.** Streamable HTTP 스펙이 이 방향에 대해 본문 없이 202 Accepted 를
-	// MUST 로 적는다(§4.5). 얼마 전까지 magi 가 유일하게 거절하던 값이 이것이라, 스펙대로 만든
-	// 서버가 핸드셰이크 중간에 쫓겨나고 안 지킨 서버만 붙었다 — 지금은 200·204·202 를 다 받는다.
-	// 우리가 202 를 고르는 이유는 붙을 상대가 magi 만이 아니어서다(§4.5).
+	// MCP 알림(Notification, id 누락) 메시지에 대해 Streamable HTTP 표준 규격(RFC / MCP 스펙 §4.5)에 따라
+	// 본문 없이 HTTP 202 Accepted를 반환합니다. 코어 클라이언트는 200/202/204 상태 코드를 모두 수용합니다.
 	if len(req.ID) == 0 || string(req.ID) == "null" {
 		w.WriteHeader(http.StatusAccepted)
 		return
@@ -122,12 +115,8 @@ func (s *MCPServer) handle(r *http.Request, req rpcRequest) (any, *rpcFault) {
 			"protocolVersion": mcpProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "magi-office-" + s.App.Key, "version": helperVersion},
-			// 서버가 적어 보내는 instructions 는 **magi 에 도달하지 않는다**(§7 — 클라이언트가
-			// 핸드셰이크 결과를 통째로 버린다). 다른 클라이언트를 위해 싣되, 이 문장에 기대는
-			// 설계는 없다. 기대는 자리는 도구 설명문이다.
-			// 이 문장은 **낡으면 안 된다.** 앞 판본은 「차트·애니메이션·노트는 못 고친다」라고
-			// 적어 둔 채로 그 셋이 다 생겼다 — 있는 것을 없다고 적는 것이 이 저장소가 제일
-			// 싫어하는 모양인데, magi 에 안 닿는다는 이유로 아무도 안 고쳤다.
+			// 핸드셰이크 시 서버 지침(instructions)을 전달합니다.
+			// 타 MCP 범용 클라이언트 호환성을 위해 제공되며, 최신 지원 기능 현황을 일치시켜 유지합니다.
 			"instructions": s.App.MCPInstructions,
 		}, nil
 	case "ping":
@@ -148,20 +137,15 @@ func (s *MCPServer) handle(r *http.Request, req rpcRequest) (any, *rpcFault) {
 	}
 }
 
-// toolDefs 는 `tools/list` 의 몸이다.
+// toolDefs 는 `tools/list` 응답 목록을 생성합니다.
 //
-// `annotations.readOnlyHint` 를 단다. **magi 가 이것을 읽는다**(2026-09-09 확인):
-// `internal/adapter/mcp/manager.go` 가 이 값으로 `mcpTool.readOnly` 를 채우고,
-// `internal/app/compact.go` 가 창이 닫힐 때 그것을 읽어 **다시 불러올 수 있는 결과부터
-// 덜어낸다** — 접기는 요약 호출과 재청구를 물어야 하므로 그보다 싸다. 그러니 이 칸은 미래를 위한
-// 자리가 아니라 지금 도는 절약이고, **선언을 빠뜨린 읽기 전용 도구는 접을 때 비싸게 굴려진다.**
-//
-// (이 주석은 「오늘 magi 는 그것을 안 읽는다」였다. 그때는 사실이었고 그 뒤 코어가 읽게 됐다 —
-// 남의 층이 자란 것을 이쪽 주석이 모르면, 이미 도는 절약을 없는 것으로 알고 걷어내게 된다.)
-//
-// 지금 `advise` 를 실제로 가르는 것은 이름 하나이고, 그 자리는 허용 규칙이다.
-// readOnly 는 이 이름이 덱을 안 고치는 조작인가. **표는 하나뿐이다**(`tools()`) — 여기에
-// 이름을 또 적으면 도구가 하나 늘 때마다 두 자리를 고쳐야 하고, 하나를 빠뜨리는 날이 온다.
+// 각 도구의 조회 전용 여부(`annotations.readOnlyHint`)를 메타데이터로 제공합니다.
+// magi 코어(`internal/adapter/mcp/manager.go`, `internal/app/compact.go` 2026-09-09 연동)는
+// 이 힌트를 기반으로 컨텍스트 압축(Compaction) 시 재조회 가능한 읽기 전용 도구 결과를 우선적으로 정리하여
+// 불필요한 LLM 요약 호출 비용을 절감합니다.
+
+// readOnly 는 지정 도구가 문서 변경이 없는 읽기 전용 작업인지 검사합니다.
+// `App.Catalogue` 정의를 단일 진실 공급원(SSOT)으로 참조합니다.
 func (s *MCPServer) readOnly(name string) bool {
 	for _, t := range s.App.Catalogue(s.hasCouncil()) {
 		if t.Name == name {
@@ -171,8 +155,7 @@ func (s *MCPServer) readOnly(name string) bool {
 	return false
 }
 
-// isTimeout 은 「우리가 기다리다 그만뒀다」인가. 거절의 뜻을 문자열로 가르는 것이 좋진 않지만,
-// 그 문구를 만드는 곳도 우리이고 시험이 둘을 함께 문다.
+// isTimeout 은 타임아웃 오류 메시지(`stopped waiting after`) 포함 여부를 판별합니다.
 func isTimeout(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "stopped waiting after")
 }
@@ -191,11 +174,9 @@ func (s *MCPServer) toolDefs() []map[string]any {
 	return out
 }
 
-// call 은 도구 하나를 돌린다.
-//
-// 실패는 **JSON-RPC 에러가 아니라 `isError` 결과**다. 호출이 서버에 닿았고 이해됐다는 것과
-// 서버가 그 요청을 못 들어준다는 것은 다른 사실이고, 그 차이가 모델이 「인자를 고칠까 도구를
-// 바꿀까」를 정하는 데 쓰인다.
+// call 은 개별 도구를 실행합니다.
+// 도구 실행 실패는 JSON-RPC 레벨 오류(-32xxx)가 아닌 `isError: true` 결과 객체로 반환하여
+// 모델이 오류 원인을 분석하고 인자 수정 또는 대체 도구 호출을 판단할 수 있도록 합니다.
 func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[string]any {
 	var found *tool
 	for _, t := range s.App.Catalogue(s.hasCouncil()) {

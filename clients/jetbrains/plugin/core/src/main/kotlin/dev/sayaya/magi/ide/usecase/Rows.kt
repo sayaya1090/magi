@@ -67,37 +67,32 @@ data class Row(
      */
     val lens: String? = null,
     /**
-     * 라운드가 **무엇으로 갈리는가**(`majority`·`unanimous`·`veto:…`). 라운드가 열린 행의 것이다.
+     * 라운드 통과 규칙 (`majority`, `unanimous`, `veto:...`). 라운드가 개시된 행에 부여됩니다.
      *
-     * ⚠ 한동안 이 값을 [lens] 에 담고 있었다 — 한 칸이 행에 따라 「자리의 렌즈」와 「라운드의 규칙」
-     * 두 가지를 뜻했고, 그래서 화면이 **열린 행의 규칙만** 그리고 **멤버의 렌즈는 안 그렸다**.
-     * 한 사실은 한 칸에 둔다(이 트리가 되풀이해 적는 규칙).
+     * 참고: 이전 구현에서는 이 값을 [lens] 필드에 혼용하여 저장했으나, 단일 필드가 '멤버별 관점'과 '라운드 규칙'
+     * 두 가지 의미로 중복 사용되면서 개시 행의 규칙만 표출되고 멤버별 [lens]가 누락되는 결함이 발생했습니다.
+     * 명확한 책임 분리를 위해 [rule] 필드로 독립 분리하였습니다.
      */
     val rule: String? = null,
     val why: String? = null,
     val keep: String? = null,
     val cite: String? = null,
     /**
-     * 이 멤버가 답하기 전에 **한 생각** — 프로바이더의 추론 흐름이다.
+     * 해당 멤버의 추론 과정(Thinking / Chain of Thought).
      *
-     * ⚠ **표가 아니다.** 이 행의 다른 칸은 전부 멤버가 낸 JSON 을 읽어서 채워지는데, 이것은
-     * 같은 스트림의 **다른 채널**에서 파서를 안 거치고 온다(코어 `drain`). 모델이 소리내어
-     * 생각한 것이 표가 되면 안 되고, 갈라 둔 이유가 그것이다.
-     *
-     * 있는 이유는 **[silent] 인 표** 때문이다. 회신이 추론으로만 온 멤버는 「답이 없었다」로
-     * 그려졌고, 실제로 온 수천 자는 어디에도 남지 않았다 — 왜 답이 없었는지의 유일한 증거다.
+     * 주의: 본 필드는 구조화된 JSON 응답이 아닌 이벤트 스트림의 사고 과정 채널(`part.delta`/`thought`)을 통해
+     * 전달되는 비정형 텍스트입니다. 모델의 추론 흐름과 최종 산출물 행을 분리하여 표출하기 위해 별도 필드로 보존합니다.
+     * 특히 [silent] 상태인 투표(추론 텍스트만 발행하고 정형 JSON 회신을 생성하지 못한 케이스)에서
+     * 판단 불가 사유를 추적할 수 있는 핵심 진단 근거로 활용됩니다.
      */
     val thought: String? = null,
     /**
-     * 이 멤버가 얼마나 확신했나. 0..1, 코어가 적는 대로 **자기 보고**이고 **가중된다**.
+     * 멤버의 판단 확신도(Confidence, 0.0 ~ 1.0).
+     * 코어의 가중 투표 집계(`doneWeight`, `contWeight`)에 직접 반영되는 가중치 값입니다.
      *
-     * 장식이 아니다. 집계의 `doneWeight`/`contWeight` 가 확신으로 가중한 합이라, 0.2 짜리 `done` 과
-     * 0.95 짜리 `done` 은 같게 세이지 않는다. 낱말만 그리면 표는 보이고 **규칙이 그것으로 무엇을
-     * 했는지는 가려진다**.
-     *
-     * 실측(이 기계의 로그 전량, 2026-09-10): 평결 2938 중 2879 에 실려 오고 값은 0.1~0.95 로 퍼져
-     * 있다. `omitempty` 라 없으면 멤버가 아무 말도 안 한 것 — 0% 로 그리면 반대를 확신한 멤버로
-     * 읽히므로 그때는 아무것도 안 그린다.
+     * 실측 데이터(2026-09-10 로그 실측): 전체 평결 2,938건 중 2,879건에 포함되었으며 값 범위는 0.1~0.95에 분포합니다.
+     * Go 직렬화의 `omitempty` 규칙상 필드 부재는 확신도 미보고를 의미하므로, 0%로 오인 표기되지 않도록
+     * null인 경우 화면에 확신도 레이블을 노출하지 않습니다.
      */
     val confidence: Double? = null,
     /** 코어가 「아무도 안 준 평결」이라 표시한 것 — 본문(rationale)은 그래도 그린다. */
@@ -208,20 +203,12 @@ class Rows {
             "prompt.submitted" -> prompt(e)
             "part.delta" -> delta(e)
             "part.appended" -> part(e)
-            // ⚠ **한 사건 종류가 이 상태의 양 끝을 다 나른다.** 코어는 같은 메시지에 두 번 쓴다 —
-            // 대기에 들어갈 때 `resolved:false`, 나중에 큐를 **떠날 때**(인라인 흡수·라우팅·포기)
-            // `resolved:true`. 호출부 일곱 중 **다섯이 true** 다.
-            //
-            // 종류만 읽고 칸을 무시하면 **떠나는 순간마다 「대기 중」 표시가 붙는다.** 그리고 그것을
-            // 지우는 사건(`interjection.answered`, 인라인 답) 뒤에 오므로 **틀린 말이 마지막 말이
-            // 된다** — 이 트리가 되풀이해 값을 치른 「늙은 단언」 그 모양이다.
-            //
-            // ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다**: 대기하는 쪽이 «칸이
-            // 아예 없는» 경우다. 그래서 「true 가 아니다」로 묻지 「false 다」로 묻지 않는다.
-            //
-            // 움직이는 것은 `queued` 뿐이다. 큐를 떠난 것이 답을 받은 것은 아니다 — `pending` 은
-            // `interjection.answered` 와 답 자신의 것이고, 여기서 지우면 포기된 인터젝션이
-            // 답받은 것으로 읽힌다.
+            // 단일 이벤트 타입(`interjection.deferred`)이 인터젝션 대기 큐의 진입과 이탈 양쪽 상태 전이를 모두 전달합니다.
+            // 코어는 대기 큐 진입 시 `resolved: false`, 큐 이탈 시(인라인 흡수, 라우팅, 포기 등) `resolved: true`를 발행합니다 (호출부 7곳 중 5곳이 true).
+            // 이벤트 타입만으로 분기하고 `resolved` 필드를 무시할 경우 이탈 시점에도 '대기 중(`queued`)'으로 오판하게 되며,
+            // 특히 `interjection.answered` 직후 뒤늦게 도착할 때 대기 상태가 잘못 복원되는 결함이 발생합니다.
+            // Go 직렬화의 `omitempty` 규칙상 `false`는 필드 자체가 생략되므로 `!= "true"`로 대기 여부를 판정합니다.
+            // 상태 갱신 대상은 오직 `queued` 필드이며, `pending` 상태는 `interjection.answered` 및 응답 이벤트에서 제어합니다.
             "interjection.deferred" -> mark(str(e, "messageId")) {
                 it.copy(queued = e.data?.jsonObject?.get("resolved")?.jsonPrimitive?.content != "true")
             }
@@ -229,44 +216,25 @@ class Rows {
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> compaction(e)
             "turn.finished" -> {
-                // ⚠ **확인 못 한 채 끝난 턴은 끝난 턴이 아니다.**
-                //
-                // 코어는 실행-증거 게이트가 확인하지 못했을 때 `unverified` 를 세운다 — 최상위
-                // 턴이 산출물을 바꿨는데 **지금 판으로 통과한 독립 실행이 없다**는 뜻이라,
-                // 선언된 결과가 성공이든 「불가능」이든 실행으로 뒷받침되지 않았다. 플래그를
-                // 두는 이유를 코어가 제 말로 적어 두었다: "labeled UNVERIFIED rather than
-                // **laundered into a confident success**".
-                //
-                // 이 창이 그것을 세탁하고 있었다 — 대기 표시만 지우고 아무 말도 안 했다.
-                // 터미널은 플래그가 선 뒤로 줄곧 그려 왔다(`⚠ Unverified`).
-                //
-                // ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다** — 평범한 종료는
-                // 칸이 아예 없는 것이고, `false` 를 기다리면 오지 않는 모양을 재게 된다.
-                //
-                // 어휘는 `error` 갈래와 같다 — 한 사실을 두 낱말로 적으면 안 재지는 쪽이 갈린다는
-                // 이 파일의 규칙 그대로다. 글자에 표식을 박지 않는다: **무엇인지는 행이 나르고,
-                // 어떻게 보이는지는 그리는 쪽이 정한다.** 마지막 행의 표식이 아니라 제 행인 것은,
-                // 이 사실이 **턴**의 것이고 마지막 행은 산출물과 무관한 툴 호출일 수 있어서다.
+                // 실행-증거 게이트 미통과 상태(`unverified`) 처리:
+                // 코어는 산출물 변경 후 독립 검증 실행을 통과하지 못했을 때 `unverified: true` 플래그를 발행합니다
+                // ("labeled UNVERIFIED rather than laundered into a confident success").
+                // 터미널 UI와 동일하게 검증되지 않은 완료 상태를 명시적으로 표출합니다.
+                // Go bool의 `omitempty` 직렬화로 인해 일반 정상 종료 시에는 해당 필드가 생략되므로 `== "true"` 여부를 검사합니다.
                 e.data?.jsonObject?.let { d ->
                     if (d["unverified"]?.jsonPrimitive?.content == "true") {
                         val why = d["reason"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                        // ⚠ **`system` 이다, `error` 가 아니다.** 정본(`idebridge.Rows`)이 이 행을
-                        // `WhoSystem` 으로 짓는다 — 확인 못 한 끝맺음은 **실패가 아니라 끝맺음에
-                        // 대한 말**이고, 실패로 적으면 정말 터진 것과 같은 색으로 그려진다.
-                        // 어휘를 여덟로 맞춘 커밋이 이 한 자리를 `Error` 로 옮겨 정본과 갈라 놓았다
-                        // (같은 픽스처를 두 접기에 통과시켜 실측, 2026-09-12) — 낱말이 같아진 것과
-                        // 같은 낱말을 **같은 사건에** 붙이는 것은 다른 사실이다.
+                        // 정본 명세(`internal/adapter/idebridge/rows.go`의 `WhoSystem`)에 따라 에러가 아닌 시스템 메시지로 처리합니다.
+                        // 실행 검증 미통과는 실행 오류와 구분되는 완료 상태 고지이므로 `Who.System` 타입을 적용합니다.
                         rows += Row(Who.System,
                             "확인 못 함 — 이 판으로 통과한 실행이 없습니다" +
                                 (why?.let { ": $it" } ?: ""), at = e.ts)
                     }
                 }
-                // **턴이 끝나면 고아 초안을 쓴다.** 코어에는 조각만 흘리고 사실을 안 쓰는 길이
-                // 여럿이다(스핀 가드가 버린 응답, 본문으로 온 툴콜, 중단·프로바이더 에러,
-                // 실패한 인터젝션 미니턴 — 리뷰가 다섯을 짚었다). 안 쓸면 붙어 있던 창에만
-                // 남는 반쪽 답이 서고, 그것이 이 기능이 막으려던 갈림 그 자체다.
+                // 턴 완료 시 고아 초안(draft) 행 정리:
+                // 스핀 가드 중단, 프로바이더 에러, 실패한 인터젝션 등으로 인해 잔류할 수 있는 미확정 draft 행을 일괄 소거합니다.
                 sweptDraft = rows.removeAll { it.draft }
-                // 경로를 모르는 변이가 이 턴에 있었으면, 이제 한 번 훑을 때다([drainDisk]).
+                // 경로를 특정할 수 없는 파일 변경이 발생한 경우 디스크 버퍼 갱신을 예약합니다 ([drainDisk]).
                 if (unknownDisk) { broadPending = true; unknownDisk = false }
                 finished() || sweptDraft
             }

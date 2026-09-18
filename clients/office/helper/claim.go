@@ -8,32 +8,27 @@ import (
 	"time"
 )
 
-// 포트를 잡는다 — 또는 이미 우리가 서 있다고 말한다(DESIGN.md §5.3·§5.5.1).
+// 오피스 헬퍼 HTTPS 포트 점유 및 프로세스 중복 실행 판별 모듈(DESIGN.md §5.3·§5.5.1).
 //
-// # 번호는 설치 때 굳고 기동 때 고르지 않는다
+// # 고정 포트 바인딩 원칙
+// 애드인 매니페스트 XML의 `<SourceLocation>` 태그에 포트 번호가 하드코딩되므로,
+// 런타임에 동적 포트를 할당하지 않고 사전에 정의된 고정 포트만을 시도합니다.
 //
-// `<SourceLocation>` 이 그것을 강제한다. 헬퍼에게 포트는 **찾는 것이 아니라 받는 것**이다:
-// 사이드로드하거나 카탈로그에 올릴 때 정해서 매니페스트와 헬퍼 설정 양쪽에 같은 값으로 적고,
-// 헬퍼는 그 값만 시도한다.
-//
-// # 못 잡으면 다른 번호로 흘러가지 않는다
-//
-// 흘러가면 매니페스트가 가리키는 자리와 어긋나 애드인이 영영 못 붙는데 **헬퍼는 자기가 떴다고
-// 믿는다.** 끝만 알리고 어긋난 것은 안 알리는, 이 저장소가 여러 번 만난 그 모양이다. 그러니
-// 실패는 **말하고 멈춘다.**
+// # 임의 포트 변경 금지
+// 바인딩 실패 시 임의의 다른 포트로 자동 변경할 경우, 매니페스트가 가리키는 엔드포인트와
+// 불일치가 발생하여 애드인이 영구적으로 연결되지 않는 장애를 방지하기 위해 즉시 오류를 반환하고 기동을 중단합니다.
 
-// ClaimResult 는 포트를 두드려 본 결과.
+// ClaimResult 는 대상 포트 탐침(Probe) 결과 상태를 정의합니다.
 type ClaimResult int
 
 const (
-	// ClaimFree 는 아무도 없다 — 우리가 선다.
+	// ClaimFree 는 해당 포트를 사용하는 프로세스가 없어 신규 바인딩이 가능한 상태입니다.
 	ClaimFree ClaimResult = iota
-	// ClaimOurs 는 **우리 인증서를 내미는 것**이 이미 서 있다. 헬퍼는 사용자당 하나이므로
-	// (§5.2) 이건 정상이고, 두 번째 프로세스는 조용히 물러난다.
+	// ClaimOurs 는 동일한 TLS 인증서 지문을 제시하는 헬퍼 인스턴스가 이미 정상 서비스 중인 상태입니다.
+	// 헬퍼는 사용자/머신당 단일 인스턴스로 운용되므로(§5.2), 후속 프로세스는 정상 상태로 인식하고 조용히 종료합니다.
 	ClaimOurs
-	// ClaimStranger 는 그 번호에 남이 서 있다. **지우지도 붙지도 않는다** — 소켓과 달리 포트의
-	// 이름 공간은 머신에 하나라 남의 프로세스도 그 번호에 설 수 있고(§5.2), 붙으면 덱 내용과
-	// 도구 호출이 그리로 간다(§5.3 ⚠).
+	// ClaimStranger 는 알 수 없는 타 프로세스 또는 다른 인증서를 사용하는 서버가 해당 포트를 점유 중인 상태입니다.
+	// 보안상 문서 데이터 및 도구 호출이 비인가 프로세스로 누출되는 위험을 방지하기 위해 강제 종료나 연결 시도를 일체 하지 않습니다(§5.3).
 	ClaimStranger
 )
 
@@ -48,14 +43,13 @@ func (c ClaimResult) String() string {
 	}
 }
 
-// probeTimeout 은 그 번호를 두드려 보는 데 드는 시간의 천장.
+// probeTimeout 은 포트 탐침 시 적용되는 네트워크 타임아웃 상한(1,500ms)입니다.
 const probeTimeout = 1500 * time.Millisecond
 
-// Probe 는 그 번호에 누가 있는지, 있다면 우리인지 본다.
+// Probe 는 지정 주소의 리스너 상태를 검사하여 가용 여부 및 자사 헬퍼 인스턴스 여부를 확인합니다.
 //
-// **dial 을 TLS 핸드셰이크까지 민다**(§5.5.1). 평문이 답하거나 다른 인증서를 내밀면 남의
-// 리스너다. 이것이 거는 것은 **오식별 방지지 신원 증명이 아니다** — 키를 읽을 수 있는 것만
-// 우리 이름으로 설 수 있다는, 위 인증서 파일의 바구니만큼만 참이다.
+// 단순 TCP 연결에 그치지 않고 TLS 핸드셰이크까지 수행하여 자체 서명 인증서의 지문(Fingerprint)을 검증합니다(§5.5.1).
+// 평문 HTTP 응답 또는 인증서 불일치 시 타 프로세스 점유(`ClaimStranger`)로 판정합니다.
 func Probe(addr, wantFingerprint string) (ClaimResult, string) {
 	raw, err := net.DialTimeout("tcp", addr, probeTimeout)
 	if err != nil {
@@ -71,7 +65,7 @@ func Probe(addr, wantFingerprint string) (ClaimResult, string) {
 		ServerName:         Host,
 	})
 	if err := conn.Handshake(); err != nil {
-		// 평문이 답했거나 TLS 가 아니다. 남의 리스너다.
+		// 평문 HTTP 응답이거나 비정상 TLS 연결인 경우 타 프로세스 점유로 판정합니다.
 		return ClaimStranger, "그 번호에 TLS 가 아닌 것이 서 있습니다: " + err.Error()
 	}
 	state := conn.ConnectionState()
@@ -85,7 +79,7 @@ func Probe(addr, wantFingerprint string) (ClaimResult, string) {
 	return ClaimStranger, "그 번호에 다른 인증서를 내미는 것이 서 있습니다(지문 " + short(got) + ")"
 }
 
-// Listen 은 포트를 잡는다. **다른 번호로 안 흘러간다.**
+// Listen 은 지정된 TCP 주소에 리스너를 바인딩하고 TLS 1.2 이상을 적용합니다. 고정 포트 원칙에 따라 타 포트로 우회하지 않습니다.
 func Listen(addr string, cert tls.Certificate) (net.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -101,11 +95,11 @@ func Listen(addr string, cert tls.Certificate) (net.Listener, error) {
 	}), nil
 }
 
-// Acquire 는 §5.3 의 「획득-또는-접속」을 포트 위에서 돈다.
+// Acquire 는 포트 상태를 사전 점검(Probe)한 후 안전하게 바인딩을 수행합니다(DESIGN.md §5.3).
 //
-// 그림의 갈래 중 **이 함수가 지는 것은 셋**이다: 아무도 없으면 선다, 우리가 이미 서 있으면
-// 물러난다, 남이 서 있으면 말하고 멈춘다. 되살리기·유예·크래시 루프는 감독자의 몫이고(§5.4),
-// 여기서 하지 않는 이유는 그쪽이 「사람이 껐다」와 「죽었다」를 안 가르기 때문이다.
+// 1) 포트 가용 시(`ClaimFree`): 리스너를 정상 생성하여 반환합니다.
+// 2) 자사 헬퍼 기동 중(`ClaimOurs`): 정상 중복 기동으로 판단하여 리스너 없이 반환합니다.
+// 3) 타 프로세스 점유(`ClaimStranger`): 보안 격리를 위해 바인딩을 즉시 중단하고 오류를 반환합니다.
 func Acquire(addr string, cert tls.Certificate) (net.Listener, ClaimResult, error) {
 	what, why := Probe(addr, Fingerprint(cert))
 	switch what {
