@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 )
@@ -182,12 +183,31 @@ func TestWhatARowLoses(t *testing.T) {
 }
 
 // mk builds one event the way the daemon writes it.
+// mkBase is where the synthetic clock starts. A fixed instant, so these tests say the same thing on
+// every machine and every day.
+var mkBase = time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)
+
 func mk(seq int64, typ string, data map[string]any, actor map[string]any) event.Event {
 	b, err := json.Marshal(data)
 	if err != nil {
 		panic(err)
 	}
-	e := event.Event{Seq: seq, Type: event.Type(typ), Data: b}
+	// ⚠ **The synthetic events carried NO time, and that is why a real defect walked through here.**
+	//
+	// Rows carry the event's time since 2026-09-14. The fixture on disk was given timestamps the same
+	// day — but these hand-built streams were not, so `At` was empty in every one of them and the
+	// equalities this package rests on (replay ends where a live stream does; applying the differences
+	// rebuilds the fold; the door's frames match a fresh window) **never compared a timestamp at all.**
+	// Two halves of one measurement that never met.
+	//
+	// What walked through: replacing a streamed draft with its fact kept the row count the same, so the
+	// stamping skipped it and a streamed answer's final row had no time while the same answer read
+	// fresh did (#198, fixed in 632e0ea8 by somebody else). Every test here was green.
+	//
+	// So the clock is here now, derived from seq so a replay and a live stream of the same conversation
+	// agree — and a fact built from a later event does NOT agree with the draft it replaced, which is
+	// the difference that was invisible.
+	e := event.Event{Seq: seq, Type: event.Type(typ), Data: b, TS: mkBase.Add(time.Duration(seq) * time.Second)}
 	if actor != nil {
 		e.Actor = event.Actor{Kind: event.ActorKind(str(actor, "kind")), ID: str(actor, "id")}
 	}
