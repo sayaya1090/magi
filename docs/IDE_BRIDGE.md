@@ -53,7 +53,7 @@ The eight, as counted in the Visual Studio design after two ports were in hand.
 |---|---|
 | 1. socket path | deriving `workspaceKey` and the socket path. Two ports each re-implemented a non-standard FNV constant and `Base("/")`, and both got it wrong first |
 | 2. the wire | line-delimited JSON, keeping the write half open, matching replies to requests |
-| 3. transcript → rows | 601 lines of Kotlin, 114 of TypeScript, for the same log. **Rule and door are both in (`rows`, 2026-09-12).** All three copies now agree on eight row kinds (`ee9176ff`); moving the clients onto it is still to do |
+| 3. transcript → rows | 601 lines of Kotlin, 114 of TypeScript, for the same log. **Rule and door are both in (`rows`, 2026-09-12).** All three copies now agree on eight row kinds (`ee9176ff`); moving the clients onto it is still to do, and §7 measures where each one actually stands |
 | 4. one word for "what is it doing" | including that `unknown` is not `attached`, and that `attached` is not `idle` |
 | 5. approval vocabulary | `allow` · `deny` · `always`, refused here if misspelled instead of silently ignored |
 | 6. splitting a look-over | which remarks hang on a line and which do not — including that the separator is not only a tab |
@@ -351,7 +351,52 @@ sequenceDiagram
 - **[`CLIENTS.md`](CLIENTS.md)** stays the canon for what the doors are. This file is about who derives what
   from them.
 
-## 7. What is left, and where it has to happen
+## 7. Measured against the clients, 2026-09-19
+
+The two shapers are still in place and the door is still not what either client draws from. What
+changed while this file sat still is that the SHARED row grew three fields from the client side, and
+one name now means opposite things on the two sides of the same wire. Written down because the
+migration has to decide each of them, and because a guard that compares names cannot see the third.
+
+**Where each client actually stands.** VS Code runs `magi ide-bridge` for exactly two things:
+`--features` (what can this binary do) and `--raw-socket` (the Windows relay, because Node reads a
+unix socket path as a named pipe). It dials the daemon itself and folds rows in
+`clients/vscode/src/core/transcript.ts`. JetBrains uses `ide-bridge --features` and dials the daemon
+too; it now has the door's wire model and a transport (`BridgeRow`, `BridgeRows`, 2026-09-14) but
+nothing draws from them yet. So item 3 of §3 stands as written: rule and door are in, the clients are
+not on them.
+
+**Three fields the door declares and never sends.** `rawArgs`, `fileNav` and `outputId` were added to
+the shared `Row` (2026-09-15…17) by the lane building the VS Code panel. The TypeScript shaper fills
+all three; the Go fold fills none of them, and no test in this package touches them. They are on the
+struct because the cross-copy field guard compares this Row against the TypeScript one **both ways**,
+and a field the client carries and the door does not is exactly what that guard was built to fail on.
+The effect is a door that advertises three facts it will never send, and the migration has to choose
+per field: teach the fold to derive it (`rawArgs` is already `Args`; `fileNav` is an extraction from a
+tool's contract, which is a rule and therefore belongs here; `outputId` is a document identity that
+whoever owns the documents should mint), or take it off the shared row and leave it a client's own.
+
+⚠ **`args` means opposite things on the two sides.** On this door `args` is the WHOLE arguments — that
+was a decision, taken 2026-09-13 after a review found the row was keeping one representative field and
+dropping the rest — and the one-line form lives in `summary`. In the TypeScript Row `args` is the
+one-line form (`askedFor(...)`) and the whole is `rawArgs`. Same wire name, inverted meaning. The field
+guard passes because it compares NAMES; the shape guard passes because both are strings. A client moved
+onto the door without reading this paragraph draws whole JSON objects where it used to draw one line.
+
+**And the door cannot yet answer what that client draws.** Its `summary` is the row's whole one-line
+form — for a tool row, the name AND the argument line together ("bash go test ./..."). The argument
+line by itself is `askedLine` inside the fold and is not on the wire. A panel that draws the name as
+one element and the arguments as another needs it separately, or it re-clips the whole arguments and
+that is the clip rule written twice.
+
+**So the migration's first decision is vocabulary, not transport.** In order: name the one-line
+argument form on the wire (or accept that a client re-derives it); decide each of the three
+client-filled fields; then move a client onto the result. The comparison that makes the move a
+measurement is in place — `CanonicalFoldTest` now holds the kinds, the structural fields, the waiting
+marks and the event time against this fold's own golden, on a fixture that includes the shape a real
+daemon produced (a queued question resurfaced under a new name).
+
+## 8. What is left, and where it has to happen
 
 | | where |
 |---|---|
@@ -360,7 +405,7 @@ sequenceDiagram
 | moving VS Code onto the bridge | anywhere. A second job, not a side effect of this one |
 | **the Visual Studio client** | **Windows.** No Visual Studio and no `msbuild` on the machine this was written on, and VS for Mac is discontinued — see the [design](../clients/visualstudio/docs/DESIGN.ko.md) §9 |
 
-## 8. Not measured
+## 9. Not measured
 
 - **Whether the editors will actually adopt it.** VS Code has a working port; moving it onto the
   bridge is a second job, not a side effect of this one.
