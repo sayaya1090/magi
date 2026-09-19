@@ -224,6 +224,54 @@ export function createA11yScenarios({ reverseThemes = false } = {}) {
           assert.equal(borders.cb, '', 'dark theme must not retain --vscode-contrastBorder in reverse sequence');
           assert.equal(borders.bb, '', 'dark theme must not retain --vscode-button-border in reverse sequence');
         }
+      },
+      {
+        id: 'a11y_high_contrast_control_edges',
+        name: '고대비에서 채워진 조작의 경계 — axe 가 보지 못하는 것 (§5.8)',
+        run: async (page) => {
+          // ⚠ **axe 는 이것을 못 본다.** 바로 위 감사 일곱이 고대비에서 위반 0 을 내는 동안, 실측
+          // 2026-09-19 에 이 화면의 `Send` 와 선택 버튼들은 **테두리 없는 검정 사각형이 검정 배경 위에**
+          // 놓여 있었다. 글자 대비는 흰색 대 검정이라 완벽하고, axe 가 재는 것은 글자 대비다.
+          //
+          // VS Code 고대비 테마가 `--vscode-button-background` 를 배경과 같은 `#000000` 으로 주는 것은
+          // 실수가 아니다 — 그 테마의 약속은 **모든 조작이 `contrastBorder` 로 경계를 그린다**는 것이고,
+          // 그래서 색이 아니라 선이 경계를 만든다. 같은 스타일시트가 `.approval-btn`·`.inspect-btn`
+          // 두 곳에서는 이미 그 약속을 지켰고, 기본 `button` 규칙만 `border:none` 으로 남아 있었다.
+          //
+          // 그러니 이 시나리오가 재는 것은 「채워진 조작이 배경과 같은 색이면서 선이 없지는 않은가」다.
+          // 글자만 떠 있는 버튼(`#more`, `.jump-btn`)은 배경이 투명해 애초에 채워진 적이 없으므로 제외한다 —
+          // 그것들은 색으로 말하고, 여기서 재는 것은 사각형이다.
+          await injectA11yTheme(page, A11Y_THEMES.highContrast);
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [{ who: 'agent', label: 'magi', text: '무엇을 할지 정해 주세요.' }],
+            ask: {
+              kind: 'question', callId: 'hc1', what: '어느 방식으로 갈까요?',
+              options: ['예, 고쳐 주세요', '아니요', '직접 입력'], index: 1, total: 1,
+            }
+          }));
+          await page.waitForSelector('#ask-controls:not([hidden])');
+
+          const vanished = await page.evaluate(() => {
+            const bodyBg = getComputedStyle(document.body).backgroundColor;
+            const out = [];
+            for (const el of document.querySelectorAll('button, textarea, input')) {
+              const cs = getComputedStyle(el);
+              if (cs.display === 'none' || cs.visibility === 'hidden' || el.closest('[hidden]')) continue;
+              const rc = el.getBoundingClientRect();
+              if (rc.width === 0 || rc.height === 0) continue;
+              const filled = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent';
+              const edgeless = cs.borderTopStyle === 'none' || cs.borderTopWidth === '0px'
+                || cs.borderTopColor === 'rgba(0, 0, 0, 0)' || cs.borderTopColor === 'transparent';
+              if (filled && edgeless && cs.backgroundColor === bodyBg) {
+                out.push(`${el.id ? '#' + el.id : '.' + String(el.className).split(' ')[0]} "${(el.textContent || '').trim().slice(0, 14)}"`);
+              }
+            }
+            return { bodyBg, out };
+          });
+
+          assert.deepEqual(vanished.out, [],
+            `고대비에서 배경(${vanished.bodyBg})과 같은 색이면서 테두리가 없는 조작: ${vanished.out.join(', ')}`);
+        }
       }
   ];
 }

@@ -11,11 +11,11 @@ export const EXPECTED_BUNDLE_COUNTS = {
   asks: 14,
   autocomplete: 2,
   diff: 12,
-  a11y: 7,
+  a11y: 8,
   markdown: 1,
 };
 
-export const TOTAL_EXPECTED_SCENARIOS = 40;
+export const TOTAL_EXPECTED_SCENARIOS = 41;
 
 /**
  * Validates bundle registry invariants (§5.8.6):

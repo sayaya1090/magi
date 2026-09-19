@@ -274,8 +274,15 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
          font-family:inherit; font-size:inherit;
          color:var(--vscode-input-foreground); background:var(--vscode-input-background);
          border:1px solid var(--vscode-input-border, transparent); border-radius:2px; padding:4px 6px; }
+  /* ⚠ **고대비 테마에서 채워진 버튼의 경계는 색이 아니라 선이 만든다.** 이 규칙은 border:none 이었고,
+     고대비에서 --vscode-button-background 는 패널 배경과 같은 #000000 이다 — 그래서 Send 와 모든
+     선택 버튼이 **검정 배경 위의 테두리 없는 검정 사각형**이 됐다(실측 2026-09-19: 배경도 버튼도
+     rgb(0, 0, 0), 테두리 0px none). 글자는 흰색이라 대비는 완벽하고, axe-core 감사 42회는 위반 0을
+     냈다 — 사각형이 어디서 시작하고 끝나는지를 재는 규칙이 없었기 때문이다.
+     같은 파일의 .approval-btn·.inspect-btn 은 이미 이 사슬을 쓴다. 기본 규칙만 빠져 있었다. */
   button { color:var(--vscode-button-foreground); background:var(--vscode-button-background);
-           border:none; border-radius:2px; padding:4px 10px; cursor:pointer; }
+           border:1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent));
+           border-radius:2px; padding:4px 10px; cursor:pointer; }
   button:hover { background:var(--vscode-button-hoverBackground); }
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></header>
