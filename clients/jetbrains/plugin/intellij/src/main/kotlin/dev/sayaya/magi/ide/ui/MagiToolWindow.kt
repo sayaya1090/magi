@@ -968,7 +968,7 @@ class MagiToolWindow : ToolWindowFactory {
                     }
                 }
                 // 추론 과정(Thinking)은 **기본 펼침**으로 렌더링하고 클릭 시 접습니다. 길다는 이유로
-                // 접지 않는 것이 사용자 요구이며(`docs/IDE_NATIVE.ko.md` §5.4), VS Code 판은 그것을
+                // 접지 않는 것이 사용자 요구이며(Think·보고서 기본 접기 금지: 전문을 펼쳐 공통 세로 스크롤로 읽음), VS Code 판은 그것을
                 // 지키고 있었습니다 — 이 창만 접고 있었습니다(2026-09-19). 판정은 코어에 있고
                 // (`RowText.openByDefault`) 사람이 접은 것은 [closed] 가, 펼친 것은 [opened] 가 듭니다.
                 Who.Thinking -> {
