@@ -281,4 +281,59 @@ class RowTextTest {
             assertFalse(RowText.openByDefault(Row(w, "x")), "$w 가 기본 펼침 판정에 들어왔다")
         }
     }
+
+    /**
+     * **눌러도 아무 일이 없는 접기 표시가 없다.**
+     *
+     * `docs/IDE_NATIVE.ko.md` §6.4 의 실물 확인 항목이다 — 「짧은 Think 에는 동작하지 않는 접기 표시가
+     * 없어야 합니다」. 그 자리는 생각을 기본 펼침으로 바꾸면서 생겼다: 짧은 생각도 펼침 갈래로 오는데
+     * 거기엔 토글이 안 걸린다. 사람 눈으로만 볼 일이 아니라 판정이므로 여기서 잰다.
+     *
+     * 글리프와 실제 토글이 **같은 판정**을 지나는 것이 이 함수의 일이다. 두 자리에서 따로 정하면
+     * 한쪽만 고쳐질 수 있고, 그 모양이 이 트리가 되풀이해 값을 치른 「한 사실, 두 기전」이다.
+     */
+    @Test
+    fun `접을 것이 있는 행에만 접기 조작이 붙는다`() {
+        assertFalse(RowText.foldable(Row(Who.Thinking, "짧게")), "짧은 생각에 접기 표시가 붙는다 — 눌러도 아무 일이 없다")
+        assertTrue(RowText.foldable(Row(Who.Thinking, "여러 줄\n생각")), "여러 줄 생각을 접을 수 없다")
+        assertTrue(RowText.foldable(Row(Who.Thinking, "가".repeat(121))), "긴 한 줄 생각을 접을 수 없다")
+        // 인자도 결과도 없는 도구 호출은 펼칠 것이 없다.
+        assertFalse(RowText.foldable(Row(Who.Tool, "bash", tool = "bash")), "펼칠 것 없는 도구 행에 표시가 붙는다")
+        assertTrue(RowText.foldable(Row(Who.Tool, "bash", tool = "bash", args = "{}")), "인자를 든 도구 행을 못 펼친다")
+        assertTrue(RowText.foldable(Row(Who.Tool, "bash", tool = "bash", out = "boom")), "결과를 든 도구 행을 못 펼친다")
+        // 소집 행은 증거가 있을 때만. 평결 행은 본문을 늘 펼쳐 그리므로 접기 대상이 아니다.
+        assertFalse(RowText.foldable(Row(Who.Council, "melchior", member = "melchior", opened = true)), "증거 없는 소집 행에 표시가 붙는다")
+        assertTrue(RowText.foldable(Row(Who.Council, "라운드", opened = true, evidence = "task: x")), "증거를 든 소집 행을 못 펼친다")
+        assertFalse(RowText.foldable(Row(Who.Council, "평결", member = "melchior", thought = "길게 생각했다")), "평결 행이 접기 대상이 됐다")
+        for (w in listOf(Who.User, Who.Agent, Who.System, Who.Error, Who.Image)) {
+            assertFalse(RowText.foldable(Row(w, "x")), "$w 에 접기 조작이 붙는다")
+        }
+    }
+
+    /**
+     * **다시 그려도 사람이 고른 접힘이 유지된다.**
+     *
+     * §6.4 의 다음 줄이다 — 「내용이 동일한 상태에서 대화가 다시 그려져도 사용자 선택이 유지돼야
+     * 합니다. 스트리밍으로 본문 자체가 바뀐 경우는 별도 기록합니다」. 화면은 접힘을 이 열쇠로 기억하므로
+     * 같은 내용이 같은 열쇠를 내는 것이 그 요구의 전부다.
+     *
+     * ⚠ 그리고 **본문이 바뀌면 열쇠도 바뀐다** — 흐르는 중인 생각은 조각마다 다른 행으로 읽히므로
+     * 사람이 접어 둔 것이 펼쳐진다. 그것이 이 열쇠에 본문이 든 대가이고, 문서가 「별도 기록」이라고 적은
+     * 자리가 바로 여기다. 고치려면 열쇠에서 본문을 빼야 하는데, 그러면 같은 메시지의 서로 다른 행이 한
+     * 열쇠를 나눠 쓴다.
+     */
+    @Test
+    fun `같은 내용은 같은 접힘 열쇠를 낸다`() {
+        val a = Row(Who.Thinking, "여러 줄\n생각", msgId = "m1")
+        val again = Row(Who.Thinking, "여러 줄\n생각", msgId = "m1")
+        assertEquals(RowText.foldKey(a), RowText.foldKey(again), "같은 행을 다시 그렸는데 열쇠가 달라진다 — 접어 둔 것이 펼쳐진다")
+        val grown = Row(Who.Thinking, "여러 줄\n생각\n더", msgId = "m1")
+        assertNotEquals(RowText.foldKey(a), RowText.foldKey(grown), "본문이 자랐는데 열쇠가 같다 — 그러면 다른 내용이 한 상태를 나눠 쓴다")
+        // 같은 메시지의 다른 종류는 서로 다른 열쇠여야 한다(생각과 답이 한 상태를 나눠 쓰면 안 된다).
+        assertNotEquals(
+            RowText.foldKey(Row(Who.Thinking, "같은 글", msgId = "m1")),
+            RowText.foldKey(Row(Who.Agent, "같은 글", msgId = "m1")),
+            "종류가 다른데 열쇠가 같다",
+        )
+    }
 }

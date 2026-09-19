@@ -972,7 +972,9 @@ class MagiToolWindow : ToolWindowFactory {
                 // 지키고 있었습니다 — 이 창만 접고 있었습니다(2026-09-19). 판정은 코어에 있고
                 // (`RowText.openByDefault`) 사람이 접은 것은 [closed] 가, 펼친 것은 [opened] 가 듭니다.
                 Who.Thinking -> {
-                    val long = r.text.contains('\n') || r.text.length > 120
+                    // 접기 조작이 붙는지는 코어가 정한다(`RowText.foldable`) — 글리프와 실제 토글이
+                    // 같은 판정을 지나야, 눌러도 아무 일이 없는 표시가 생기지 않는다.
+                    val long = RowText.foldable(r)
                     val open = shows(r)
                     if (open) {
                         // ⚠ 글리프는 **접을 수 있을 때만** 붙인다. 기본이 펼침이 된 뒤로 짧은 생각도 이
@@ -994,8 +996,15 @@ class MagiToolWindow : ToolWindowFactory {
                         else -> "✗" to Look.error
                     }
                     val open = shows(r)
+                    val canFold = RowText.foldable(r)
                     p.add(Look.toolHead(r.tool.orEmpty(), glyph, hue,
-                        if (open) "⌃" else RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄", RowText.clock(r.at)),
+                        when {
+                            open -> "⌃"
+                            // 인자도 결과도 없는 호출은 펼칠 것이 없다 — 그 행에 ⌄ 를 그리면 눌러도
+                            // 아무 일이 없다(`RowText.foldable`).
+                            canFold -> RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄"
+                            else -> RowText.oneLine(r.args.orEmpty(), 100)
+                        }, RowText.clock(r.at)),
                         BorderLayout.NORTH)
                     if (open) {
                         // 펼침 상태: 도구 호출 인자 및 실행 결과 원문을 모노스페이스 폰트로 표시합니다.
@@ -1027,11 +1036,11 @@ class MagiToolWindow : ToolWindowFactory {
                         r.out?.let { p.add(Look.code("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
                             BorderLayout.CENTER) }
                     }
-                    foldable(p, r)
+                    if (canFold) foldable(p, r)
                 }
                 Who.Council -> if (r.opened) {
                     // 카운슬 세션 라운드 개시 헤더: 개별 멤버 판정과 시각적으로 구별되도록 렌더링합니다.
-                    val has = !r.evidence.isNullOrBlank()
+                    val has = RowText.foldable(r)
                     val open = has && shows(r)
                     val head = MagiBundle.msg("chat.council.round", r.round)
                     p.add(Look.rowHead("⚖ $head", Look.body,

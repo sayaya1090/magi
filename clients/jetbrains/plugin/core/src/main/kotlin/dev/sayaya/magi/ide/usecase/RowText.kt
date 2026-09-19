@@ -197,6 +197,23 @@ object RowText {
      * 못 재고, 이 저장소는 그 방식이 「낱말을 다 남긴 채 검사만 끄는」 변이를 통과시킨 것을 이미
      * 봤다(`whyNoRelay`).
      */
+    /**
+     * **이 행에 접기 조작이 붙나.**
+     *
+     * 붙지 않는 행에 접기 글리프를 그리면 **눌러도 아무 일이 없는 조작**을 그리는 것이다. 그 자리가
+     * 생긴 것은 생각을 기본 펼침으로 바꾼 뒤다(2026-09-19): 짧은 생각도 펼침 갈래로 오는데 거기엔
+     * 토글이 안 걸린다. `docs/IDE_NATIVE.ko.md` §6.4 가 실물 확인 항목으로 「짧은 Think 에는 동작하지
+     * 않는 접기 표시가 없어야 한다」를 적고 있고, 그것은 사람 눈으로만 볼 일이 아니다.
+     *
+     * 접을 것이 있어야 접는다: 긴 생각, 본문이나 결과를 든 도구 행, 증거를 든 카운슬 소집 행.
+     */
+    fun foldable(r: Row): Boolean = when (r.who) {
+        Who.Thinking -> r.text.contains('\n') || r.text.length > 120
+        Who.Tool -> !r.args.isNullOrBlank() || !r.out.isNullOrBlank()
+        Who.Council -> r.opened && !r.evidence.isNullOrBlank()
+        else -> false
+    }
+
     fun openByDefault(r: Row): Boolean = r.who == Who.Thinking
 
     fun foldKey(r: Row): String = "${r.msgId}:${r.who}:${r.callId}:${r.text.hashCode()}"
