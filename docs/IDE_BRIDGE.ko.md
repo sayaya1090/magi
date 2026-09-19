@@ -236,37 +236,69 @@ sequenceDiagram
 
 ### 7.1 도구 인자 및 전사 어휘 비교표 (Go · TypeScript · Kotlin)
 
-세 구현체가 들고 있는 `Row`의 도구 및 보조 필드를 대조한 결과입니다. 브리지 전환 시 클라이언트가 제멋대로 다시 자르거나 빈 칸을 읽지 않도록 생성 책임과 의미를 명확히 규정합니다.
+세 구현체의 `Row`를 소스에서 대조한 결과입니다. **저장 값과 화면 표시를 따로 적습니다** — 한 줄로 줄이는 일을 어디서 하는지가 이 표의 요점이고, 그것을 섞으면 「같은 이름이 반대를 뜻한다」는 아래의 결론이 안 보입니다. 선언만 있고 아무도 안 채우는 칸은 그렇게 적습니다.
 
-| 필드명 | Go (`idebridge.Row`) | TypeScript (`transcript.Row`) | Kotlin (`usecase.Row`) | 생성 책임 및 일원화 방향 |
-|---|---|---|---|---|
-| `args` | **인자 전문** (JSON/원문 전체) | **한 줄 요약** (`askedFor`) | **한 줄 요약** (`asked`) | ⚠ **의미 불일치 핵심.** 전선에서는 `args`를 한 줄 요약으로 정의하거나, 브리지 전선에 `summaryArgs`를 신설하고 `args`는 원문으로 유지하는 결정을 확정해야 함. |
-| `rawArgs` | 선언됨 (미채움, `omitempty`) | **인자 전문** (원문 전체) | 미선언 (`BridgeRow`에만 존재) | 브리지 셰이퍼가 도구 호출 원문을 그대로 보존하여 공급함. UI의 펼침 토글(`…`) 대상. |
-| `summary` | **행 전체 한 줄 요약** (`도구+인자`) | 미선언 | 미선언 | 경량 클라이언트·목록 전사용. 도구 이름과 인자가 결합된 형태이므로 분리 렌더링 UI용 단독 인자 요약(`askedLine`)과 구분. |
-| `fileNav` | 선언됨 (`FileNav` 포인터, 미채움) | **구조화 파일/줄 정보** (`FileNav`) | 미선언 (`BridgeRow`에만 존재) | 도구 계약(read/edit/write 등) 파싱 규칙을 브리지 코어로 이관하여 단일 생성. `파일:줄` 링크로 에디터 네이티브 이동 연결. |
-| `outputId` | 선언됨 (미채움, `omitempty`) | **가상 문서 식별자** (`outputId`) | 미선언 (`BridgeRow`에만 존재) | 긴 출력물·답변 전문을 읽기 전용 가상 문서(`magi-output:`)로 열기 위한 세션 귀속 ID. 세션 수명 동안 불변. |
+| 필드 | Go (`idebridge.Row`) | TypeScript (`transcript.Row`) | Kotlin (`usecase.Row`) |
+|---|---|---|---|
+| `args` — 저장 | **인자 전문** (`AskedFor`, `fold.go`) | **한 줄 요약** (`askedFor`, `transcript.ts:343`) | **인자 전문** (`c["args"]?.toString()`, `Rows.kt:454`) |
+| `args` — 화면 | 클라이언트가 정함 | 그대로 그림 | `RowText.oneLine(r.args, 100)` 로 한 줄(`MagiToolWindow.kt`), 펼치면 전문 |
+| `rawArgs` | 선언만 (접기가 안 채움) | **인자 전문** (`stringifyRawArgs`) | 미선언 (전선 모델 `BridgeRow` 에만 있음) |
+| `summary` | **행 전체 한 줄** (도구 이름 + 인자 줄, `summarise`) | 미선언 | 미선언 |
+| `fileNav` | 선언만 (접기가 안 채움) | **구조화 이동 지점** (`extractFileNav`, `nav_tool.ts`) | 미선언 (전선 모델에만 있음) |
+| `outputId` | 선언만 (접기가 안 채움) | **가상 문서 id** (`makeAssistantOutputId`·`makeToolResultOutputId`, `output.ts`) | 미선언 (전선 모델에만 있음) |
 
-#### 대표 도구 이벤트 변환 예시
+⚠ `RowText.asked` 는 **물은 시각**을 사람이 읽는 꼴로 만드는 함수입니다(`asked(at, now)`). 인자 요약과 무관하므로 이 표의 근거로 쓰지 않습니다.
 
-1. **명령어 실행 (`bash`):**
-   - 도구 인자: `{"command": "go test ./..."}`
-   - 브리지 생성 기대값:
-     - `tool`: `"bash"`
-     - `args`: `"go test ./..."` (한 줄 요약)
-     - `rawArgs`: `"{\"command\": \"go test ./...\"}"` (인자 전문)
-     - `summary`: `"bash go test ./..."` (행 전체 요약)
-     - `fileNav`: `null`
-   - UI 변환: 헤더에 `bash` 뱃지와 `go test ./...`를 인라인 표시하고, `…` 토글 시 `rawArgs` 블록을 펼침.
+**결론은 하나입니다.** `args` 는 Go·Kotlin 이 전문을 저장하고 TypeScript 만 한 줄을 저장합니다. Kotlin 은 화면에서 줄이고, TypeScript 는 셰이퍼에서 줄인 뒤 전문을 `rawArgs` 로 따로 듭니다. 그래서 전선 이름 `args` 의 뜻이 구현마다 갈립니다.
 
-2. **파일 조회 (`read_file`):**
-   - 도구 인자: `{"AbsolutePath": "/repo/internal/adapter/idebridge/rows.go", "StartLine": 72}`
-   - 브리지 생성 기대값:
-     - `tool`: `"read_file"`
-     - `args`: `"/repo/internal/adapter/idebridge/rows.go:72"`
-     - `rawArgs`: `"{\"AbsolutePath\": \"...\", \"StartLine\": 72}"`
-     - `fileNav`: `{"path": "/repo/internal/adapter/idebridge/rows.go", "line": 72}`
-   - UI 변환: `fileNav` 객체를 통해 `rows.go:72` 링크 버튼(`file-nav-btn`)을 생성하고 클릭 시 에디터 해당 줄로 즉시 이동.
+#### 권장안 — `args` 전문을 유지하고 한 줄을 새 칸으로 낸다
 
+현행 소비자를 깨뜨리지 않는 쪽입니다. `args` 의 뜻을 바꾸면 이미 전문을 기대하는 두 구현(Go 문의 계약, Kotlin 저장 값)이 조용히 틀린 것을 그립니다.
+
+| 항목 | 정하는 것 |
+|---|---|
+| 새 칸 이름 | `argsLine` — 한 줄, 바운드 있음. 행 전체 요약인 `summary` 와 구별됩니다(그쪽은 도구 이름을 포함). |
+| Go 생성 책임 | 접기(`fold.go`)가 채웁니다. 규칙은 이미 있습니다 — `askedLine` 이 `path·command·pattern·query·id·name` 순으로 골라 `clip` 합니다. 지금은 `summary` 를 만드는 데만 쓰이고 전선에 안 나갑니다. |
+| TypeScript 매핑 | 지금의 `args`(한 줄) → `argsLine`, 지금의 `rawArgs`(전문) → `args`. 이름만 바뀌고 두 사실은 그대로입니다. |
+| Kotlin 매핑 | 저장은 그대로(`args` = 전문). 화면의 `RowText.oneLine` 호출이 `argsLine` 읽기로 바뀝니다 — 자르는 규칙이 클라이언트에서 사라지는 자리입니다. |
+| 칸이 없는 구버전 응답 | 클라이언트가 `args` 에서 스스로 한 줄을 만듭니다(= 지금 하는 일). 그래서 이관이 한 번에 끝나지 않아도 화면이 깨지지 않습니다. 새 칸은 **더 나은 한 줄**이지 화면의 유일한 근거가 아닙니다. |
+| `rawArgs` 를 전선에 둘지 | **두지 않습니다.** `args` 가 전문이면 `rawArgs` 는 같은 사실의 둘째 이름이고, 두 칸이 갈릴 수 있는 만큼의 비용만 남습니다(한쪽만 채운 응답, 한쪽만 읽는 화면). 지금 Go 에 선언만 있는 이 칸은 이관 때 지웁니다. |
+
+#### 대표 입력 둘 — 현행과 제안
+
+**(1) 파일 조회.** 도구 `read`, 인자 `{"path":"/repo/internal/adapter/idebridge/rows.go","offset":72}`.
+
+| | 현행 |
+|---|---|
+| Go 행 | `text:"read"` · `args:"{\"path\":\"/repo/internal/adapter/idebridge/rows.go\",\"offset\":72}"` · `summary:"read /repo/internal/adapter/idebridge/rows.go"` · `fileNav` 없음(접기가 안 채움) |
+| TypeScript 행 | `text:"read"` · `args:"/repo/internal/adapter/idebridge/rows.go"` · `rawArgs:` 인자 전문 · `fileNav:{path:"/repo/internal/adapter/idebridge/rows.go", line:72}` |
+| Kotlin 행 | `tool:"read"` · `args:` 인자 전문 · 화면은 `RowText.oneLine` 으로 줄인 한 줄 |
+
+제안 브리지 행: `args` 인자 전문 · `argsLine:"/repo/internal/adapter/idebridge/rows.go"` · `summary:"read /repo/internal/adapter/idebridge/rows.go"` · `fileNav:{path:"/repo/internal/adapter/idebridge/rows.go", line:72}`. VS Code 는 헤더에 `argsLine`, 토글에 `args`, 경로 링크에 `fileNav` 를 씁니다. 젯브레인은 헤더에 `argsLine`, 펼침 본문에 `args`, 「파일로 이동」에 `fileNav` 를 씁니다.
+
+⚠ **`fileNav` 의 지원 계약은 판정기가 정합니다**(`clients/vscode/src/core/nav_tool.ts`). 경로 칸은 `path` 하나이고, 줄 칸은 도구마다 다릅니다: `read`→`offset`, `edit`→`at`, `show`·`mcp__vscode__show`·`mcp__jetbrains__show`→`line`. `write`·`multiedit`·`apply_edit`·`mcp__*__apply_edit` 은 경로만 냅니다. 줄 번호는 1부터의 양의 정수여야 하고, 아니면 경로만 남습니다. `read_file`·`AbsolutePath`·`StartLine` 은 **이 계약이 아닙니다** — 그 이름으로 온 호출은 이동 지점을 안 만듭니다.
+
+**(2) 명령 실행.** 도구 `bash`, 인자 `{"command":"go test ./...","cwd":"/repo"}`.
+
+| | 현행 |
+|---|---|
+| Go 행 | `args:` 인자 전문(두 칸 다) · `summary:"bash go test ./..."` |
+| TypeScript 행 | `args:"go test ./..."` · `rawArgs:` 인자 전문 |
+| Kotlin 행 | `args:` 인자 전문 · 화면은 한 줄로 줄임 |
+
+제안 브리지 행: `args` 인자 전문 · `argsLine:"go test ./..."` · `summary:"bash go test ./..."` · **`fileNav` 없음**. `bash` 는 판정기의 계약에 없습니다. 이름을 모르는 MCP 도구도 같습니다 — 계약이 확인된 이름만 이동 지점을 냅니다.
+
+#### `outputId` — 무엇을 가리키고 얼마나 사는가
+
+지금 이 id 를 만드는 쪽은 VS Code 셰이퍼뿐입니다(Go 는 선언만 있습니다).
+
+- **가리키는 것은 확정 사건입니다.** 답은 `assistant:<seq>` — 그 seq 의 `part.appended` 가 `role:"assistant"`, `kind:"text"` 일 때만 풉니다. 도구 결과는 `tool:<encodeURIComponent(callId)>:<resultSeq>` 로, **호출 id 와 결과 사건 seq 를 함께** 묶습니다.
+- **같은 `callId` 의 여러 결과**는 서로 다른 id 입니다 — 묶인 `resultSeq` 가 다르기 때문입니다.
+- **`callId` 에 콜론이 있어도** 구분자와 안 섞입니다(`encodeURIComponent`). 인코딩 안 된 구분자가 든 id 는 파서가 거절합니다.
+- **범위는 컴패니언과 세션입니다.** 문서 주소가 `magi-output:/<컴패니언>/<세션>/<종류>/<id>` 라서, 세션을 갈아타면 같은 id 도 다른 문서입니다.
+- **id 안정성과 보존 기간은 다른 사실입니다.** id 는 사건이 그 자리에 있는 동안 같은 것을 가리킵니다. 그런데 본문은 캐시가 아니라 **클라이언트가 들고 있는 사건 목록에서 다시 유도**됩니다(`resolveOutputItem(events, outputId)`) — 그 목록에 그 사건이 없으면 조회가 `null` 이고 열기가 사유와 함께 실패합니다. TTL 이 아니라 **그 창이 그 대화의 사건을 아직 들고 있는가**입니다.
+
+브리지가 이 칸을 채우려면 그 두 가지를 정해야 합니다: 발급자(문이 발급하면 세 클라이언트가 같은 id 를 보고, 클라이언트가 발급하면 문서를 소유한 쪽이 제 규칙을 씁니다)와, 문이 답할 수 있는 범위(문은 컴패니언과 세션을 알지만 어느 창이 어떤 사건을 아직 들고 있는지는 모릅니다). 지금 상태는 **선언만 있는 칸**이고, 그렇게 읽어야 합니다.
 
 ## 8. 남은 것과, 어디서 해야 하는가
 

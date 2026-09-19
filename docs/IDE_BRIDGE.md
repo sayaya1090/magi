@@ -396,39 +396,101 @@ measurement is in place — `CanonicalFoldTest` now holds the kinds, the structu
 marks and the event time against this fold's own golden, on a fixture that includes the shape a real
 daemon produced (a queued question resurfaced under a new name).
 
-### 7.1 Comparison of tool argument and transcript vocabulary (Go · TypeScript · Kotlin)
+### 7.1 Tool arguments and transcript vocabulary, compared (Go · TypeScript · Kotlin)
 
-The three implementations currently disagree on the meaning and contents of the shared `Row` fields. The table below records the differences so the bridge transition does not leave clients re-parsing strings or reading empty fields.
+Read out of the three sources. **What is STORED and what is DRAWN are listed apart** — where the
+one-line form is made is the point of this table, and mixing the two hides the conclusion below. A
+field that is declared and filled by nobody says so.
 
-| Field | Go (`idebridge.Row`) | TypeScript (`transcript.Row`) | Kotlin (`usecase.Row`) | Derivation responsibility and resolution |
-|---|---|---|---|---|
-| `args` | **Full arguments** (complete JSON/raw text) | **One-line summary** (`askedFor`) | **One-line summary** (`asked`) | ⚠ **Core semantic inversion.** The wire must either standardize `args` as the one-line summary, or introduce `summaryArgs` on the wire while retaining `args` for unabridged arguments. |
-| `rawArgs` | Declared (unfilled, `omitempty`) | **Full arguments** (unabridged raw) | Not declared (in `BridgeRow` only) | The bridge shaper preserves and supplies the exact tool call arguments. Used by the UI's `…` expand toggle. |
-| `summary` | **Whole row one-line form** (`tool+args`) | Not declared | Not declared | For lightweight clients and list views. Because it combines the tool name and argument line, it must not be confused with the standalone argument summary (`askedLine`). |
-| `fileNav` | Declared (`FileNav` pointer, unfilled) | **Structured file/line target** (`FileNav`) | Not declared (in `BridgeRow` only) | Tool contract parsing (read/edit/write) moves into the bridge core to establish a single rule. Powers native editor jump links (`file:line`). |
-| `outputId` | Declared (unfilled, `omitempty`) | **Virtual document ID** (`outputId`) | Not declared (in `BridgeRow` only) | Scoped ID minted to open long tool outputs or answers in read-only virtual documents (`magi-output:` scheme). Immutable for the lifetime of the session. |
+| field | Go (`idebridge.Row`) | TypeScript (`transcript.Row`) | Kotlin (`usecase.Row`) |
+|---|---|---|---|
+| `args` — stored | **the whole arguments** (`AskedFor`, `fold.go`) | **one line** (`askedFor`, `transcript.ts:343`) | **the whole arguments** (`c["args"]?.toString()`, `Rows.kt:454`) |
+| `args` — drawn | the client decides | as stored | clipped to one line by `RowText.oneLine(r.args, 100)` (`MagiToolWindow.kt`); the whole on expand |
+| `rawArgs` | declared only (the fold never fills it) | **the whole arguments** (`stringifyRawArgs`) | not declared (only in the wire model `BridgeRow`) |
+| `summary` | **the row as one line** (tool name + argument line, `summarise`) | not declared | not declared |
+| `fileNav` | declared only (the fold never fills it) | **structured target** (`extractFileNav`, `nav_tool.ts`) | not declared (wire model only) |
+| `outputId` | declared only (the fold never fills it) | **virtual document id** (`makeAssistantOutputId` / `makeToolResultOutputId`, `output.ts`) | not declared (wire model only) |
 
-#### Concrete tool event conversion examples
+⚠ `RowText.asked` formats **when a question was asked** (`asked(at, now)`). It has nothing to do with
+argument summaries and is not evidence for this table.
 
-1. **Command execution (`bash`):**
-   - Tool arguments: `{"command": "go test ./..."}`
-   - Expected bridge derivation:
-     - `tool`: `"bash"`
-     - `args`: `"go test ./..."` (one-line summary)
-     - `rawArgs`: `"{\"command\": \"go test ./...\"}"` (full arguments)
-     - `summary`: `"bash go test ./..."` (whole row summary)
-     - `fileNav`: `null`
-   - UI rendering: Displays `bash` badge and `go test ./...` inline, with `…` toggle expanding the `rawArgs` block.
+**The conclusion is one sentence.** Go and Kotlin STORE the whole arguments and only TypeScript stores
+one line: Kotlin clips when drawing, TypeScript clips in its shaper and keeps the whole in `rawArgs`.
+So the wire name `args` means different things per implementation.
 
-2. **File inspection (`read_file`):**
-   - Tool arguments: `{"AbsolutePath": "/repo/internal/adapter/idebridge/rows.go", "StartLine": 72}`
-   - Expected bridge derivation:
-     - `tool`: `"read_file"`
-     - `args`: `"/repo/internal/adapter/idebridge/rows.go:72"`
-     - `rawArgs`: `"{\"AbsolutePath\": \"...\", \"StartLine\": 72}"`
-     - `fileNav`: `{"path": "/repo/internal/adapter/idebridge/rows.go", "line": 72}`
-   - UI rendering: Uses `fileNav` to render an actionable `rows.go:72` button (`file-nav-btn`) that opens the target file and line directly in the editor.
+#### Recommended — keep `args` whole, put the one-line form in a new field
 
+This is the option that does not break today's consumers. Changing what `args` MEANS would make two
+implementations that already expect the whole (this door's contract, Kotlin's stored value) quietly
+draw the wrong thing.
+
+| | the decision |
+|---|---|
+| new field | `argsLine` — one line, bounded. Distinct from `summary`, which is the whole ROW as one line (it includes the tool's name). |
+| who produces it in Go | the fold (`fold.go`). The rule already exists: `askedLine` picks `path·command·pattern·query·id·name` in that order and clips. Today it only feeds `summary` and never reaches the wire. |
+| TypeScript mapping | today's `args` (one line) → `argsLine`; today's `rawArgs` (whole) → `args`. Two facts unchanged, two names corrected. |
+| Kotlin mapping | storage unchanged (`args` = whole). The drawing call `RowText.oneLine` becomes a read of `argsLine` — that is where the clip rule leaves the client. |
+| an older response without the field | the client makes its own line from `args` (which is what it does today). So a migration that lands in stages does not break a screen: the new field is a BETTER line, not the only one a screen can have. |
+| whether `rawArgs` goes on the wire | **no.** With `args` whole, `rawArgs` is a second name for one fact, and all that remains is the cost of the two disagreeing (a response that fills one, a screen that reads the other). The declared-only field in Go goes away with the migration. |
+
+#### Two representative inputs — today and proposed
+
+**(1) Reading a file.** Tool `read`, arguments `{"path":"/repo/internal/adapter/idebridge/rows.go","offset":72}`.
+
+| | today |
+|---|---|
+| Go row | `text:"read"` · `args:"{\"path\":\"/repo/internal/adapter/idebridge/rows.go\",\"offset\":72}"` · `summary:"read /repo/internal/adapter/idebridge/rows.go"` · no `fileNav` (the fold does not fill it) |
+| TypeScript row | `text:"read"` · `args:"/repo/internal/adapter/idebridge/rows.go"` · `rawArgs:` the whole · `fileNav:{path:"/repo/internal/adapter/idebridge/rows.go", line:72}` |
+| Kotlin row | `tool:"read"` · `args:` the whole · drawn clipped by `RowText.oneLine` |
+
+Proposed bridge row: `args` whole · `argsLine:"/repo/internal/adapter/idebridge/rows.go"` ·
+`summary:"read /repo/internal/adapter/idebridge/rows.go"` ·
+`fileNav:{path:"/repo/internal/adapter/idebridge/rows.go", line:72}`. VS Code draws `argsLine` in the
+header, `args` behind the toggle, and links the path from `fileNav`. JetBrains draws `argsLine` in the
+header, `args` in the expanded body, and wires "go to file" from `fileNav`.
+
+⚠ **The supported contract for `fileNav` is the resolver's** (`clients/vscode/src/core/nav_tool.ts`).
+The path key is `path`, and the line key differs per tool: `read`→`offset`, `edit`→`at`,
+`show`·`mcp__vscode__show`·`mcp__jetbrains__show`→`line`. `write`·`multiedit`·`apply_edit`·`mcp__*__apply_edit`
+yield a path only. A line must be a positive 1-based integer, or only the path survives. `read_file`,
+`AbsolutePath` and `StartLine` are **not that contract** — a call arriving under those names produces no
+target.
+
+**(2) Running a command.** Tool `bash`, arguments `{"command":"go test ./...","cwd":"/repo"}`.
+
+| | today |
+|---|---|
+| Go row | `args:` the whole (both keys) · `summary:"bash go test ./..."` |
+| TypeScript row | `args:"go test ./..."` · `rawArgs:` the whole |
+| Kotlin row | `args:` the whole · drawn clipped |
+
+Proposed bridge row: `args` whole · `argsLine:"go test ./..."` · `summary:"bash go test ./..."` ·
+**no `fileNav`**. `bash` is not in the resolver's contract, and neither is an MCP tool whose name it
+does not know — only confirmed names produce a target.
+
+#### `outputId` — what it points at, and how long it lives
+
+Only the VS Code shaper produces this id today; Go declares it and nothing fills it.
+
+- **It points at a confirmed event.** An answer is `assistant:<seq>`, resolved only when the
+  `part.appended` at that seq is `role:"assistant"` and `kind:"text"`. A tool result is
+  `tool:<encodeURIComponent(callId)>:<resultSeq>`, binding **the call's id AND the result event's seq**.
+- **Several results for one `callId`** get different ids, because the bound `resultSeq` differs.
+- **A colon inside `callId`** cannot collide with the delimiters (`encodeURIComponent`), and an id
+  carrying unencoded delimiters is rejected by the parser.
+- **The scope is companion and session.** The document's address is
+  `magi-output:/<companion>/<session>/<kind>/<id>`, so the same id is a different document after a
+  session switch.
+- **Id stability and retention are different facts.** The id points at the same thing for as long as
+  the event is there — but the CONTENT is not cached, it is re-derived from the event list the client
+  holds (`resolveOutputItem(events, outputId)`). If that list no longer has the event, the lookup is
+  `null` and the open fails with a reason. Not a TTL: the question is whether that window still holds
+  that conversation's events.
+
+For the door to fill this field, two things have to be decided: who mints it (the door, and all three
+clients see one id; or the client, and whoever owns the documents keeps its own rule), and what the
+door can answer for (it knows the companion and the session; it does not know which window still holds
+which events). Today it is **a declared field**, and that is how it should be read.
 
 ## 8. What is left, and where it has to happen
 
