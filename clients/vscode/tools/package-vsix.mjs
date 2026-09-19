@@ -8,6 +8,36 @@ import { verifyVsixArchive } from './verify-vsix.mjs';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * How to run `npx` without a shell.
+ *
+ * ⚠ **`execFile('npx', …)` cannot work on Windows, and neither can the obvious fix.** Measured on
+ * this machine (Windows 11, Node 24.19):
+ *
+ *   execFile('npx', …)      → ENOENT   — npx is `npx.cmd`, and execFile/spawn do not consult
+ *                                         PATHEXT, so the name resolves to nothing.
+ *   execFile('npx.cmd', …)  → EINVAL   — Node refuses to spawn `.cmd`/`.bat` without `shell: true`
+ *                                         (the CVE-2024-27980 fix). So appending the extension,
+ *                                         which is what one tries next, fails differently.
+ *
+ * That left `npm run package` unable to build a VSIX on Windows at all, and four §5.8.5 tests red
+ * with `spawn npx ENOENT`.
+ *
+ * `shell: true` would work and is the third thing one tries — and it is the wrong one here. With a
+ * shell, Node joins argv into one command line WITHOUT quoting, so any path containing a space is
+ * torn apart; this very tool exists to pass `-o`/`--out` paths, and its own tests cover a target
+ * directory with spaces. Trading ENOENT for a quoting bug is not a fix.
+ *
+ * So the launcher is run the way any other JS CLI is: with the node binary we are already inside.
+ * `npx-cli.js` ships beside npm in every standard install, and running it needs no shell, no
+ * extension guessing, and no argv flattening. If it is somewhere this does not find it, the plain
+ * name is used — that is exactly the old behaviour, and it still works everywhere it used to.
+ */
+function npxCommand() {
+  const bundled = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npx-cli.js');
+  return existsSync(bundled) ? [process.execPath, bundled] : ['npx'];
+}
+
 const OPTIONS_WITH_VALUE = new Set([
   '-o', '--out',
   '-t', '--target',
@@ -186,9 +216,10 @@ export async function packageVsix(rawArgs = [], options = {}) {
 
   const vsceArgs = ['package', '--no-dependencies', ...normalizedArgs];
   const execAsync = options.execRunner || execFileAsync;
+  const [npxBin, ...npxPrefix] = npxCommand();
 
   try {
-    const { stdout, stderr } = await execAsync('npx', ['--yes', '@vscode/vsce', ...vsceArgs], {
+    const { stdout, stderr } = await execAsync(npxBin, [...npxPrefix, '--yes', '@vscode/vsce', ...vsceArgs], {
       cwd: rootDir,
       env: process.env,
     });

@@ -4,11 +4,99 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, mkdir, cp, readFile, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, cp, readFile, writeFile, stat, readdir } from 'node:fs/promises';
+import { crc32 } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import * as vm from 'node:vm';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Zip a staged `extension/` directory into a .vsix fixture — **in this process**, with no outside tool.
+ *
+ * ⚠ **`zip` is not a thing on Windows**, and the obvious substitutes are worse. Measured on this
+ * machine, 2026-09-19:
+ *
+ *   zip                 → ENOENT. Not a PATH accident: Git for Windows ships `unzip` and NOT `zip`,
+ *                         so even the usual POSIX-ish toolbox on a Windows dev box lacks it.
+ *   Compress-Archive    → writes the archive, but with **backslash path separators**. The ZIP format
+ *                         says forward slashes; Info-ZIP `unzip` warns ("appears to use backslashes
+ *                         as path separators") and exits 1, so the verifier under test rejects the
+ *                         fixture for being malformed — which it is. A fixture that feeds a verifier
+ *                         has to be a real archive, not one that happens to open.
+ *
+ * So the fixture is written here: store-only entries (method 0), forward slashes, CRC from zlib.
+ * A stored zip is an ordinary zip — `unzip` and the verifier read it the same as vsce's deflated
+ * one — and this is one code path on every platform, so it cannot drift between them.
+ */
+async function zipExtensionDir(stageDir: string, outVsixPath: string): Promise<void> {
+  const names: string[] = [];
+  const walk = async (dir: string, prefix: string): Promise<void> => {
+    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name < b.name ? -1 : 1)) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) await walk(path.join(dir, entry.name), rel);
+      else names.push(rel);
+    }
+  };
+  await walk(path.join(stageDir, 'extension'), 'extension');
+
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const name of names) {
+    const data = await readFile(path.join(stageDir, name));
+    const nameBuf = Buffer.from(name, 'utf8');
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);   // local file header
+    local.writeUInt16LE(20, 4);           // version needed
+    local.writeUInt16LE(0, 6);            // flags
+    local.writeUInt16LE(0, 8);            // method: stored
+    local.writeUInt16LE(0, 10);           // mod time — fixed, so the bytes are reproducible
+    local.writeUInt16LE(0x21, 12);        // mod date: 1980-01-01, the epoch the format allows
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    local.writeUInt16LE(0, 28);           // extra length
+    locals.push(local, nameBuf, data);
+
+    const dir = Buffer.alloc(46);
+    dir.writeUInt32LE(0x02014b50, 0);     // central directory header
+    dir.writeUInt16LE(20, 4);             // version made by
+    dir.writeUInt16LE(20, 6);             // version needed
+    dir.writeUInt16LE(0, 8);
+    dir.writeUInt16LE(0, 10);
+    dir.writeUInt16LE(0, 12);
+    dir.writeUInt16LE(0x21, 14);
+    dir.writeUInt32LE(crc, 16);
+    dir.writeUInt32LE(data.length, 20);
+    dir.writeUInt32LE(data.length, 24);
+    dir.writeUInt16LE(nameBuf.length, 28);
+    dir.writeUInt16LE(0, 30);             // extra
+    dir.writeUInt16LE(0, 32);             // comment
+    dir.writeUInt16LE(0, 34);             // disk
+    dir.writeUInt16LE(0, 36);             // internal attrs
+    dir.writeUInt32LE(0, 38);             // external attrs
+    dir.writeUInt32LE(offset, 42);        // offset of local header
+    central.push(dir, nameBuf);
+    offset += local.length + nameBuf.length + data.length;
+  }
+
+  const centralBuf = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);       // end of central directory
+  end.writeUInt16LE(0, 4);                // this disk
+  end.writeUInt16LE(0, 6);                // disk with central directory
+  end.writeUInt16LE(names.length, 8);
+  end.writeUInt16LE(names.length, 10);
+  end.writeUInt32LE(centralBuf.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);               // comment length
+
+  await mkdir(path.dirname(outVsixPath), { recursive: true });
+  await writeFile(outVsixPath, Buffer.concat([...locals, centralBuf, end]));
+}
 
 test('build-webview-assets: child process exits with code 1 and preserves existing bundles on any missing required input (§4.7 P2)', async () => {
   const bundlerScript = path.resolve(__dirname, '../../tools/build-webview-assets.mjs');
@@ -250,9 +338,6 @@ test('§5.8.5 VSIX package verification: rejects missing files via API and CLI w
 test('§5.8.5 VSIX regression tests: rejects license mismatch, bundle mismatch, forbidden files, and validates valid archive with spaces/custom version', async () => {
   const rootDir = path.resolve(__dirname, '..', '..');
   const { verifyVsixArchive } = await import(path.join(rootDir, 'tools', 'verify-vsix.mjs') as any);
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
-  const execFileAsync = promisify(execFile);
 
   const baseTempDir = await mkdtemp(path.join(tmpdir(), 'magi-vsix-reg-'));
   try {
@@ -321,7 +406,7 @@ test('§5.8.5 VSIX regression tests: rejects license mismatch, bundle mismatch, 
 
       // Create zip archive
       await mkdir(path.dirname(outVsixPath), { recursive: true });
-      await execFileAsync('zip', ['-rq', outVsixPath, 'extension'], { cwd: stageDir });
+      await zipExtensionDir(stageDir, outVsixPath);
       await rm(stageDir, { recursive: true, force: true });
     };
 
@@ -404,10 +489,6 @@ test('§5.8.5 VSIX regression tests: rejects license mismatch, bundle mismatch, 
 test('§5.8.5: verifyVsixArchive and test suite remain hermetic across three root VSIX states (absent, stale, corrupted)', async () => {
   const rootDir = path.resolve(__dirname, '..', '..');
   const { verifyVsixArchive } = await import(path.join(rootDir, 'tools', 'verify-vsix.mjs') as any);
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
-  const execFileAsync = promisify(execFile);
-
   const baseTempDir = await mkdtemp(path.join(tmpdir(), 'magi-vsix-hermetic-'));
   try {
     const mockRootDir = path.join(baseTempDir, 'mock-extension-root');
@@ -433,7 +514,7 @@ test('§5.8.5: verifyVsixArchive and test suite remain hermetic across three roo
     await cp(path.join(mockRootDir, 'THIRD_PARTY_LICENSES.txt'), path.join(extDir, 'THIRD_PARTY_LICENSES.txt'));
     await cp(path.join(mockRootDir, 'out', 'web', 'chat_adapter.bundle.js'), path.join(extDir, 'out', 'web', 'chat_adapter.bundle.js'));
     await cp(path.join(mockRootDir, 'out', 'web', 'markdown_render.js'), path.join(extDir, 'out', 'web', 'markdown_render.js'));
-    await execFileAsync('zip', ['-q', '-r', fixtureVsix, 'extension'], { cwd: stageDir });
+    await zipExtensionDir(stageDir, fixtureVsix);
 
     const rootVsixPath = path.join(mockRootDir, 'magi-0.2.0.vsix');
 
@@ -452,7 +533,7 @@ test('§5.8.5: verifyVsixArchive and test suite remain hermetic across three roo
     await cp(path.join(mockRootDir, 'THIRD_PARTY_LICENSES.txt'), path.join(staleStageDir, 'extension', 'THIRD_PARTY_LICENSES.txt'));
     await writeFile(path.join(staleExtDir, 'chat_adapter.bundle.js'), '/* stale mismatched code */');
     await writeFile(path.join(staleExtDir, 'markdown_render.js'), '/* stale markdown */');
-    await execFileAsync('zip', ['-q', '-r', rootVsixPath, 'extension'], { cwd: staleStageDir });
+    await zipExtensionDir(staleStageDir, rootVsixPath);
 
     const staleRootStatBefore = await stat(rootVsixPath);
     const res2 = await verifyVsixArchive(fixtureVsix, { rootDir: mockRootDir, expectedVersion: '0.2.0' });
@@ -677,9 +758,26 @@ test('§5.8.5: packageVsix executes vsce with normalized args, preserves directo
     });
 
     assert.equal(res.version, '0.2.0');
-    assert.equal(executedCommand, 'npx');
-    // Verify executedArgs has normalized options and no duplicate or leaked -t= / -o= tokens
-    assert.deepEqual(executedArgs, [
+    // How npx is LAUNCHED is platform-dependent and not what this test is about. It pinned the
+    // literal string 'npx', which cannot be the answer on Windows: `execFile('npx')` is ENOENT
+    // (npx is npx.cmd and execFile does not read PATHEXT) and `execFile('npx.cmd')` is EINVAL
+    // (Node refuses .cmd without a shell, CVE-2024-27980). The tool now runs npm's own npx-cli.js
+    // with the node binary already running — see npxCommand in tools/package-vsix.mjs.
+    //
+    // What this test IS about is the argument normalization below, so the launcher is pinned only
+    // to the two shapes the tool may legitimately produce.
+    //
+    // ⚠ The first version of this check was `!executedCommand.includes(' ')`, meaning "a program,
+    // not a command line" — and it failed on the node binary itself, which lives under
+    // `C:\Program Files\nodejs`. A space in a path is not a command line.
+    assert.ok(
+      executedCommand === 'npx' || /npx-cli\.js$/.test(executedArgs[0] ?? ''),
+      `the launcher must be npx or node running npm's npx-cli.js, got ${executedCommand} ${executedArgs[0] ?? ''}`,
+    );
+    // Verify executedArgs has normalized options and no duplicate or leaked -t= / -o= tokens.
+    // The npx launcher may prepend its own script path, so the vsce call is matched at the tail —
+    // that tail is the contract this tool owes vsce, whoever starts it.
+    assert.deepEqual(executedArgs.slice(-9), [
       '--yes',
       '@vscode/vsce',
       'package',

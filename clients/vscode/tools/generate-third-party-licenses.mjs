@@ -86,7 +86,18 @@ for (const pkg of sortedPackages) {
     process.exit(1);
   }
 
-  const licContent = fs.readFileSync(path.join(pkgDir, licFile), 'utf8').trim();
+  // 줄 끝은 **LF 로 통일한다** — 그러지 않으면 이 파일은 의존성이 무엇을 담아 왔느냐에 따라 달라지고,
+  // `--check` 는 바이트를 그대로 견주므로 그 차이가 곧 「낡았다」가 된다.
+  //
+  // ⚠ 실측 2026-09-19: `node_modules/tslib/LICENSE.txt` 은 **npm 타르볼 자체가 CRLF** 다(11줄).
+  // 같은 폴더의 rxjs·markdown-it 은 LF 다. 그래서 생성본은 CRLF 11줄을 담고, 커밋된 파일은 0줄이라
+  // `npm run package` 가 제 검사 문턱에서 멈춘다 — 「THIRD_PARTY_LICENSES.txt is outdated」. 아무도
+  // 아무것도 안 바꿨는데. 이 기계의 `core.autocrlf` 는 false 이고 이 경로에 `.gitattributes` 규칙도
+  // 없으니 git 이 손댄 것이 아니라, **의존성이 담아 온 바이트가 그대로 새어 나온 것**이다.
+  //
+  // 고지 내용은 바뀌지 않는다. 바뀌는 것은 같은 입력이 같은 출력을 낸다는 것뿐이고, 그것이 없으면
+  // 이 검사는 무엇을 지키는 검사가 아니라 어느 기계에서 만들었는지를 재는 검사다.
+  const licContent = fs.readFileSync(path.join(pkgDir, licFile), 'utf8').replace(/\r\n/g, '\n').trim();
 
   sections.push(
 `--------------------------------------------------------------------------------
