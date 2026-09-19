@@ -2,13 +2,11 @@ import { readFile, stat, mkdtemp, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractZip } from './zip-read.mjs';
 
-const execFileAsync = promisify(execFile);
 
 export class MockNode {
   nodeType = 1;
@@ -111,16 +109,26 @@ export async function verifyVsixArchive(vsixPath, options = {}) {
     expectedVersion = rootPkg.version;
   }
 
-  // 2. Unpack archive to an isolated temp directory using OS unzip
+  // 2. Unpack archive to an isolated temp directory, in this process.
+  //
+  // ⚠ This ran `unzip`, and the message it threw when it could not said what that cost: "requires
+  // the 'unzip' utility (standard on macOS and Linux/Ubuntu CI)". On Windows it is not standard —
+  // Git for Windows carries a copy, and a machine without Git could not verify a VSIX at all.
+  // Measured 2026-09-19: this one passed only because Git's copy happened to be on PATH.
+  //
+  // The integrity check is KEPT, not gained: every entry's CRC is compared against what the archive
+  // claims (see zip-read.mjs). ⚠ The first version of this comment said this was newly stricter
+  // than `unzip -q` — it is not. Measured by flipping one byte inside the compressed data of a real
+  // VSIX: unzip exits 2 and the reader here refuses with the entry's name. What changed is that the
+  // refusal is a Node error naming the file rather than an exit code to interpret, and that it
+  // happens on a machine with no unzip.
   const tempDir = await mkdtemp(path.join(tmpdir(), 'magi-vsix-verify-'));
+  let unpackedNames;
   try {
     try {
-      await execFileAsync('unzip', ['-q', resolvedVsixPath, '-d', tempDir]);
+      unpackedNames = await extractZip(resolvedVsixPath, tempDir);
     } catch (err) {
-      if (err.code === 'ENOENT') {
-        throw new Error(`OS unzip command not found in PATH (${process.env.PATH}). VSIX archive verification requires the 'unzip' utility (standard on macOS and Linux/Ubuntu CI). Failed while attempting to unpack: ${resolvedVsixPath}`);
-      }
-      throw new Error(`Failed to unpack VSIX archive with unzip at ${resolvedVsixPath}: ${err.stderr || err.message}`);
+      throw new Error(`Failed to unpack VSIX archive at ${resolvedVsixPath}: ${err.message}`);
     }
 
     // 3. Verify package.json in archive
@@ -265,14 +273,12 @@ export async function verifyVsixArchive(vsixPath, options = {}) {
     vm.createContext(browserSandbox);
     vm.runInContext(adapterJs, browserSandbox);
 
-    // 10. Count unpacked files
-    const { stdout: zipListOut } = await execFileAsync('unzip', ['-l', resolvedVsixPath]);
-    const lines = zipListOut.trim().split('\n');
-    let fileCount = 0;
-    const summaryMatch = /(\d+)\s+files?/.exec(lines[lines.length - 1]);
-    if (summaryMatch) {
-      fileCount = parseInt(summaryMatch[1], 10);
-    }
+    // 10. Count unpacked files.
+    //
+    // This used to run `unzip -l` a second time and scrape the count out of its summary line with a
+    // regex — a number read from a human-readable table, which is empty when the wording shifts. The
+    // unpack above already knows exactly which entries it wrote.
+    const fileCount = unpackedNames.length;
 
     return {
       version: unpackedPkg.version,
