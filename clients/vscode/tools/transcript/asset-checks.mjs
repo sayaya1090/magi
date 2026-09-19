@@ -32,8 +32,17 @@ export async function runAssetChecks(page, compiledHtml) {
   assert.equal(winUrl.pathname, '/C:/magi%20test%20dir%231/assets/');
   assert.equal(winUrl.hash, '');
 
+  // ⚠ **이 줄 하나가 이 레인 전체를 윈도우에서 못 돌게 하고 있었다.** 이 검사는 다른 여섯 묶음보다
+  // 앞서 돌고, 여기서 죽으면 40개 시나리오가 「did not run」으로 남는다 — 실측 2026-09-19, 이 기계에서
+  // 브라우저 레인이 한 번도 돈 적이 없던 이유다.
+  //
+  // 드라이브 문자가 없는 절대 경로를 `pathToFileURL` 은 윈도우에서 **현재 드라이브에 붙여** 푼다:
+  // `/tmp/…` → `file:///C:/tmp/…`. 그것은 node 가 옳게 하는 일이고, 이 검사가 재려던 것도 드라이브가
+  // 아니라 **인코딩**이다 — 공백이 %20 이 되고 `#` 가 %23 이 되어 조각(fragment)으로 잘리지 않는지.
+  // 그래서 드라이브 앞자리는 있으면 허용하고, 재려던 것만 그대로 잰다.
   const posixUrl = toDirectoryUrl('/tmp/magi test dir#1/assets');
-  assert.equal(posixUrl.pathname, '/tmp/magi%20test%20dir%231/assets/');
+  assert.match(posixUrl.pathname, /^(\/[a-zA-Z]:)?\/tmp\/magi%20test%20dir%231\/assets\/$/,
+    `포함해야 할 것은 인코딩이다: ${posixUrl.pathname}`);
   assert.equal(posixUrl.hash, '');
 
   // 2. Preflight check in an isolated temporary directory asserting exit code 1, missing path, and build instruction (§2.3)
