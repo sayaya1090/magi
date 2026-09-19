@@ -848,3 +848,112 @@ test('§5.8.5: packageVsix preserves error properties on packaging failure', asy
     }
   );
 });
+
+test('§5.9 P2: verifyVsixArchive and zip-read reject unsupported encryption, ZIP64, split archives, truncated files, and size mismatches', async () => {
+  const rootDir = path.resolve(__dirname, '..', '..');
+  const { verifyVsixArchive } = await import(path.join(rootDir, 'tools', 'verify-vsix.mjs') as any);
+
+  const baseTempDir = await mkdtemp(path.join(tmpdir(), 'magi-zip-read-p2-'));
+  try {
+    // 1. Build a valid minimal staged extension fixture
+    const stageDir = path.join(baseTempDir, 'stage');
+    const extDir = path.join(stageDir, 'extension');
+    await mkdir(path.join(extDir, 'out', 'web'), { recursive: true });
+    await writeFile(path.join(extDir, 'package.json'), JSON.stringify({ name: 'magi', version: '0.2.0', publisher: 'sayaya1090' }, null, 2));
+    await cp(path.join(rootDir, 'LICENSE'), path.join(extDir, 'LICENSE.txt'));
+    await cp(path.join(rootDir, 'THIRD_PARTY_LICENSES.txt'), path.join(extDir, 'THIRD_PARTY_LICENSES.txt'));
+    if (existsSync(path.join(rootDir, 'core-release.properties'))) {
+      await cp(path.join(rootDir, 'core-release.properties'), path.join(extDir, 'core-release.properties'));
+    }
+    await cp(path.join(rootDir, 'out', 'web', 'chat_adapter.bundle.js'), path.join(extDir, 'out', 'web', 'chat_adapter.bundle.js'));
+    await cp(path.join(rootDir, 'out', 'web', 'markdown_render.js'), path.join(extDir, 'out', 'web', 'markdown_render.js'));
+
+    const validVsixPath = path.join(baseTempDir, 'valid.vsix');
+    await zipExtensionDir(stageDir, validVsixPath);
+
+    // Verify baseline passes
+    const baseline = await verifyVsixArchive(validVsixPath, { rootDir, expectedVersion: '0.2.0' });
+    assert.equal(baseline.version, '0.2.0');
+    assert.ok(baseline.fileCount >= 5);
+
+    const validBuf = await readFile(validVsixPath);
+    const eocdOffset = validBuf.length - 22;
+    const cdOffset = validBuf.readUInt32LE(eocdOffset + 16);
+    const localOffset = validBuf.readUInt32LE(cdOffset + 42);
+    const firstNameLen = validBuf.readUInt16LE(cdOffset + 28);
+    const firstName = validBuf.subarray(cdOffset + 46, cdOffset + 46 + firstNameLen).toString('utf8');
+
+    // 2. Encryption: bit 0 in central directory header
+    const encCentralBuf = Buffer.from(validBuf);
+    encCentralBuf.writeUInt16LE(encCentralBuf.readUInt16LE(cdOffset + 8) | 1, cdOffset + 8);
+    const encCentralPath = path.join(baseTempDir, 'enc-central.vsix');
+    await writeFile(encCentralPath, encCentralBuf);
+    await assert.rejects(
+      async () => verifyVsixArchive(encCentralPath, { rootDir }),
+      new RegExp(`encrypted entries are not supported: ${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    );
+
+    // 3. Encryption: bit 0 in local header only (flag mismatch)
+    const encLocalBuf = Buffer.from(validBuf);
+    encLocalBuf.writeUInt16LE(encLocalBuf.readUInt16LE(localOffset + 6) | 1, localOffset + 6);
+    const encLocalPath = path.join(baseTempDir, 'enc-local.vsix');
+    await writeFile(encLocalPath, encLocalBuf);
+    await assert.rejects(
+      async () => verifyVsixArchive(encLocalPath, { rootDir }),
+      new RegExp(`encrypted entries are not supported: ${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    );
+
+    // 4. Size mismatch: uncompressed size in central directory increased by 1
+    const sizeMismatchBuf = Buffer.from(validBuf);
+    const origSize = sizeMismatchBuf.readUInt32LE(cdOffset + 24);
+    sizeMismatchBuf.writeUInt32LE(origSize + 1, cdOffset + 24);
+    const sizeMismatchPath = path.join(baseTempDir, 'size-mismatch.vsix');
+    await writeFile(sizeMismatchPath, sizeMismatchBuf);
+    await assert.rejects(
+      async () => verifyVsixArchive(sizeMismatchPath, { rootDir }),
+      new RegExp(`size mismatch for ${firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    );
+
+    // 5. Truncated payload
+    const truncPayloadBuf = validBuf.subarray(0, validBuf.length - 80);
+    const truncPayloadPath = path.join(baseTempDir, 'truncated-payload.vsix');
+    await writeFile(truncPayloadPath, truncPayloadBuf);
+    await assert.rejects(
+      async () => verifyVsixArchive(truncPayloadPath, { rootDir }),
+      /no end-of-central-directory|truncated/
+    );
+
+    // 6. Truncated local header payload
+    const truncEntryBuf = Buffer.from(validBuf);
+    truncEntryBuf.writeUInt32LE(validBuf.length - 10, cdOffset + 42);
+    const truncEntryPath = path.join(baseTempDir, 'truncated-entry.vsix');
+    await writeFile(truncEntryPath, truncEntryBuf);
+    await assert.rejects(
+      async () => verifyVsixArchive(truncEntryPath, { rootDir }),
+      /truncated local header/
+    );
+
+    // 7. Split archive markers (diskNumber > 0 in EOCD)
+    const splitBuf = Buffer.from(validBuf);
+    splitBuf.writeUInt16LE(1, eocdOffset + 4);
+    const splitPath = path.join(baseTempDir, 'split-archive.vsix');
+    await writeFile(splitPath, splitBuf);
+    await assert.rejects(
+      async () => verifyVsixArchive(splitPath, { rootDir }),
+      /split zip archives are not supported/
+    );
+
+    // 8. ZIP64 marker (EOCD cdSize = 0xffffffff)
+    const zip64Buf = Buffer.from(validBuf);
+    zip64Buf.writeUInt32LE(0xffffffff, eocdOffset + 12);
+    const zip64Path = path.join(baseTempDir, 'zip64-archive.vsix');
+    await writeFile(zip64Path, zip64Buf);
+    await assert.rejects(
+      async () => verifyVsixArchive(zip64Path, { rootDir }),
+      /zip64 archives are not supported/
+    );
+  } finally {
+    await rm(baseTempDir, { recursive: true, force: true });
+  }
+});
+
