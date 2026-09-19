@@ -268,6 +268,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     })
     .catch((err) => {
       console.error(`✗ Packaging or verification FAILED: ${err.message}`);
-      process.exit(err.code || 1);
+      process.exit(typeof err.code === 'number' ? err.code : 1);
     });
 }

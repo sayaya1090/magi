@@ -829,5 +829,22 @@ test('§5.8.5: packageVsix real vsce packaging for -o=artifact, -t=linux-x64, an
   }
 });
 
+test('§5.8.5: packageVsix preserves error properties on packaging failure', async () => {
+  const rootDir = path.resolve(__dirname, '..', '..');
+  const { packageVsix } = await import(path.join(rootDir, 'tools', 'package-vsix.mjs') as any);
+  const mockExec = async (_cmd: string, _args: string[], _opts?: any) => {
+    const err: any = new Error('spawn npx ENOENT');
+    err.code = 'ENOENT';
+    throw err;
+  };
 
-
+  await assert.rejects(
+    async () => {
+      await packageVsix([], { rootDir, execRunner: mockExec });
+    },
+    (err: any) => {
+      assert.equal(err.code, 'ENOENT');
+      return true;
+    }
+  );
+});
