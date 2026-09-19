@@ -234,6 +234,40 @@ sequenceDiagram
 
 **그래서 이관의 첫 결정은 전송로가 아니라 어휘입니다.** 순서대로: 한 줄 인자 형태를 전선에 이름 붙이기(또는 클라이언트가 다시 유도하는 것을 받아들이기) · 클라이언트가 채우는 칸 셋을 각각 정하기 · 그다음 클라이언트를 그 결과 위로 옮기기. 옮기는 일을 **측정**으로 만드는 대조는 이미 서 있습니다 — `CanonicalFoldTest` 가 종류·구조 칸·대기 표시·사건 시각을 이 접기의 골든과 맞추고, 픽스처에는 진짜 데몬이 낸 모양(큐잉된 질문이 새 이름으로 되살아나는 것)이 들어 있습니다.
 
+### 7.1 도구 인자 및 전사 어휘 비교표 (Go · TypeScript · Kotlin)
+
+세 구현체가 들고 있는 `Row`의 도구 및 보조 필드를 대조한 결과입니다. 브리지 전환 시 클라이언트가 제멋대로 다시 자르거나 빈 칸을 읽지 않도록 생성 책임과 의미를 명확히 규정합니다.
+
+| 필드명 | Go (`idebridge.Row`) | TypeScript (`transcript.Row`) | Kotlin (`usecase.Row`) | 생성 책임 및 일원화 방향 |
+|---|---|---|---|---|
+| `args` | **인자 전문** (JSON/원문 전체) | **한 줄 요약** (`askedFor`) | **한 줄 요약** (`asked`) | ⚠ **의미 불일치 핵심.** 전선에서는 `args`를 한 줄 요약으로 정의하거나, 브리지 전선에 `summaryArgs`를 신설하고 `args`는 원문으로 유지하는 결정을 확정해야 함. |
+| `rawArgs` | 선언됨 (미채움, `omitempty`) | **인자 전문** (원문 전체) | 미선언 (`BridgeRow`에만 존재) | 브리지 셰이퍼가 도구 호출 원문을 그대로 보존하여 공급함. UI의 펼침 토글(`…`) 대상. |
+| `summary` | **행 전체 한 줄 요약** (`도구+인자`) | 미선언 | 미선언 | 경량 클라이언트·목록 전사용. 도구 이름과 인자가 결합된 형태이므로 분리 렌더링 UI용 단독 인자 요약(`askedLine`)과 구분. |
+| `fileNav` | 선언됨 (`FileNav` 포인터, 미채움) | **구조화 파일/줄 정보** (`FileNav`) | 미선언 (`BridgeRow`에만 존재) | 도구 계약(read/edit/write 등) 파싱 규칙을 브리지 코어로 이관하여 단일 생성. `파일:줄` 링크로 에디터 네이티브 이동 연결. |
+| `outputId` | 선언됨 (미채움, `omitempty`) | **가상 문서 식별자** (`outputId`) | 미선언 (`BridgeRow`에만 존재) | 긴 출력물·답변 전문을 읽기 전용 가상 문서(`magi-output:`)로 열기 위한 세션 귀속 ID. 세션 수명 동안 불변. |
+
+#### 대표 도구 이벤트 변환 예시
+
+1. **명령어 실행 (`bash`):**
+   - 도구 인자: `{"command": "go test ./..."}`
+   - 브리지 생성 기대값:
+     - `tool`: `"bash"`
+     - `args`: `"go test ./..."` (한 줄 요약)
+     - `rawArgs`: `"{\"command\": \"go test ./...\"}"` (인자 전문)
+     - `summary`: `"bash go test ./..."` (행 전체 요약)
+     - `fileNav`: `null`
+   - UI 변환: 헤더에 `bash` 뱃지와 `go test ./...`를 인라인 표시하고, `…` 토글 시 `rawArgs` 블록을 펼침.
+
+2. **파일 조회 (`read_file`):**
+   - 도구 인자: `{"AbsolutePath": "/repo/internal/adapter/idebridge/rows.go", "StartLine": 72}`
+   - 브리지 생성 기대값:
+     - `tool`: `"read_file"`
+     - `args`: `"/repo/internal/adapter/idebridge/rows.go:72"`
+     - `rawArgs`: `"{\"AbsolutePath\": \"...\", \"StartLine\": 72}"`
+     - `fileNav`: `{"path": "/repo/internal/adapter/idebridge/rows.go", "line": 72}`
+   - UI 변환: `fileNav` 객체를 통해 `rows.go:72` 링크 버튼(`file-nav-btn`)을 생성하고 클릭 시 에디터 해당 줄로 즉시 이동.
+
+
 ## 8. 남은 것과, 어디서 해야 하는가
 
 | 작업 항목 | 수행 환경 및 고려 사항 |

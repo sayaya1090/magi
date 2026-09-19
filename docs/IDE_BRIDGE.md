@@ -396,6 +396,40 @@ measurement is in place — `CanonicalFoldTest` now holds the kinds, the structu
 marks and the event time against this fold's own golden, on a fixture that includes the shape a real
 daemon produced (a queued question resurfaced under a new name).
 
+### 7.1 Comparison of tool argument and transcript vocabulary (Go · TypeScript · Kotlin)
+
+The three implementations currently disagree on the meaning and contents of the shared `Row` fields. The table below records the differences so the bridge transition does not leave clients re-parsing strings or reading empty fields.
+
+| Field | Go (`idebridge.Row`) | TypeScript (`transcript.Row`) | Kotlin (`usecase.Row`) | Derivation responsibility and resolution |
+|---|---|---|---|---|
+| `args` | **Full arguments** (complete JSON/raw text) | **One-line summary** (`askedFor`) | **One-line summary** (`asked`) | ⚠ **Core semantic inversion.** The wire must either standardize `args` as the one-line summary, or introduce `summaryArgs` on the wire while retaining `args` for unabridged arguments. |
+| `rawArgs` | Declared (unfilled, `omitempty`) | **Full arguments** (unabridged raw) | Not declared (in `BridgeRow` only) | The bridge shaper preserves and supplies the exact tool call arguments. Used by the UI's `…` expand toggle. |
+| `summary` | **Whole row one-line form** (`tool+args`) | Not declared | Not declared | For lightweight clients and list views. Because it combines the tool name and argument line, it must not be confused with the standalone argument summary (`askedLine`). |
+| `fileNav` | Declared (`FileNav` pointer, unfilled) | **Structured file/line target** (`FileNav`) | Not declared (in `BridgeRow` only) | Tool contract parsing (read/edit/write) moves into the bridge core to establish a single rule. Powers native editor jump links (`file:line`). |
+| `outputId` | Declared (unfilled, `omitempty`) | **Virtual document ID** (`outputId`) | Not declared (in `BridgeRow` only) | Scoped ID minted to open long tool outputs or answers in read-only virtual documents (`magi-output:` scheme). Immutable for the lifetime of the session. |
+
+#### Concrete tool event conversion examples
+
+1. **Command execution (`bash`):**
+   - Tool arguments: `{"command": "go test ./..."}`
+   - Expected bridge derivation:
+     - `tool`: `"bash"`
+     - `args`: `"go test ./..."` (one-line summary)
+     - `rawArgs`: `"{\"command\": \"go test ./...\"}"` (full arguments)
+     - `summary`: `"bash go test ./..."` (whole row summary)
+     - `fileNav`: `null`
+   - UI rendering: Displays `bash` badge and `go test ./...` inline, with `…` toggle expanding the `rawArgs` block.
+
+2. **File inspection (`read_file`):**
+   - Tool arguments: `{"AbsolutePath": "/repo/internal/adapter/idebridge/rows.go", "StartLine": 72}`
+   - Expected bridge derivation:
+     - `tool`: `"read_file"`
+     - `args`: `"/repo/internal/adapter/idebridge/rows.go:72"`
+     - `rawArgs`: `"{\"AbsolutePath\": \"...\", \"StartLine\": 72}"`
+     - `fileNav`: `{"path": "/repo/internal/adapter/idebridge/rows.go", "line": 72}`
+   - UI rendering: Uses `fileNav` to render an actionable `rows.go:72` button (`file-nav-btn`) that opens the target file and line directly in the editor.
+
+
 ## 8. What is left, and where it has to happen
 
 | | where |
