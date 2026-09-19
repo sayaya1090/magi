@@ -89,19 +89,14 @@ export class Companion implements vscode.Disposable {
   get version(): string { return this.built; }
 
   /**
-   * Which doors this companion advertises — **null when we could not ask at all.**
+   * Which doors this companion advertises — **null when capabilities could not be verified.**
    *
    * ⚠ **An empty set is not an answer, and it used to be returned as one.** When nothing is
-   * listening, `about` comes back null and this returned `new Set()`; every caller then read that
-   * as "asked, and it does not offer that". Measured 2026-09-19 with the daemon stopped:
-   * `magi: Start a new conversation` said **"this companion does not offer opening a new
-   * conversation."** — about a companion that was not running. The same empty set also told the
-   * handoff picker that this build "cannot list the others on this machine", and the editor hand
-   * logged a missing `tool-servers` door.
+   * listening, or when `about` fails/refuses, `about?.ok` is false and this returns null so callers
+   * can tell "could not read companion capabilities" apart from "connected, but does not offer that door".
    *
-   * Three sentences, all of them inventing a fact about a build nobody managed to speak to. What
-   * this knows when the ask fails is one thing — that it could not ask — so it says that, and the
-   * callers get to tell the two apart.
+   * Failure (null) is not cached: we could not verify, and that may change when the daemon becomes
+   * reachable. A successful response is cached until restarted or refreshed.
    */
   async caps(): Promise<Set<string> | null> {
     if (this.capsSeen) return this.capsSeen;

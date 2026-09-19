@@ -48,7 +48,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
     // ⚠ **"We could not ask" is not "it does not offer".** See `Workspace.caps`: a stopped daemon
     // used to arrive here as an empty set, and this said the build lacked the door.
     if (caps === null) {
-      void vscode.window.showWarningMessage('magi: no companion is listening on this workspace.');
+      void vscode.window.showWarningMessage('magi: could not read companion capabilities; check the connection and retry.');
       return false;
     }
     if (caps.has(cap)) return true;

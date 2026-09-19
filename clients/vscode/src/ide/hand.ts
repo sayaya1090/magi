@@ -28,7 +28,7 @@ export class EditorHand implements Ide, vscode.Disposable {
   async offer(): Promise<void> {
     const caps = await this.companion.caps();
     if (caps === null) {
-      this.why = 'no companion is listening on this workspace yet';
+      this.why = 'could not read companion capabilities; check the connection and retry';
       return;
     }
     if (!caps.has('tool-servers')) {

@@ -31,7 +31,7 @@ export class HandOff implements vscode.Disposable {
   private async ask(): Promise<void> {
     const caps = await this.companion.caps();
     if (caps === null) {
-      void vscode.window.showWarningMessage('magi: no companion is listening on this workspace.');
+      void vscode.window.showWarningMessage('magi: could not read companion capabilities; check the connection and retry.');
       return;
     }
     if (!caps.has('roster')) {
