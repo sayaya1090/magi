@@ -60,7 +60,28 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 		case <-expired:
 			// The tool degrades to "decide for yourself", which is what it does anywhere there is
 			// no human — but the agent is TOLD, so it does not treat silence as an answer.
-			return "", fmt.Errorf("nobody answered within %s; no UI is attached — decide for yourself and say which way you went", a.answerBound(sid))
+			//
+			// ⚠ **It used to add "no UI is attached", and nothing here ever checked that.** This
+			// path knows one thing — the wait ran out — and the bound it ran out on exists FOR an
+			// attached UI (cmd/magi: daemonAnswerWait, "how long a daemon holds an AUTO-mode prompt
+			// open for an attached UI"). So the clause was a guess, and on 2026-09-19 it was measured
+			// false in the most expensive way: a person was sitting in front of the VS Code panel
+			// looking at the three choice buttons this very question had drawn, and did not answer
+			// inside three minutes.
+			//
+			// The cost was not the wording. The model reads this as a tool result, and the council
+			// then reasoned FROM it — one member wrote "현재 환경에서는 UI가 없기 때문에 ask_user
+			// 도구가 실제 응답을 받을 수 없습니다" and marked the requirement satisfied on that
+			// basis, while the others marked it unsatisfied on the same evidence; the closing call
+			// recorded the contradiction and the turn went round again. A sentence the code cannot
+			// support turned "nobody answered in time" into "this environment has no UI", and the
+			// run acted on the second.
+			//
+			// So it says what it knows. Whether the wait should fire at all while a viewer is
+			// subscribed is a separate question — the bound is deliberately finite because a viewer
+			// closed hours ago must not stop the agent for ever — and it belongs with whoever
+			// decides that policy, not with this message.
+			return "", fmt.Errorf("nobody answered within %s — decide for yourself and say which way you went", a.answerBound(sid))
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}

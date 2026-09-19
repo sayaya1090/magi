@@ -10,6 +10,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // A daemon can be asked, because a UI can attach to it — but the UI may also never come, or come
@@ -295,5 +296,43 @@ func TestUnderAskAPromptWaitsForAPerson(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("cancelling the turn did not release the prompt")
+	}
+}
+
+// **기한이 지났을 때 하는 말은, 아는 것만이어야 한다** — 「붙어 있는 UI 가 없다」는 이 경로가 확인하지
+// 않는 사실이다.
+//
+// ⚠ 이 문구가 비싸게 틀렸다(실측 2026-09-19). 사람이 VS Code 패널 앞에 앉아 **이 질문이 그린 선택지
+// 버튼 셋을 보면서** 3분 안에 답을 안 했다. 그때 도구가 모델에게 돌려준 것이 「no UI is attached」였고,
+// 카운슬이 **그것을 근거로 추론했다** — 한 멤버는 「현재 환경에서는 UI가 없기 때문에 ask_user 도구가
+// 실제 응답을 받을 수 없습니다」라며 요구사항을 충족으로 판정하고, 나머지 둘은 같은 증거로 미충족을
+// 냈다. 닫는 호출이 그 모순을 적고 턴은 다시 돌았다. 「제때 아무도 안 답했다」가 「이 환경엔 UI 가
+// 없다」로 바뀌었고, 실행은 뒤엣것을 믿고 움직였다.
+//
+// 그리고 이 기한은 **붙어 있는 UI 를 위해** 있는 것이다(`cmd/magi`: daemonAnswerWait — 「how long a
+// daemon holds an AUTO-mode prompt open for an attached UI」). 그러니 그 절은 추측이었고, 하필 그
+// 반대가 참이었다.
+func TestTheExpiredPromptSaysOnlyWhatItKnows(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{AnswerWait: 30 * time.Millisecond, Permission: "auto", Interactive: true})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	ask := a.askUserFn(context.Background(), session.Session{ID: sid}, 0,
+		&session.ToolCall{CallID: "q_late", Name: "ask_user"})
+
+	_, err := ask(port.Question{Text: "묻고 기다린다", Options: []string{"예", "아니오"}})
+	if err == nil {
+		t.Fatal("기한이 지났는데 오류 없이 돌아왔다 — 침묵이 답으로 읽힌다")
+	}
+	got := err.Error()
+	// 아는 것: 기다렸고, 얼마나 기다렸고, 이제 스스로 정하라는 것.
+	if !strings.Contains(got, "nobody answered within") {
+		t.Errorf("무엇이 일어났는지 안 말한다: %q", got)
+	}
+	if !strings.Contains(got, "decide for yourself") {
+		t.Errorf("모델이 다음에 무엇을 할지 안 말한다 — 침묵을 답으로 읽을 수 있다: %q", got)
+	}
+	// 모르는 것: 화면이 붙어 있는지. 이 경로에 그것을 보는 코드가 없다.
+	if strings.Contains(got, "no UI") || strings.Contains(got, "UI is attached") {
+		t.Errorf("확인하지 않은 사실을 단언한다 — 붙어 있는 화면 앞에서 이 문장이 카운슬의 결론을 "+
+			"바꿨다: %q", got)
 	}
 }
