@@ -89,17 +89,24 @@ export class Companion implements vscode.Disposable {
   get version(): string { return this.built; }
 
   /**
-   * What this daemon says it answers.
+   * Which doors this companion advertises — **null when we could not ask at all.**
    *
-   * Read once and kept: `about` is a handshake, not a poll. A client that called a door the
-   * advertisement did not name would get a refusal and have no way to tell an old build from an
-   * engine that will not do it — which is the decision capabilities exist for, and it is made
-   * before anybody presses anything.
+   * ⚠ **An empty set is not an answer, and it used to be returned as one.** When nothing is
+   * listening, `about` comes back null and this returned `new Set()`; every caller then read that
+   * as "asked, and it does not offer that". Measured 2026-09-19 with the daemon stopped:
+   * `magi: Start a new conversation` said **"this companion does not offer opening a new
+   * conversation."** — about a companion that was not running. The same empty set also told the
+   * handoff picker that this build "cannot list the others on this machine", and the editor hand
+   * logged a missing `tool-servers` door.
+   *
+   * Three sentences, all of them inventing a fact about a build nobody managed to speak to. What
+   * this knows when the ask fails is one thing — that it could not ask — so it says that, and the
+   * callers get to tell the two apart.
    */
-  async caps(): Promise<Set<string>> {
+  async caps(): Promise<Set<string> | null> {
     if (this.capsSeen) return this.capsSeen;
     const about = await this.ask('about');
-    if (!about?.ok) return new Set();       // not cached: we could not ask, and that may change
+    if (!about?.ok) return null;            // not cached: we could not ask, and that may change
     // The build this companion is running. Kept from the same handshake rather than asked for
     // again: it cannot change without the process restarting, and a restart re-reads this anyway.
     this.built = (about.version ?? '').trim();

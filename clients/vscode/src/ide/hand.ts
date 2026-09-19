@@ -26,7 +26,12 @@ export class EditorHand implements Ide, vscode.Disposable {
    * notification for it would fire on every second window.
    */
   async offer(): Promise<void> {
-    if (!(await this.companion.caps()).has('tool-servers')) {
+    const caps = await this.companion.caps();
+    if (caps === null) {
+      this.why = 'no companion is listening on this workspace yet';
+      return;
+    }
+    if (!caps.has('tool-servers')) {
       this.why = 'this companion cannot take an editor hand (no tool-servers door)';
       return;
     }

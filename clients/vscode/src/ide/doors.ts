@@ -45,6 +45,12 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
    */
   const has = async (cap: string, what: string): Promise<boolean> => {
     const caps = await companion.caps();
+    // ⚠ **"We could not ask" is not "it does not offer".** See `Workspace.caps`: a stopped daemon
+    // used to arrive here as an empty set, and this said the build lacked the door.
+    if (caps === null) {
+      void vscode.window.showWarningMessage('magi: no companion is listening on this workspace.');
+      return false;
+    }
     if (caps.has(cap)) return true;
     void vscode.window.showWarningMessage(`magi: this companion does not offer ${what}.`);
     return false;

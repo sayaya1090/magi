@@ -42,7 +42,8 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     // Each of these is a door the daemon may or may not have. `about` says which, and a door that
     // is not advertised is not called — reading a refusal to find out is how a client learns to
     // draw an empty panel for an old build.
-    const caps = await this.companion.caps();
+    // Nothing to talk to draws nothing — the same panel an old build with no doors draws.
+    const caps = (await this.companion.caps()) ?? new Set<string>();
     const [jobs, ctx, fleet, cron] = await Promise.all([
       caps.has('job-kill') ? this.companion.ask('jobs') : null,
       /**
