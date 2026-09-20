@@ -7,7 +7,7 @@ import { createA11yBundle } from './scenarios/a11y.mjs';
 import { markdownBundle } from './scenarios/markdown.mjs';
 
 export const EXPECTED_BUNDLE_COUNTS = {
-  layout: 6,
+  layout: 7,
   asks: 14,
   autocomplete: 2,
   diff: 13,
@@ -15,12 +15,12 @@ export const EXPECTED_BUNDLE_COUNTS = {
   markdown: 1,
 };
 
-export const TOTAL_EXPECTED_SCENARIOS = 44;
+export const TOTAL_EXPECTED_SCENARIOS = 45;
 
 /**
  * Validates bundle registry invariants (§5.8.6):
  * 1. Exactly 6 bundles in expected order: layout, asks, autocomplete, diff, a11y, markdown
- * 2. Exact scenario count per bundle (6, 14, 2, 13, 8, 1 = 44)
+ * 2. Exact scenario count per bundle (7, 14, 2, 13, 8, 1 = 45)
  * 3. Zero duplicate scenario IDs
  * 4. Zero missing scenario IDs
  *

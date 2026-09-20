@@ -3,48 +3,115 @@ import { createRowsMessage, createStateMessage } from '../../transcript-fixtures
 
 export const layoutScenarios = [
       {
-        id: 'layout_state_note_and_transient_note_do_not_erase_each_other',
-        name: '지속 안내(#state-note)와 일시 알림(#note)이 서로를 안 지운다 (§6.9)',
+        id: 'layout_state_note_survives_the_real_transient_notice',
+        name: '실제 전송이 만든 일시 알림이 4초로 만료돼도 지속 안내와 시작 단추가 남는다 (§6.9)',
         run: async (page) => {
-          /* 둘이 한 칸에 살던 동안 서로를 지웠다: 컴패니언이 죽어 「없습니다」와 시작 단추가 떠
-             있을 때 무언가 보내면 그것이 덮이고, 4초 뒤 타이머가 지우고, **다음 state 사건이 올
-             때까지 안 돌아왔다.** 그래서 여기서 재는 것은 「문구가 뜨나」가 아니라 **교차 전이**다. */
-          const stateText = () => page.locator('#state-note').textContent();
-          const noteText = () => page.locator('#note').textContent();
-          const startBtn = () => page.locator('#state-note button');
+          /* ⚠ **일시 알림을 손으로 짓지 않는다.** 앞 판은 `#note` 의 글자를 직접 넣고 직접 지운 것을
+             「만료」라고 단언했다 — 생산자도 타이머도 안 지나므로 그 경로가 퇴행해도 초록이었다.
+             재는 도구가 재려는 것을 비켜 가 있었다. 여기서는 **사람이 하는 대로** 입력줄에 쓰고
+             Send 를 눌러 `sending…` 을 만들고, **그 타이머가 실제로 만료**하게 둔다.
 
-          for (const rows of [[], [{ who: 'agent', label: 'magi', text: 'turn 1' }]]) {
-            // 행 0 과 행 n 에서 같은 경로를 각각 밟는다 — 행이 있으면 안내가 다른 자리로 가지 않는다.
-            await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({ rows }));
+             시계는 Playwright 로 진행시킨다: 타이머는 4000ms 하드코딩이고, 조합 넷을 실시간으로
+             기다리면 이 묶음 혼자 16초를 쓴다. `install()` 뒤 `runFor` 로 진행시키고 **반드시
+             `resume()` 으로 되돌린다** — 이 판은 묶음 안에서 page 를 공유하므로, 멈춘 시계를 두고
+             나가면 뒤 시나리오가 제 타이머를 못 본다. */
+          await page.clock.install();
+          try {
+            for (const rows of [[], [{ who: 'agent', label: 'magi', text: 'turn 1' }]]) {
+              for (const [state, text] of [
+                ['not-running', '이 폴더에서 도는 컴패니언이 없습니다.'],
+                ['unknown', '컴패니언 상태를 아직 알 수 없습니다.'],
+              ]) {
+                const where = `행 ${rows.length}·${state}`;
+                await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({ rows }));
+                await page.evaluate((msg) => window.postMessage(msg, '*'),
+                  createStateMessage(state, { text, offerStart: true }));
+                await page.waitForFunction((t) => document.querySelector('#state-note')?.textContent?.includes(t) === true, text);
+                assert.equal(await page.locator('#state-note button').count(), 1, `${where}: 시작 단추가 지속 안내에 붙는다`);
+
+                // 진짜 생산자: 사람이 쓰고 보낸다.
+                await page.locator('#say').fill('일시 알림을 만드는 실제 전송');
+                await page.locator('#send').click();
+                await page.waitForFunction(() => document.querySelector('#note')?.textContent === 'sending…');
+                assert.ok((await page.locator('#state-note').textContent()).includes(text), `${where}: 일시 알림이 지속 안내를 안 덮는다`);
+                assert.equal(await page.locator('#state-note button').count(), 1, `${where}: 일시 알림이 시작 단추를 안 지운다`);
+
+                // 진짜 타이머가 만료한다 — 글자를 지우지도, 콜백을 베껴 부르지도 않는다.
+                await page.clock.runFor(4100);
+                await page.waitForFunction(() => document.querySelector('#note')?.textContent === '');
+                assert.ok((await page.locator('#state-note').textContent()).includes(text), `${where}: 만료 뒤에도 지속 안내가 남는다`);
+                assert.equal(await page.locator('#state-note button').count(), 1, `${where}: 만료 뒤에도 시작 단추가 남는다`);
+              }
+            }
+
+            /* 호스트가 보내는 note 는 **타이머가 없다.** 같은 만료를 가정하지 않는다 — 가정하면
+               「안 지워졌다」가 통과의 근거가 되고, 그건 아무것도 안 잰 것이다. */
             await page.evaluate((msg) => window.postMessage(msg, '*'),
               createStateMessage('not-running', { text: '이 폴더에서 도는 컴패니언이 없습니다.', offerStart: true }));
-            await page.waitForFunction(() => document.querySelector('#state-note')?.textContent?.includes('컴패니언이 없습니다') === true);
-            assert.equal(await startBtn().count(), 1, `행 ${rows.length}: 시작 단추가 지속 안내에 붙는다`);
+            await page.waitForFunction(() => document.querySelector('#state-note button') !== null);
+            await page.evaluate(() => window.postMessage({ kind: 'note', text: '호스트가 보낸 안내' }, '*'));
+            await page.waitForFunction(() => document.querySelector('#note')?.textContent === '호스트가 보낸 안내');
+            await page.clock.runFor(8000);
+            assert.equal((await page.locator('#note').textContent()).trim(), '호스트가 보낸 안내',
+              '호스트 note 에는 4초 만료가 없다 — 있다고 가정하지 않는다');
+            assert.equal(await page.locator('#state-note button').count(), 1, '호스트 note 가 시작 단추를 안 지운다');
 
-            // 일시 알림이 떠도 지속 안내와 단추는 그대로.
-            await page.evaluate(() => { document.getElementById('note').textContent = 'sending…'; });
-            assert.ok((await stateText()).includes('컴패니언이 없습니다'), `행 ${rows.length}: 일시 알림이 지속 안내를 안 덮는다`);
-            assert.equal(await startBtn().count(), 1, `행 ${rows.length}: 일시 알림이 시작 단추를 안 지운다`);
-
-            // 일시 알림 만료 → 지속 안내와 단추는 **남는다**. 이것이 고치기 전 사라지던 자리다.
-            await page.evaluate(() => { document.getElementById('note').textContent = ''; });
-            assert.ok((await stateText()).includes('컴패니언이 없습니다'), `행 ${rows.length}: 만료 뒤에도 지속 안내가 남는다`);
-            assert.equal(await startBtn().count(), 1, `행 ${rows.length}: 만료 뒤에도 시작 단추가 남는다`);
-
-            // 일시 알림이 떠 있는 동안 state 가 갱신돼도 일시 알림은 **안 지워진다**.
-            await page.evaluate(() => { document.getElementById('note').textContent = 'sending…'; });
+            // 일시 알림이 떠 있는 동안 state 가 갱신돼도 일시 알림은 안 지워진다(기존 단언 유지).
             await page.evaluate((msg) => window.postMessage(msg, '*'),
               createStateMessage('unknown', { text: '컴패니언 상태를 아직 알 수 없습니다.', offerStart: true }));
             await page.waitForFunction(() => document.querySelector('#state-note')?.textContent?.includes('아직 알 수 없습니다') === true);
-            assert.equal((await noteText()).trim(), 'sending…', `행 ${rows.length}: 상태 갱신이 일시 알림을 안 지운다`);
+            assert.equal((await page.locator('#note').textContent()).trim(), '호스트가 보낸 안내', '상태 갱신이 일시 알림을 안 지운다');
 
-            // attached 로 가면 **지속 안내만** 사라지고 일시 알림은 남는다.
-            await page.evaluate((msg) => window.postMessage(msg, '*'),
-              createStateMessage('attached', { text: '', offerStart: false }));
+            // attached 로 가면 지속 안내만 사라진다.
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createStateMessage('attached', { text: '', offerStart: false }));
             await page.waitForFunction(() => document.querySelector('#state-note')?.textContent === '');
-            assert.equal((await noteText()).trim(), 'sending…', `행 ${rows.length}: attached 전환이 일시 알림까지 지우지 않는다`);
-            await page.evaluate(() => { document.getElementById('note').textContent = ''; });
+            assert.equal((await page.locator('#note').textContent()).trim(), '호스트가 보낸 안내', 'attached 전환이 일시 알림까지 지우지 않는다');
+          } finally {
+            await page.clock.resume();
+            await page.evaluate(() => window.postMessage({ kind: 'note', text: '' }, '*'));
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createStateMessage('attached', { text: '', offerStart: false }));
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({ rows: [], ask: null }));
+            await page.locator('#say').fill('');
           }
+        }
+      },
+      {
+        id: 'layout_start_button_sends_once_and_keeps_drafts',
+        name: '지속 안내의 시작 단추는 start 를 한 번 보내고, 누른 것만으로 연결을 그리지 않는다 (§6.9)',
+        run: async (page) => {
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+            ask: { kind: 'question', callId: 'q-start', what: '무엇을 할까요?' }
+          }));
+          await page.evaluate((msg) => window.postMessage(msg, '*'),
+            createStateMessage('not-running', { text: '이 폴더에서 도는 컴패니언이 없습니다.', offerStart: true }));
+          await page.waitForFunction(() => document.querySelector('#state-note button') !== null);
+
+          // 답변 모드로 들어가 초안을 만든 뒤 시작을 누른다 — 눌렀다고 사람이 쓰던 것이 사라지면 안 된다.
+          await page.locator('#say').fill('질문 답변 B');
+          const modeBefore = await page.locator('#reply-mode').isVisible();
+          const draftBefore = await page.locator('#say').inputValue();
+          const before = await page.evaluate(() => window.__posted.length);
+
+          await page.locator('#state-note button').click();
+
+          const posted = await page.evaluate(() => window.__posted);
+          const starts = posted.filter((m) => m.kind === 'start');
+          assert.equal(posted.length, before + 1, '시작 단추가 정확히 한 개의 메시지를 보낸다');
+          assert.equal(starts.length, 1, '기존 start 메시지를 한 번 보낸다');
+          /* ⚠ 누른 것은 **요청이지 결과가 아니다.** 클릭만으로 붙은 것처럼 그리면, 안 붙었을 때
+             화면이 조용히 거짓말을 한다. */
+          assert.ok((await page.locator('#state-note').textContent()).includes('컴패니언이 없습니다'),
+            '클릭만으로 attached 로 그리지 않는다');
+          assert.equal(await page.locator('#say').inputValue(), draftBefore, '초안이 그대로다');
+          assert.equal(await page.locator('#reply-mode').isVisible(), modeBefore, '답변 모드가 그대로다');
+
+          /* 치우고 나간다. 이 묶음은 page 를 공유하므로 남긴 지속 안내·열린 질문·초안이 **뒤
+             시나리오의 높이를 바꾼다** — 실제로 뒤의 긴 답변 시험을 한 번 빨갛게 만들었다. */
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createStateMessage('attached', { text: '', offerStart: false }));
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({ rows: [], ask: null }));
+          await page.locator('#say').fill('');
+          await page.waitForFunction(() => document.querySelector('#state-note')?.textContent === '');
         }
       },
       {
@@ -213,8 +280,11 @@ export const layoutScenarios = [
             }));
             await page.evaluate((msg) => window.postMessage(msg, '*'),
               createStateMessage('not-running', { text: '이 폴더에서 도는 컴패니언이 없습니다.', offerStart: true }));
-            await page.evaluate(() => { document.getElementById('note').textContent = 'sending…'; });
             await page.waitForFunction(() => document.querySelector('#state-note button') !== null);
+            // 일시 알림도 **진짜 전송**으로 만든다 — 손으로 넣은 글자는 이 경로를 아무것도 안 잰다.
+            await page.locator('#say').fill('낮은 판에서의 전송');
+            await page.locator('#send').click();
+            await page.waitForFunction(() => document.querySelector('#note')?.textContent === 'sending…');
 
             const box = async (sel) => page.locator(sel).first().boundingBox();
             const [say, approve, stateNote, note] = await Promise.all(
@@ -229,6 +299,23 @@ export const layoutScenarios = [
             // 둘 다 실제로 서 있는 채로 잰 것이어야 한다 — 하나가 숨어 있으면 이 측정은 무효다.
             assert.ok(stateNote && stateNote.height > 0, `${w}×${h}: 지속 안내가 서 있다`);
             assert.ok(note && note.height > 0, `${w}×${h}: 일시 알림이 서 있다`);
+
+            /* ⚠ **높이가 양수인 것만으로는 부족하다.** 지속 안내는 낮은 판에서 줄어들며 스크롤되므로,
+               그 안의 시작 단추가 화면에 남아 있어도 **손이 닿지 않으면** 나가는 길이 없는 것과 같다.
+               그래서 키보드로 닿아 실제로 눌리는지까지 잰다. */
+            const startBtn = page.locator('#state-note button');
+            await startBtn.focus();
+            const focused = await page.evaluate(() => document.activeElement === document.querySelector('#state-note button'));
+            assert.ok(focused, `${w}×${h}: 시작 단추에 키보드 포커스가 닿는다`);
+            const beforeStart = await page.evaluate(() => window.__posted.length);
+            await page.keyboard.press('Enter');
+            const afterStart = await page.evaluate(() => window.__posted);
+            assert.equal(afterStart.length, beforeStart + 1, `${w}×${h}: 키보드로 시작이 한 번 나간다`);
+            assert.equal(afterStart[afterStart.length - 1].kind, 'start', `${w}×${h}: 나간 것이 start 다`);
+            // 스크롤 안이어도 단추 자체가 뷰포트 밖으로 잘려 나가면 안 된다.
+            const btnBox = await startBtn.boundingBox();
+            assert.ok(btnBox && btnBox.y >= -0.5 && btnBox.y + btnBox.height <= h + 0.5,
+              `${w}×${h}: 시작 단추가 화면 안에 있다 — y=${btnBox?.y?.toFixed(1)}, h=${btnBox?.height?.toFixed(1)}`);
             /* 이 뷰포트의 바깥 오버플로가 **이 변경 탓인지** 먼저 가른다: 지속 안내를 지운 상태와
                세운 상태를 같은 자리에서 재서, 늘어난 만큼만 이 변경의 몫으로 센다. */
             const measure = () => page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
