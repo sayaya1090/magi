@@ -170,7 +170,7 @@ func (m *Model) applyEvent(e event.Event) {
 	case event.TypePermissionRequested:
 		var d event.PermissionRequestedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			m.perm = &permReq{sid: m.sid, callID: d.CallID, name: d.Name, args: string(d.Args), reason: d.Reason}
+			m.perm = &permReq{sid: m.sid, callID: d.CallID, name: d.Name, args: event.ToolArgsText(d.Args), reason: d.Reason}
 		}
 
 	case event.TypePermissionDecided:

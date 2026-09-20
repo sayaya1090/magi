@@ -51,7 +51,7 @@ func (w *Waiting) Event(sid session.SessionID) (event.Event, error) {
 	default:
 		typ = event.TypePermissionRequested
 		data, err = json.Marshal(event.PermissionRequestedData{
-			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason, Diff: w.Diff})
+			CallID: w.ID, Name: w.What, Args: event.ToolArgsJSON(w.Args), Reason: w.Reason, Diff: w.Diff})
 	}
 	if err != nil {
 		return event.Event{}, fmt.Errorf("daemon: rebuilding the prompt: %w", err)

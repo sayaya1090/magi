@@ -190,7 +190,8 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.mu.Unlock()
 	}()
 
-	rd, _ := json.Marshal(event.PermissionRequestedData{CallID: tc.CallID, Name: tc.Name, Args: tc.Args, Reason: reason, Diff: diff})
+	rd, _ := json.Marshal(event.PermissionRequestedData{
+		CallID: tc.CallID, Name: tc.Name, Args: event.ToolArgsJSON(tc.Args), Reason: reason, Diff: diff})
 	a.publishTransient(sid, event.TypePermissionRequested, actor, rd)
 
 	// A bounded wait when the answerer is in another process (see Config.AnswerWait). The timer is

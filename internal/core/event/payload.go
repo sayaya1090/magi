@@ -1,6 +1,8 @@
 package event
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -456,11 +458,85 @@ type ToolProgressData struct {
 	Text   string `json:"text"`
 }
 
+// ToolArgsJSON is the ONE place that decides what a call's arguments look like on the wire.
+//
+// Tool arguments come from a model, so "it is JSON" is a hope, not a guarantee. Two rules:
+//
+//   - Valid JSON rides inline, unchanged. That is the whole point — a client can render it.
+//   - Anything else rides as a JSON **string** holding the original text. It stays readable and
+//     stays honest about being un-parsed. It is NOT replaced with `{}`: an approval screen that
+//     silently shows empty arguments for a call that had some is worse than one that shows odd
+//     text, because the person cannot tell the two apart.
+//
+// Never returns invalid JSON, so marshalling the event cannot fail on this field and drop the
+// whole prompt.
+func ToolArgsJSON(raw []byte) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	if json.Valid(raw) {
+		return json.RawMessage(raw)
+	}
+	q, err := json.Marshal(string(raw))
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(q)
+}
+
+// ToolArgsText reads back what [ToolArgsJSON] wrote, and also what the OLD wire form wrote.
+//
+// Three shapes reach here, and the difference matters:
+//
+//   - inline JSON (current) — returned as it stands.
+//   - a JSON string holding text (current, for arguments that were never JSON) — unquoted.
+//   - a JSON string holding **base64** (recorded before the fix) — decoded.
+//
+// The base64 branch is deliberately narrow: it decodes only when the bytes decode cleanly AND
+// come out as valid JSON. Anything looking base64-ish is left alone. Guessing here would silently
+// rewrite a person's own text into gibberish the one time it happened to be decodable, and an
+// approval screen is the last place to trade a readable string for a lucky guess.
+func ToolArgsText(w json.RawMessage) string {
+	t := strings.TrimSpace(string(w))
+	if t == "" || t == "null" {
+		return ""
+	}
+	if !strings.HasPrefix(t, `"`) {
+		return t
+	}
+	var inner string
+	if err := json.Unmarshal([]byte(t), &inner); err != nil {
+		return t
+	}
+	if json.Valid([]byte(inner)) {
+		return inner
+	}
+	if dec, err := base64.StdEncoding.DecodeString(inner); err == nil && json.Valid(dec) {
+		return string(dec)
+	}
+	return inner
+}
+
 // PermissionRequestedData — TypePermissionRequested (UI prompt).
 type PermissionRequestedData struct {
 	CallID string `json:"callId"`
 	Name   string `json:"name"`
-	Args   []byte `json:"args"`
+	// Args is the call's arguments AS JSON, inline on the wire.
+	//
+	// ⚠ This was `[]byte`, and that is a different thing on the wire than it is in Go.
+	// encoding/json writes a []byte as a **base64 string**, and reads it back as bytes — so Go
+	// producers and Go consumers agreed with each other while every client outside Go received
+	// base64. Measured in the real product (2026-09-20, VS Code 1.137.0): the approval card drew
+	// `eyJwYXRoIjoiU2FtcGxlLmt0Ii…` and the person was asked to allow an edit they could not read.
+	// It cost most exactly where the most was riding on the answer.
+	//
+	// The fallback made it worse rather than covering it: an anchored edit ({at}) gets no diff on
+	// purpose (change.EditDiff will not fake one it cannot make truthfully) and falls back to
+	// "the arguments view, which is at least honest about what it is" — and that view was base64.
+	//
+	// Build it with [ToolArgsJSON] so a call whose arguments are not valid JSON still travels as
+	// something a client can render, instead of failing the whole event.
+	Args json.RawMessage `json:"args"`
 	// Reason says WHY the prompt fired when the policy forced it (e.g. a bash
 	// scan hit: "destructive command detected", "network egress command") —
 	// empty for a routine danger-tool confirmation. Shown in the modal so the
