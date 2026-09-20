@@ -5536,3 +5536,32 @@ test('§5.6: recovery copy and append release general send button while question
 
 
 
+
+/* 이 판이 그리는 인라인 스크립트는 **템플릿 문자열 안에 적힌 글자**다. TypeScript 는 그 안을 안
+   본다 — 타입 문법을 적어도 안 지우고, 그대로 웹뷰 JS 가 된다. 그러면 브라우저가 파싱에서 죽고,
+   대화는 **보내지도 받지도 못한 채** 화면에는 아무 말도 안 뜬다.
+
+   실제로 겪었다(2026-09-21): 승인 단추 표시를 고치며 `as const` 를 그 안에 적었다. 빌드도 초록,
+   단위 시험도 전부 초록이었고 — 아무것도 그 글자를 실행해 보지 않았기 때문이다. 실물에서 Send 를
+   눌러도 행이 안 생기는 것으로만 드러났고, 옛 VSIX 대조군을 세우고 나서야 원인이 잡혔다.
+
+   그래서 **파싱한다.** 「as const 가 있나」를 찾는 검사는 다음 타입 문법을 못 잡는다. `new Function`
+   은 본문을 컴파일만 하고 실행하지 않으므로, 문법이 틀리면 그 자리에서 던진다. */
+test('the inline webview script is parseable JavaScript — TypeScript syntax must not leak into it', () => {
+  const html = renderChatHtml({
+    cspSource: "'self'",
+    nonce: 'test-nonce',
+    scriptUri: '/out/web/answer_state.js',
+    adapterUri: '/out/web/chat_adapter.bundle.js',
+  });
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)]
+    .map((m) => m[1])
+    .filter((s) => s.trim());
+  assert.ok(scripts.length > 0, 'no inline script found — this guard would pass vacuously');
+  for (const [i, body] of scripts.entries()) {
+    assert.doesNotThrow(
+      () => { new Function(body); },
+      `inline script #${i} does not parse as JavaScript — the webview would die at load and the conversation would neither send nor receive`,
+    );
+  }
+});

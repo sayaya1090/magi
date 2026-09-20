@@ -491,8 +491,13 @@ function drawAsk(a) {
 
        The "always" label says only what the core does (permission.go records the tool for THIS
        session; persisting to project rules is a further step), so it does not promise forever. */
-    for (const d of ['allow', 'deny', 'always'] as const) {
-      const label = { allow: '허용', deny: '거절', always: '항상 허용' }[d];
+    /* ⚠ This block is INSIDE a template literal — it ships as webview JS text, so TypeScript never
+       looks at it and never strips anything. TS syntax written here survives into the bundle and
+       kills the whole script at parse time. An "as const" here did exactly that: the conversation
+       stopped sending AND receiving, with nothing on screen to say why. Plain JS only. */
+    const LABEL = { allow: '허용', deny: '거절', always: '항상 허용' };
+    for (const d of ['allow', 'deny', 'always']) {
+      const label = LABEL[d];
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'approval-btn decision-' + d;
