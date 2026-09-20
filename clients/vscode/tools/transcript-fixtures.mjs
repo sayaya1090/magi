@@ -39,3 +39,18 @@ export function createReplyResultMessage(overrides = {}, sourceAttempt = {}) {
   };
   return msg;
 }
+
+/**
+ * Creates a valid host-to-webview 'state' message.
+ *
+ * `note` is a SIBLING of `state` in this message, not a child of it — a reader that reaches for
+ * `state.note` gets undefined and the panel silently draws nothing, which is the same screen as
+ * "everything is fine". That shape is why this helper exists.
+ */
+export function createStateMessage(state, note, overrides = {}) {
+  return {
+    kind: 'state',
+    state: { state, ...(overrides.activity || {}) },
+    note: { text: '', offerStart: false, ...(note || {}) },
+  };
+}

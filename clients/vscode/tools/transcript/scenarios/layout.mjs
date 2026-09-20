@@ -1,7 +1,52 @@
 import assert from 'node:assert/strict';
-import { createRowsMessage } from '../../transcript-fixtures.mjs';
+import { createRowsMessage, createStateMessage } from '../../transcript-fixtures.mjs';
 
 export const layoutScenarios = [
+      {
+        id: 'layout_state_note_and_transient_note_do_not_erase_each_other',
+        name: '지속 안내(#state-note)와 일시 알림(#note)이 서로를 안 지운다 (§6.9)',
+        run: async (page) => {
+          /* 둘이 한 칸에 살던 동안 서로를 지웠다: 컴패니언이 죽어 「없습니다」와 시작 단추가 떠
+             있을 때 무언가 보내면 그것이 덮이고, 4초 뒤 타이머가 지우고, **다음 state 사건이 올
+             때까지 안 돌아왔다.** 그래서 여기서 재는 것은 「문구가 뜨나」가 아니라 **교차 전이**다. */
+          const stateText = () => page.locator('#state-note').textContent();
+          const noteText = () => page.locator('#note').textContent();
+          const startBtn = () => page.locator('#state-note button');
+
+          for (const rows of [[], [{ who: 'agent', label: 'magi', text: 'turn 1' }]]) {
+            // 행 0 과 행 n 에서 같은 경로를 각각 밟는다 — 행이 있으면 안내가 다른 자리로 가지 않는다.
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({ rows }));
+            await page.evaluate((msg) => window.postMessage(msg, '*'),
+              createStateMessage('not-running', { text: '이 폴더에서 도는 컴패니언이 없습니다.', offerStart: true }));
+            await page.waitForFunction(() => document.querySelector('#state-note')?.textContent?.includes('컴패니언이 없습니다') === true);
+            assert.equal(await startBtn().count(), 1, `행 ${rows.length}: 시작 단추가 지속 안내에 붙는다`);
+
+            // 일시 알림이 떠도 지속 안내와 단추는 그대로.
+            await page.evaluate(() => { document.getElementById('note').textContent = 'sending…'; });
+            assert.ok((await stateText()).includes('컴패니언이 없습니다'), `행 ${rows.length}: 일시 알림이 지속 안내를 안 덮는다`);
+            assert.equal(await startBtn().count(), 1, `행 ${rows.length}: 일시 알림이 시작 단추를 안 지운다`);
+
+            // 일시 알림 만료 → 지속 안내와 단추는 **남는다**. 이것이 고치기 전 사라지던 자리다.
+            await page.evaluate(() => { document.getElementById('note').textContent = ''; });
+            assert.ok((await stateText()).includes('컴패니언이 없습니다'), `행 ${rows.length}: 만료 뒤에도 지속 안내가 남는다`);
+            assert.equal(await startBtn().count(), 1, `행 ${rows.length}: 만료 뒤에도 시작 단추가 남는다`);
+
+            // 일시 알림이 떠 있는 동안 state 가 갱신돼도 일시 알림은 **안 지워진다**.
+            await page.evaluate(() => { document.getElementById('note').textContent = 'sending…'; });
+            await page.evaluate((msg) => window.postMessage(msg, '*'),
+              createStateMessage('unknown', { text: '컴패니언 상태를 아직 알 수 없습니다.', offerStart: true }));
+            await page.waitForFunction(() => document.querySelector('#state-note')?.textContent?.includes('아직 알 수 없습니다') === true);
+            assert.equal((await noteText()).trim(), 'sending…', `행 ${rows.length}: 상태 갱신이 일시 알림을 안 지운다`);
+
+            // attached 로 가면 **지속 안내만** 사라지고 일시 알림은 남는다.
+            await page.evaluate((msg) => window.postMessage(msg, '*'),
+              createStateMessage('attached', { text: '', offerStart: false }));
+            await page.waitForFunction(() => document.querySelector('#state-note')?.textContent === '');
+            assert.equal((await noteText()).trim(), 'sending…', `행 ${rows.length}: attached 전환이 일시 알림까지 지우지 않는다`);
+            await page.evaluate(() => { document.getElementById('note').textContent = ''; });
+          }
+        }
+      },
       {
         id: 'layout_long_answer_and_scroll',
         name: '긴 답변/Think, 공통 세로 스크롤, 좁은 뷰포트',
@@ -145,6 +190,60 @@ export const layoutScenarios = [
           assert.ok(barVisible, 'input composer is visible in narrow and short viewport');
           const fits = await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight);
           assert.ok(fits, 'page fits within viewport height without outer body overflow');
+        }
+      },
+      {
+        id: 'layout_both_notices_do_not_cover_the_composer',
+        name: '지속·일시 안내가 같이 서도 입력창과 승인 단추를 안 가린다 (§6.9)',
+        run: async (page) => {
+          /* 둘이 **동시에** 설 수 있다 — 「컴패니언이 없다」와 「방금 보냈다」는 서로를 부정하지
+             않는다. 그래서 배치는 둘 다 선 채로 재야 한다. ⚠ 한쪽을 숨겨서 푸는 것은 답이 아니다:
+             그러면 이 시험은 초록이 되고 사람은 나갈 길을 잃는다. */
+          for (const [w, h] of [[320, 600], [1200, 200]]) {
+            await page.setViewportSize({ width: w, height: h });
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+              rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+              ask: {
+                kind: 'permission',
+                callId: 'perm-layout',
+                what: 'edit',
+                filePath: 'a.txt',
+                args: JSON.stringify({ path: 'a.txt', old: 'x', new: 'y' })
+              }
+            }));
+            await page.evaluate((msg) => window.postMessage(msg, '*'),
+              createStateMessage('not-running', { text: '이 폴더에서 도는 컴패니언이 없습니다.', offerStart: true }));
+            await page.evaluate(() => { document.getElementById('note').textContent = 'sending…'; });
+            await page.waitForFunction(() => document.querySelector('#state-note button') !== null);
+
+            const box = async (sel) => page.locator(sel).first().boundingBox();
+            const [say, approve, stateNote, note] = await Promise.all(
+              [box('#say'), box('#ask-controls .acts button.approval-btn'), box('#state-note'), box('#note')]);
+            for (const [name, b] of [['입력창', say], ['승인 단추', approve]]) {
+              assert.ok(b && b.width > 0 && b.height > 0, `${w}×${h}: ${name}이 그려진다`);
+              assert.ok(b.y + b.height <= h + 0.5,
+                `${w}×${h}: ${name}이 화면 아래로 밀려난다 — bottom=${(b.y + b.height).toFixed(1)}, `
+                + `state-note=${stateNote?.height?.toFixed(1)}, note=${note?.height?.toFixed(1)}, `
+                + `ask=${(await box('#ask-controls'))?.height?.toFixed(1)}, scroll=${(await box('#scroll'))?.height?.toFixed(1)}`);
+            }
+            // 둘 다 실제로 서 있는 채로 잰 것이어야 한다 — 하나가 숨어 있으면 이 측정은 무효다.
+            assert.ok(stateNote && stateNote.height > 0, `${w}×${h}: 지속 안내가 서 있다`);
+            assert.ok(note && note.height > 0, `${w}×${h}: 일시 알림이 서 있다`);
+            /* 이 뷰포트의 바깥 오버플로가 **이 변경 탓인지** 먼저 가른다: 지속 안내를 지운 상태와
+               세운 상태를 같은 자리에서 재서, 늘어난 만큼만 이 변경의 몫으로 센다. */
+            const measure = () => page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+            const withBoth = await measure();
+            await page.evaluate((msg) => window.postMessage(msg, '*'),
+              createStateMessage('attached', { text: '', offerStart: false }));
+            await page.waitForFunction(() => document.querySelector('#state-note')?.textContent === '');
+            const withoutState = await measure();
+            assert.ok(withBoth <= Math.max(withoutState, 0) + 1,
+              `${w}×${h}: 지속 안내가 바깥 오버플로를 키운다 — 둘 다=${withBoth}px, 지속 안내 없이=${withoutState}px`);
+            await page.evaluate((msg) => window.postMessage(msg, '*'),
+              createStateMessage('not-running', { text: '이 폴더에서 도는 컴패니언이 없습니다.', offerStart: true }));
+            await page.waitForFunction(() => document.querySelector('#state-note button') !== null);
+            await page.evaluate(() => { document.getElementById('note').textContent = ''; });
+          }
         }
       }
 ];
