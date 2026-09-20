@@ -222,7 +222,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `ManualTest` | 광고면·번들·매뉴얼·이 문서가 갈렸나 |
 | `BundleFallbackTest` | 영어를 청했는데 한국어가 오던 기전 |
 | `PluginPageTest` | 플러그인 페이지 — 표가 서는가 · 규격 40×40 · **웹 콘솔의 파비콘과 같은 마크인가**(색은 `internal/webassets/assets.go` 에서 읽어 대조) · 자리를 안 넘는가 · 갈 곳(url)이 있는가 · 설명이 광고하는 기능을 이름 대는가 · **설명에 엔티티가 없는가**(목록에는 「mdash;」로 찍힌다) |
-| `AskTest`·`SubjectTest` | 승인 물음의 모양 |
+| `AskTest`·`SubjectTest` | 승인 물음의 모양. ★ **승인 화면이 base64 를 그렸습니다** — 코어가 `args` 를 `[]byte` 로 보내던 동안 `encoding/json` 이 그것을 base64 문자열로 쌌고, **Go 끼리는 정상 왕복해서 아무도 안 아팠으며 Go 밖 클라이언트만** 그 문자열을 받았습니다(2026-09-20 VS Code 실물: 「이 편집을 허용하겠냐」 카드에 184자 base64, 사람은 바뀔 내용을 못 봄). 생산자는 고쳤지만 **이미 기록된 로그는 그 모양**이라 읽는 쪽이 둘 다 읽어야 하고, 그 판정을 `Waiting.subject` 로 **불러서** 잽니다. ⚠ base64 갈래는 좁습니다 — 깨끗이 풀리고 결과가 JSON 일 때만 풀고, 그렇게 생겼을 뿐인 사람의 글자(`deadbeef`)는 안 건드립니다. 변이 1/1(base64 를 안 풀도록 되돌리기). |
 
 ### 모델 적합성 (`.../live`)
 
