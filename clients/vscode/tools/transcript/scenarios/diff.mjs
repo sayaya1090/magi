@@ -2,7 +2,69 @@ import assert from 'node:assert/strict';
 import { createRowsMessage } from '../../transcript-fixtures.mjs';
 import { measureActiveButtonRing } from '../dom-helpers.mjs';
 
+
+/*
+ * 승인 단추는 **접근 이름**으로 잡는다.
+ *
+ * 표시와 전송 토큰이 갈려 있다(§6.7): 사람이 보고 낭독기가 읽는 이름은 한국어(허용·거절·항상 허용)
+ * 이고, 실제로 보내는 값은 그대로 allow/deny/always 다. 그래서 이 파일은 **이름으로 잡고 토큰은
+ * 따로 단언한다** — 글자로 잡으면 표시를 바꿀 때마다 시험이 깨지고(실제로 깨졌다), 클래스로만
+ * 잡으면 사람이 읽는 이름이 틀려도 초록이다. 둘 다 재야 한다.
+ *
+ * ⚠ `exact` 가 필요하다: '허용' 은 '항상 허용' 의 부분 문자열이라, 없으면 둘이 같이 잡힌다.
+ */
+const APPROVAL_LABEL = { allow: '허용', deny: '거절', always: '항상 허용' };
+const approvalBtn = (page, decision, scope = '#ask-controls') =>
+  page.locator(scope).getByRole('button', { name: APPROVAL_LABEL[decision], exact: true });
+
 export const diffScenarios = [
+      {
+        id: 'approval_labels_are_korean_tokens_are_not',
+        name: '승인 단추: 표시·접근 이름은 한국어, 보내는 값은 allow/deny/always 그대로, 각 1회',
+        run: async (page) => {
+          /* §6.7 에서 표시와 전송 토큰을 갈랐다. 그 둘이 **따로** 맞는지 여기서 잰다 — 하나만 재면
+             나머지 하나가 틀려도 초록이다. 그리고 셋을 **독립 요청**으로 밟는다: 한 요청에서 셋을
+             누르면 두 번째부터는 이미 답한 물음이라, 「각 단추가 제 값을 한 번 보낸다」를 못 잰다. */
+          for (const [decision, label] of [['allow', '허용'], ['deny', '거절'], ['always', '항상 허용']]) {
+            const callId = `perm-label-${decision}`;
+            const filePath = `label-${decision}.txt`;
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+              session: 'sess-approval-labels',
+              rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+              ask: {
+                kind: 'permission',
+                callId,
+                what: 'edit',
+                filePath,
+                args: JSON.stringify({ path: filePath, old: 'x', new: 'y' })
+              }
+            }));
+            /* 이 요청이 화면에 선 것을 **이 요청의 파일 이름으로** 기다린다. 단추 수만 세면 앞
+               요청의 단추 셋을 보고 지나가 버리고, 그러면 다음 단언은 지난 물음을 재게 된다. */
+            await page.waitForFunction(
+              (name) => document.querySelector('#ask-controls .summary-text')?.textContent?.includes(name) === true,
+              filePath);
+
+            const btn = approvalBtn(page, decision, '#ask-controls .acts');
+            assert.equal(await btn.count(), 1, `exactly one button is named ${label}`);
+            assert.equal((await btn.textContent()).trim(), label, `${decision} button is drawn as ${label}`);
+            assert.equal(await btn.getAttribute('aria-label'), label,
+              `${decision} button is read as ${label} — drawn and announced must agree`);
+            // 클래스는 토큰을 그대로 들고 있어야 한다: 표시가 바뀌어도 보내는 값은 안 바뀐다.
+            assert.ok((await btn.getAttribute('class')).includes(`decision-${decision}`),
+              `${label} still carries the ${decision} token in its class`);
+
+            const before = await page.evaluate(() => window.__posted.length);
+            await btn.click();
+            const posted = await page.evaluate(() => window.__posted);
+            const mine = posted.filter((m) => m.kind === 'answer' && m.callId === callId);
+            assert.equal(posted.length, before + 1, `${label} posts exactly one message`);
+            assert.equal(mine.length, 1, `${label} answers its own request exactly once`);
+            assert.equal(mine[0].decision, decision,
+              `${label} sends the token ${decision} — the display changed, the wire value did not`);
+          }
+        }
+      },
       {
         id: 'diff_permission_ask_dismissal',
         name: '권한 질문 diff 자체 스크롤바 없음, 승인 및 기각 처리 (Condition 7)',
@@ -24,7 +86,7 @@ export const diffScenarios = [
           assert.equal(diffScroll.height, diffScroll.scroll, 'diff has no separate vertical scrollbar');
 
           // Click allow
-          await page.locator('#ask-controls button:text("allow")').click();
+          await approvalBtn(page, 'allow').click();
           const posted = await page.evaluate(() => window.__posted);
           assert.ok(posted.some((m) => m.kind === 'answer' && m.callId === 'call-perm-99' && m.decision === 'allow'));
 
@@ -162,7 +224,7 @@ export const diffScenarios = [
           const unparsedRendered = await page.locator('#ask-body pre.diff').evaluate(el => el.textContent);
           assert.equal(unparsedRendered, unparsedDiff, 'unparsed text preserved in raw form');
 
-          await page.locator('#ask-controls button:text("allow")').click();
+          await approvalBtn(page, 'allow').click();
         }
       },
       {
@@ -208,7 +270,7 @@ export const diffScenarios = [
           const countRendered = await page.locator('#ask-body pre.diff').evaluate(el => el.textContent);
           assert.equal(countRendered, countTrackDiff, 'textContent of countTrackDiff matches input exactly');
 
-          await page.locator('#ask-controls button:text("allow")').click();
+          await approvalBtn(page, 'allow').click();
         }
       },
       {
@@ -238,7 +300,12 @@ export const diffScenarios = [
           assert.equal(fileTarget, '파일: src/model/user.ts', 'target file path is displayed in ask body');
 
           const actsBtns = await page.locator('#ask-controls .acts button').allTextContents();
-          assert.deepEqual(actsBtns, ['변경 보기', 'allow', 'deny', 'always'], 'actions include 변경 보기 and approval buttons');
+          assert.deepEqual(actsBtns, ['변경 보기', '허용', '거절', '항상 허용'], 'actions include 변경 보기 and approval buttons, labelled in Korean');
+          // 사람이 읽는 이름도 같아야 한다 — 보이는 것과 낭독되는 것이 다른 조작은 그 자체가 결함이다.
+          const actsNames = await page.locator('#ask-controls .acts button').evaluateAll(
+            (els) => els.map((e) => e.getAttribute('aria-label') || ''));
+          assert.deepEqual(actsNames, ['변경 보기 (승인 당시 비교 자료)', '허용', '거절', '항상 허용'],
+            'accessible names match what is drawn');
 
           // Clicking '변경 보기' posts kind: 'diff' without approving
           const postedLenBefore = await page.evaluate(() => window.__posted.length);
@@ -291,7 +358,7 @@ export const diffScenarios = [
           }));
           await page.waitForFunction(() => document.querySelector('#ask-controls .summary-text')?.textContent.includes('config.ts'));
           const rejectedBtns = await page.locator('#ask-controls .acts button').allTextContents();
-          assert.deepEqual(rejectedBtns, ['allow', 'deny', 'always'], 'no phantom 변경 보기 button when host flags diffKind as none');
+          assert.deepEqual(rejectedBtns, ['허용', '거절', '항상 허용'], 'no phantom 변경 보기 button when host flags diffKind as none');
         }
       },
       {
@@ -696,9 +763,9 @@ export const diffScenarios = [
           const openBtn = page.locator('#ask-body .file-target button.file-nav-btn');
           await openBtn.waitFor();
 
-          const allowBtn = page.locator('#ask-controls .acts button:text("allow")');
-          const denyBtn = page.locator('#ask-controls .acts button:text("deny")');
-          const alwaysBtn = page.locator('#ask-controls .acts button:text("always")');
+          const allowBtn = approvalBtn(page, 'allow', '#ask-controls .acts');
+          const denyBtn = approvalBtn(page, 'deny', '#ask-controls .acts');
+          const alwaysBtn = approvalBtn(page, 'always', '#ask-controls .acts');
 
           // 2. Assert inspection vs approval classes
           assert.equal(await diffBtn.evaluate((el) => el.classList.contains('inspect-btn')), true, 'diff button has inspect-btn class');
@@ -816,7 +883,7 @@ export const diffScenarios = [
             ask: { ...permAsk, callId: 'perm-inspect-57' }
           }));
           await page.waitForSelector('#ask-controls .acts');
-          const denyBtn2 = page.locator('#ask-controls .acts button:text("deny")');
+          const denyBtn2 = approvalBtn(page, 'deny', '#ask-controls .acts');
           await denyBtn2.focus();
           await page.keyboard.press('Enter');
           const postedAfterDeny = await page.evaluate(() => window.__posted);
@@ -837,7 +904,7 @@ export const diffScenarios = [
             ask: { ...permAsk, callId: 'perm-inspect-58' }
           }));
           await page.waitForSelector('#ask-controls .acts');
-          const alwaysBtn3 = page.locator('#ask-controls .acts button:text("always")');
+          const alwaysBtn3 = approvalBtn(page, 'always', '#ask-controls .acts');
           await alwaysBtn3.focus();
           await page.keyboard.press('Space');
           const postedAfterAlways = await page.evaluate(() => window.__posted);
@@ -859,9 +926,9 @@ export const diffScenarios = [
           }));
           await page.waitForSelector('#ask-controls .acts');
           const activeDiff = page.locator('#ask-controls .acts button.diff-btn');
-          const activeAllow = page.locator('#ask-controls .acts button:text("allow")');
-          const activeDeny = page.locator('#ask-controls .acts button:text("deny")');
-          const activeAlways = page.locator('#ask-controls .acts button:text("always")');
+          const activeAllow = approvalBtn(page, 'allow', '#ask-controls .acts');
+          const activeDeny = approvalBtn(page, 'deny', '#ask-controls .acts');
+          const activeAlways = approvalBtn(page, 'always', '#ask-controls .acts');
 
           // 5. Theme tokens and full 4-direction focus ring boundary verification across Theme × Viewport matrix
           await page.mouse.move(0, 0);

@@ -10,17 +10,17 @@ export const EXPECTED_BUNDLE_COUNTS = {
   layout: 4,
   asks: 14,
   autocomplete: 2,
-  diff: 12,
+  diff: 13,
   a11y: 8,
   markdown: 1,
 };
 
-export const TOTAL_EXPECTED_SCENARIOS = 41;
+export const TOTAL_EXPECTED_SCENARIOS = 42;
 
 /**
  * Validates bundle registry invariants (§5.8.6):
  * 1. Exactly 6 bundles in expected order: layout, asks, autocomplete, diff, a11y, markdown
- * 2. Exact scenario count per bundle (4, 14, 2, 12, 7, 1 = 40)
+ * 2. Exact scenario count per bundle (4, 14, 2, 13, 8, 1 = 42)
  * 3. Zero duplicate scenario IDs
  * 4. Zero missing scenario IDs
  *
