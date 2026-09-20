@@ -193,6 +193,8 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 
 각 묶음은 브라우저 Context/Page를 독립 생성하고 `finally`에서 안전하게 닫으며, 전역 monkey-patching 없이 엄격한 프로토콜 계약(`session`, `refs`)을 검증합니다. 미등록 자산 요청 및 콘솔/페이지 에러는 즉시 테스트 실패로 수집됩니다.
 
+★ **승인 단추를 글자로 잡다가 표시를 한국어로 바꾸자 묶음이 통째로 멈췄습니다**(2026-09-21). `diff.mjs` 가 `#ask-controls button:text("allow")` 로 잡고 있었는데 §6.7 에서 표시가 「허용」이 되면서 **210초 시간 초과**로 죽었고, 그 뒤 시나리오는 아예 안 돌았습니다. 선택자 11곳을 **접근 이름**(`getByRole('button', {name:'허용', exact:true})` — `허용` 은 `항상 허용` 의 부분 문자열이라 `exact` 가 필요합니다)으로 옮기고, 글자 배열 단언 둘을 한국어 표시로 고쳤습니다. ⚠ 텍스트 검사를 **지우지 않았습니다** — 지우면 사람이 읽는 이름이 틀려도 초록이 됩니다. `approval_labels_are_korean_tokens_are_not` 시나리오가 요청 셋을 **독립으로** 띄워 ① 표시 ② `aria-label` ③ 클래스의 `decision-*` 토큰 ④ **게시된 `decision` 이 `allow`/`deny`/`always` 그대로이고 각 1회만 전송**됨을 따로 단언합니다. 표시와 전송 값은 다른 사실이므로 한쪽만 재면 나머지가 틀려도 안 잡힙니다. 변이 1/1(접근 이름을 옛 영어 토큰으로 되돌리면 `exactly one button is named 허용` 로 빨개집니다).
+
 ### 자산 경로 및 번들 선행 검증 사양 (2026-09-16)
 
 `transcript-test.mjs`는 `renderChatHtml`에 전달하는 자산 URL과 Playwright 네트워크 라우팅 허용 목록을 단일 상수(`ASSET_PATHS`, `ASSET_URLS`) 및 공유 라우터(`installAssetRouter`)로 동기화하여 검증합니다:
