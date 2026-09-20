@@ -5565,3 +5565,25 @@ test('the inline webview script is parseable JavaScript — TypeScript syntax mu
     );
   }
 });
+
+/* 지속 상태와 일시 알림이 **다른 요소**에 산다는 것을 판에서 잰다. 한 칸에 둘이 살던 동안 서로를
+   지웠고(사건이 상태를 덮고, 4초 타이머가 그것을 지우고, 다음 state 사건까지 안 돌아옴), 그 대가는
+   「컴패니언이 없습니다」와 시작 단추가 화면에서 사라지는 것이었다. 교차 전이 자체는 실제 DOM 에서
+   재고(layout 묶음), 여기서는 **자리가 갈려 있는지**와 읽히는 이름을 잰다. */
+test('§6.9: the panel has a persistent state notice separate from the transient note', () => {
+  const html = renderChatHtml({
+    cspSource: "'self'",
+    nonce: 'test-nonce',
+    scriptUri: '/out/web/answer_state.js',
+    adapterUri: '/out/web/chat_adapter.bundle.js',
+  });
+  assert.ok(html.includes('id="state-note"'), 'the persistent notice has its own element');
+  assert.ok(html.includes('aria-label="컴패니언 상태"'), 'the persistent notice is named for a reader');
+  assert.ok(html.includes('id="note"'), 'the transient note keeps its element');
+  assert.ok(html.includes('aria-label="안내 메시지"'), 'the transient note keeps its name');
+  // 빈 칸 둘이 입력줄을 밀면 안 된다 — 둘이 각각 서므로 비었을 때는 자리를 안 차지한다.
+  assert.ok(html.includes('#note:empty, #state-note:empty { display:none; }'),
+    'an empty notice takes no room');
+  // 시작 단추는 지속 자리에 붙는다: 일시 알림이 만료돼도 나가는 길이 남아야 한다.
+  assert.ok(/stateNoteEl\.append\(b\)/.test(html), 'the start button is appended to the persistent notice');
+});

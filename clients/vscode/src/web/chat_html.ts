@@ -254,7 +254,18 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
-  #note { padding:6px 10px; color:var(--vscode-descriptionForeground); font-size:.9em; }
+  /* 세로 여백이 4px 인 이유: 둘이 **각각** 서므로 6px 이면 위아래로 24px 이 안내 두 줄에 붙는다.
+     실측(1200×200)에서 그 잔여가 바깥 오버플로 2px 로 남았다 — 안내는 줄어들어도 여백은 안
+     줄기 때문이다. 하나를 숨겨서 풀지 않는다. */
+  #note, #state-note { padding:4px 10px; color:var(--vscode-descriptionForeground); font-size:.9em;
+    /* ⚠ 낮은 판에서 **입력줄을 밀어내지 않는다.** 이 둘은 flex 자식인데 기본 min-height 가 auto 라
+       내용만큼 자리를 붙들고, 그만큼 입력줄이 화면 밖으로 나간다. 실측(1200×200): 지속 안내가
+       서자 입력줄 아래끝이 236px — 뷰포트는 200 이었다. 전사는 이미 16px 까지 줄어 더 내줄 것이
+       없었다. **한쪽을 숨겨서 풀지 않는다** — 둘은 서로를 부정하지 않으므로 같이 서야 하고,
+       대신 줄어들며 스크롤된다. 글자는 남고, 나가는 길(시작 단추)도 닿을 수 있다. */
+    min-height:0; overflow-y:auto; }
+  /* 비어 있으면 자리를 안 차지한다 — 둘이 각각 서므로, 빈 칸 둘이 입력줄을 밀면 안 된다. */
+  #note:empty, #state-note:empty { display:none; }
   #hint { padding:0 10px 4px; font-size:.85em; color:var(--vscode-descriptionForeground); font-family:var(--vscode-editor-font-family); }
   #refs { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; }
   .chip { font-size:.85em; padding:1px 6px; border-radius:9px;
@@ -288,7 +299,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></header>
 <aside id="info" aria-label="컴패니언 정보" hidden></aside>
 <main id="scroll"><h1 class="sr-only">Magi Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><div id="ask-body" hidden></div></main>
-<section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>
+<section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="state-note" role="region" aria-label="컴패니언 상태"></div><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>
 <div id="hint" role="region" aria-label="단축키 힌트"></div>
 <section id="reply-mode" aria-label="답변 모드" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></section>
 <footer id="bar" aria-label="메시지 작성"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></footer>
@@ -305,6 +316,7 @@ const replyModeEl = document.getElementById('reply-mode');
 const replyTargetEl = document.getElementById('reply-target');
 const replyCancelEl = document.getElementById('reply-cancel');
 const noteEl = document.getElementById('note');
+const stateNoteEl = document.getElementById('state-note');
 const say = document.getElementById('say');
 const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
@@ -641,7 +653,13 @@ const recoveryController = createWebviewRecoveryController({
   getCurrentSession: () => currentSession,
 });
 function drawState(note) {
-  noteEl.textContent = '';
+  /* ⚠ **지속 상태는 제 자리에 산다.** 이 함수는 오래 note 칸에 썼고, 같은 칸에 "sending…" 같은
+     일시 알림도 살았다. 둘이 한 싱크라 서로를 지웠다: 컴패니언이 죽어 「없습니다」와 시작 단추가
+     떠 있을 때 무언가 보내면 그것이 덮이고, 4초 뒤 타이머가 지우고, **다음 state 사건이 올 때까지
+     안 돌아왔다.** 보고(사건)와 상태(수준)가 한 자리면 뒤가 앞을 지운다. 이제 갈라 둔다 —
+     여기는 상태가 바뀔 때만 바뀌고, 일시 알림의 만료는 이 자리를 건드리지 않는다.
+     (이 스크립트는 템플릿 문자열 안에 산다 — 주석에도 백틱을 쓰면 안 된다.) */
+  stateNoteEl.textContent = '';
   if (!note || !note.text) return;
   /* The words and whether to offer a way out are decided in core (panelNote), so this draws and
      decides nothing. It used to decide: not-running got a button and unknown got a bare sentence,
@@ -653,12 +671,12 @@ function drawState(note) {
      never drew the button, which is the same screen as "everything is fine" and is exactly the
      screen somebody with no companion running was left looking at.
      (No backticks in here: this script lives in a template literal and one would close it.) */
-  noteEl.append(note.text + ' ');
+  stateNoteEl.append(note.text + ' ');
   if (note.offerStart) {
     const b = document.createElement('button');
     b.textContent = 'Start one';
     b.addEventListener('click', () => actions.start());
-    noteEl.append(b);
+    stateNoteEl.append(b);
   }
   /* idle / working / waiting say nothing here: the status bar already says them, and repeating a
      line above the composer is a line in the way. */
