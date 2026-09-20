@@ -515,7 +515,16 @@ client shaper is deleted.
 |---|---|
 | Rule | A client uses `argsLine` **when it arrives, and builds one from `args` when it does not**. It never draws a missing field as empty |
 | Why this shape | The new field is a **better** one-line form, not the screen's only source. That is what lets the daemon and a client move separately without breaking the screen |
-| When the fallback goes | Only after the minimum supported core is **confirmed** to send `argsLine` — confirmed by a functional response, not by "we shipped it, so it must" |
+| When the fallback goes | **Cannot be settled yet.** "Confirmed by a functional response" alone does not authorise the deletion — there is nothing named to confirm against. Only after the three below |
+| Until then | **The fallback stays.** No commit deletes it |
+
+**The capability contract for dropping the fallback — three things to settle.** None of them exists today.
+
+| To settle | Why |
+|---|---|
+| Capability name | What "it sends `argsLine`" is called. With no name a client has nothing to ask for |
+| Where it sits in the response | Which field of the `--features` reply carries it. With no location, "confirmed" is a guess |
+| Minimum supported version | What a reply **without** that field means. Absent may mean "older", not "does not send it" |
 | What is not done | Re-pointing `args` from whole to one-line. Two implementations already expect the whole thing and would **silently** draw the wrong one |
 
 #### (2) Dropping the `rawArgs` declaration — how the cross-field guard behaves
@@ -544,7 +553,40 @@ nothing turns red.** The next reader trusts a contract for a field that no longe
 | Scope | Companion and session (`magi-output:/<companion>/<session>/<kind>/<id>`). Switch session and the same id is a different document |
 | Lifetime — opening anew | The body is **re-derived** from the event list. If the original finalized event is not in it, opening fails with a reason. Not a TTL — it is whether that window still holds the event |
 | Lifetime — already open | An immutable snapshot. Events disappearing later do not change a document already open |
-| To settle at migration time | Once the fold issues it, **the side that mints the id and the side that knows the body come apart.** Decide then where a client reads the body from (the event list, or the door) — leave it undecided and ids arrive for documents nobody can open |
+| Where the body is read from — **settled** | **Step one keeps what exists: the client reads it from the event list.** Even once the fold mints the id, the body-lookup path does not move |
+| The condition on that | An id minted by the fold must point at **the same original the client already holds** — same `seq` for an answer, same `callId` plus same result `seq` for a tool result. If that does not hold, step one does not happen |
+| The step not to start | The one where the client **no longer receives the event list**. **Not started before a separate body-lookup protocol exists** — move earlier and ids arrive for documents nobody can open |
+
+**Three expected results, written down in advance.**
+
+| Situation | Expected |
+|---|---|
+| Session switched | The same id is a **different document** (the address carries the session). A document from the old session is not opened under the new one |
+| Original event absent from the list | **Fails with a reason.** It does not open an empty document that reads as "there is nothing in it" — absent and not-found are different answers |
+| Only an already-open document remains | That document **stays alive** (immutable snapshot). Losing the original neither empties nor closes it. Opening it **anew**, however, fails per the row above |
+
+#### ⚠ Still out of step — the three implementations decode base64 over **different ranges**
+
+§6.7 put the legacy-base64 reader in three places (Go `ToolArgsText`, VS Code `toolArgsText`,
+JetBrains `Waiting.subject`) and the comments say "the same rule". **The ranges are not the same.**
+
+| Decoded value | Go | TypeScript · Kotlin |
+|---|---|---|
+| `{"a":1}`, `[1,2]` (object/array) | decodes | decodes |
+| `123`, `true`, `"plain text"` (scalars) | **decodes** (`json.Valid` is true) | **does not** (first char must be `{` or `[`) |
+| Broken UTF-8 | carries the bytes through | becomes `U+FFFD` |
+
+Measured (2026-09-21): `MTIz` decodes to `123` and `Imp1c3QgdGV4dCI=` to `"just text"`, and Go treats
+both as valid JSON, so it **decodes them**. The same value stays as base64 text in VS Code and
+JetBrains.
+
+Real tool arguments are objects, so the difference does not reach a screen today — **which is what
+makes it quiet.** Decide the direction later (narrowing is the default — **do not widen the decoding
+range without grounds**), but before that, **make the "same rule" comments match the actual range.**
+That sentence is not true right now.
+
+When this becomes a regression, measure all three from **one shared fixture**: object, array, the
+three scalars, plain text, broken UTF-8. Measure one layer and this asymmetry hides again.
 
 #### What makes the migration a measurement
 
