@@ -1134,12 +1134,9 @@ class MagiToolWindow : ToolWindowFactory {
         private fun foldable(p: JBPanel<JBPanel<*>>, r: Row) {
             val flip = object : java.awt.event.MouseAdapter() {
                 override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    // ⚠ **누른 행에 포커스를 준다.** 이 줄이 없으면 접기는 **키보드로 닿을 수가 없다**:
-                    // 행은 `isFocusable` 이고 Space·Enter 리스너도 달려 있지만, 누르는 것이 포커스를
-                    // 옮기지 않으므로 그 키는 입력줄로 간다. 실물에서 재 봤다(2026-09-20, 2026.1
-                    // 샌드박스): 행을 누른 뒤 Space 는 아무 일도 안 하고, 입력줄에서 Tab 을 여섯 번
-                    // 눌러도 포커스가 전사로 안 들어오며(입력줄이 Tab 을 먹는다), 전사 배경을 누르고
-                    // Tab 을 눌러도 같다. 「키보드로도 닿는다」는 위 주석이 반만 참이었다.
+                    // **누른 행에 포커스를 준다.** 이 줄이 없으면 접기는 키보드로 닿을 수가 없다:
+                    // 누르는 것이 포커스를 옮기지 않으면 그 키는 입력줄로 간다. 실물에서 잰 값은
+                    // `focusOwner=JTextArea`(행이 아니라 본문)였다.
                     p.requestFocusInWindow()
                     flip(r)
                 }
@@ -1152,28 +1149,34 @@ class MagiToolWindow : ToolWindowFactory {
                 if (c is java.awt.Container) c.components.forEach { hook(it) }
             }
             hook(p)
-            // **키보드로도 닿는다.** 접기가 마우스 전용이던 것은 설계 문서가 잔여로 적어 둔
-            // 자리다 — 글리프와 커서 두 지표는 있었지만 손이 마우스를 못 쓰면 펼 길이 없었다.
-            // 행에 포커스를 주고 Space·Enter 로 뒤집는다: 탭 순회로 행을 지나가며, 포커스가
-            // 선 행은 테두리로 보인다(어디 있는지 안 보이는 포커스는 없는 것과 같다).
+            // **키보드로도 닿는다.** 탭으로 행에 포커스를 주고 Space·Enter 로 뒤집는다. 포커스가
+            // 선 행은 테두리로 보인다 — 어디 있는지 안 보이는 포커스는 없는 것과 같다.
             p.isFocusable = true
-            // ⚠ **`KeyListener` 로는 안 닿는다.** 이 판은 오래 그것을 달고 있었고 주석은 「키보드로도
-            // 닿는다」고 적고 있었는데, 실물에서 재 보니(2026-09-20, 2026.1 샌드박스) 포커스가 선 행
-            // 위에서도 Space·Enter 가 아무 일도 안 했다 — IDE 의 키 디스패처가 AWT 리스너보다 먼저
-            // 키를 가져간다. Swing 의 정식 경로인 InputMap·ActionMap 에 걸면 그 체계를 지나 온다.
-            // ⚠⚠ **키보드로 접는 것은 아직 안 된다 — 이 등록은 정식 경로이지 확인된 동작이 아니다.**
+            // 이 자리가 값을 치른 곳이라 계약을 적어 둔다. 실물에서 잰 것(2026-09-20, IU-261.22158.277
+            // 샌드박스, 합성 대화)은 셋이다.
             //
-            // 이 판은 오래 `KeyListener` 를 달고 주석에 「키보드로도 닿는다」고 적고 있었다. 실물에서
-            // 처음 눌러 봤더니(2026-09-20, 2026.1 샌드박스, 커밋 c8988965) 아무 일도 안 했고, 파고 보니
-            // 겹이 여럿이었다. **고쳐서 확인된 것 둘**: 누른 행이 포커스를 못 받던 것(마우스 핸들러가
-            // 요청을 안 했다)과, 요청해도 `redrawLog()` 가 그 행을 새로 지어 포커스가 사라지던 것
-            // (이제 `wantFocus` 로 다시 얹는다 — 포커스 링이 서는 것을 눈으로 확인했다).
+            // 1. **누른 행이 포커스를 받아야 한다** — 위 마우스 핸들러가 그 일을 한다.
+            // 2. **뒤집으면 그 행이 사라진다** — `flip` 은 `redrawLog()` 로 전사를 다시 짓는다. 그래서
+            //    누른 행의 열쇠를 들고 있다가(`wantFocus`) 다시 지어진 같은 행에 포커스를 얹는다.
+            //    이것이 없으면 연달아 접고 펴는 것이 한 번에서 끊긴다.
+            // 3. **이 단축키는 자식에게도 걸린다** — 판에 걸면 IDE 는 포커스가 그 아래 단추에 있을
+            //    때도 후보로 잡는다. 그대로 두면 「차이 보기」 위에서 Space 가 단추를 안 누르고 부모를
+            //    접었다. 그래서 `update` 에서 `RowText.foldsOnKey` 로 범위를 좁힌다.
             //
-            // **아직 안 되는 것 하나**: 그렇게 포커스가 선 행 위에서도 Space·Enter 가 접기를 안 부른다.
-            // `KeyListener` → `InputMap`(WHEN_FOCUSED) → `InputMap`(WHEN_ANCESTOR…) → 아래의 컴포넌트
-            // 매인 액션까지 넷을 걸어 봤고 넷 다 안 떴다. 합성 키가 IDE 에 닿는 것은 따로 확인했다
-            // (같은 방식으로 입력줄에 글자가 찍힌다). 원인은 아직 모른다 — 다음 사람이 여기서 시작할 것.
+            // ⚠ 키를 자동화로 보낼 때 `cliclick kp:` 는 이 IDE 에 **키를 안 넣는다**(재 보니 AWT 에
+            // 이벤트가 하나도 안 온다). 그것으로 재고 「키보드가 안 된다」고 적었던 적이 있다 — 실패한
+            // 것은 제품이 아니라 재는 도구였다. 경위는 #201.
             object : com.intellij.openapi.actionSystem.AnAction() {
+                override fun getActionUpdateThread() =
+                    com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+
+                override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                    // 이 키가 이 행을 향한 것인지는 코어가 정한다(`RowText.foldsOnKey`) — 꺼 두면
+                    // 그 키는 자식(「차이 보기」 단추)으로 내려간다.
+                    e.presentation.isEnabled = RowText.foldsOnKey(
+                        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner, p,
+                    )
+                }
                 override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = flip(r)
             }.registerCustomShortcutSet(
                 com.intellij.openapi.actionSystem.CustomShortcutSet(
