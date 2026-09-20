@@ -481,11 +481,22 @@ Only the VS Code shaper produces this id today; Go declares it and nothing fills
 - **The scope is companion and session.** The document's address is
   `magi-output:/<companion>/<session>/<kind>/<id>`, so the same id is a different document after a
   session switch.
-- **Id stability and retention are different facts.** The id points at the same thing for as long as
-  the event is there — but the CONTENT is not cached, it is re-derived from the event list the client
-  holds (`resolveOutputItem(events, outputId)`). If that list no longer has the event, the lookup is
-  `null` and the open fails with a reason. Not a TTL: the question is whether that window still holds
-  that conversation's events.
+- **Id stability and retention are different facts, and there are two paths.** The id points at the
+  same thing for as long as the event is there. After that, OPENING one and READING one already open
+  part ways.
+  - **A new open** re-derives the body from the event list (`openOutputDocument` in `ide/output.ts` →
+    `resolveOutputItem(events, outputId)`). If the source event is no longer in that list, the lookup is
+    `null` and the open fails with a reason — not a TTL, but whether that window still holds that
+    conversation's events.
+  - **A document already open** never looks at the events again. The body was stored in
+    `OutputSnapshots` when it opened, immutably (`put` does not overwrite an existing key), and every
+    later read serves that copy (`provideTextDocumentContent`). So the text in an open window survives
+    the source event going away.
+  - That store is bounded (100 by default), and eviction **skips open documents and in-flight opens**
+    (the latter are reference-counted pins) — only closed entries above the bound are cleaned up, and
+    when every older entry is protected the bound is overshot rather than a protected one dropped. So
+    this is **not** "there is no cache": what does not exist is a TTL; what does exist is an immutable
+    store that keeps an open document readable.
 
 For the door to fill this field, two things have to be decided: who mints it (the door, and all three
 clients see one id; or the client, and whoever owns the documents keeps its own rule), and what the
