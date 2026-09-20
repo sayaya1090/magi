@@ -311,6 +311,28 @@ class RowTextTest {
     }
 
     /**
+     * **자식 단추 위에서 누른 키는 부모를 접지 않는다.**
+     *
+     * 접기 단축키는 행 판에 걸리고, IDE 는 포커스가 그 **자식**에 있을 때도 부모의 단축키를 후보로
+     * 잡는다. 실물에서 그 대가를 봤다(2026-09-20, 2026.1 샌드박스): 「차이 보기」 단추에 포커스를
+     * 두고 Space 를 누르면 **단추가 안 눌리고 부모 행이 접혔다** — 누른 것과 다른 일이 일어났다.
+     *
+     * 고친 뒤에는 판정이 꺼지고 그 키가 단추로 내려간다(실물에서 diff 가 열리는 것을 확인했다).
+     * 여기서 재는 것은 그 판정이다 — 화면이 아니라 **누가 포커스인가**로 갈린다.
+     */
+    @Test
+    fun `행 자신이 포커스일 때만 키보드로 접는다`() {
+        val row = Any()
+        val button = Any()
+        assertTrue(RowText.foldsOnKey(row, row), "행 자신이 포커스인데 키보드 접기가 안 붙는다")
+        assertFalse(RowText.foldsOnKey(button, row), "자식 단추가 포커스인데 부모가 접힌다 — 누른 것과 다른 일이 일어난다")
+        assertFalse(RowText.foldsOnKey(null, row), "포커스가 없는데 접힌다")
+        assertFalse(RowText.foldsOnKey(row, null), "행 판이 없는데 접힌다")
+        // 값이 같아도 다른 객체면 아니다: 판은 다시 그릴 때마다 새로 선다.
+        assertFalse(RowText.foldsOnKey(StringBuilder("p"), StringBuilder("p")), "다른 판을 같은 판으로 본다")
+    }
+
+    /**
      * **다시 그려도 사람이 고른 접힘이 유지된다.**
      *
      * 화면은 접힘을 이 열쇠로 기억한다. 그러므로 **같은 내용이 같은 열쇠를 내는 것**이 「다시 그려도

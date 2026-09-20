@@ -216,6 +216,22 @@ object RowText {
 
     fun openByDefault(r: Row): Boolean = r.who == Who.Thinking
 
+    /**
+     * 키보드 접기가 **이 행 자신**을 향한 것인가.
+     *
+     * 접기 단축키는 행 판에 걸린다. 그런데 그 판 아래에는 자식이 산다 — 「차이 보기」 단추, 본문
+     * 텍스트 — 그리고 IDE 는 포커스가 **자식**에 있을 때도 부모에 걸린 단축키를 후보로 잡는다.
+     * 그대로 두면 단추 위에서 Space 를 눌렀을 때 단추가 안 눌리고 부모가 접힌다. 실물에서 그것을
+     * 봤다(2026-09-20, 2026.1 샌드박스): 단추에 포커스를 두고 Space → `flip` 이 불리고 diff 는
+     * 안 열렸다. **누른 것과 다른 일이 일어나는 것**이 결함이다.
+     *
+     * 그래서 포커스가 행 판 **자신**일 때만 접는다. 아니면 꺼서 그 키를 자식에게 내려보낸다.
+     * 같은 것(identity)으로 견주는 이유는 행마다 판이 새로 서고([foldKey] 는 같아도) 판은 다른
+     * 객체이기 때문이다 — 값이 같은지가 아니라 **그 판이 포커스인지**를 묻는다.
+     */
+    fun foldsOnKey(focusOwner: Any?, rowPanel: Any?): Boolean =
+        focusOwner != null && rowPanel != null && focusOwner === rowPanel
+
     fun foldKey(r: Row): String = "${r.msgId}:${r.who}:${r.callId}:${r.text.hashCode()}"
 
     /**
