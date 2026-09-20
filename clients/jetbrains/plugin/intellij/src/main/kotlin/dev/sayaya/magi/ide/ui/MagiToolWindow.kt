@@ -274,6 +274,17 @@ class MagiToolWindow : ToolWindowFactory {
         private val opened = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
         /**
+         * 다시 그린 뒤 포커스를 돌려줄 행의 열쇠.
+         *
+         * ⚠ **접으면 그 행이 사라진다.** 뒤집기는 `redrawLog()` 로 전사를 다시 짓고, 그러면 방금 누른
+         * 패널은 없어진 컴포넌트가 된다 — 거기에 포커스를 줘 봐야 새로 지어진 행은 못 받는다. 실물에서
+         * 그 모양을 봤다(2026-09-20, 2026.1 샌드박스): 누른 뒤 Space·Enter 가 아무 일도 안 하고 포커스
+         * 테두리도 안 선다. 그래서 누른 행의 **열쇠**를 들고 있다가 다시 지어진 같은 행에 포커스를
+         * 얹는다. 접기는 본문을 안 바꾸므로 그 열쇠는 같은 행을 가리킨다.
+         */
+        private var wantFocus: String? = null
+
+        /**
          * 기본이 **펼침**인 행에서 사람이 접은 것. [opened] 의 짝이다.
          *
          * 두 집합이 필요한 이유: 기본이 종류마다 다르다(`RowText.openByDefault`). 한 집합으로 하면
@@ -295,6 +306,8 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun flip(r: Row) {
             val k = RowText.foldKey(r)
+            // 다시 그린 뒤 이 행으로 포커스가 돌아와야 키보드로 연달아 접고 펼 수 있다.
+            wantFocus = k
             if (RowText.openByDefault(r)) {
                 if (!closed.remove(k)) closed.add(k)
             } else {
@@ -1120,7 +1133,16 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun foldable(p: JBPanel<JBPanel<*>>, r: Row) {
             val flip = object : java.awt.event.MouseAdapter() {
-                override fun mouseClicked(e: java.awt.event.MouseEvent) = flip(r)
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    // ⚠ **누른 행에 포커스를 준다.** 이 줄이 없으면 접기는 **키보드로 닿을 수가 없다**:
+                    // 행은 `isFocusable` 이고 Space·Enter 리스너도 달려 있지만, 누르는 것이 포커스를
+                    // 옮기지 않으므로 그 키는 입력줄로 간다. 실물에서 재 봤다(2026-09-20, 2026.1
+                    // 샌드박스): 행을 누른 뒤 Space 는 아무 일도 안 하고, 입력줄에서 Tab 을 여섯 번
+                    // 눌러도 포커스가 전사로 안 들어오며(입력줄이 Tab 을 먹는다), 전사 배경을 누르고
+                    // Tab 을 눌러도 같다. 「키보드로도 닿는다」는 위 주석이 반만 참이었다.
+                    p.requestFocusInWindow()
+                    flip(r)
+                }
             }
             fun hook(c: java.awt.Component) {
                 // 내부 버튼 컴포넌트(예: Diff 보기)는 접기 이벤트 대상에서 제외합니다(리뷰 F1).
@@ -1135,15 +1157,39 @@ class MagiToolWindow : ToolWindowFactory {
             // 행에 포커스를 주고 Space·Enter 로 뒤집는다: 탭 순회로 행을 지나가며, 포커스가
             // 선 행은 테두리로 보인다(어디 있는지 안 보이는 포커스는 없는 것과 같다).
             p.isFocusable = true
-            p.addKeyListener(object : java.awt.event.KeyAdapter() {
-                override fun keyPressed(e: java.awt.event.KeyEvent) {
-                    if (e.keyCode != java.awt.event.KeyEvent.VK_SPACE &&
-                        e.keyCode != java.awt.event.KeyEvent.VK_ENTER
-                    ) return
-                    e.consume()
-                    flip(r)
-                }
-            })
+            // ⚠ **`KeyListener` 로는 안 닿는다.** 이 판은 오래 그것을 달고 있었고 주석은 「키보드로도
+            // 닿는다」고 적고 있었는데, 실물에서 재 보니(2026-09-20, 2026.1 샌드박스) 포커스가 선 행
+            // 위에서도 Space·Enter 가 아무 일도 안 했다 — IDE 의 키 디스패처가 AWT 리스너보다 먼저
+            // 키를 가져간다. Swing 의 정식 경로인 InputMap·ActionMap 에 걸면 그 체계를 지나 온다.
+            // ⚠⚠ **키보드로 접는 것은 아직 안 된다 — 이 등록은 정식 경로이지 확인된 동작이 아니다.**
+            //
+            // 이 판은 오래 `KeyListener` 를 달고 주석에 「키보드로도 닿는다」고 적고 있었다. 실물에서
+            // 처음 눌러 봤더니(2026-09-20, 2026.1 샌드박스, 커밋 c8988965) 아무 일도 안 했고, 파고 보니
+            // 겹이 여럿이었다. **고쳐서 확인된 것 둘**: 누른 행이 포커스를 못 받던 것(마우스 핸들러가
+            // 요청을 안 했다)과, 요청해도 `redrawLog()` 가 그 행을 새로 지어 포커스가 사라지던 것
+            // (이제 `wantFocus` 로 다시 얹는다 — 포커스 링이 서는 것을 눈으로 확인했다).
+            //
+            // **아직 안 되는 것 하나**: 그렇게 포커스가 선 행 위에서도 Space·Enter 가 접기를 안 부른다.
+            // `KeyListener` → `InputMap`(WHEN_FOCUSED) → `InputMap`(WHEN_ANCESTOR…) → 아래의 컴포넌트
+            // 매인 액션까지 넷을 걸어 봤고 넷 다 안 떴다. 합성 키가 IDE 에 닿는 것은 따로 확인했다
+            // (같은 방식으로 입력줄에 글자가 찍힌다). 원인은 아직 모른다 — 다음 사람이 여기서 시작할 것.
+            object : com.intellij.openapi.actionSystem.AnAction() {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = flip(r)
+            }.registerCustomShortcutSet(
+                com.intellij.openapi.actionSystem.CustomShortcutSet(
+                    com.intellij.openapi.actionSystem.KeyboardShortcut(
+                        javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_SPACE, 0), null),
+                    com.intellij.openapi.actionSystem.KeyboardShortcut(
+                        javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0), null),
+                ),
+                p,
+            )
+            // 다시 지어진 그 행이면 포커스를 받는다. `invokeLater` 인 이유는 이 패널이 아직 화면에
+            // 붙기 전이라 그 자리에서 요청하면 거절되기 때문이다.
+            if (wantFocus == RowText.foldKey(r)) {
+                wantFocus = null
+                javax.swing.SwingUtilities.invokeLater { p.requestFocusInWindow() }
+            }
             val plain = p.border
             p.addFocusListener(object : java.awt.event.FocusAdapter() {
                 override fun focusGained(e: java.awt.event.FocusEvent) {
