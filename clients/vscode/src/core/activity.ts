@@ -171,7 +171,13 @@ export function panelNote(a: Activity | null): { text: string; offerStart: boole
       return { text: 'No companion is running for this workspace.', offerStart: true };
     case State.Unknown:
       return {
-        text: ['Could not reach the companion.', a.asking].filter(Boolean).join(' '),
+        /* ⚠ **Not "could not reach it".** This branch is three facts wearing one name: nobody has
+           asked yet (`status.ts` and `workspace.ts` start at `cannotSay()`), the probe got no
+           answer, and the probe answered without `ok`. The sites differ; the type carries no mark,
+           so a screen cannot tell them apart — and declaring failure over "not asked yet" is a
+           sentence that is often simply false. This wording is true of all three. Splitting them
+           belongs in `Activity`, not in a sentence that guesses. */
+        text: ['컴패니언 상태를 아직 알 수 없습니다.', a.asking].filter(Boolean).join(' '),
         // Said plainly and still offered: "we could not ask" is not "it is fine", and the way out
         // must not depend on our being sure what is wrong.
         offerStart: true,

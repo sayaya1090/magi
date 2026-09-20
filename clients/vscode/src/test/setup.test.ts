@@ -93,7 +93,12 @@ test('the reason a completion was empty is kept, and a good one clears it', () =
 test('a companion we cannot reach still offers a way out', () => {
   const note = panelNote({ state: State.Unknown, asking: 'the socket is there and nothing answered' });
   assert.equal(note.offerStart, true, 'nothing to press when the companion could not be reached');
-  assert.match(note.text, /Could not reach/);
+  /* ⚠ **It does not say "could not reach".** This branch is three facts under one name — nobody
+     has asked yet (the initial value), the probe got no answer, and the probe answered without
+     `ok` — and nothing in the type tells them apart. Declaring failure over "not asked yet" is a
+     sentence that is often simply false, so the wording is the one true of all three (§6.9). */
+  assert.match(note.text, /아직 알 수 없습니다/);
+  assert.doesNotMatch(note.text, /못했습니다|실패/, 'it does not declare a failure it cannot know');
   // The reason travels with it — "cannot say" is not "it is fine", and the reason is what a person
   // acts on when the button does not help.
   assert.match(note.text, /nothing answered/);
