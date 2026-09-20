@@ -503,6 +503,61 @@ clients see one id; or the client, and whoever owns the documents keeps its own 
 door can answer for (it knows the companion and the session; it does not know which window still holds
 which events). Today it is **a declared field**, and that is how it should be read.
 
+### 7.2 Three things to settle before the migration starts (left open by IDE_NATIVE §6.6)
+
+§7.1 separated the vocabulary and wrote down the recommendation. What is left is **the order of the
+move and what breaks during it**. Until these three are settled, nothing swaps the transport and no
+client shaper is deleted.
+
+#### (1) Old-version fallback — until when, and whose job
+
+| | Settled |
+|---|---|
+| Rule | A client uses `argsLine` **when it arrives, and builds one from `args` when it does not**. It never draws a missing field as empty |
+| Why this shape | The new field is a **better** one-line form, not the screen's only source. That is what lets the daemon and a client move separately without breaking the screen |
+| When the fallback goes | Only after the minimum supported core is **confirmed** to send `argsLine` — confirmed by a functional response, not by "we shipped it, so it must" |
+| What is not done | Re-pointing `args` from whole to one-line. Two implementations already expect the whole thing and would **silently** draw the wrong one |
+
+#### (2) Dropping the `rawArgs` declaration — how the cross-field guard behaves
+
+The cross guard in `rows_test.go` matches this door's `Row` against the **Kotlin copy**, both ways. A
+field on only one side needs an **exemption with a stated reason**, and `rawArgs`, `fileNav` and
+`outputId` sit in that map today.
+
+⚠ **But it only catches half of an ageing exemption.** The guard catches "this exempted field now
+exists on the other side too" (`면제를 지울 것`), and does NOT catch "this field is now gone from
+**both** sides". So dropping `rawArgs` from Go leaves a **dead exemption with a reason attached, and
+nothing turns red.** The next reader trusts a contract for a field that no longer exists.
+
+| Step | Do |
+|---|---|
+| 1 | Move TypeScript first (`rawArgs`→`args`, `args`→`argsLine`). Go is untouched in this step |
+| 2 | Drop the `rawArgs` declaration in Go **and delete its `doorOnly` entry in the same commit** |
+| 3 | Add a **dead-exemption check** to the guard — an exemption naming a field absent from both sides fails. Do not move with that hole open |
+
+#### (3) Who issues `outputId`, and where the body is read from
+
+| | Settled |
+|---|---|
+| Issuer | **Whoever owns the document.** Today that is the VS Code shaper alone (Go only declares it); after the migration the fold issues it |
+| Shape | Points at a finalized event — an answer is `assistant:<seq>`, a tool result is `tool:<enc(callId)>:<resultSeq>`. Several results under one `callId` get **different** ids |
+| Scope | Companion and session (`magi-output:/<companion>/<session>/<kind>/<id>`). Switch session and the same id is a different document |
+| Lifetime — opening anew | The body is **re-derived** from the event list. If the original finalized event is not in it, opening fails with a reason. Not a TTL — it is whether that window still holds the event |
+| Lifetime — already open | An immutable snapshot. Events disappearing later do not change a document already open |
+| To settle at migration time | Once the fold issues it, **the side that mints the id and the side that knows the body come apart.** Decide then where a client reads the body from (the event list, or the door) — leave it undecided and ids arrive for documents nobody can open |
+
+#### What makes the migration a measurement
+
+- **Regression inputs**: the two representatives in §7.1 (`read` file view, `bash` command), plus the
+  names **outside** the `fileNav` contract (`bash`, an unknown MCP tool) producing no navigation
+  target. A guard that compares names cannot see "same name, opposite meaning" — §7.1 records what
+  that cost.
+- **Duplicate logic to delete**: the client-side one-line builders (`askedFor`, the `RowText.oneLine`
+  call sites). **Keep both as fallbacks** and delete them only once (1) is satisfied. Never delete a
+  shaper that is still in use.
+- **Compatibility range**: keep regressions for responses **with and without** the new field. Measure
+  only the new one and the fallback can die with nothing turning red.
+
 ## 8. What is left, and where it has to happen
 
 | | where |
