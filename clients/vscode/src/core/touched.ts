@@ -174,6 +174,51 @@ export interface Ask {
  * nothing here looked at it. The two are answered through different doors (`permission` takes a
  * verdict, `answer` takes a sentence), which is exactly why the KIND has to travel with them.
  */
+/**
+ * The ONE place this client turns a permission event's `args` into text for a person.
+ *
+ * Three shapes arrive, and they are not interchangeable:
+ *   - inline JSON (current wire form) — pretty-printed, because this is read by someone deciding
+ *     whether to allow it, not by a parser.
+ *   - a plain string (arguments a model did not emit as JSON) — shown as-is.
+ *   - a **base64** string (recorded before the producer was fixed) — decoded.
+ *
+ * ⚠ The base64 branch is narrow on purpose: decode only when it decodes cleanly AND yields valid
+ * JSON. Anything merely base64-shaped is left alone — a person's own text must never be swapped
+ * for a lucky guess on the screen where they are being asked to approve something. Mirrors
+ * `event.ToolArgsText` in Go; the two must agree.
+ *
+ * Measured why this exists (2026-09-20, VS Code 1.137.0): the approval card drew 184 characters of
+ * base64 and the person could not see the edit they were being asked to allow.
+ */
+export function toolArgsText(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'string') return JSON.stringify(raw) || undefined;
+  const t = raw.trim();
+  if (!t) return undefined;
+  /* Already JSON text: hand back the value, NOT a re-rendering of it. Reformatting here would
+     change the one normalized string that the args view, the diff decision and file navigation all
+     read, and those must agree. */
+  if (looksJson(t)) return t;
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(t) && t.length % 4 === 0) {
+    try {
+      const dec = Buffer.from(t, 'base64').toString('utf8');
+      if (looksJson(dec)) return dec;
+    } catch { /* not decodable — keep the original text */ }
+  }
+  return t;
+}
+
+/** Valid JSON that is an object or an array — the shape a call's arguments actually take. */
+function looksJson(t: string): boolean {
+  const h = t.trimStart()[0];
+  if (h !== '{' && h !== '[') return false;
+  try {
+    const v = JSON.parse(t) as unknown;
+    return !!v && typeof v === 'object';
+  } catch { return false; }
+}
+
 export function pendingAsk(events: Event[]): Ask | null {
   let open: Ask | null = null;
   for (const e of events) {
@@ -185,10 +230,7 @@ export function pendingAsk(events: Event[]): Ask | null {
       open = {
         kind: 'permission', callId: String(d.callId ?? ''), what: String(d.name ?? 'a tool'),
         since: e.ts,
-        // The value, not its rendering: `args` is often a JSON string, and stringifying it twice
-        // leaves the escapes on screen.
-        args: raw === undefined || raw === null ? undefined
-          : (typeof raw === 'string' ? raw : JSON.stringify(raw)) || undefined,
+        args: toolArgsText(raw),
         reason: String(d.reason ?? '').trim() || undefined,
         diff: String(d.diff ?? '').trim() || undefined,
       };

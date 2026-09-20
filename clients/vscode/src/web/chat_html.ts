@@ -482,12 +482,22 @@ function drawAsk(a) {
       }
       acts.append(diffBtn);
     }
-    /* The three words the core spells. One vocabulary, so the two cannot drift. */
-    for (const d of ['allow', 'deny', 'always']) {
+    /* The three words the core spells are the TOKENS — they go on the wire unchanged, so the two
+       vocabularies cannot drift. What a person reads is a different thing, and this screen used to
+       conflate them: the buttons read allow/deny/always, lowercase English, inside an
+       otherwise Korean prompt, with no accessible name of their own — so a screen reader announced
+       the wire token. Display and token are separated here; the label is also the accessible name,
+       because a control that is read differently from how it looks is its own defect.
+
+       The "always" label says only what the core does (permission.go records the tool for THIS
+       session; persisting to project rules is a further step), so it does not promise forever. */
+    for (const d of ['allow', 'deny', 'always'] as const) {
+      const label = { allow: '허용', deny: '거절', always: '항상 허용' }[d];
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'approval-btn decision-' + d;
-      b.textContent = d;
+      b.textContent = label;
+      b.setAttribute('aria-label', label);
       b.addEventListener('click', () => actions.answer(a.callId, d));
       acts.append(b);
     }

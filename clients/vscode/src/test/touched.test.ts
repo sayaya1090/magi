@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { touched, pendingAsk } from '../core/touched';
+import { touched, pendingAsk, toolArgsText } from '../core/touched';
 import { Event } from '../core/protocol';
 
 let seq = 0;
@@ -206,4 +206,32 @@ test('a standing prompt carries when it was asked', () => {
   assert.equal(q?.since, at, 'a question prompt drops the time it was raised');
   const unstamped = pendingAsk([{ seq: 1, type: 'question.requested', data: { callId: 'q1', question: 'which?' } }]);
   assert.equal(unstamped?.since, undefined, 'an unstamped prompt was given a time it never had');
+});
+
+/* 승인 화면이 base64 를 그렸다. 실물에서 봤다(2026-09-20, VS Code 1.137.0): 「이 편집을 허용하겠냐」는
+   카드에 184자의 base64 가 있었고 사람은 바뀔 내용을 못 봤다. 생산자(Go 의 []byte)는 고쳤지만 **이미
+   기록된 로그에는 그 모양이 남아 있으므로** 읽는 쪽이 둘 다 읽어야 한다. 그리고 base64 처럼 생겼다는
+   이유만으로 사람의 글자를 바꾸지 않아야 한다 — 승인 화면은 운 좋은 추측을 할 자리가 아니다. */
+test('permission args: the new inline shape, the old base64 shape, and text that is neither', () => {
+  const args = '{"path":"Sample.kt","new":"반갑습니다"}';
+
+  // 지금 모양: 객체가 그대로 온다.
+  assert.strictEqual(toolArgsText(JSON.parse(args)), JSON.stringify(JSON.parse(args)));
+
+  // 이미 JSON 글자면 **그 값 그대로** — 다시 그려 내지 않는다(인자 표시·diff 판정·파일 이동이 같은
+  // 문자열을 읽으므로 여기서 모양을 바꾸면 셋이 어긋난다).
+  assert.strictEqual(toolArgsText('{"command":"rm -rf build"}'), '{"command":"rm -rf build"}');
+
+  // 옛 모양: base64 문자열은 풀어서 보여 준다.
+  const legacy = Buffer.from(args, 'utf8').toString('base64');
+  assert.strictEqual(toolArgsText(legacy), args);
+
+  // JSON 도 base64 도 아닌 원문은 그대로 둔다.
+  assert.strictEqual(toolArgsText('path=Sample.kt'), 'path=Sample.kt');
+
+  // base64 로 풀리기는 하지만 JSON 이 아닌 것은 **건드리지 않는다**.
+  assert.strictEqual(toolArgsText('deadbeef'), 'deadbeef');
+
+  assert.strictEqual(toolArgsText(null), undefined);
+  assert.strictEqual(toolArgsText(undefined), undefined);
 });
