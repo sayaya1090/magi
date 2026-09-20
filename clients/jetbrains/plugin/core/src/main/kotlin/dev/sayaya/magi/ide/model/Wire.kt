@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 데몬 소켓 위의 한 줄.
@@ -435,8 +436,43 @@ data class Waiting(
      * "데몬이 안 말했다"라고 적고, 로그 줄은 인자가 없으면 그렇게 적는다. 걸린 것이 제일 큰
      * 자리만 조용했다 — 대접이 위험도와 반대로 붙어 있었다.
      */
+    /**
+     * 승인 화면에 그릴 **인자 글자**. 세 모양이 온다.
+     *
+     * - 인라인 JSON(지금 모양) — 그대로.
+     * - 그 밖의 JSON 문자열 — 여태 그리던 그대로(따옴표째). 이 고침이 맡은 것은 base64 뿐이다.
+     * - **base64 문자열**(고치기 전에 기록된 것) — 풀어서 보여 준다.
+     *
+     * 세 번째가 이 함수가 생긴 이유다. 코어가 이 칸을 `[]byte` 로 보내던 동안 encoding/json 이
+     * 그것을 base64 로 쌌고, Go 끼리는 정상 왕복했지만 **Go 밖 클라이언트는 base64 를 받았다.**
+     * VS Code 실물에서 그 대가를 쟀다(2026-09-20): 「이 편집을 허용하겠냐」는 카드에 184자의
+     * base64 가 있었고 사람은 바뀔 내용을 못 봤다. 생산자는 고쳤지만 **이미 기록된 로그는 그 모양**
+     * 이므로 읽는 쪽이 둘 다 읽어야 한다.
+     *
+     * ⚠ base64 갈래는 좁게 둔다: 깨끗이 풀리고 **그 결과가 JSON 일 때만** 푼다. 그렇게 생겼다는
+     * 이유로 사람의 글자를 알아볼 수 없는 것으로 바꾸지 않는다 — 승인 화면은 운 좋은 추측을 할
+     * 자리가 아니다. Go 의 `event.ToolArgsText`·VS Code 의 `toolArgsText` 와 같은 규칙이다.
+     */
+    private fun argsText(e: JsonElement?): String? {
+        val el = e?.takeIf { it !is JsonNull } ?: return null
+        val prim = el as? JsonPrimitive
+        if (prim == null || !prim.isString) return el.toString()
+        val inner = prim.content
+        // 풀리고 **그 결과가 JSON 일 때만** 푼다. 그 밖의 문자열은 여태 그리던 대로 그린다 —
+        // 이 고침이 맡은 것은 읽을 수 없는 base64 뿐이고, 따옴표 표기는 이 판이 이미 정해 둔 것이다.
+        val dec = runCatching { java.util.Base64.getDecoder().decode(inner).toString(Charsets.UTF_8) }.getOrNull()
+        return if (dec != null && looksJson(dec)) dec else el.toString()
+    }
+
+    /** 인자가 실제로 띠는 모양(객체나 배열)인 올바른 JSON 인가. */
+    private fun looksJson(t: String): Boolean {
+        val h = t.trimStart().firstOrNull() ?: return false
+        if (h != '{' && h != '[') return false
+        return runCatching { Json.parseToJsonElement(t) }.isSuccess
+    }
+
     val subject: Subject get() {
-        val a = args?.takeIf { it !is JsonNull }?.toString()
+        val a = argsText(args)
         val r = reason?.takeIf { it.isNotBlank() }
         return if (a == null && r == null) Subject.Unstated else Subject.Stated(a, r)
     }
