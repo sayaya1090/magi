@@ -14,6 +14,7 @@ import type {
 } from '../core/webview_protocol';
 import type { Ask } from '../core/touched';
 import type { Activity } from '../core/activity';
+import { emptyTranscriptNote } from '../core/activity';
 import type { AnswerStateManager, AskEvent } from '../core/answer_state';
 import type { RecoveryController } from './recovery_controller';
 import {
@@ -1076,6 +1077,7 @@ export interface WebviewReceiveAdapterOptions {
   drawAsk: (ask: Ask | null) => void;
   drawRefs: (refs: string[]) => void;
   drawState: (note: PanelNoteInfo) => void;
+  drawEmptyNote: (text: string) => void;
   drawInfo: (info: HostToWebviewMessage & { kind: 'info' }) => void;
   setNoteText: (text: string) => void;
   getNoteText: () => string;
@@ -1085,6 +1087,13 @@ export interface WebviewReceiveAdapterOptions {
 export function createWebviewReceiveHandlers(
   options: WebviewReceiveAdapterOptions
 ): HostMessageHandlers {
+  let lastActivity: Activity | null = null;
+  let lastHasRows = false;
+  let lastHasAsk = false;
+  /* 판정은 코어가 한다(emptyTranscriptNote). 여기서는 최신 조합을 넘길 뿐이다. */
+  const paintEmptyNote = () =>
+    options.drawEmptyNote(emptyTranscriptNote(lastActivity, lastHasRows, lastHasAsk));
+
   return {
     onRows(payload) {
       const boundSession = payload.session || '';
@@ -1125,6 +1134,12 @@ export function createWebviewReceiveHandlers(
 
       options.drawRows(payload.rows);
       options.drawAsk(payload.ask);
+      /* ⚠ 이 둘은 **어느 쪽이 먼저 와도** 된다. 한쪽만 보고 그리면 늦게 온 쪽이 반영 안 된 화면이
+         남는다 — 그래서 최신 조합을 들고 있다가 매번 다시 판정한다. 세션이 바뀌면 그 세션의
+         행 수로 다시 정해지므로 옛 세션의 빈 안내가 남지 않는다. */
+      lastHasRows = payload.rows.length > 0;
+      lastHasAsk = !!payload.ask;
+      paintEmptyNote();
       options.drawRefs(payload.refs);
       options.inputAdapter.updateInFlightStatus?.();
 
@@ -1176,6 +1191,8 @@ export function createWebviewReceiveHandlers(
     },
     onState(m) {
       options.drawState(m.note);
+      lastActivity = m.state ?? null;
+      paintEmptyNote();
     },
     onInfo(payload) {
       options.drawInfo(payload);

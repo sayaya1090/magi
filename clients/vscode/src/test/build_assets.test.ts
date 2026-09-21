@@ -123,9 +123,12 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
       { name: 'src/web/chat_adapter.ts', realPath: path.join(realRoot, 'src', 'web', 'chat_adapter.ts'), tempPath: path.join(tempSrcWebDir, 'chat_adapter.ts') },
       { name: 'src/web/markdown_render.ts', realPath: path.join(realRoot, 'src', 'web', 'markdown_render.ts'), tempPath: path.join(tempSrcWebDir, 'markdown_render.ts') },
       { name: 'src/core/webview_protocol.ts', realPath: path.join(realRoot, 'src', 'core', 'webview_protocol.ts'), tempPath: path.join(tempSrcCoreDir, 'webview_protocol.ts') },
+      /* 웹뷰 번들이 부르는 코어 판정(emptyTranscriptNote). 타입만 쓰던 동안은 esbuild 가 지워서
+         없어도 됐지만, 이제는 없으면 번들이 안 선다 — 그래서 이 목록의 식구다. */
+      { name: 'src/core/activity.ts', realPath: path.join(realRoot, 'src', 'core', 'activity.ts'), tempPath: path.join(tempSrcCoreDir, 'activity.ts') },
     ];
 
-    // Copy all 7 files to isolated tempDir
+    // Copy every required file to the isolated tempDir
     for (const file of requiredFiles) {
       await cp(file.realPath, file.tempPath);
     }

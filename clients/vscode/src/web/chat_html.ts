@@ -257,6 +257,10 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   /* 세로 여백이 4px 인 이유: 둘이 **각각** 서므로 6px 이면 위아래로 24px 이 안내 두 줄에 붙는다.
      실측(1200×200)에서 그 잔여가 바깥 오버플로 2px 로 남았다 — 안내는 줄어들어도 여백은 안
      줄기 때문이다. 하나를 숨겨서 풀지 않는다. */
+  /* 행이 설 자리에 선다. ⚠ rows·ask-body 를 감싸거나 지우지 않는다 — 형제로 둔다.
+     그 둘을 건드리면 질문 렌더링이 같이 깨진다. */
+  #empty-note { margin:0; padding:24px 10px; text-align:center;
+    color:var(--vscode-descriptionForeground); font-size:.95em; }
   #note, #state-note { padding:4px 10px; color:var(--vscode-descriptionForeground); font-size:.9em;
     /* ⚠ 낮은 판에서 **입력줄을 밀어내지 않는다.** 이 둘은 flex 자식인데 기본 min-height 가 auto 라
        내용만큼 자리를 붙들고, 그만큼 입력줄이 화면 밖으로 나간다. 실측(1200×200): 지속 안내가
@@ -298,7 +302,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></header>
 <aside id="info" aria-label="컴패니언 정보" hidden></aside>
-<main id="scroll"><h1 class="sr-only">Magi Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><div id="ask-body" hidden></div></main>
+<main id="scroll"><h1 class="sr-only">Magi Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><p id="empty-note" hidden></p><div id="ask-body" hidden></div></main>
 <section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="state-note" role="region" aria-label="컴패니언 상태"></div><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>
 <div id="hint" role="region" aria-label="단축키 힌트"></div>
 <section id="reply-mode" aria-label="답변 모드" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></section>
@@ -317,6 +321,7 @@ const replyTargetEl = document.getElementById('reply-target');
 const replyCancelEl = document.getElementById('reply-cancel');
 const noteEl = document.getElementById('note');
 const stateNoteEl = document.getElementById('state-note');
+const emptyNoteEl = document.getElementById('empty-note');
 const say = document.getElementById('say');
 const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
@@ -652,6 +657,15 @@ const recoveryController = createWebviewRecoveryController({
   getCurrentCompanionKey: () => currentCompanionKey,
   getCurrentSession: () => currentSession,
 });
+/* 빈 전사가 말하는 것은 **전사에 대한 사실**뿐이다. 단추는 여기 안 붙는다 — 나가는 길은
+   state-note 가 혼자 맡는다(시작 단추가 두 곳에 생기면 같은 일을 두 번 그리는 것이다).
+   무엇을 말할지는 코어가 정한다(emptyTranscriptNote). 이 함수는 그리기만 한다.
+   (이 스크립트는 템플릿 문자열 안이다 — 주석에 백틱을 쓰면 안 된다.) */
+function drawEmptyNote(text) {
+  emptyNoteEl.textContent = text || '';
+  emptyNoteEl.hidden = !text;
+}
+
 function drawState(note) {
   /* ⚠ **지속 상태는 제 자리에 산다.** 이 함수는 오래 note 칸에 썼고, 같은 칸에 "sending…" 같은
      일시 알림도 살았다. 둘이 한 싱크라 서로를 지웠다: 컴패니언이 죽어 「없습니다」와 시작 단추가
@@ -858,6 +872,7 @@ const receiveHandlers = createWebviewReceiveHandlers({
   drawRefs,
   drawState,
   drawInfo: (m) => { info = m; drawInfo(); },
+  drawEmptyNote,
   setNoteText: (t) => { noteEl.textContent = t; },
   getNoteText: () => noteEl.textContent,
   scrollContainer: scrollEl,

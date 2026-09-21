@@ -25,6 +25,10 @@ const recoveryControllerSrc = path.join(root, 'src', 'web', 'recovery_controller
 const adapterSrc = path.join(root, 'src', 'web', 'chat_adapter.ts');
 const markdownRenderSrc = path.join(root, 'src', 'web', 'markdown_render.ts');
 const protocolSrc = path.join(root, 'src', 'core', 'webview_protocol.ts');
+/* 웹뷰 번들이 **부르는** 코어 판정. 빈 전사 안내를 무엇으로 할지는 여기서 정해지고
+   (emptyTranscriptNote), 화면은 그리기만 한다 — 그래서 번들의 진짜 입력이다. 타입만 쓰던 동안은
+   esbuild 가 지워서 없어도 됐지만, 이제는 없으면 번들이 안 선다. */
+const activitySrc = path.join(root, 'src', 'core', 'activity.ts');
 
 const outDir = path.join(root, 'out', 'web');
 const coreDir = path.join(root, 'out', 'core');
@@ -43,6 +47,7 @@ const requiredInputs = [
   { id: 'markdown_render', name: 'src/web/markdown_render.ts', path: markdownRenderSrc },
   { id: 'chat_adapter', name: 'src/web/chat_adapter.ts', path: adapterSrc },
   { id: 'webview_protocol', name: 'src/core/webview_protocol.ts', path: protocolSrc },
+  { id: 'activity', name: 'src/core/activity.ts', path: activitySrc },
 ];
 
 // 2. Validate existence of all required inputs BEFORE touching/writing any output file
