@@ -3,6 +3,77 @@ import { createRowsMessage, createStateMessage } from '../../transcript-fixtures
 
 export const layoutScenarios = [
       {
+        id: 'layout_empty_transcript_notice',
+        name: '빈 전사 안내 — 상태 다섯 × 행 0/n, 질문 유무, 메시지 순서 (§6.10)',
+        run: async (page) => {
+          const EMPTY = '아직 주고받은 말이 없습니다';
+          const shown = () => page.evaluate(() => {
+            const e = document.getElementById('empty-note');
+            return { hidden: e.hidden, text: e.textContent.trim() };
+          });
+          const rowsMsg = (rows, ask) => page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ session: 'sess-empty', rows, ask: ask || null }));
+          const stateMsg = (st, text, offerStart) => page.evaluate((m) => window.postMessage(m, '*'),
+            createStateMessage(st, { text: text || '', offerStart: !!offerStart }));
+          const oneRow = [{ who: 'agent', label: 'magi', text: 'turn 1' }];
+          const someAsk = { kind: 'question', callId: 'q-empty', what: '무엇을 할까요?' };
+
+          /* 상태 다섯 × 행 0/n. ⚠ 행이 0 인 것으로 데몬 부재를 추정하지 않는다 — not-running 과
+             unknown 은 이 자리에서 **침묵하고**, 문구와 나가는 길은 state-note 가 혼자 맡는다. */
+          for (const [st, speaks] of [['attached', true], ['working', true], ['waiting', true],
+                                      ['not-running', false], ['unknown', false]]) {
+            await rowsMsg([]);
+            await stateMsg(st, st === 'attached' ? '' : '상태 문구', st === 'not-running' || st === 'unknown');
+            await page.waitForFunction((want) => {
+              const e = document.getElementById('empty-note');
+              return (!e.hidden && e.textContent.includes('아직 주고받은')) === want;
+            }, speaks);
+            const s0 = await shown();
+            assert.equal(!s0.hidden, speaks, `${st}·행 0: 빈 안내 표시 = ${speaks}`);
+            if (speaks) assert.ok(s0.text.includes(EMPTY), `${st}: 문구가 전사에 대한 사실만 말한다`);
+
+            await rowsMsg(oneRow);
+            await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+            assert.equal((await shown()).hidden, true, `${st}·행 n: 행이 있으면 안 뜬다`);
+          }
+
+          // 대기 질문이 있으면 「아무 말도 없다」는 거짓이므로 안 띄운다.
+          await stateMsg('attached');
+          await rowsMsg([], someAsk);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          assert.equal((await shown()).hidden, true, '대기 질문이 있으면 빈 대화 문구를 안 띄운다');
+
+          /* ⚠ 메시지 **순서가 뒤바뀌어도** 최신 조합으로 다시 판정한다. 한쪽만 보고 그리면 늦게 온
+             쪽이 반영 안 된 화면이 남는다. */
+          await rowsMsg([]);                       // 먼저 rows, 나중 state
+          await stateMsg('attached');
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+          await stateMsg('attached');              // 먼저 state, 나중 rows
+          await rowsMsg(oneRow);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          await rowsMsg([]);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+
+          // 세션을 바꾸면 그 세션의 행 수로 다시 정해진다 — 옛 세션의 빈 안내가 안 남는다.
+          await page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ session: 'sess-other', rows: oneRow }));
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+
+          // 끊겨도 이미 있는 전사는 그대로 — 지속 상태는 state-note 가 맡는다.
+          await stateMsg('not-running', '이 폴더에서 도는 컴패니언이 없습니다.', true);
+          await page.waitForFunction(() => document.querySelector('#state-note button') !== null);
+          assert.equal((await shown()).hidden, true, '행이 있으면 끊겨도 빈 안내는 안 선다');
+          assert.equal(await page.locator('#rows').locator('.row, [class*=row]').count() > 0, true, '전사가 그대로 남는다');
+          // ⚠ 시작 단추는 **한 곳에만** 있다.
+          assert.equal(await page.locator('#state-note button').count(), 1, '시작 단추는 지속 안내에 하나');
+          assert.equal(await page.locator('#empty-note button').count(), 0, '빈 안내에는 단추가 없다');
+
+          // 치우고 나간다(page 공유).
+          await stateMsg('attached');
+          await page.evaluate((m) => window.postMessage(m, '*'), createRowsMessage({ rows: [], ask: null }));
+        }
+      },
+      {
         id: 'layout_state_note_survives_the_real_transient_notice',
         name: '실제 전송이 만든 일시 알림이 4초로 만료돼도 지속 안내와 시작 단추가 남는다 (§6.9)',
         run: async (page) => {
