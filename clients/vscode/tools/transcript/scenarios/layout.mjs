@@ -403,6 +403,295 @@ export const layoutScenarios = [
             await page.evaluate(() => { document.getElementById('note').textContent = ''; });
           }
         }
+      },
+      {
+        id: 'layout_empty_note_state_transition_ordering',
+        name: '메시지 순서를 상태 변화로 검증 — unknown + 행 n → rows([]) → attached, 역순, 왕복 (§6.11-1)',
+        run: async (page) => {
+          const rowsMsg = (rows, ask) => page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ rows, ask: ask || null }));
+          const stateMsg = (st, text, offerStart) => page.evaluate((m) => window.postMessage(m, '*'),
+            createStateMessage(st, { text: text || '', offerStart: !!offerStart }));
+          const isHidden = () => page.evaluate(() => document.getElementById('empty-note').hidden);
+          const oneRow = [{ who: 'agent', label: 'magi', text: 'turn 1' }];
+
+          /* ① unknown + 행 n → rows([]) → attached: 중간에는 숨김, 마지막에는 표시.
+             행이 있던 상태에서 비워지고 attached 가 되면 빈 안내가 선다. */
+          await stateMsg('unknown', '컴패니언 상태를 아직 알 수 없습니다.', true);
+          await rowsMsg(oneRow);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          assert.equal(await isHidden(), true, 'unknown + 행 n: 빈 안내 숨김');
+
+          await rowsMsg([]);
+          // unknown + 행 0 → 빈 안내 안 뜸 (unknown 은 침묵)
+          await page.waitForFunction(() => {
+            const e = document.getElementById('empty-note');
+            return e.hidden === true;
+          });
+          assert.equal(await isHidden(), true, 'unknown + 행 0 → rows([]) 중간: 아직 숨김 (unknown 침묵)');
+
+          await stateMsg('attached');
+          // attached + 행 0 → 빈 안내 표시
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+          assert.equal(await isHidden(), false, 'unknown→rows([])→attached 마지막: 표시');
+
+          /* ② 역순: unknown + 행 n → attached → rows([])
+             attached 가 먼저 와도, 행이 아직 있으면 중간에 안 뜨고, rows([]) 가 오면 표시. */
+          await stateMsg('unknown', '컴패니언 상태를 아직 알 수 없습니다.', true);
+          await rowsMsg(oneRow);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+
+          await stateMsg('attached');
+          // attached + 행 n → 빈 안내 안 뜸
+          await page.waitForFunction(() => {
+            /* rows 가 아직 있으므로 hidden 유지를 확인 — waitForFunction 은 조건이 되면 통과 */
+            return document.getElementById('empty-note').hidden === true
+              && document.querySelectorAll('#rows .row').length > 0;
+          });
+          assert.equal(await isHidden(), true, 'unknown→attached→(행 아직 있음) 중간: 숨김');
+
+          await rowsMsg([]);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+          assert.equal(await isHidden(), false, 'unknown→attached→rows([]) 마지막: 표시');
+
+          /* ③ 행 0에서 attached → not-running → attached 왕복:
+             숨김 → 표시 왕복을 확인한다. */
+          await rowsMsg([]);
+          await stateMsg('attached');
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+          assert.equal(await isHidden(), false, '왕복 시작: attached + 행 0 = 표시');
+
+          await stateMsg('not-running', '이 폴더에서 도는 컴패니언이 없습니다.', true);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          assert.equal(await isHidden(), true, '왕복 중: not-running = 숨김');
+
+          await stateMsg('attached');
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+          assert.equal(await isHidden(), false, '왕복 끝: attached 복귀 = 표시');
+
+          // 치우고 나간다.
+          await stateMsg('attached');
+          await rowsMsg([], null);
+        }
+      },
+      {
+        id: 'layout_empty_note_visible_bounds',
+        name: '빈 안내가 표시된 화면에서 안내·스크롤·입력창·Send 경계를 잰다 (§6.11-2)',
+        run: async (page) => {
+          const rowsMsg = (rows, ask) => page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ rows, ask: ask || null }));
+          const stateMsg = (st, text, offerStart) => page.evaluate((m) => window.postMessage(m, '*'),
+            createStateMessage(st, { text: text || '', offerStart: !!offerStart }));
+          const someAsk = {
+            kind: 'permission', callId: 'perm-bounds',
+            what: 'edit', filePath: 'b.txt',
+            args: JSON.stringify({ path: 'b.txt', old: 'x', new: 'y' })
+          };
+
+          for (const [w, h] of [[320, 600], [1200, 200]]) {
+            await page.setViewportSize({ width: w, height: h });
+
+            // attached + 행 0 + ask 없음 → empty-note 표시
+            await stateMsg('attached');
+            await rowsMsg([]);
+            await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+            assert.equal(
+              await page.evaluate(() => document.getElementById('empty-note').hidden), false,
+              `${w}×${h}: 빈 안내가 표시된다`
+            );
+
+            // 경계를 잰다
+            const box = async (sel) => page.locator(sel).first().boundingBox();
+            const [emptyBox, scrollBox, sayBox, sendBox] = await Promise.all([
+              box('#empty-note'), box('#scroll'), box('#say'), box('#send')
+            ]);
+
+            // 안내가 화면에 그려진다
+            assert.ok(emptyBox && emptyBox.width > 0 && emptyBox.height > 0,
+              `${w}×${h}: 빈 안내가 크기를 갖는다`);
+
+            // 입력 조작이 뷰포트 안에서 접근 가능하다
+            assert.ok(sayBox && sayBox.y + sayBox.height <= h + 0.5,
+              `${w}×${h}: 입력창이 뷰포트 안에 있다 — bottom=${(sayBox?.y + sayBox?.height)?.toFixed(1)}`);
+            assert.ok(sendBox && sendBox.y + sendBox.height <= h + 0.5,
+              `${w}×${h}: Send 가 뷰포트 안에 있다`);
+
+            // 작은 높이에서 안내가 넘치면 공통 스크롤로 전문에 접근해야 한다
+            if (scrollBox) {
+              const overflow = await page.evaluate(() => {
+                const el = document.getElementById('scroll');
+                return el.scrollHeight > el.clientHeight;
+              });
+              if (overflow) {
+                // 스크롤이 있으면 빈 안내 전문에 스크롤로 도달 가능
+                const canScroll = await page.evaluate(() => {
+                  const el = document.getElementById('scroll');
+                  const note = document.getElementById('empty-note');
+                  el.scrollTop = 0;
+                  const noteRect = note.getBoundingClientRect();
+                  return noteRect.top >= 0;
+                });
+                assert.ok(canScroll, `${w}×${h}: 스크롤 맨 위에서 빈 안내 시작이 보인다`);
+              }
+            }
+
+            // 승인 질문을 도착시켜 빈 안내 숨김과 승인 조작 접근을 확인한다
+            await rowsMsg([{ who: 'agent', label: 'magi', text: 'turn' }], someAsk);
+            await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+            assert.equal(
+              await page.evaluate(() => document.getElementById('empty-note').hidden), true,
+              `${w}×${h}: 승인 도착 → 빈 안내 숨김`
+            );
+            const approveBtn = await box('#ask-controls .acts button.approval-btn');
+            assert.ok(approveBtn && approveBtn.width > 0,
+              `${w}×${h}: 승인 단추가 접근 가능하다`);
+          }
+
+          // 치우고 나간다
+          await page.setViewportSize({ width: 800, height: 600 });
+          await stateMsg('attached');
+          await rowsMsg([], null);
+        }
+      },
+      {
+        id: 'layout_draft_survives_empty_note_transitions',
+        name: '빈 안내 표시·제거·재렌더 중 초안과 포커스가 보존된다 (§6.11-3)',
+        run: async (page) => {
+          const rowsMsg = (rows, ask) => page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ rows, ask: ask || null }));
+          const stateMsg = (st, text, offerStart) => page.evaluate((m) => window.postMessage(m, '*'),
+            createStateMessage(st, { text: text || '', offerStart: !!offerStart }));
+          const oneRow = [{ who: 'agent', label: 'magi', text: 'turn 1' }];
+
+          // 일반 초안을 작성하고 입력창에 포커스를 둔다
+          await page.locator('#say').fill('일반 초안 A');
+          await page.locator('#say').focus();
+          const postedBefore = await page.evaluate(() => window.__posted.length);
+
+          // 빈 안내 표시 (attached + 행 0)
+          await stateMsg('attached');
+          await rowsMsg([]);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+
+          // 값·포커스·게시 수 확인
+          assert.equal(await page.locator('#say').inputValue(), '일반 초안 A', '빈 안내 표시 후 초안 보존');
+          const focusedAfterShow = await page.evaluate(() => document.activeElement?.id);
+          assert.equal(focusedAfterShow, 'say', '빈 안내 표시 후 포커스 보존');
+          assert.equal(await page.evaluate(() => window.__posted.length), postedBefore,
+            '빈 안내 표시가 메시지를 보내지 않는다');
+
+          // 빈 안내 제거 (행 도착)
+          await rowsMsg(oneRow);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          assert.equal(await page.locator('#say').inputValue(), '일반 초안 A', '빈 안내 제거 후 초안 보존');
+          assert.equal(await page.evaluate(() => document.activeElement?.id), 'say', '빈 안내 제거 후 포커스 보존');
+
+          // 같은 세션 재렌더 (같은 행을 다시 보낸다)
+          await rowsMsg(oneRow);
+          await page.waitForFunction(() => document.querySelectorAll('#rows .row').length > 0);
+          assert.equal(await page.locator('#say').inputValue(), '일반 초안 A', '재렌더 후 초안 보존');
+
+          // 질문 답변 작성 중 state 변경
+          const someAsk = { kind: 'question', callId: 'q-draft', what: '무엇을 할까요?' };
+          await rowsMsg(oneRow, someAsk);
+          await page.waitForSelector('#ask-body:not([hidden])');
+          /* 질문이 도착하면 답변 모드로 전환되며 say 는 답변용 초안(빈 문자열)이 된다.
+             일반 초안 'A' 는 내부에 보관된다. §5.4 에 따라 포커스만으로 모드가 바뀌지 않는다. */
+          const sayAfterAsk = await page.locator('#say').inputValue();
+
+          // state 변경을 보낸다 — 질문·답변 초안이 보존되는지 확인
+          await stateMsg('working', '작업 중');
+          await page.waitForFunction(() => {
+            const e = document.getElementById('empty-note');
+            return e.hidden === true;
+          });
+          // state 변경 뒤에도 say 값은 질문 도착 직후와 같아야 한다
+          assert.equal(await page.locator('#say').inputValue(), sayAfterAsk,
+            'state 변경이 답변 초안을 바꾸지 않는다');
+          // 질문이 여전히 표시된다
+          assert.equal(await page.locator('#ask-body').isVisible(), true,
+            'state 변경 후에도 질문이 보인다');
+
+          // 같은 요청의 rows 재전송 — 답변 모드·초안이 유지되는지 확인
+          await rowsMsg(oneRow, someAsk);
+          await page.waitForSelector('#ask-body:not([hidden])');
+          assert.equal(await page.locator('#say').inputValue(), sayAfterAsk,
+            'rows 재전송이 답변 초안을 바꾸지 않는다');
+
+          // 질문이 사라지면 일반 초안 'A' 가 복원된다
+          await rowsMsg(oneRow);
+          await page.waitForFunction(() => document.getElementById('ask-body')?.hidden === true);
+          assert.equal(await page.locator('#say').inputValue(), '일반 초안 A',
+            '질문 해제 후 일반 초안이 복원된다');
+
+          // 치우고 나간다
+          await stateMsg('attached');
+          await rowsMsg([], null);
+          await page.locator('#say').fill('');
+        }
+      },
+      {
+        id: 'layout_first_row_arrival_and_scroll_tracking',
+        name: '빈 안내에서 첫 행으로 바뀔 때 하단 추적, 위로 읽을 때 scrollTop 보존 (§6.11-4)',
+        run: async (page) => {
+          const rowsMsg = (rows, ask) => page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ rows, ask: ask || null }));
+          const stateMsg = (st, text, offerStart) => page.evaluate((m) => window.postMessage(m, '*'),
+            createStateMessage(st, { text: text || '', offerStart: !!offerStart }));
+          const manyRows = Array.from({ length: 30 }, (_, i) =>
+            ({ who: 'agent', label: 'magi', text: `turn ${i + 1}\n`.repeat(5) }));
+
+          // 빈 안내를 세운다
+          await stateMsg('attached');
+          await rowsMsg([]);
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === false);
+
+          /* 첫 행 도착 → 하단 추적 유지: 바닥에 있었으면 새 내용도 바닥에 따라간다. */
+          await page.evaluate(() => {
+            const el = document.getElementById('scroll');
+            el.scrollTop = el.scrollHeight;
+          });
+          await rowsMsg(manyRows.slice(0, 1));
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          await page.waitForFunction(() => document.querySelectorAll('#rows .row').length > 0);
+          const atBottom1 = await page.evaluate(() => {
+            const el = document.getElementById('scroll');
+            return Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
+          });
+          assert.ok(atBottom1, '첫 행 도착 후 하단 추적 유지');
+
+          /* 많은 행을 넣어 스크롤을 길게 만든다 */
+          await rowsMsg(manyRows);
+          await page.waitForFunction((n) => document.querySelectorAll('#rows .row').length >= n, manyRows.length);
+          const atBottom2 = await page.evaluate(() => {
+            const el = document.getElementById('scroll');
+            return Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight) < 5;
+          });
+          assert.ok(atBottom2, '많은 행 도착 후에도 하단 추적 유지');
+
+          /* 위로 올려 읽는다 — state 재수신으로 scrollTop 을 빼앗지 않는다 */
+          await page.evaluate(() => { document.getElementById('scroll').scrollTop = 50; });
+          const scrollBefore = await page.evaluate(() => document.getElementById('scroll').scrollTop);
+          assert.equal(scrollBefore, 50, '스크롤을 50 으로 올렸다');
+
+          // state 재수신
+          await stateMsg('working', '작업 중');
+          /* state 변경은 rows 를 건드리지 않으므로 스크롤이 움직이면 안 된다.
+             waitForFunction 으로 empty-note 판정이 끝날 때까지 기다린다. */
+          await page.waitForFunction(() => document.getElementById('empty-note').hidden === true);
+          const scrollAfterState = await page.evaluate(() => document.getElementById('scroll').scrollTop);
+          assert.equal(scrollAfterState, 50, 'state 재수신이 scrollTop 을 빼앗지 않는다');
+
+          // 같은 행을 다시 보내도 위로 읽는 위치가 유지된다
+          await rowsMsg(manyRows);
+          await page.waitForFunction((n) => document.querySelectorAll('#rows .row').length >= n, manyRows.length);
+          const scrollAfterRows = await page.evaluate(() => document.getElementById('scroll').scrollTop);
+          assert.equal(scrollAfterRows, 50, 'rows 재전송이 scrollTop 을 빼앗지 않는다');
+
+          // 치우고 나간다
+          await stateMsg('attached');
+          await rowsMsg([], null);
+        }
       }
 ];
 

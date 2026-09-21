@@ -7,7 +7,7 @@ import { createA11yBundle } from './scenarios/a11y.mjs';
 import { markdownBundle } from './scenarios/markdown.mjs';
 
 export const EXPECTED_BUNDLE_COUNTS = {
-  layout: 8,
+  layout: 12,
   asks: 14,
   autocomplete: 2,
   diff: 13,
@@ -15,7 +15,7 @@ export const EXPECTED_BUNDLE_COUNTS = {
   markdown: 1,
 };
 
-export const TOTAL_EXPECTED_SCENARIOS = 46;
+export const TOTAL_EXPECTED_SCENARIOS = 50;
 
 /**
  * Validates bundle registry invariants (§5.8.6):

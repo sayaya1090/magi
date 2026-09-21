@@ -1131,7 +1131,7 @@ node --test clients/vscode/out/test/*.property.test.js
    - 신규 추가된 §5.8.5 P2 VSIX 회귀 테스트(누락 경로 오류 진단, CLI 인자 검증, 라이선스 바이트 불일치 거부, 번들 변조 거부, 버전 불일치 거부, `node_modules`/`out/test` 포함 거부, 공백 경로 및 커스텀 버전 `1.5.0` 검증, 독립 렌더 DOM 생성 검증) 100% 통과.
 3. **브라우저 테스트 하네스 (`transcript-test.mjs`):**
    - `--verify-assets`: 사전 자산 라우트, 외부 HTTP(S) 요청 차단 관측기 검증, 의도적 외부 요청 실패 유도, 격리 누락 검사 통과.
-   - 신규 추가된 `markdown` 번들을 포함한 6개 번들 40개 시나리오 100% 통과:
+   - 신규 추가된 `markdown` 번들을 포함한 6개 번들 50개 시나리오 100% 통과:
      - 미완성 코드 스트리밍 → 완성 답변 연속 전달 실측.
      - 인용구 내 펜스 끝 개행 슬라이스, 4칸 들여쓴 펜스 개행 보존 반례 검증.
      - 50줄 긴 코드 블록 전체 행별 원문 일치(verbatim match) 검증.
@@ -1143,7 +1143,7 @@ node --test clients/vscode/out/test/*.property.test.js
      - 원문 열기 액션(`outputId`) 호스트 메시지(`kind: 'output'`) 전송 검증.
      - 질문 답변 모드 진입 및 대화 갱신 시 답변 초안 보존, 취소(Escape) 시 일반 초안 완벽 복원 검증.
      - axe-core 접근성 감사 36회 violations=0, incomplete=0.
-   - 테마 역순(`--reverse-themes`): 40개 시나리오 100% 통과.
+   - 테마 역순(`--reverse-themes`): 50개 시나리오 100% 통과.
 4. **패키징 및 VSIX 즉시 검증 파이프라인 (`npm run package`):**
    - `magi-0.2.0.vsix` 패키징 직후 `verifyVsixArchive` 자동 실행 및 검증 성공 (62개 파일, 362,179 bytes).
    - VSIX 압축 해제 후 `extension/THIRD_PARTY_LICENSES.txt` 파일 존재 및 `Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.` 전문 포함 검증.
@@ -1202,7 +1202,7 @@ node --test clients/vscode/out/test/*.property.test.js
    - `node tools/package-vsix.mjs --out <subDir>`: `subDir/magi-0.2.0.vsix` 정상 생성.
    - `node tools/package-vsix.mjs --target linux-x64 --out <subDir>`: `subDir/magi-linux-x64-0.2.0.vsix` 정상 생성 및 검증 통과.
 3. **브라우저 테스트 하네스 (`transcript-test.mjs`):**
-   - 브라우저 코드·자산·라우터를 수정하지 않았으며 이전 검토의 40개 시나리오 통과 상태를 유지합니다.
+   - 브라우저 코드·자산·라우터를 수정하지 않았으며 이전 검토의 50개 시나리오 통과 상태를 유지합니다.
 
 #### 4. 미검증 범위 (Unverified Scope)
 - **미검증 항목:**
@@ -1220,7 +1220,7 @@ node --test clients/vscode/out/test/*.property.test.js
   - 공개 CLI `tools/transcript-test.mjs`는 엄격한 CLI 인자 파싱·검증, 환경변수 전달, `clients/web/e2e`에 설치된 Playwright CLI 실행(`spawn`, `shell: false`), 자식 프로세스 종료 코드 전달만 담당하는 얇은 실행기로 전환했습니다.
   - 제품 의존성(`package.json`) 변경 없이 저장소의 `@playwright/test` 환경을 `createRequire`로 공유합니다.
 - **모듈 구조:**
-  - `tools/transcript/registry.mjs`: 6개 묶음(`layout 4, asks 14, autocomplete 2, diff 12, a11y 7, markdown 1 = 40`)의 순서, 시나리오 수, 중복 여부를 불변식으로 검증하고 독립 묶음 배열을 생성합니다. CLI 전역 상태에 의존하지 않으며 `createBundles({ reverseThemes })` 옵션을 수신합니다.
+  - `tools/transcript/registry.mjs`: 6개 묶음(`layout 12, asks 14, autocomplete 2, diff 13, a11y 8, markdown 1 = 50`)의 순서, 시나리오 수, 중복 여부를 불변식으로 검증하고 독립 묶음 배열을 생성합니다. CLI 전역 상태에 의존하지 않으며 `createBundles({ reverseThemes })` 옵션을 수신합니다.
   - `tools/transcript/scenarios/*.mjs`: `layout.mjs`, `asks.mjs`, `autocomplete.mjs`, `diff.mjs`, `a11y.mjs`, `markdown.mjs`로 각 시나리오 로직을 완전 분리했습니다.
   - `tools/transcript/dom-helpers.mjs`, `a11y-helpers.mjs`: 화면 측정 헬퍼 및 테마 주입·접근성 감사 헬퍼를 도구 모듈로 분리했습니다.
   - `tools/transcript/asset-checks.mjs`: 자산 라우팅·경로 정규화·사전 번들 검사를 독립 테스트 함수로 분리했습니다.
@@ -1234,20 +1234,20 @@ node --test clients/vscode/out/test/*.property.test.js
   - 각 step 종료 시 `assertStepZeroErrors(page, scenario.id)`를 호출해 step 단위 오류를 즉시 탐지하고, 실패 시 후속 step으로 넘어가지 않고 즉시 중단합니다.
   - 기본 실행 설정: `workers: 1`, `fullyParallel: false`, `retries: 0`, `maxFailures: 1`.
 - **집계 보고 기준:**
-  - 전체 기본 실행은 **"자산 test 1개 + 기능 묶음 test 6개, 기능 step 40개"**로 집계합니다.
+  - 전체 기본 실행은 **"자산 test 1개 + 기능 묶음 test 6개, 기능 step 50개"**로 집계합니다.
   - 상위 test 7개를 기능 시나리오 7개로 쓰거나, 하위 step과 합쳐 47개로 세지 않습니다.
 
 #### 3. 공개 CLI 입력 계약 및 검증 결과
 
 | 공개 입력 | 실행 동작 | 검증 결과 |
 |---|---|---|
-| `node clients/vscode/tools/transcript-test.mjs` | 자산 검사 1개 test 통과 뒤, layout(4) → asks(14) → autocomplete(2) → diff(12) → a11y(7) → markdown(1) 순차 실행 | **통과:** 자산 test 1개 + 기능 묶음 test 6개, 기능 step 40개 전수 통과 (16.4s) |
+| `node clients/vscode/tools/transcript-test.mjs` | 자산 검사 1개 test 통과 뒤, layout(12) → asks(14) → autocomplete(2) → diff(13) → a11y(8) → markdown(1) 순차 실행 | **통과:** 자산 test 1개 + 기능 묶음 test 6개, 기능 step 50개 전수 통과 (17.3s) |
 | `node clients/vscode/tools/transcript-test.mjs --verify-assets` | 자산 검사만 실행; 기능 step 0개 | **통과:** 1 passed (자산 test 1개, 0 steps, 946ms) |
-| `node clients/vscode/tools/transcript-test.mjs --bundle=asks` | 자산 검사 없이 지정된 묶음 test 1개만 실행 | **통과:** 1 passed (기능 step 14개, 5.2s). layout(4), autocomplete(2), diff(12), a11y(7), markdown(1) 개별 실행도 모두 통과 |
-| `node clients/vscode/tools/transcript-test.mjs --reverse` | 자산 검사 선행 뒤 6개 묶음 역순 실행 (markdown → a11y → diff → autocomplete → asks → layout), 묶음 내부 step 순서 유지 | **통과:** 자산 test 1개 + 기능 묶음 test 6개, 기능 step 40개 전수 통과 (16.3s) |
-| `node clients/vscode/tools/transcript-test.mjs --reverse-themes` | 자산 검사 선행 뒤 a11y 테마 검사 역순 실행 (highContrast → light → dark), 36회 분석 유지 | **통과:** 자산 test 1개 + 기능 묶음 test 6개, 기능 step 40개 전수 통과 (16.4s) |
+| `node clients/vscode/tools/transcript-test.mjs --bundle=asks` | 자산 검사 없이 지정된 묶음 test 1개만 실행 | **통과:** 1 passed (기능 step 14개, 5.2s). layout(12), autocomplete(2), diff(13), a11y(8), markdown(1) 개별 실행도 모두 통과 |
+| `node clients/vscode/tools/transcript-test.mjs --reverse` | 자산 검사 선행 뒤 6개 묶음 역순 실행 (markdown → a11y → diff → autocomplete → asks → layout), 묶음 내부 step 순서 유지 | **통과:** 자산 test 1개 + 기능 묶음 test 6개, 기능 step 50개 전수 통과 (16.3s) |
+| `node clients/vscode/tools/transcript-test.mjs --reverse-themes` | 자산 검사 선행 뒤 a11y 테마 검사 역순 실행 (highContrast → light → dark), 36회 분석 유지 | **통과:** 자산 test 1개 + 기능 묶음 test 6개, 기능 step 50개 전수 통과 (16.4s) |
 | `node clients/vscode/tools/transcript-test.mjs --bundle=asks --verify-assets` | `--verify-assets` 우선 적용으로 기능 묶음 건너뛰고 자산 검사만 실행 | **통과:** 1 passed (자산 test 1개, 0 steps, 854ms) |
-| `npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs` | Playwright config 직접 실행 시에도 기본 CLI와 동일한 정상 spec 수집 | **통과:** 7 passed (자산 test 1개 + 기능 묶음 test 6개, 기능 step 40개, 16.4s) |
+| `npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs` | Playwright config 직접 실행 시에도 기본 CLI와 동일한 정상 spec 수집 | **통과:** 7 passed (자산 test 1개 + 기능 묶음 test 6개, 기능 step 50개, 17.3s) |
 | 미등록 옵션(`--foo`, `-x`), 빈 묶음(`--bundle=`), 알 수 없는 묶음(`--bundle=unknown`) | 오류 메시지와 지원 옵션 안내 출력 후 즉시 비정상 종료 (종료 코드 1) | **통과:** 조용히 성공하거나 전체를 실행하지 않고 엄격히 종료 코드 1 반환 |
 
 #### 4. 실패 재현 및 진단 보존 경로
