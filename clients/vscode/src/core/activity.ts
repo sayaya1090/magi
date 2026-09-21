@@ -149,6 +149,41 @@ export function sameSetup(a: Setup, b: Setup): boolean {
 }
 
 /**
+ * What the EMPTY TRANSCRIPT says — the place rows would be, when there are none.
+ *
+ * A blank panel made three different situations wear one face: "nobody has said anything yet",
+ * "no companion is running", and "we cannot reach it". Measured in the real product (2026-09-20):
+ * with zero rows the transcript area was completely blank, and the person had a silent panel and
+ * an input box, with nothing saying which of the three they were looking at.
+ *
+ * Two rules decide this, and they are deliberately narrow.
+ *
+ *   - ⚠ **Empty rows say nothing about the companion.** This never infers "no daemon" from an
+ *     empty list; reachability comes from [Activity] and nothing else. Conversely the sentence it
+ *     returns is about the TRANSCRIPT ("nothing has been said yet"), not about the companion.
+ *   - **Nothing is said when there is something to read.** A pending question or an approval body
+ *     is content: telling somebody "nothing has been said" above a question they were asked would
+ *     be false.
+ *
+ * `not-running` and `unknown` return empty here **on purpose**. [panelNote] already says those, and
+ * it carries the way out (the start action). Saying it twice would put one sentence in two places
+ * and give the screen two start buttons — so this surface stays quiet and the state surface owns
+ * both the sentence and the button.
+ */
+export function emptyTranscriptNote(a: Activity | null, hasRows: boolean, hasAsk: boolean): string {
+  if (hasRows || hasAsk) return '';
+  if (!a) return '';
+  switch (a.state) {
+    case State.Attached:
+    case State.Working:
+    case State.Waiting:
+      return '아직 주고받은 말이 없습니다. 아래에 무엇을 할지 적어 보세요.';
+    default:
+      return '';
+  }
+}
+
+/**
  * What the conversation panel says when there is nothing to talk to, and whether it offers a way out.
  *
  * ⚠ **The offer is not tied to the verdict.** `not-running` had a "Start one" button and `unknown`

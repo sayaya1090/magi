@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as activity from '../core/activity';
-import { State, panelNote, setupOf, sameSetup } from '../core/activity';
+import { State, panelNote, setupOf, sameSetup, emptyTranscriptNote } from '../core/activity';
 import { noteCompletion, sayWhyEmpty, whyNoCompletion } from '../core/complete';
 
 /**
@@ -353,4 +353,23 @@ test('both the completer and the composer record what came back', () => {
   assert.ok(sug > 0, 'the suggest call was not found — this guard is reading nothing');
   assert.match(chat.slice(sug, sug + 400), /noteCompletion\(/,
     'the composer asks and says nothing about a refusal, so the hint is silent with no reason');
+});
+
+/* 빈 판이 세 가지를 같은 얼굴로 만들었다(2026-09-20 실측: 행 0 이면 전사 영역이 완전한 백지) —
+   「아직 아무 말도 안 했다」와 「컴패니언이 안 돈다」와 「닿지 못한다」가 구별이 안 됐다.
+   그 판정을 화면의 if 로 두면 소스 글자로밖에 못 재므로 여기서 **불러서** 잰다. */
+test('§6.10: the empty transcript speaks only about the transcript', () => {
+  // 연결된 채 아무 말도 없을 때만 말한다.
+  for (const st of [State.Attached, State.Working, State.Waiting]) {
+    assert.match(emptyTranscriptNote({ state: st }, false, false), /아직 주고받은 말이 없습니다/);
+  }
+  // ⚠ 행이 0 인 것으로 데몬 부재를 추정하지 않는다: 그 둘은 이 자리에서 침묵하고,
+  // panelNote 가 문구와 나가는 길(시작 단추)을 **혼자** 맡는다 — 단추가 두 곳에 생기지 않게.
+  assert.equal(emptyTranscriptNote({ state: State.NotRunning }, false, false), '');
+  assert.equal(emptyTranscriptNote({ state: State.Unknown }, false, false), '');
+  assert.equal(emptyTranscriptNote(null, false, false), '');
+  // 읽을 것이 있으면 말하지 않는다 — 물음 위에 「아무 말도 없다」는 거짓이다.
+  assert.equal(emptyTranscriptNote({ state: State.Attached }, true, false), '');
+  assert.equal(emptyTranscriptNote({ state: State.Attached }, false, true), '');
+  assert.equal(emptyTranscriptNote({ state: State.Attached }, true, true), '');
 });
