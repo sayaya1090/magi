@@ -170,6 +170,7 @@ class MagiToolWindow : ToolWindowFactory {
         private val suggestRequest: ((String, (String?) -> Unit) -> Unit)? = null,
         private val filesRequest: ((String, (List<String>) -> Unit) -> Unit)? = null,
         private val fileChooser: ((List<String>, (String) -> Unit) -> Unit)? = null,
+        private val outputOpener: ((com.intellij.openapi.vfs.VirtualFile) -> Unit)? = null,
     ) : Disposable {
         private val workspace = Workspace(project)
         private val sendDrafts = dev.sayaya.magi.ide.usecase.SendDrafts()
@@ -1284,7 +1285,7 @@ class MagiToolWindow : ToolWindowFactory {
                         putUserData(outputKey, identity)
                     }
                 }
-                manager.openFile(file, true)
+                if (outputOpener != null) outputOpener.invoke(file) else manager.openFile(file, true)
             } catch (e: Exception) {
                 report(MagiBundle.msg("chat.output.failed", e.message ?: e.toString()))
             }
