@@ -583,3 +583,12 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 2026-09-22 실행: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0. core 367 통과·6 건너뜀, 헤드리스 IntelliJ 36 통과입니다. 이전 질문 버튼의 지연 실행이 새 질문을 제출하지 않는 회귀도 포함합니다. `npm test --prefix clients/vscode`는 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs`는 7개 test·50개 시나리오 통과(17.9초)입니다.
 
 실물 인수를 위해 별도 프로젝트·설정으로 IntelliJ 2026.1을 실행했습니다. AppleScript UI 접근은 macOS 보조 접근 권한 오류(-25211)로 거절됐고 CUA는 활성 화면이 없어 사용할 수 없었습니다. 검증용 실행은 종료했습니다. 따라서 GUI 버튼·포커스·실제 IME 입력은 미검증입니다. 헤드리스 IME 시험은 합성 InputMethodEvent에 한정하며 물리 키 입력을 검증한 것이 아닙니다. 자동완성의 입력 세대 무효화는 구현했지만 지연 콜백을 주입한 별도 회귀는 후속 범위입니다.
+
+
+### 자동완성·파일 목록 지연 응답 회귀
+
+`AnswerModeTest`에서 실제 askSuggestion/askFiles 응답 처리와 파일 선택 콜백에 지연 결과를 전달합니다. 모드 진입·취소, 일반/답변 제출, 질문 교체, 세션 변경(재그림 유무), dispose를 같은 입력 문자열로 검사합니다. 파일 목록은 도착 전과 표시 후 선택을 각각 검사합니다. 현재 문맥의 제안 수락·파일 첨부 성공도 확인합니다. 팝업 화면 자체는 주입한 표시 경계로 대체하므로 실물 팝업 검증과 구분합니다.
+
+수정 전 일반 제출 후 지연 제안과 파일 목록이 적용되는 실패를 재현했습니다. 일반 제출·질문 변경 때 입력 세대를 무효화하고, 응답 및 선택 시 요청 당시 세션을 대조합니다. 오래된 팝업 닫기 이벤트도 새 문맥의 토큰을 숨기지 않도록 제한했습니다.
+
+2026-09-22 실행: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 368 통과·5 건너뜀과 헤드리스 IntelliJ 39 통과입니다. 건너뜀 수는 실행 중인 데몬 탐지에 따라 앞선 기록과 다릅니다. `npm test --prefix clients/vscode` 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs` 7개 test·50개 시나리오 통과(17.6초), 모두 종료 0입니다. 실물 UI는 사용자 요청으로 보류했습니다.

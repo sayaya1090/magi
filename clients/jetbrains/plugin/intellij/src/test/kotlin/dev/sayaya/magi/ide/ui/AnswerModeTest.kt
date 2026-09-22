@@ -17,8 +17,14 @@ class AnswerModeTest : BasePlatformTestCase() {
         var session = "s1"
         val pending = mutableListOf<Triple<String, (String) -> Unit, (Companion) -> Unit>>()
         val seen = mutableListOf<Request>()
+        val suggestions = mutableListOf<(String?) -> Unit>()
+        val files = mutableListOf<(List<String>) -> Unit>()
+        val choices = mutableListOf<(String) -> Unit>()
         val view = MagiToolWindow.View(project,
-            sendConnection = { sid, error, work -> pending.add(Triple(sid, error, work)) }, sendSession = { session })
+            sendConnection = { sid, error, work -> pending.add(Triple(sid, error, work)) }, sendSession = { session },
+            suggestRequest = { _, done -> suggestions.add(done) },
+            filesRequest = { _, done -> files.add(done) },
+            fileChooser = { _, chosen -> choices.add(chosen) })
         @Suppress("UNCHECKED_CAST") fun <T> field(name: String): T =
             view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view) as T
         val input: JTextArea get() = field("input")
@@ -97,6 +103,63 @@ class AnswerModeTest : BasePlatformTestCase() {
         assertTrue(h.pending.isEmpty())
         h.click("Beta"); h.finish(0, true)
         assertEquals("new", h.seen.single().callId)
+    }
+    fun testCompletionCallbacksAreBoundToComposerContext() {
+        for (change in listOf("mode", "cancel", "submit", "answerSubmit", "question", "session", "sessionOnly", "dispose")) check { h ->
+            h.question(); h.input.text = "same"
+            if (change == "answerSubmit" || change == "cancel") { h.direct(); h.input.text = "same" }
+            h.view.javaClass.getDeclaredMethod("askSuggestion").apply { isAccessible = true }.invoke(h.view)
+            when (change) {
+                "mode" -> { h.direct(); h.input.text = "same" }
+                "submit", "answerSubmit" -> h.key("magi.send")
+                "cancel" -> h.key("magi.cancelAnswer")
+                "sessionOnly" -> { h.session = "s2" }
+                "question" -> h.question("q2")
+                "session" -> { h.session = "s2"; h.question("q2"); h.input.text = "same" }
+                "dispose" -> Disposer.dispose(h.view)
+            }
+            h.suggestions.first().invoke("STALE")
+            UIUtil.dispatchAllInvocationEvents()
+            assertNull(change, h.field<String?>("suggestion"))
+        }
+    }
+    fun testFileDeliveryAndSelectionAreBoundToComposerContext() {
+        for (delivered in listOf(false, true)) {
+            for (change in listOf("mode", "cancel", "submit", "answerSubmit", "question", "session", "sessionOnly", "dispose")) check { h ->
+                h.question(); h.input.text = "@same"
+                if (change == "answerSubmit" || change == "cancel") { h.direct(); h.input.text = "@same" }
+                h.view.javaClass.getDeclaredMethod("askSuggestion").apply { isAccessible = true }.invoke(h.view)
+                if (delivered) { h.files.first().invoke(listOf("file.kt")); UIUtil.dispatchAllInvocationEvents() }
+                when (change) {
+                    "mode" -> { h.direct(); h.input.text = "@same" }
+                    "submit", "answerSubmit" -> h.key("magi.send")
+                "cancel" -> h.key("magi.cancelAnswer")
+                "sessionOnly" -> { h.session = "s2" }
+                    "question" -> h.question("q2")
+                    "session" -> { h.session = "s2"; h.question("q2"); h.input.text = "@same" }
+                    "dispose" -> Disposer.dispose(h.view)
+                }
+                if (delivered) { h.choices.single().invoke("file.kt"); UIUtil.dispatchAllInvocationEvents() } else {
+                    h.files.first().invoke(listOf("file.kt")); UIUtil.dispatchAllInvocationEvents()
+                    assertTrue(change, h.choices.isEmpty())
+                }
+                assertEquals(change, "@same", h.input.text)
+                assertTrue(change, h.field<List<*>>("refs").isEmpty())
+            }
+        }
+    }
+    fun testCurrentCompletionAndFileSelectionStillWork() = check { h ->
+        h.question(); h.input.text = "same"
+        h.view.javaClass.getDeclaredMethod("askSuggestion").apply { isAccessible = true }.invoke(h.view)
+        h.suggestions.single().invoke(" suffix"); UIUtil.dispatchAllInvocationEvents()
+        h.view.javaClass.getDeclaredMethod("acceptSuggestion").apply { isAccessible = true }.invoke(h.view)
+        assertEquals("same suffix", h.input.text)
+        h.input.text = "@same"
+        h.view.javaClass.getDeclaredMethod("askSuggestion").apply { isAccessible = true }.invoke(h.view)
+        h.files.single().invoke(listOf("file.kt")); UIUtil.dispatchAllInvocationEvents()
+        h.choices.single().invoke("file.kt"); UIUtil.dispatchAllInvocationEvents()
+        assertEquals("", h.input.text)
+        assertEquals(1, h.field<List<*>>("refs").size)
     }
     fun testCompositionDoesNotSubmitOrCancel() = check { h ->
         h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"

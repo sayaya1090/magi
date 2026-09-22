@@ -167,6 +167,9 @@ class MagiToolWindow : ToolWindowFactory {
         private val pinned: String? = null,
         private val sendConnection: ((String, (String) -> Unit, (Companion) -> Unit) -> Unit)? = null,
         private val sendSession: (() -> String?)? = null,
+        private val suggestRequest: ((String, (String?) -> Unit) -> Unit)? = null,
+        private val filesRequest: ((String, (List<String>) -> Unit) -> Unit)? = null,
+        private val fileChooser: ((List<String>, (String) -> Unit) -> Unit)? = null,
     ) : Disposable {
         private val workspace = Workspace(project)
         private val sendDrafts = dev.sayaya.magi.ide.usecase.SendDrafts()
@@ -1390,6 +1393,50 @@ class MagiToolWindow : ToolWindowFactory {
         private fun askFiles(token: String) {
             if (token == dismissedToken) return
             val epoch = inputEpoch
+            val scope = currentSendSession()
+            val deliver: (List<String>) -> Unit = { files ->
+                val cut = files.take(20)
+                SwingUtilities.invokeLater {
+                    if (closing.get() || inputEpoch != epoch || currentSendSession() != scope || atToken() != token) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
+                    if (cut.isEmpty()) return@invokeLater
+                    val chosen: (String) -> Unit = chosen@ { picked ->
+                        if (closing.get() || inputEpoch != epoch || currentSendSession() != scope) return@chosen
+                        dismissedToken = null
+                        // 토큰을 걷고 칩을 세운다 — 본문이 아니라 참조가 실린다(§4.2c).
+                        val t = input.text
+                        val at = t.lastIndexOf('@')
+                        if (at >= 0) input.text = t.substring(0, at)
+                        attach(FileRef(picked))
+                        input.requestFocusInWindow()
+                    }
+                    if (fileChooser != null) {
+                        fileChooser.invoke(cut, chosen)
+                        return@invokeLater
+                    }
+                    com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                        .createPopupChooserBuilder(cut)
+                        // 컷은 알파벳순 앞 20(glob 이 정렬한다) — 잘렸으면 제목이 말한다.
+                        .setTitle(MagiBundle.msg("chat.mention.title", token) +
+                            if (files.size > cut.size) MagiBundle.msg("chat.mention.more", cut.size) else "")
+                        .setItemChosenCallback { chosen(it) }
+                        .createPopup()
+                        .apply {
+                            addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
+                                override fun onClosed(e: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
+                                    // 고르지 않고 닫혔으면(ESC) 같은 토큰의 재팝업을 막는다 —
+                                    // 다음 글자가 토큰을 바꾸면 자연히 풀린다.
+                                    if (!e.isOk && inputEpoch == epoch && currentSendSession() == scope) dismissedToken = token
+                                }
+                            })
+                            showUnderneathOf(input)
+                        }
+                }
+            }
+            val request = filesRequest
+            if (request != null) request(token, deliver) else requestFiles(token, deliver)
+        }
+
+        private fun requestFiles(token: String, deliver: (List<String>) -> Unit) {
             ApplicationManager.getApplication().executeOnPooledThread {
                 val sock2 = socket() ?: return@executeOnPooledThread
                 // 토큰의 글롭 메타문자를 이스케이프한다(웹 globQuote 와 같은 넷) — 안 하면
@@ -1404,51 +1451,20 @@ class MagiToolWindow : ToolWindowFactory {
                     // 세션은 안 실린다 — tool 문은 워크스페이스의 것, workdir 는 데몬이 박는다.
                     DaemonClient.connect(sock2).use { Companion(it, "").globFiles("**/*$safe*") }
                 }.getOrDefault(emptyList())
-                val cut = files.take(20)
-                SwingUtilities.invokeLater {
-                    if (closing.get() || inputEpoch != epoch || atToken() != token) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
-                    if (cut.isEmpty()) return@invokeLater
-                    com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
-                        .createPopupChooserBuilder(cut)
-                        // 컷은 알파벳순 앞 20(glob 이 정렬한다) — 잘렸으면 제목이 말한다.
-                        .setTitle(MagiBundle.msg("chat.mention.title", token) +
-                            if (files.size > cut.size) MagiBundle.msg("chat.mention.more", cut.size) else "")
-                        .setItemChosenCallback { picked ->
-                            if (closing.get() || inputEpoch != epoch) return@setItemChosenCallback
-                            dismissedToken = null
-                            // 토큰을 걷고 칩을 세운다 — 본문이 아니라 참조가 실린다(§4.2c).
-                            val t = input.text
-                            val at = t.lastIndexOf('@')
-                            if (at >= 0) input.text = t.substring(0, at)
-                            attach(FileRef(picked))
-                            input.requestFocusInWindow()
-                        }
-                        .createPopup()
-                        .apply {
-                            addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
-                                override fun onClosed(e: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
-                                    // 고르지 않고 닫혔으면(ESC) 같은 토큰의 재팝업을 막는다 —
-                                    // 다음 글자가 토큰을 바꾸면 자연히 풀린다.
-                                    if (!e.isOk) dismissedToken = token
-                                }
-                            })
-                            showUnderneathOf(input)
-                        }
-                }
+                deliver(files)
             }
         }
 
         private fun askSuggestion() {
             atToken()?.let { askFiles(it); return } // @멘션은 제안 스위치와 무관하다(파일 찾기다)
-            if (!LocalPrefs.suggest(project)) return
+            if (suggestRequest == null && !LocalPrefs.suggest(project)) return
             val prefix = input.text
             val epoch = inputEpoch
-            val a = assist() ?: return
-            ApplicationManager.getApplication().executeOnPooledThread {
-                val said = a.suggest(prefix)
+            val scope = currentSendSession()
+            val deliver: (String?) -> Unit = { said ->
                 SwingUtilities.invokeLater {
                     // 그새 사람이 더 쳤으면 낡은 제안이다. 붙이지 않는다.
-                    if (closing.get() || inputEpoch != epoch || input.text != prefix) return@invokeLater
+                    if (closing.get() || inputEpoch != epoch || currentSendSession() != scope || input.text != prefix) return@invokeLater
                     suggestion = said?.takeIf { it.isNotBlank() }
                     // 보이는 것과 **Tab 이 붙이는 것**이 같아야 한다. 여긴 모델이 지은 글자라
                     // 코드가 섞여 오고, 안 거르면 `<T>` 같은 조각이 태그로 먹혀 사라진다 —
@@ -1457,6 +1473,11 @@ class MagiToolWindow : ToolWindowFactory {
                     hint.parent?.revalidate()
                     hint.text = suggestion?.let { MagiBundle.msg("chat.suggest", Markup.text(it)) } ?: " "
                 }
+            }
+            val request = suggestRequest
+            if (request != null) request(prefix, deliver) else {
+                val a = assist() ?: return
+                ApplicationManager.getApplication().executeOnPooledThread { deliver(a.suggest(prefix)) }
             }
         }
 
@@ -1744,8 +1765,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (target.isNullOrBlank()) { report(MagiBundle.msg("chat.nosession")); return }
             val attempt = sendDrafts.begin(target, input.text, carry) ?: return
             val turnOpen = shaper.open
-            dropSuggestion()
-            debounce.stop()
+            invalidateComposer()
             val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
                 workspace.onDaemon(sid, trouble, work)
             }
@@ -1912,10 +1932,12 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun syncAnswerContext() {
             val q = waitingQuestion?.takeIf { it.ask is Ask.Choose && waitingSession == currentSendSession() }
+            val previous = answers.question
             answers.bind(currentSendSession(), q?.id, input.text)?.let {
                 input.text = it
                 invalidateComposer()
             }
+            if (previous != answers.question) invalidateComposer()
             paintAnswerMode()
         }
 
