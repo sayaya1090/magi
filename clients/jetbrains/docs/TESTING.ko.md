@@ -575,3 +575,11 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 입력은 제출 후에도 편집 가능합니다. 성공 응답은 같은 세션·편집 버전에만 입력을 비웁니다. 제출 시 세션과 turnOpen을 고정합니다. 실패 초안은 이 대화 창의 메모리에 보관하며 창을 닫으면 없어집니다. 원래 세션의 빈 입력창에만 명시적으로 복원하고 자동 재전송하지 않습니다. 결과 미확인 실패도 복원 전 이미 실행됐는지 확인해야 합니다. 다른 요청의 성공은 실패 목록을 지우지 않습니다.
 
 검증: JetBrains `:core:test :intellij:test :intellij:compileKotlin` 종료 0. core 363 통과·6 건너뜀, 헤드리스 IDE 29 통과로 합계 392 통과·6 건너뜀입니다. VS Code 단위 522 통과·7 건너뜀, 전체 Playwright 7개 test·50개 시나리오 통과(17.4초), 모두 종료 0입니다. 새 UI는 실제 IDE GUI에서 검증하지 않았으며 설치도 하지 않았습니다.
+
+## 선택형 질문 직접 입력 회귀
+
+`AnswerDraftsTest`는 일반/질문 초안 왕복, 요청별 잠금·시도 일치, 늦은 실패와 세션 분리·만료·dispose를 검사합니다. `AnswerModeTest`는 실제 질문 버튼·입력 핸들러와 지연 RPC를 사용합니다. 질문 도착만으로 답변 모드에 들어가지 않으며 직접 입력·취소를 명시적으로 실행합니다. 초안은 뷰 수명 동안 세션/질문별로 보관합니다.
+
+2026-09-22 실행: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0. core 367 통과·6 건너뜀, 헤드리스 IntelliJ 36 통과입니다. 이전 질문 버튼의 지연 실행이 새 질문을 제출하지 않는 회귀도 포함합니다. `npm test --prefix clients/vscode`는 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs`는 7개 test·50개 시나리오 통과(17.9초)입니다.
+
+실물 인수를 위해 별도 프로젝트·설정으로 IntelliJ 2026.1을 실행했습니다. AppleScript UI 접근은 macOS 보조 접근 권한 오류(-25211)로 거절됐고 CUA는 활성 화면이 없어 사용할 수 없었습니다. 검증용 실행은 종료했습니다. 따라서 GUI 버튼·포커스·실제 IME 입력은 미검증입니다. 헤드리스 IME 시험은 합성 InputMethodEvent에 한정하며 물리 키 입력을 검증한 것이 아닙니다. 자동완성의 입력 세대 무효화는 구현했지만 지연 콜백을 주입한 별도 회귀는 후속 범위입니다.

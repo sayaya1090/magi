@@ -170,6 +170,17 @@ class MagiToolWindow : ToolWindowFactory {
     ) : Disposable {
         private val workspace = Workspace(project)
         private val sendDrafts = dev.sayaya.magi.ide.usecase.SendDrafts()
+        private val answers = dev.sayaya.magi.ide.usecase.AnswerDrafts()
+        private var waitingQuestion: Waiting? = null
+        private var waitingSession: String? = null
+        private var inputEpoch = 0L
+        private var composing = false
+        private val sendButton = JButton(MagiBundle.msg("chat.send")).apply { addActionListener { say() } }
+        private val answerLabel = JBLabel()
+        private val answerCancel = JButton(MagiBundle.msg("chat.answer.cancel")).apply { addActionListener { cancelAnswer() } }
+        private val answerBar = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            add(answerLabel, BorderLayout.CENTER); add(answerCancel, BorderLayout.EAST); isVisible = false
+        }
         private val recovery = JButton().apply {
             isVisible = false
             addActionListener {
@@ -550,8 +561,7 @@ class MagiToolWindow : ToolWindowFactory {
                 isVisible = false // 물음이 올 때 [drawPrompt] 가 편다
             }
 
-            val send = JButton(MagiBundle.msg("chat.send")).apply { addActionListener { say() } }
-            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(link); add(send) }
+            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(link); add(sendButton) }
             val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 border = JBUI.Borders.empty(8, 12, 0, 8)
                 add(JBScrollPane(input), BorderLayout.CENTER)
@@ -567,6 +577,7 @@ class MagiToolWindow : ToolWindowFactory {
             bottom.add(JBPanel<JBPanel<*>>().apply {
                 layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                 isOpaque = false
+                add(answerBar)
                 add(notice)
                 add(recovery)
                 add(hint)
@@ -586,6 +597,8 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
                 private fun retract() {
                     sendDrafts.edited()
+                    answers.edit(input.text)
+                    inputEpoch++
                     dropSuggestion(); debounce.restart()
                     // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
                     // 파일 찾기로 간다 — 목록은 데몬의 읽기 전용 glob(감옥은 코어 규칙).
@@ -598,6 +611,17 @@ class MagiToolWindow : ToolWindowFactory {
             // 탭으로 받아들인다. 제안이 없으면 탭은 원래 하던 일을 한다.
             input.registerKeyboardAction({ acceptSuggestion() },
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
+            input.addInputMethodListener(object : java.awt.event.InputMethodListener {
+                override fun inputMethodTextChanged(e: java.awt.event.InputMethodEvent) {
+                    composing = e.text?.let { it.endIndex - it.beginIndex > e.committedCharacterCount } ?: false
+                }
+                override fun caretPositionChanged(e: java.awt.event.InputMethodEvent) {}
+            })
+            input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
+                .put(javax.swing.KeyStroke.getKeyStroke("ESCAPE"), "magi.cancelAnswer")
+            input.actionMap.put("magi.cancelAnswer", object : javax.swing.AbstractAction() {
+                override fun actionPerformed(e: java.awt.event.ActionEvent) { if (!composing) cancelAnswer() }
+            })
             // Enter 는 보낸다 — 웹도 터미널도 그렇다. 줄바꿈은 Shift+Enter 로 남긴다.
             // registerKeyboardAction 이 아니라 inputMap 인 이유: JTextArea 의 insert-break 가
             // ENTER 에 앉아 있어서, 그 자리를 바꿔 앉혀야 눌림과 줄바꿈이 같이 안 난다.
@@ -676,6 +700,8 @@ class MagiToolWindow : ToolWindowFactory {
             // 스트림 닫기 전 closing 플래그를 먼저 설정하여 ended 콜백에서의 자동 재연결 트리거를 차단합니다.
             closing.set(true)
             sendDrafts.close()
+            answers.close()
+            inputEpoch++
             // 메인 패널만 전역 레지스트리와 도구 어댑터를 해제합니다(리뷰 F1·F2):
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
@@ -1363,6 +1389,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun askFiles(token: String) {
             if (token == dismissedToken) return
+            val epoch = inputEpoch
             ApplicationManager.getApplication().executeOnPooledThread {
                 val sock2 = socket() ?: return@executeOnPooledThread
                 // 토큰의 글롭 메타문자를 이스케이프한다(웹 globQuote 와 같은 넷) — 안 하면
@@ -1379,7 +1406,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }.getOrDefault(emptyList())
                 val cut = files.take(20)
                 SwingUtilities.invokeLater {
-                    if (atToken() != token) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
+                    if (closing.get() || inputEpoch != epoch || atToken() != token) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
                     if (cut.isEmpty()) return@invokeLater
                     com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
                         .createPopupChooserBuilder(cut)
@@ -1387,6 +1414,7 @@ class MagiToolWindow : ToolWindowFactory {
                         .setTitle(MagiBundle.msg("chat.mention.title", token) +
                             if (files.size > cut.size) MagiBundle.msg("chat.mention.more", cut.size) else "")
                         .setItemChosenCallback { picked ->
+                            if (closing.get() || inputEpoch != epoch) return@setItemChosenCallback
                             dismissedToken = null
                             // 토큰을 걷고 칩을 세운다 — 본문이 아니라 참조가 실린다(§4.2c).
                             val t = input.text
@@ -1414,12 +1442,13 @@ class MagiToolWindow : ToolWindowFactory {
             atToken()?.let { askFiles(it); return } // @멘션은 제안 스위치와 무관하다(파일 찾기다)
             if (!LocalPrefs.suggest(project)) return
             val prefix = input.text
+            val epoch = inputEpoch
             val a = assist() ?: return
             ApplicationManager.getApplication().executeOnPooledThread {
                 val said = a.suggest(prefix)
                 SwingUtilities.invokeLater {
                     // 그새 사람이 더 쳤으면 낡은 제안이다. 붙이지 않는다.
-                    if (input.text != prefix) return@invokeLater
+                    if (closing.get() || inputEpoch != epoch || input.text != prefix) return@invokeLater
                     suggestion = said?.takeIf { it.isNotBlank() }
                     // 보이는 것과 **Tab 이 붙이는 것**이 같아야 한다. 여긴 모델이 지은 글자라
                     // 코드가 섞여 오고, 안 거르면 `<T>` 같은 조각이 태그로 먹혀 사라진다 —
@@ -1432,7 +1461,7 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun acceptSuggestion() {
-            val s = suggestion ?: return
+            val s = suggestion ?: return input.transferFocus()
             input.text = input.text + s
             dropSuggestion()
         }
@@ -1677,7 +1706,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun redraw(comp: Companion) {
             youName = comp.facts().user
             val w = comp.waiting()
-            SwingUtilities.invokeLater { drawPrompt(w) }
+            SwingUtilities.invokeLater { drawPrompt(w, comp.session) }
             say(if (w == null) Level.Attached else Level.Waiting)
         }
 
@@ -1704,6 +1733,9 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun say() {
+            if (composing) return
+            syncAnswerContext()
+            if (answers.active != null) { submitAnswer(input.text); return }
             val text = input.text.trim()
             if (text.isEmpty()) return
             val carry = synchronized(refs) { refs.toList() }
@@ -1782,7 +1814,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun recoverSend(attempt: dev.sayaya.magi.ide.usecase.SendDrafts.Attempt) {
             if (closing.get() || project.isDisposed) return
-            if (currentSendSession() != attempt.session || input.text.isNotEmpty()) {
+            if (answers.active != null || currentSendSession() != attempt.session || input.text.isNotEmpty()) {
                 report(MagiBundle.msg("chat.send.recovery.blocked"))
                 return
             }
@@ -1801,7 +1833,12 @@ class MagiToolWindow : ToolWindowFactory {
          * 단추 없는 물음만 떠 있으면 사람은 창이 고장 난 줄 모르고, 컴패니언은 답을 기다리며 막혀 있다.
          * 그 침묵이 바로 이전 판의 `else` 가 하던 일이었다.
          */
-        private fun drawPrompt(w: Waiting?) {
+        private fun drawPrompt(received: Waiting?, scope: String? = currentSendSession()) {
+            if (closing.get() || scope != currentSendSession()) return
+            waitingSession = scope
+            waitingQuestion = received
+            syncAnswerContext()
+            val w = received?.takeUnless { it.ask is Ask.Choose && answers.done() }
             buttons.removeAll()
             head.isVisible = w != null // 없는 물음의 자리를 비워 두지 않는다 — 죽은 띠가 된다
             // 물음이 서 있는 동안은 그 자리에 막대를 하나 세운다. 콘솔이 답 없는 물음에 긋는 것과
@@ -1841,7 +1878,18 @@ class MagiToolWindow : ToolWindowFactory {
                         add(MagiBundle.msg("chat.perm.deny")) { it.deny(w.id) }
                         add(MagiBundle.msg("chat.perm.always")) { it.always(w.id) }
                     }
-                    is Ask.Choose -> ask.options.forEach { opt -> add(opt) { it.answer(w.id, opt) } }
+                    is Ask.Choose -> {
+                        ask.options.forEach { opt ->
+                            buttons.add(JButton(opt).apply {
+                                putClientProperty("magi.answerChoice", true)
+                                isEnabled = !answers.busy()
+                                addActionListener { submitAnswer(opt, scope?.let { dev.sayaya.magi.ide.usecase.AnswerDrafts.Key(it, w.id) }) }
+                            })
+                        }
+                        buttons.add(JButton(MagiBundle.msg("chat.answer.direct")).apply {
+                            addActionListener { enterAnswer() }
+                        })
+                    }
                     // 사유는 위 문구에 실었다. 단추는 안 만든다 — 지어낸 단추는 틀린 답을 보낸다.
                     is Ask.Undrawable -> Unit
                 }
@@ -1856,7 +1904,74 @@ class MagiToolWindow : ToolWindowFactory {
                     })
                 }
             }
+            paintAnswerMode()
             buttons.revalidate(); buttons.repaint()
+        }
+
+        private fun invalidateComposer() { inputEpoch++; debounce.stop(); dropSuggestion() }
+
+        private fun syncAnswerContext() {
+            val q = waitingQuestion?.takeIf { it.ask is Ask.Choose && waitingSession == currentSendSession() }
+            answers.bind(currentSendSession(), q?.id, input.text)?.let {
+                input.text = it
+                invalidateComposer()
+            }
+            paintAnswerMode()
+        }
+
+        private fun paintAnswerMode() {
+            answerBar.isVisible = answers.active != null
+            answerLabel.text = MagiBundle.msg("chat.answer.mode") + " · " + waitingQuestion?.what.orEmpty().take(100)
+            answerLabel.toolTipText = waitingQuestion?.what
+            sendButton.isEnabled = answers.active == null || !answers.busy()
+            buttons.components.filterIsInstance<JButton>().forEach {
+                if (it.getClientProperty("magi.answerChoice") == true) it.isEnabled = !answers.busy()
+            }
+            answerBar.parent?.revalidate()
+        }
+
+        private fun enterAnswer() {
+            if (closing.get() || composing) return
+            syncAnswerContext()
+            answers.enter(input.text)?.let { input.text = it }
+            invalidateComposer(); paintAnswerMode(); input.requestFocusInWindow()
+        }
+
+        private fun cancelAnswer() {
+            if (composing) return
+            answers.cancel(input.text)?.let { input.text = it }
+            invalidateComposer(); paintAnswerMode(); input.requestFocusInWindow()
+        }
+
+        private fun submitAnswer(text: String, expected: dev.sayaya.magi.ide.usecase.AnswerDrafts.Key? = answers.active) {
+            if (closing.get() || project.isDisposed || composing) return
+            syncAnswerContext()
+            if (expected == null || answers.question != expected) return
+            val attempt = answers.begin(text) ?: return
+            answers.leaveAfterSubmit()
+            input.text = answers.generalText()
+            invalidateComposer(); paintAnswerMode()
+            val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
+                workspace.onDaemon(sid, trouble, work)
+            }
+            connect(attempt.key.session, { finishAnswer(attempt, it) }) reply@ { comp ->
+                if (closing.get() || project.isDisposed) return@reply
+                val r = comp.answer(attempt.key.callId, attempt.text)
+                finishAnswer(attempt, if (r.ok) null else r.error ?: MagiBundle.msg("common.noreason"))
+            }
+        }
+
+        private fun finishAnswer(attempt: dev.sayaya.magi.ide.usecase.AnswerDrafts.Attempt, error: String?) = SwingUtilities.invokeLater {
+            if (closing.get() || project.isDisposed) return@invokeLater
+            if (!answers.complete(attempt, error == null)) return@invokeLater
+            if (currentSendSession() == attempt.key.session && answers.question == attempt.key) {
+                if (error == null) {
+                    answers.cancel(input.text)?.let { input.text = it }
+                    invalidateComposer()
+                    drawPrompt(waitingQuestion)
+                } else report(MagiBundle.msg("common.notsent", error))
+                paintAnswerMode()
+            }
         }
 
         /**

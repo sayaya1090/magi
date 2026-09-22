@@ -19,7 +19,7 @@ class Companion(
      * 갈아타기)이 있고, 그 일을 하려고 붙을 때는 고를 대화가 아직 없다. 빈 채로 대화 문을
      * 부르는 것은 [send] 가 막는다.
      */
-    private val session: String,
+    val session: String,
 ) {
 
     /**
