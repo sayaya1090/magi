@@ -162,8 +162,24 @@ class MagiToolWindow : ToolWindowFactory {
      * 전역 공표 상태나 `session.moved` 이벤트를 따르지 않으며, 입력 메시지를 지정된 세션 ID로만 라우팅합니다(계약: submit/steer는 대상 세션의 턴을 시작함).
      * null인 경우 전역 활성 세션을 추종하는 메인 패널로 동작합니다.
      */
-    internal class View(private val project: Project, private val pinned: String? = null) : Disposable {
+    internal class View(
+        private val project: Project,
+        private val pinned: String? = null,
+        private val sendConnection: ((String, (String) -> Unit, (Companion) -> Unit) -> Unit)? = null,
+        private val sendSession: (() -> String?)? = null,
+    ) : Disposable {
         private val workspace = Workspace(project)
+        private val sendDrafts = dev.sayaya.magi.ide.usecase.SendDrafts()
+        private val recovery = JButton().apply {
+            isVisible = false
+            addActionListener {
+                com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                    .createPopupChooserBuilder(sendDrafts.failures)
+                    .setTitle(MagiBundle.msg("chat.send.recovery"))
+                    .setItemChosenCallback { recoverSend(it.attempt) }
+                    .createPopup().showUnderneathOf(this)
+            }
+        }
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         /** 도구 창 제목 표시줄에 상태 텍스트를 업데이트하는 핸들러. ToolWindow 구성부에서 주입합니다. */
         var title: (String) -> Unit = {}
@@ -552,6 +568,7 @@ class MagiToolWindow : ToolWindowFactory {
                 layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                 isOpaque = false
                 add(notice)
+                add(recovery)
                 add(hint)
             }, BorderLayout.SOUTH)
 
@@ -568,6 +585,7 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun removeUpdate(e: javax.swing.event.DocumentEvent) = retract()
                 override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
                 private fun retract() {
+                    sendDrafts.edited()
                     dropSuggestion(); debounce.restart()
                     // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
                     // 파일 찾기로 간다 — 목록은 데몬의 읽기 전용 glob(감옥은 코어 규칙).
@@ -657,6 +675,7 @@ class MagiToolWindow : ToolWindowFactory {
 
             // 스트림 닫기 전 closing 플래그를 먼저 설정하여 ended 콜백에서의 자동 재연결 트리거를 차단합니다.
             closing.set(true)
+            sendDrafts.close()
             // 메인 패널만 전역 레지스트리와 도구 어댑터를 해제합니다(리뷰 F1·F2):
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
@@ -1688,7 +1707,18 @@ class MagiToolWindow : ToolWindowFactory {
             val text = input.text.trim()
             if (text.isEmpty()) return
             val carry = synchronized(refs) { refs.toList() }
-            onDaemon { comp ->
+            if (closing.get() || project.isDisposed) return
+            val target = currentSendSession()
+            if (target.isNullOrBlank()) { report(MagiBundle.msg("chat.nosession")); return }
+            val attempt = sendDrafts.begin(target, input.text, carry) ?: return
+            val turnOpen = shaper.open
+            dropSuggestion()
+            debounce.stop()
+            val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
+                workspace.onDaemon(sid, trouble, work)
+            }
+            connect(target, { finishSend(attempt, it) }) send@ { comp ->
+                if (closing.get() || project.isDisposed) return@send
                 // 고정 탭의 게이트(계약의 절반): 한 워크스페이스의 동시 턴은 아무것도 조정하지
                 // 않는다 — 다른 대화의 턴이 도는 중이면 조용한 건너뛰기 대신 **묻는다**. 파일
                 // 충돌은 사용자가 이름 댄 고통이다(docs/UI.ko.md §4.2b).
@@ -1697,7 +1727,6 @@ class MagiToolWindow : ToolWindowFactory {
                     // 「내 데몬」은 이름이 아니라 **소켓**으로 고른다 — roster 는 머신 문이라 첫
                     // live 행이 옆 프로젝트의 데몬일 수 있다(오탐과 미탐이 동시에).
                     val sockStr = socket()?.toString()
-                    val target = pinned ?: comp.facts().session
                     val mine = comp.roster().roster
                         ?.firstOrNull { it.live && !it.sighting && it.socket == sockStr }
                     if (mine?.state == "working" && mine.session != target) {
@@ -1709,30 +1738,60 @@ class MagiToolWindow : ToolWindowFactory {
                                 MagiBundle.msg("chat.busy.title"), MagiBundle.msg("chat.busy.yes"), MagiBundle.msg("chat.busy.no"), null,
                             ) == com.intellij.openapi.ui.Messages.YES
                         }
-                        if (!go) return@onDaemon
+                        if (!go) {
+                            finishSend(attempt, MagiBundle.msg("chat.send.cancelled"))
+                            return@send
+                        }
                     }
                 }
                 // 턴이 열려 있나는 **이 창이 아는 사실**이다 — 전사를 흘려보며 답 없는
                 // prompt.submitted 가 서 있는지 세고 있다(`Rows.open`). 데몬에게 묻는
                 // 탐침은 도는 턴 대부분을 놓치므로(Companion.turnIsOpen 주석) 여기서 준다.
-                val r = comp.say(text, carry, shaper.open)
-                if (r.ok) {
-                    clearNotice()
-                    SwingUtilities.invokeLater {
-                        input.text = ""
-                        dropSuggestion()
-                        // 보낸 것만 지운다(리뷰 실측): 왕복이 도는 동안 사람이 더 세운 칩을
-                        // 전량 clear 가 소리 없이 지웠다 — 코어가 지키는 "사라지는 첨부 없음"을
-                        // 클라이언트가 어기는 자리였다. attach 가 중복을 막으므로 removeAll 은 안전.
-                        synchronized(refs) { refs.removeAll(carry) }
-                        drawChips()
-                        // 보낸 사람은 바닥으로 — 위에서 과거를 읽다 보냈어도 자기 메시지가
-                        // 그려질 자리를 본다. 무조건 바닥 고정이 이를 우연히 보장하던 것을
-                        // 조건부로 바꾸며 열린 구멍(리뷰 F3: 이 diff 가 처음 연 회귀).
-                        scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
-                    }
-                } else report(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+                val r = comp.say(text, carry, turnOpen)
+                finishSend(attempt, if (r.ok) null else r.error ?: MagiBundle.msg("common.noreason"))
             }
+        }
+
+        private fun currentSendSession(): String? = if (sendSession != null) sendSession.invoke()
+            else pinned ?: followedSid ?: socket()?.let { dev.sayaya.magi.ide.transport.Published.of(it)?.session }
+
+        private fun finishSend(attempt: dev.sayaya.magi.ide.usecase.SendDrafts.Attempt, error: String?) = SwingUtilities.invokeLater {
+            if (closing.get() || project.isDisposed) return@invokeLater
+            val outcome = sendDrafts.complete(attempt, error, currentSendSession()) ?: return@invokeLater
+            if (error == null && outcome.sameSession) {
+                if (outcome.clearInput) {
+                    input.text = ""
+                    dropSuggestion()
+                    scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                }
+                synchronized(refs) { refs.removeAll(attempt.refs) }
+                drawChips()
+                if (sendDrafts.failures.isEmpty()) clearNotice()
+            } else if (error != null && outcome.sameSession) {
+                report(MagiBundle.msg("common.notsent", error))
+            }
+            drawSendRecovery()
+        }
+
+        private fun drawSendRecovery() {
+            recovery.text = MagiBundle.msg("chat.send.recovery") + " (${sendDrafts.failures.size})"
+            recovery.toolTipText = MagiBundle.msg("chat.send.recovery.tip")
+            recovery.isVisible = sendDrafts.failures.isNotEmpty()
+            recovery.parent?.revalidate()
+        }
+
+        private fun recoverSend(attempt: dev.sayaya.magi.ide.usecase.SendDrafts.Attempt) {
+            if (closing.get() || project.isDisposed) return
+            if (currentSendSession() != attempt.session || input.text.isNotEmpty()) {
+                report(MagiBundle.msg("chat.send.recovery.blocked"))
+                return
+            }
+            input.text = attempt.text
+            synchronized(refs) { attempt.refs.forEach { if (!refs.contains(it)) refs.add(it) } }
+            drawChips()
+            sendDrafts.recovered(attempt.id)
+            drawSendRecovery()
+            input.requestFocusInWindow()
         }
 
         /**

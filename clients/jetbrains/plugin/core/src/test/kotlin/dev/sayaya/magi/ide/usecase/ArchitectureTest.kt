@@ -47,7 +47,7 @@ class ArchitectureTest {
     @Test
     fun `컴포저는 턴이 열렸는지를 사실로 넘긴다 — 탐침에 맡기지 않는다`() {
         // 유닛은 `say(turnOpen=…)` 이 옳게 고르는 것까지만 잰다. **부르는 쪽이 그 값을 정말
-        // 넘기는지**는 창 코드에 있고, `intellij` 에는 시험 소스 세트가 없어 여기서 원본을 읽는다.
+        // 넘기는지**는 여기서 소스 배선을 확인한다. 실제 입력 핸들러는 SendDraftTest가 검사한다.
         //
         // 이 배선이 결함의 전부였다: 기전은 있었고 입력이 안 왔다. 창이 값을 안 넘기면 데몬 탐침이
         // 쓰이는데, 그 탐침은 평범하게 도는 턴을 못 본다(`Companion.turnIsOpen` 주석의 실측).
@@ -56,7 +56,7 @@ class ArchitectureTest {
         val calls = Regex("""comp\.say\([^)]*\)""").findAll(win!!.readText()).map { it.value }.toList()
         assertTrue(calls.isNotEmpty(), "컴포저의 say 호출을 못 찾았다 — 이름이 바뀌었으면 이 가드부터 고칠 것")
         assertTrue(
-            calls.any { "shaper.open" in it },
+            calls.any { "turnOpen" in it } && win.readText().contains("val turnOpen = shaper.open"),
             "컴포저가 턴이 열렸는지를 안 넘긴다: $calls — 창은 전사를 흘려보며 그 사실을 이미 " +
                 "들고 있다(Rows.open). 안 넘기면 도는 턴에 submit 이 나가고 코어가 그 턴의 " +
                 "계획을 비운다(resetForNewTopLevel).",
@@ -239,7 +239,7 @@ class ArchitectureTest {
     fun `시험이 실제로 파일을 보고 있다`() {
         val names = usecase.listFiles { f -> f.name.endsWith(".kt") }.orEmpty().map { it.name }.toSet()
         assertEquals(
-            setOf("Activity.kt", "Assist.kt", "Authorship.kt", "Companion.kt", "CoreProbe.kt", "CoreRelease.kt", "Generation.kt", "Hand.kt", "DaemonLifecycle.kt", "Launches.kt", "Level.kt", "LookNotes.kt", "Markup.kt", "McpName.kt", "OnceAcross.kt", "Palette.kt", "Phases.kt", "Ports.kt", "Problems.kt", "RowText.kt", "Rows.kt", "Schedules.kt", "Transcript.kt"),
+            setOf("Activity.kt", "Assist.kt", "Authorship.kt", "Companion.kt", "CoreProbe.kt", "CoreRelease.kt", "Generation.kt", "Hand.kt", "DaemonLifecycle.kt", "Launches.kt", "Level.kt", "LookNotes.kt", "Markup.kt", "McpName.kt", "OnceAcross.kt", "Palette.kt", "Phases.kt", "Ports.kt", "Problems.kt", "RowText.kt", "Rows.kt", "Schedules.kt", "Transcript.kt", "SendDrafts.kt"),
             names,
             "usecase 의 파일 목록이 예상과 다르다 — 옮겼으면 이 시험의 경로도 같이 옮길 것",
         )

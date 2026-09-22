@@ -1,0 +1,36 @@
+package dev.sayaya.magi.ide.usecase
+
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
+
+class SendDraftsTest {
+    @Test fun `same edit cannot be submitted twice while pending and duplicate results do nothing`() {
+        val s = SendDrafts()
+        val a = s.begin("s1", "A", emptyList())!!
+        assertNull(s.begin("s1", "A", emptyList()))
+        assertTrue(s.complete(a, null, "s1")!!.clearInput)
+        assertNull(s.complete(a, "late error", "s1"))
+        assertTrue(s.failures.isEmpty())
+    }
+    @Test fun `edit revisions and session ownership both guard clearing`() {
+        val s = SendDrafts()
+        val a = s.begin("s1", "A", emptyList())!!
+        s.edited(); s.edited()
+        assertFalse(s.complete(a, null, "s1")!!.clearInput)
+        val b = s.begin("s1", "A", emptyList())!!
+        assertFalse(s.complete(b, null, "s2")!!.sameSession)
+    }
+    @Test fun `failure snapshots survive other successes until explicit recovery and close`() {
+        val s = SendDrafts()
+        val a = s.begin("s1", "A", emptyList())!!
+        s.edited()
+        val b = s.begin("s1", "B", emptyList())!!
+        s.complete(a, "unknown", "s2")
+        s.complete(b, null, "s1")
+        assertEquals(a, s.failures.single().attempt)
+        s.recovered(a.id)
+        assertTrue(s.failures.isEmpty())
+        s.close()
+        assertNull(s.begin("s1", "C", emptyList()))
+    }
+}
