@@ -592,3 +592,12 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 수정 전 일반 제출 후 지연 제안과 파일 목록이 적용되는 실패를 재현했습니다. 일반 제출·질문 변경 때 입력 세대를 무효화하고, 응답 및 선택 시 요청 당시 세션을 대조합니다. 오래된 팝업 닫기 이벤트도 새 문맥의 토큰을 숨기지 않도록 제한했습니다.
 
 2026-09-22 실행: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 368 통과·5 건너뜀과 헤드리스 IntelliJ 39 통과입니다. 건너뜀 수는 실행 중인 데몬 탐지에 따라 앞선 기록과 다릅니다. `npm test --prefix clients/vscode` 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs` 7개 test·50개 시나리오 통과(17.6초), 모두 종료 0입니다. 실물 UI는 사용자 요청으로 보류했습니다.
+
+
+### 결과 원문 편집창
+
+`RowsTest`는 확정 답변·도구 결과의 원문, 빈 문자열/자료 없음 구분, 결과 seq를 검사합니다. `OutputEditorTest`는 실제 행 버튼으로 읽기 전용 가상 문서를 열고 원문·열린 탭 재사용·세션 격리·뷰 종료 후 내용 보존을 검사합니다. 스트리밍 초안과 결과 대기 행에는 버튼이 없습니다. 문자열은 공백을 보존하며 구조화된 도구 결과는 JSON으로 표시합니다.
+
+가상 파일은 행이 보유한 확정 원문으로 생성합니다. 같은 뷰·세션·종류·callId·결과 seq의 열린 탭을 재사용하고, 닫힌 탭은 행의 원문에서 다시 생성합니다. 별도 문서 캐시는 없습니다. 열린 파일은 IDE가 보유하므로 대화 뷰 종료가 내용을 비우지 않습니다. 디스크 파일을 수정하거나 승인·답변 RPC를 전송하지 않습니다.
+
+2026-09-22 검증: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 40 통과. 기존 CoreProbeTest의 ‘기한에 걸린 자식을 남기지 않는다’는 대역 JVM이 기한 안에 기록을 남기지 못해 한 차례 실패했으며, 제품/테스트 변경 없이 전체 재실행에서 통과했습니다. `npm test --prefix clients/vscode` 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs` 7개 test·50개 시나리오 통과(17.8초)입니다. 실물 GUI는 보류 상태입니다.

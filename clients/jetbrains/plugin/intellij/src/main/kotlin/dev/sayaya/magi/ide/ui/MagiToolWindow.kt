@@ -1001,7 +1001,15 @@ class MagiToolWindow : ToolWindowFactory {
             p.isOpaque = false
             // 개별 말풍선 텍스트 복사 버튼:
             // 시각적 스타일(발화자, 실행 상태 등)은 `RowText.plain`을 통해 표준 텍스트 서식으로 직렬화하여 클립보드에 전달합니다.
-            p.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) }, BorderLayout.EAST)
+            val actions = javax.swing.JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 2, 0)).apply { isOpaque = false }
+            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
+            val sourceSession = currentSendSession()
+            if (sourceSession != null && r.outputText != null && r.outputSeq != null) {
+                actions.add(JButton(MagiBundle.msg("chat.output.open")).apply {
+                    addActionListener { openOutput(r, sourceSession) }
+                })
+            }
+            p.add(actions, BorderLayout.EAST)
             when (r.who) {
                 Who.User, Who.Agent -> {
                     val marks = buildList {
@@ -1259,6 +1267,29 @@ class MagiToolWindow : ToolWindowFactory {
          */
 
         /** 물음 id → 이미 연 가상 파일. 클릭마다 새 인스턴스면 같은 이름의 탭이 쌓인다(리뷰). */
+        private val outputKey = com.intellij.openapi.util.Key.create<List<String>>("magi.output.source")
+
+        private fun openOutput(row: Row, session: String) {
+            if (closing.get() || project.isDisposed) return
+            val text = row.outputText ?: return
+            val seq = row.outputSeq ?: return
+            val identity = listOf(session, row.who.name, row.callId, seq.toString())
+            try {
+                val manager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+                val file = manager.openFiles.firstOrNull { it.getUserData(outputKey) == identity } ?: run {
+                    val extension = if (row.who == Who.Agent) "md" else if (row.outputJson) "json" else "txt"
+                    val type = com.intellij.openapi.fileTypes.FileTypeManager.getInstance().getFileTypeByExtension(extension)
+                    com.intellij.testFramework.LightVirtualFile("magi-output-$seq.$extension", type, text).apply {
+                        isWritable = false
+                        putUserData(outputKey, identity)
+                    }
+                }
+                manager.openFile(file, true)
+            } catch (e: Exception) {
+                report(MagiBundle.msg("chat.output.failed", e.message ?: e.toString()))
+            }
+        }
+
         private val diffTabs = java.util.concurrent.ConcurrentHashMap<String, com.intellij.testFramework.LightVirtualFile>()
 
         /** 승인의 변화를 IDE 답게 연다 — 나란히(원문 두 면) 또는 패치 파일(코어 diff 원문). */

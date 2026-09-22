@@ -46,6 +46,10 @@ data class Row(
     val who: Who,
     val text: String,
     val at: String? = null,
+    /** Confirmed source content, separate from transcript display and error summaries. */
+    val outputText: String? = null,
+    val outputSeq: Long? = null,
+    val outputJson: Boolean = false,
     // tool 행
     val tool: String? = null,
     val args: String? = null,
@@ -433,7 +437,8 @@ class Rows {
                 // 초안이 서 있으면 **그 자리에서** 사실로 덮는다 — 조각과 사실이 같은 말이라,
                 // 새 줄로 쌓으면 흐르는 동안 본 사람만 답을 두 벌 본다.
                 dropDraft(msg, Who.Agent)
-                rows += Row(Who.Agent, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg)
+                rows += Row(Who.Agent, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg,
+                    outputText = part["text"]?.jsonPrimitive?.content, outputSeq = e.seq.takeIf { it > 0 })
                 // 인라인로 답한 물음은 제 턴으로 재부상하지 않는다 — 그 물음 행을 이 답 위로
                 // 끌어와 [물음 → 답] 짝으로 읽히게 한다(터미널의 `moveUserBlockBefore` 그대로).
                 val reply = d["inReplyTo"]?.jsonPrimitive?.content
@@ -471,6 +476,12 @@ class Rows {
                 val said = ((raw as? JsonPrimitive)?.takeIf { it.isString }?.content) ?: raw?.toString().orEmpty()
                 rows[i] = rows[i].copy(
                     ok = !isError || advisory, note = advisory,
+                    outputText = raw?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.let {
+                        if (it is JsonPrimitive && it.isString) it.content
+                        else kotlinx.serialization.json.Json { prettyPrint = true }.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), it)
+                    },
+                    outputSeq = e.seq.takeIf { it > 0 },
+                    outputJson = raw != null && !(raw is JsonPrimitive && raw.isString),
                     out = if (isError && !advisory) said else null,
                 )
                 if (rows[i].ok == true) noteDisk(rows[i].tool, rows[i].args)

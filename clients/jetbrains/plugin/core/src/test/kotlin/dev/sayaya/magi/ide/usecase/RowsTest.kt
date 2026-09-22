@@ -18,6 +18,26 @@ import org.junit.jupiter.api.Test
  */
 class RowsTest {
 
+    @org.junit.jupiter.api.Test
+    fun `confirmed output retains source and identifies each result`() {
+        val rows = Rows()
+        rows.feed(ev("part.appended", """{"messageId":"m","part":{"kind":"text","text":"  hello\n"}}"""))
+        org.junit.jupiter.api.Assertions.assertEquals("  hello\n", rows.list().last().outputText)
+        org.junit.jupiter.api.Assertions.assertEquals(1L, rows.list().last().outputSeq)
+        rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"read","callId":"a:b"}}}"""))
+        org.junit.jupiter.api.Assertions.assertNull(rows.list().last().outputText)
+        for (content in listOf("\"\"", "{\"x\":1}", "null")) {
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"a:b","content":$content}}}"""))
+            val output = rows.list().last()
+            org.junit.jupiter.api.Assertions.assertEquals(seq, output.outputSeq)
+            when (content) {
+                "null" -> org.junit.jupiter.api.Assertions.assertNull(output.outputText)
+                "\"\"" -> org.junit.jupiter.api.Assertions.assertEquals("", output.outputText)
+                else -> org.junit.jupiter.api.Assertions.assertEquals(Json.parseToJsonElement(content), Json.parseToJsonElement(output.outputText!!))
+            }
+        }
+    }
+
     private var seq = 0L
 
     private fun ev(type: String, data: String, actor: Actor? = null) = LogEvent(
