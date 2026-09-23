@@ -85,6 +85,69 @@ class OutputEditorTest : BasePlatformTestCase() {
         }
     }
 
+    fun testApprovalSidesUseCapturedRequestWithoutSendingDecision() {
+        var session = "s1"
+        var sent = 0
+        val requests = mutableListOf<com.intellij.diff.requests.SimpleDiffRequest>()
+        val view = MagiToolWindow.View(project, sendSession = { session },
+            sendConnection = { _, _, _ -> sent++ }, approvalDiffPresenter = { requests.add(it) })
+        fun show(old: String, fresh: String): JButton {
+            val args = kotlinx.serialization.json.buildJsonObject {
+                put("path", kotlinx.serialization.json.JsonPrimitive("a.kt"))
+                put("old", kotlinx.serialization.json.JsonPrimitive(old))
+                put("new", kotlinx.serialization.json.JsonPrimitive(fresh))
+            }
+            val w = dev.sayaya.magi.ide.model.Waiting("same", "permission", "edit", args = args, diff = "patch")
+            view.javaClass.getDeclaredMethod("drawPrompt", dev.sayaya.magi.ide.model.Waiting::class.java, String::class.java)
+                .apply { isAccessible = true }.invoke(view, w, session)
+            return buttons(field<Container>(view, "buttons")).first { it.text == MagiBundle.msg("chat.change.view") }
+        }
+        fun texts(index: Int) = requests[index].contents.map { (it as com.intellij.diff.contents.DocumentContent).document.text }
+        try {
+            val old = show("old1", "new1"); old.doClick()
+            session = "s2"; show("old2", "new2").doClick(); old.doClick()
+            assertEquals(listOf("old1", "new1"), texts(0))
+            assertEquals(listOf("old2", "new2"), texts(1))
+            assertEquals(listOf("old1", "new1"), texts(2))
+            assertEquals(0, sent)
+            Disposer.dispose(view); old.doClick(); assertEquals(3, requests.size)
+        } finally { Disposer.dispose(view) }
+    }
+
+    fun testApprovalPatchSessionIsolationAndClosedTabRecreation() {
+        var session = "s1"
+        val view = MagiToolWindow.View(project, sendSession = { session })
+        val manager = FileEditorManager.getInstance(project)
+        fun show(patch: String): JButton {
+            val w = dev.sayaya.magi.ide.model.Waiting("same", "permission", "write", diff = patch)
+            view.javaClass.getDeclaredMethod("drawPrompt", dev.sayaya.magi.ide.model.Waiting::class.java, String::class.java)
+                .apply { isAccessible = true }.invoke(view, w, session)
+            return buttons(field<Container>(view, "buttons")).first { it.text == MagiBundle.msg("chat.change.view") }
+        }
+        fun text(file: com.intellij.openapi.vfs.VirtualFile) = FileDocumentManager.getInstance().getDocument(file)!!.text
+        try {
+            val old = show("-old\n+first"); old.doClick()
+            val first = manager.openFiles.single()
+            old.doClick(); assertEquals(1, manager.openFiles.size)
+            session = "s2"
+            val next = show("-old\n+second"); next.doClick()
+            assertEquals(2, manager.openFiles.size)
+            assertEquals("-old\n+first", text(first))
+            val second = manager.openFiles.first { it !== first }
+            assertEquals("-old\n+second", text(second))
+            old.doClick(); assertEquals(2, manager.openFiles.size)
+            manager.closeFile(first); old.doClick()
+            val reopened = manager.openFiles.first { it !== second }
+            assertNotSame(first, reopened)
+            assertEquals("-old\n+first", text(reopened)); assertFalse(reopened.isWritable)
+            Disposer.dispose(view)
+            assertEquals("-old\n+first", text(reopened))
+        } finally {
+            manager.openFiles.forEach { manager.closeFile(it) }
+            Disposer.dispose(view)
+        }
+    }
+
     fun testSourceButtonOpensImmutableReadOnlyDocumentAndReusesOpenTab() {
         var session = "s1"
         val view = MagiToolWindow.View(project, sendSession = { session })

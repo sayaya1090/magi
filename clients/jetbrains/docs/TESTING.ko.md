@@ -608,3 +608,12 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 `OutputEditorTest`는 실제 원문 버튼과 openOutput의 IDE 열기 경계에 예외를 주입합니다. 일반 모드와 답변 모드에서 오류 안내, 작성 중인 초안·모드·첨부 보존을 검사하며 답변 취소 후 일반 초안 복원도 확인합니다. 빈 문자열·JSON·5만 자 결과는 탭을 닫고 다시 열어 원문·파일 형식·읽기 전용 속성을 대조합니다. 같은 callId의 새 resultSeq를 열어도 이전 문서가 바뀌지 않습니다. 이번 검사에서 추가 제품 결함은 재현되지 않았습니다.
 
 2026-09-22 검증: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 42 통과. `npm test --prefix clients/vscode` 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs` 7개 test·50개 시나리오 통과(17.6초), 모두 종료 0입니다.
+
+
+### 승인 diff 요청 격리와 수명
+
+`OutputEditorTest`의 승인 패치 검사는 서로 다른 세션의 동일 callId가 탭 하나를 공유하는 실패(expected 2, actual 1)를 수정 전에 재현했습니다. 패치 문서는 버튼 생성 당시 세션과 요청 ID로 식별하며 IDE에 열려 있는 파일만 재사용합니다. 별도 diffTabs 캐시를 제거해 닫힌 문서를 뷰에서 계속 보관하지 않습니다. 재클릭·다른 세션·옛 버튼 클릭·닫기 후 재열기·뷰 종료 후 원문 보존을 실제 편집기 API로 확인합니다.
+
+두 면 비교는 실제 DiffContentFactory가 만든 문서를 표시 경계에서 받습니다. 새 질문 뒤에도 옛 버튼은 캡처한 이전 원문을 전달하며, 뷰 종료 후에는 표시하지 않습니다. 이 검사는 비교창의 실제 화면·탭 재사용을 검증하지 않습니다. 두 면 비교는 기존 DiffManager 동작을 유지하고, 이번 열린 파일 재사용 수정은 패치 문서에 한정합니다. 검토 동작은 승인 응답을 보내지 않습니다.
+
+2026-09-23 검증: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 44 통과. `npm test --prefix clients/vscode` 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs` 7개 test·50개 시나리오 통과(18.0초), 모두 종료 0입니다.
