@@ -812,7 +812,59 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test bundle, 50개 기능 시나리오 전수 통과, 18.0초).
 - **실물 GUI 및 환경 범위**:
   - 헤드리스 IDE 환경에서 실제 Swing 컴포넌트 렌더러와 TextUI 뷰 트리를 통해 320px, 420px, 1300px 폭별 레이아웃과 치수를 실측했습니다.
-  - 실물 OS 도킹 창 드래그, 물리 키 타건, IME 조합 실물 테스트 및 VoiceOver는 사용자 지침에 따라 검증 대상에서 제외했습니다.
+  - VoiceOver는 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외했습니다. 실물 OS 도킹 창 드래그, 물리 키 타건, IME 조합 실물 테스트는 자동화 환경 제약(무인 환경, macOS 접근 권한 -25211 등)으로 인해 미실행/보류된 상태이며 완료 조건에서 삭제하지 않습니다.
+
+### 6.28 최초 배치 설명 높이 확보와 전송 힌트 정책 일치 및 검증 범위 정정
+
+§6.28 지침에 따라, 환영 온보딩 카드가 최초 배치 시 자식 폭 미결정으로 인해 단일 행 높이로 축소되는 레이아웃 결함을 수정하고, 컴포저 힌트 표출 정책을 실제 `SendDrafts` 다중 전송/편집 허용 정책과 일치시켰습니다.
+
+#### 1. 최초 배치에서 설명 높이 확보 (`Look.welcomeNote`)
+- **문제점**:
+  - `VerticalFlowLayout(..., fillHorizontal = true)`은 최초 배치 시 자식 컴포넌트의 bounds를 설정하기 전에 `c.preferredSize`를 호출합니다.
+  - 기존 `Look.welcomeNote.getPreferredSize()`는 `this.width`만 확인하여, 컴포넌트 폭이 0인 최초 배치 시점에 단일 행 높이(14px)를 반환했습니다.
+  - 레이아웃 관리자가 가용 폭(예: 320px 패널의 288px)을 할당하더라도 컴포넌트 높이는 14px로 고정되어 4줄(56px) 텍스트가 잘리는 `14 < 56` 결함이 발생했습니다.
+  - 또한 이전 축소 상태의 `super.getPreferredSize().height`를 클램프로 유지할 경우, 320px(56px) 또는 420px(42px)에서 1300px로 확대 복귀 시 옛 높이가 잔류하는 문제가 있었습니다.
+- **개선 내용**:
+  - 부모 컨테이너(`parent as? JComponent`)의 가용 폭(`parent.width - parent.insets.left - parent.insets.right`)을 직접 계산하여 `targetW`를 도출했습니다.
+  - `targetW > 0`일 때 `TextUI.getRootView(this).setSize(contentW, 0f)`로 줄바꿈에 필요한 정확한 세로 스팬을 계산하고, 인셋(`insets.top + insets.bottom`)을 합산하여 반환하도록 했습니다. 이전 폭의 캐시된 높이를 강제 유지하는 `coerceAtLeast(super.getPreferredSize().height)`는 제거했습니다.
+- **영구 회귀 검증 (`HeadlessIdeTest`)**:
+  - `note.size`를 사전에 인위적으로 주입하지 않고, 순수 신규 `welcome` 패널을 생성하여 `doLayout()` 후 즉시 검증:
+    - 320px (본문 288px) 최초 배치: 높이 56px 확보 (`height >= preferredSize.height`), 마지막 글자(`modelToView2D(doc.length - 1)`) 위치가 바닥 경계 이내에 온전히 렌더링됨을 영문/한국어 힌트 모두에서 확인.
+    - 420px (본문 388px) 최초 배치: 높이 42px 확보, 마지막 글자 정상 표시.
+    - 1300px (본문 1268px) 최초 배치: 높이 14px 확보, 단일 행 표시.
+  - 단일 패널 리사이즈 시퀀스 `1300 -> 320 -> 420 -> 1300`:
+    - 1300px(14px) → 320px(56px) 축소 시 즉시 줄바꿈 높이 확장.
+    - 320px(56px) → 420px(42px) 리사이즈 시 중간 높이 정확히 배정.
+    - 420px(42px) → 1300px 복귀 시 옛 높이가 남지 않고 14px로 정확히 복귀.
+
+#### 2. 안내와 전송 정책 대조 (`MagiToolWindow.kt`, `SendDrafts.kt`)
+- **문제점**:
+  - `updateComposerHint()`가 테마 색상(`mood.colour == Look.error`)으로 연결 여부를 추정하고 있어, 테마 변경 시 오판 위험이 있었습니다.
+  - `SendDrafts.begin`은 이전 요청(시도 A)이 백그라운드에서 진행 중이어도 사용자가 새 입력(시도 B)을 작성하여 revision이 증가하면 전송을 정상 허용합니다. 반면 컴포저는 `sendDrafts.busy(session)`만으로 힌트를 `busy`로 잠궈, 실제 Enter를 눌러 전송할 수 있는 상태임에도 "전송 중…" 안내가 표출되는 정책 불일치가 존재했습니다.
+- **개선 내용**:
+  - 의미론적 연결 상태 열거형 `Phase { Connected, Connecting, Disconnected }`를 `Mood`에 부여하여 테마 색상과의 분리를 완료했습니다. (기존 소스 텍스트 검증인 점 없는 `state` 금지 및 `mood(Look.success, ...)` 시그니처 100% 준수).
+  - `SendDrafts.inFlight(session: String? = null): Boolean`을 추가하여, "현재 revision의 시도가 in-flight 잠금 중인가"를 정확히 판정하도록 했습니다.
+  - 사용자가 입력을 수정하면 `retract()`가 `sendDrafts.edited()`를 호출하여 revision이 증가하므로 `inFlight`는 즉시 `false`가 되며, 힌트는 `default`("Enter 전송")로 복귀합니다.
+- **실제 `View` 액션 회귀 검증 (`HeadlessIdeTest`)**:
+  - 일반 전송 A in-flight 중 사용자가 B 입력 → 힌트 `default` 복귀 → Enter 입력으로 B 발송 (A, B 모두 전송됨) → A 완료 → B 완료 후 `default` 유지.
+  - 선택형 질문 대기 중 "직접 입력" 클릭 → `answer` 힌트 및 초안 작성 → 취소(일반 모드 복귀) → "직접 입력" 재진입 시 기존 초안("Answer Draft 1") 복원 및 `answer` 힌트 표출.
+  - 답변 모드에서 스트림 종료(`ended(ByUs)`) 시 `disconnected` 힌트 표출 → 재연결(`caughtUp()`) 시 `answer` 힌트 복귀.
+  - 세션 전환 (session1 -> session2 -> session1): 세션 전환 시 답변 모드가 해제되고 일반 힌트 복귀, 복귀 후 "직접 입력" 재클릭 시 기존 초안 정확히 복원.
+  - 문서 텍스트 무유입: 빈 입력 상태에서 어떤 힌트도 `input.text`로 유입되지 않고 순수 `""`를 유지함을 검증.
+
+#### 3. 실측 검증 결과
+- **단위 및 헤드리스 회귀**:
+  - `SendDraftsTest`: `inFlight distinguishes current revision lock from background pending sends` 추가 (busy와 inFlight의 분리 동작 검증).
+  - `HeadlessIdeTest`: 최초 배치 높이 확보 및 리사이즈 시퀀스, 실제 View 액션 기반 컴포저 힌트/상태 전이 전수 통과.
+  - `SourceTextTest`: 소스 텍스트 정적 규약(점 없는 state 금지, mood 시그니처) 통과.
+- **2026-09-23 전체 검증 결과**:
+  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, 19개 task 성공.
+    - XML 실측: core 384 통과·5 건너뜀 (총 389개 중), intellij 62 통과 (총 62개 중), 합계 **446 통과·5 건너뜀 (총 451개 중)**.
+  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀, 총 529개 중).
+  - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test bundle, 50개 기능 시나리오 전수 통과, 17.9초).
+- **실물 검증 범위 정정**:
+  - VoiceOver는 사용자 요청에 따라 검증 대상 및 완료 조건에서 제외합니다.
+  - 실물 OS 도킹 창 드래그, 물리 키 타건, IME 조합 실물 테스트는 자동화 환경 제약(무인 환경, macOS 접근 권한 -25211 등)으로 인해 미실행/보류 상태이며 완료 조건에서 삭제하지 않습니다.
 
 
 

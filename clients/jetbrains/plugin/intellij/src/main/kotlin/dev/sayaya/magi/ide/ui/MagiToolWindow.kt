@@ -227,12 +227,12 @@ class MagiToolWindow : ToolWindowFactory {
             if (closing.get() || project.isDisposed) return
             val activeKey = answers.active
             val key = when {
+                mood.phase == Phase.Disconnected -> "chat.composer.hint.disconnected"
                 activeKey != null -> {
                     if (answers.busy(activeKey)) "chat.composer.hint.busy"
                     else "chat.composer.hint.answer"
                 }
-                sendDrafts.busy(currentSendSession()) -> "chat.composer.hint.busy"
-                mood.colour == Look.error || mood.colour == Look.muted || mood.colour == Look.faint -> "chat.composer.hint.disconnected"
+                sendDrafts.inFlight(currentSendSession()) -> "chat.composer.hint.busy"
                 else -> "chat.composer.hint.default"
             }
             val msg = MagiBundle.msg(key)
@@ -311,12 +311,13 @@ class MagiToolWindow : ToolWindowFactory {
          * 개별 필드를 분리하여 관리할 경우 재연결 루프와 스트림 싱크 간의 경쟁 상태로 인해
          * "녹색 점에 연결 끊김 문구"와 같은 UI 상태 불일치가 발생하는 문제를 방지합니다(리뷰 R6).
          */
-        private data class Mood(val colour: Color, val glyph: String, val why: String)
+        private enum class Phase { Connected, Connecting, Disconnected }
+        private data class Mood(val phase: Phase, val colour: Color, val glyph: String, val why: String)
 
-        @Volatile private var mood: Mood = Mood(Look.muted, "◌", MagiBundle.msg("chat.link.none"))
+        @Volatile private var mood: Mood = Mood(Phase.Disconnected, Look.muted, "◌", MagiBundle.msg("chat.link.none"))
         @Volatile private var handWhy: String? = null
-        private fun mood(colour: Color, glyph: String, why: String) {
-            mood = Mood(colour, glyph, why)
+        private fun mood(colour: Color, glyph: String, why: String, phase: Phase = Phase.Connected) {
+            mood = Mood(phase, colour, glyph, why)
             paintLink()
         }
         private fun handSaid(t: String?) { handWhy = t; paintLink() }
@@ -534,7 +535,7 @@ class MagiToolWindow : ToolWindowFactory {
                     SwingUtilities.invokeLater { problems.text = "" }
                     // ↻ 글리프는 '재연결 중' 상태를 의미하므로, 소켓은 연결되어 있으나 커서만 거절된 현재 상태에서는
                     // 연결 상태(●)에 경고 색상(Look.warn)과 사유를 표기하여 의미적 정확성을 유지합니다(코드 리뷰 지적 사항 반영).
-                    mood(Look.warn, "●", why)
+                    mood(Look.warn, "●", why, Phase.Connected)
                     redrawLog()
                 }
                 /**
@@ -543,16 +544,16 @@ class MagiToolWindow : ToolWindowFactory {
                  * 자동 재연결(`reattach()`)을 수행하여 프롬프트 신호 및 승인 버튼이 비활성화되는 현상을 방지합니다.
                  */
                 override fun ended(end: End) = when (end) {
-                    End.ByUs -> mood(Look.muted, "◌", MagiBundle.msg("chat.link.closed"))
+                    End.ByUs -> mood(Look.muted, "◌", MagiBundle.msg("chat.link.closed"), Phase.Disconnected)
                     // 도구 어댑터(Hand) 상태 정리(코드 리뷰 지적 사항):
                     // 스트림이 끊어지면 데몬에 등록되었던 어댑터 정보도 무효화되므로 툴팁 정보를 초기화합니다.
-                    End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", MagiBundle.msg("chat.link.lost")); reattach() }
-                    is End.Broken -> { handSaid(null); mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", end.why)); reattach() }
+                    End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", MagiBundle.msg("chat.link.lost"), Phase.Connecting); reattach() }
+                    is End.Broken -> { handSaid(null); mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", end.why), Phase.Disconnected); reattach() }
                 }
             }
 
         /** 대기 프롬프트 및 승인 요청 패널. 요청이 없을 때는 숨김 처리하여 불필요한 빈 여백을 제거합니다(사용자 실측 피드백 반영). */
-        private lateinit var head: JBPanel<JBPanel<*>>
+        private val head: JBPanel<JBPanel<*>>
 
         /**
          * 첨부 참조 목록 — 파일 본문이 아닌 참조 정보(경로 + 라인 범위)입니다.
@@ -652,6 +653,7 @@ class MagiToolWindow : ToolWindowFactory {
                     if (!restoringAnswerDraft) answers.edit(input.text)
                     inputEpoch++
                     dropSuggestion(); debounce.restart()
+                    updateComposerHint()
                     // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
                     // 파일 찾기로 간다 — 목록은 데몬의 읽기 전용 glob(감옥은 코어 규칙).
                     // 치는 만큼 자란다(1..5줄). 고정 3줄은 빈 대화에서 벽이었고, 무한정 자라면
@@ -858,7 +860,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 같은 줄을 무한히 쌓으면 사람이 읽던 전사가 밀려난다([reattach] 의 규칙).
          */
         private fun lost(why: String) {
-            mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", why))
+            mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", why), Phase.Disconnected)
             reattach()
         }
 
@@ -888,7 +890,7 @@ class MagiToolWindow : ToolWindowFactory {
                         if (closing.get()) return@executeOnPooledThread
                         // 시도하는 중이라고 말한다. 백오프가 30초까지 벌어지므로, 이 말이
                         // 없으면 마지막 실패 사유가 30초 동안 「지금 상태」인 척 서 있는다.
-                        mood(Look.faint, "↻", MagiBundle.msg("chat.link.connecting"))
+                        mood(Look.faint, "↻", MagiBundle.msg("chat.link.connecting"), Phase.Connecting)
                         if (follow() == Attach.Ok) return@executeOnPooledThread refresh()
                         attempt++
                     }
@@ -2160,7 +2162,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun say(l: Level) {
             // 사람이 할 일이 생기는 못-닿음만 점으로 올린다(§0.5-7: 무통보 무동작 금지).
             // 나머지 수준은 상태 표시줄과 링크 점이 이미 말한다.
-            if (l is Level.Unreachable) mood(Look.error, "✕", l.why)
+            if (l is Level.Unreachable) mood(Look.error, "✕", l.why, Phase.Disconnected)
         }
     }
 }

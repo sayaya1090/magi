@@ -343,13 +343,17 @@ internal object Look {
         object : javax.swing.JTextPane() {
             override fun getMinimumSize(): Dimension = Dimension(FLOOR, 0)
             override fun getPreferredSize(): Dimension {
-                val w = width
-                if (w > 0) {
+                val targetW = (parent as? javax.swing.JComponent)?.let {
+                    it.width - it.insets.left - it.insets.right
+                }?.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: 0
+                if (targetW > 0) {
                     val root = (ui as? javax.swing.plaf.TextUI)?.getRootView(this)
                     if (root != null) {
-                        root.setSize(w.toFloat(), 0f)
-                        val h = root.getPreferredSpan(javax.swing.text.View.Y_AXIS).toInt()
-                        return Dimension(w, h.coerceAtLeast(super.getPreferredSize().height))
+                        val ins = insets
+                        val contentW = (targetW - ins.left - ins.right).coerceAtLeast(1)
+                        root.setSize(contentW.toFloat(), 0f)
+                        val h = Math.ceil(root.getPreferredSpan(javax.swing.text.View.Y_AXIS).toDouble()).toInt()
+                        return Dimension(targetW, h + ins.top + ins.bottom)
                     }
                 }
                 val pref = super.getPreferredSize()

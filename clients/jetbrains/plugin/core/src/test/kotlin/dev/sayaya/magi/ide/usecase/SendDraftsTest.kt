@@ -45,4 +45,34 @@ class SendDraftsTest {
         assertFalse(s.busy())
         assertFalse(s.busy("s1"))
     }
+    @Test fun `inFlight distinguishes current revision lock from background pending sends`() {
+        val s = SendDrafts()
+        assertTrue(s.canSend("s1"))
+        assertFalse(s.inFlight("s1"))
+        val a = s.begin("s1", "A", emptyList())!!
+        assertTrue(s.busy("s1"))
+        assertTrue(s.inFlight("s1"))
+        assertFalse(s.canSend("s1"))
+
+        // User edits new text while A is pending:
+        s.edited()
+        assertTrue(s.busy("s1")) // A is still pending
+        assertFalse(s.inFlight("s1")) // but current revision is NOT in-flight!
+        assertTrue(s.canSend("s1")) // user is allowed to send B!
+
+        val b = s.begin("s1", "B", emptyList())!!
+        assertTrue(s.inFlight("s1"))
+        assertFalse(s.canSend("s1"))
+
+        // A completes while B is still pending:
+        s.complete(a, null, "s1")
+        assertTrue(s.busy("s1"))
+        assertTrue(s.inFlight("s1"))
+
+        // B completes:
+        s.complete(b, null, "s1")
+        assertFalse(s.busy("s1"))
+        assertFalse(s.inFlight("s1"))
+        assertTrue(s.canSend("s1"))
+    }
 }
