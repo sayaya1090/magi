@@ -628,23 +628,26 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 2026-09-23 검증: JetBrains `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 46 통과. VS Code 단위 522 통과·7 건너뜀, 전체 Playwright 7개 test·50개 시나리오 통과(18.2초), 모두 종료 0입니다.
 
 
-### 편집창 열기 책임 분리
+### 편집창 열기 책임 분리 및 도구 diff 뷰 수명·오류 안내
 
-`MagiToolWindow.View`에 모여 있던 원문 열기(`openOutput`), 승인 변경 보기(`openApprovalDiff`), 도구 편집 diff 보기(`RowText.diffSides`)의 문서 생성 및 IDE 표시 책임을 협력 객체 `EditorOpener`로 분리했습니다.
+`MagiToolWindow.View`에 모여 있던 원문 열기(`openOutput`), 승인 변경 보기(`openApprovalDiff`), 도구 편집 diff 보기(`RowText.diffSides`)의 문서 생성 및 IDE 표시 책임을 협력 객체 `EditorOpener`로 분리하고, 도구 diff 버튼의 뷰 수명·오류 안내 경계를 보완했습니다.
 
-- **책임 분리**:
-  - `View`는 세션 식별, 입력 초안, 안내 레이블(`notice`), 창 생명주기(`closing`, `isDisposed`) 및 결과 안내(`report`)만 처리합니다.
+- **책임 분리 및 수명 일관성**:
+  - `View`는 세션 식별, 입력 초안, 안내 레이블(`notice`), 창 생명주기(`closing`, `isDisposed`) 및 결과 안내(`report`)를 세 경로(원문·승인 diff·도구 diff) 모두에서 일관되게 처리합니다.
+  - 도구 행의 변경 보기 버튼(`RowText.diffSides`)에도 `openToolDiff`를 두어 원문/승인과 동일하게 `closing.get() || project.isDisposed` 검사 및 일반 실패 시 `notice` 에러 안내(`chat.diff.failed`), 취소 예외(`ProcessCanceledException`, `CancellationException`) 상위 재전파를 적용했습니다.
   - `EditorOpener`는 읽기 전용 가상 파일(`LightVirtualFile`) 생성, `Key` 기반 열린 파일 식별 및 재사용, `DiffContentFactory`/`DiffManager` 호출, 테스트 주입용 오프너/프레젠터 호출을 전담합니다.
 - **계약 보존**:
   - `ProcessCanceledException` 및 `CancellationException`은 취소 이벤트로 처리하여 상위로 재전파하며 실패 안내로 변환하지 않습니다.
   - 세션/요청별 식별자 격리, 열린 파일 재사용, 읽기 전용 속성, 닫힌 탭 재생성 동작을 그대로 유지합니다.
   - 전역 싱글턴이나 불필요한 캐시를 추가하지 않았으며, `core` 모듈의 순수성을 보존하여 IntelliJ 의존성은 `plugin/intellij` 모듈 내에만 위치합니다.
-- **회귀 검증**:
-  - `OutputEditorTest` 7건 전체가 기존 버튼 클릭 경로를 통해 새 협력 객체를 거쳐 정상 실행됨을 확인했습니다.
+- **회귀 검증 보강 (OutputEditorTest 7건 → 9건)**:
+  - 기존 7건은 원문/승인 diff 경로만 검사했으나, 새로 2건을 추가해 도구 diff 버튼과 다중 뷰 공유 Key 의도를 영구 검증합니다:
+    1. `testToolDiffButtonLifecycleErrorNoticeCancellationAndDisposeGuard`: 성공한 edit 도구 Row(ok=true, path/old/new)를 실제 `rowPanel`에서 펼쳐 변경 보기 버튼을 얻고, 정상 클릭 시 SimpleDiffRequest 두 문서 원문 확인, 실패 안내 후 재시도 성공, 두 취소 예외 상위 재전파 및 안내 불변, dispose 후 보관된 버튼 클릭 시 표시 0회 차단 확인.
+    2. `testSharedKeyReusesTabsAcrossViewsInSameProjectAndPreservesDocumentsOnViewDispose`: 같은 프로젝트의 다중 View에서 동일 세션/자료 열람 시 열린 탭을 재사용하고, 다른 세션은 분리하며, 한 View가 dispose되어도 열린 문서가 유지됨을 확인.
 
 2026-09-23 검증:
-- JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 369 통과·5 건너뜀, 헤드리스 IntelliJ 46 통과).
+- JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 369 통과·5 건너뜀, 헤드리스 IntelliJ 48 통과).
 - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀).
-- Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 17.6초).
+- Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 18.1초).
 - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
 

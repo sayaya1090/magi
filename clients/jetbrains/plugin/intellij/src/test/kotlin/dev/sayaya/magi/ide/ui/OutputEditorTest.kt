@@ -231,4 +231,150 @@ class OutputEditorTest : BasePlatformTestCase() {
             if (!Disposer.isDisposed(view)) Disposer.dispose(view)
         }
     }
+
+    private fun toolDiff(view: MagiToolWindow.View, row: Row): JButton {
+        field<MutableSet<String>>(view, "opened").add(dev.sayaya.magi.ide.usecase.RowText.foldKey(row))
+        val panel = view.javaClass.getDeclaredMethod("rowPanel", Row::class.java).apply { isAccessible = true }.invoke(view, row) as Container
+        return buttons(panel).first { it.text == MagiBundle.msg("chat.diff.view") }
+    }
+
+    fun testToolDiffButtonLifecycleErrorNoticeCancellationAndDisposeGuard() {
+        val row = Row(
+            who = Who.Tool,
+            text = "edit",
+            tool = "edit",
+            args = """{"path":"src/Foo.kt","old":"before text","new":"after text"}""",
+            ok = true,
+        )
+
+        // 1. 정상 클릭: SimpleDiffRequest 생성 및 두 문서 원문 확인
+        var presented: com.intellij.diff.requests.SimpleDiffRequest? = null
+        val viewNormal = MagiToolWindow.View(project, approvalDiffPresenter = { presented = it })
+        try {
+            val btn = toolDiff(viewNormal, row)
+            btn.doClick()
+            assertNotNull(presented)
+            assertEquals(MagiBundle.msg("chat.diff.title.edit", "Foo.kt"), presented!!.title)
+            val texts = presented!!.contents.map { (it as com.intellij.diff.contents.DocumentContent).document.text }
+            assertEquals(listOf("before text", "after text"), texts)
+        } finally { Disposer.dispose(viewNormal) }
+
+        // 2. 실패 안내 후 재시도 및 초안·모드·첨부 보존
+        var fail = true
+        var shown = 0
+        val viewFail = MagiToolWindow.View(project, sendSession = { "s1" }, approvalDiffPresenter = {
+            if (fail) throw IllegalStateException("tool diff fixture failed")
+            shown++
+        })
+        try {
+            val input = field<javax.swing.JTextArea>(viewFail, "input")
+            input.text = "general draft"
+            viewFail.attach(dev.sayaya.magi.ide.model.FileRef("keep.kt"))
+            val q = dev.sayaya.magi.ide.model.Waiting("q", "question", "Choose", options = listOf("A", "B"))
+            viewFail.javaClass.getDeclaredMethod("drawPrompt", dev.sayaya.magi.ide.model.Waiting::class.java, String::class.java)
+                .apply { isAccessible = true }.invoke(viewFail, q, "s1")
+            buttons(field<Container>(viewFail, "buttons")).first { it.text == MagiBundle.msg("chat.answer.direct") }.doClick()
+            input.text = "answer draft"
+
+            val btn = toolDiff(viewFail, row)
+            btn.doClick()
+            com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+            assertEquals(0, shown)
+            assertTrue(field<javax.swing.JLabel>(viewFail, "notice").text.contains("tool diff fixture failed"))
+            assertEquals("answer draft", input.text)
+            assertTrue(field<javax.swing.JPanel>(viewFail, "answerBar").isVisible)
+            assertEquals(listOf(dev.sayaya.magi.ide.model.FileRef("keep.kt")), field<List<*>>(viewFail, "refs"))
+
+            fail = false
+            btn.doClick()
+            assertEquals(1, shown)
+        } finally { Disposer.dispose(viewFail) }
+
+        // 3. 두 취소 예외는 동일 객체로 재전파되고 안내를 변경하지 않음
+        for (cancel in listOf(com.intellij.openapi.progress.ProcessCanceledException(), java.util.concurrent.CancellationException("cancel"))) {
+            val viewCancel = MagiToolWindow.View(project, approvalDiffPresenter = { throw cancel })
+            try {
+                val before = field<javax.swing.JLabel>(viewCancel, "notice").text
+                val btn = toolDiff(viewCancel, row)
+                try {
+                    btn.doClick()
+                    fail("cancellation swallowed")
+                } catch (caught: Exception) {
+                    assertSame(cancel, caught)
+                }
+                com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+                assertEquals(before, field<javax.swing.JLabel>(viewCancel, "notice").text)
+            } finally { Disposer.dispose(viewCancel) }
+        }
+
+        // 4. dispose 후 보관된 버튼 클릭 시 표시 콜백 0회
+        var disposeShown = 0
+        val viewDispose = MagiToolWindow.View(project, approvalDiffPresenter = { disposeShown++ })
+        val btnRetained = toolDiff(viewDispose, row)
+        Disposer.dispose(viewDispose)
+        btnRetained.doClick()
+        assertEquals(0, disposeShown)
+    }
+
+    fun testSharedKeyReusesTabsAcrossViewsInSameProjectAndPreservesDocumentsOnViewDispose() {
+        val manager = FileEditorManager.getInstance(project)
+        val row = Row(Who.Agent, "summary", outputText = "shared text", outputSeq = 77L)
+
+        val view1 = MagiToolWindow.View(project, sendSession = { "s1" })
+        val view2 = MagiToolWindow.View(project, sendSession = { "s1" })
+        val view3 = MagiToolWindow.View(project, sendSession = { "s2" })
+
+        try {
+            // view1에서 원문 열기 -> 1개 파일 열림
+            source(view1, row)!!.doClick()
+            assertEquals(1, manager.openFiles.size)
+            val file1 = manager.openFiles.single()
+
+            // 같은 세션의 view2에서 같은 row 열기 -> 동일 탭 재사용
+            source(view2, row)!!.doClick()
+            assertEquals(1, manager.openFiles.size)
+            assertSame(file1, manager.openFiles.single())
+
+            // 다른 세션의 view3에서 같은 row 열기 -> 분리된 탭 생성
+            source(view3, row)!!.doClick()
+            assertEquals(2, manager.openFiles.size)
+
+            // view1을 닫아도 문서가 닫히거나 비워지지 않음
+            Disposer.dispose(view1)
+            assertEquals(2, manager.openFiles.size)
+            assertEquals("shared text", FileDocumentManager.getInstance().getDocument(file1)!!.text)
+
+            // 승인 패치 탭도 다중 뷰에서 같은 세션이면 재사용되고 다른 세션이면 분리
+            val w = dev.sayaya.magi.ide.model.Waiting("w-shared", "permission", "write", diff = "diff-patch")
+            fun showPatch(v: MagiToolWindow.View, session: String): JButton {
+                v.javaClass.getDeclaredMethod("drawPrompt", dev.sayaya.magi.ide.model.Waiting::class.java, String::class.java)
+                    .apply { isAccessible = true }.invoke(v, w, session)
+                return buttons(field<Container>(v, "buttons")).first { it.text == MagiBundle.msg("chat.change.view") }
+            }
+
+            showPatch(view2, "s1").doClick()
+            assertEquals(3, manager.openFiles.size)
+            val patchFile = manager.openFiles.first { it.getUserData(EditorOpener.APPROVAL_PATCH_KEY) == listOf("s1", "w-shared") }
+
+            // 같은 세션의 다른 뷰에서 패치 열기 -> 재사용
+            val view4 = MagiToolWindow.View(project, sendSession = { "s1" })
+            try {
+                showPatch(view4, "s1").doClick()
+                assertEquals(3, manager.openFiles.size)
+
+                // 다른 세션의 뷰에서 패치 열기 -> 분리된 탭
+                showPatch(view3, "s2").doClick()
+                assertEquals(4, manager.openFiles.size)
+
+                Disposer.dispose(view2)
+                assertEquals(4, manager.openFiles.size)
+                assertEquals("diff-patch", FileDocumentManager.getInstance().getDocument(patchFile)!!.text)
+            } finally { Disposer.dispose(view4) }
+        } finally {
+            manager.openFiles.forEach { manager.closeFile(it) }
+            if (!Disposer.isDisposed(view2)) Disposer.dispose(view2)
+            if (!Disposer.isDisposed(view3)) Disposer.dispose(view3)
+        }
+    }
 }
+

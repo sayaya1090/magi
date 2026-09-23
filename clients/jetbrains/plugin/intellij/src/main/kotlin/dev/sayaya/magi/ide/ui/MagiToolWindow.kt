@@ -1095,7 +1095,7 @@ class MagiToolWindow : ToolWindowFactory {
                             RowText.diffSides(r)?.let { (path2, old2, new2) ->
                                 add(JButton(MagiBundle.msg("chat.diff.view")).apply {
                                     addActionListener {
-                                        editorOpener.openEditDiff(path2, old2, new2)
+                                        openToolDiff(path2, old2, new2)
                                     }
                                 })
                             }
@@ -1282,6 +1282,16 @@ class MagiToolWindow : ToolWindowFactory {
             if (closing.get() || project.isDisposed) return
             try {
                 editorOpener.openApprovalDiff(session, w)
+            } catch (e: Exception) {
+                if (e is com.intellij.openapi.progress.ProcessCanceledException || e is java.util.concurrent.CancellationException) throw e
+                report(MagiBundle.msg("chat.diff.failed", e.message ?: e.toString()))
+            }
+        }
+
+        private fun openToolDiff(path: String, old: String, fresh: String) {
+            if (closing.get() || project.isDisposed) return
+            try {
+                editorOpener.openEditDiff(path, old, fresh)
             } catch (e: Exception) {
                 if (e is com.intellij.openapi.progress.ProcessCanceledException || e is java.util.concurrent.CancellationException) throw e
                 report(MagiBundle.msg("chat.diff.failed", e.message ?: e.toString()))
