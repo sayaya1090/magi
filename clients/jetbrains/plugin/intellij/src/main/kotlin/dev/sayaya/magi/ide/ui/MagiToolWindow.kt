@@ -170,6 +170,7 @@ class MagiToolWindow : ToolWindowFactory {
         private val suggestRequest: ((String, (String?) -> Unit) -> Unit)? = null,
         private val filesRequest: ((String, (List<String>) -> Unit) -> Unit)? = null,
         private val fileChooser: ((List<String>, (String) -> Unit) -> Unit)? = null,
+        private val approvalPatchOpener: ((com.intellij.openapi.vfs.VirtualFile) -> Unit)? = null,
         private val approvalDiffPresenter: ((com.intellij.diff.requests.SimpleDiffRequest) -> Unit)? = null,
         private val outputOpener: ((com.intellij.openapi.vfs.VirtualFile) -> Unit)? = null,
     ) : Disposable {
@@ -1288,6 +1289,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 if (outputOpener != null) outputOpener.invoke(file) else manager.openFile(file, true)
             } catch (e: Exception) {
+                if (e is com.intellij.openapi.progress.ProcessCanceledException || e is java.util.concurrent.CancellationException) throw e
                 report(MagiBundle.msg("chat.output.failed", e.message ?: e.toString()))
             }
         }
@@ -1297,37 +1299,42 @@ class MagiToolWindow : ToolWindowFactory {
         /** 승인의 변화를 IDE 답게 연다 — 나란히(원문 두 면) 또는 패치 파일(코어 diff 원문). */
         private fun openApprovalDiff(w: Waiting, session: String) {
             if (closing.get() || project.isDisposed) return
-            val o = w.args as? kotlinx.serialization.json.JsonObject
-            fun str(k: String) = (o?.get(k) as? kotlinx.serialization.json.JsonPrimitive)
-                ?.takeIf { it.isString }?.content
-            val path = str("path") ?: "변경"
-            // 판정은 core 의 한 벌에 위임한다 — 두 벌로 적힌 동안 FlexBool 모양("yes"·1)에서
-            // 갈라졌었다(리뷰). 여기 것과 전사 것이 같은 함수를 부르므로 갈라질 자리가 없다.
-            val sides = Rows.EditSides.of(w.what, o?.toString())
-            if (sides != null) {
-                val f = com.intellij.diff.DiffContentFactory.getInstance()
-                val request = com.intellij.diff.requests.SimpleDiffRequest(
-                    MagiBundle.msg("chat.diff.title.ok", sides.first),
-                    f.create(project, sides.second), f.create(project, sides.third),
-                    MagiBundle.msg("chat.diff.asked"), MagiBundle.msg("chat.diff.proposed"),
-                )
-                if (approvalDiffPresenter != null) approvalDiffPresenter.invoke(request)
-                else com.intellij.diff.DiffManager.getInstance().showDiff(project, request)
-                return
+            try {
+                val o = w.args as? kotlinx.serialization.json.JsonObject
+                fun str(k: String) = (o?.get(k) as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.takeIf { it.isString }?.content
+                val path = str("path") ?: "변경"
+                // 판정은 core 의 한 벌에 위임한다 — 두 벌로 적힌 동안 FlexBool 모양("yes"·1)에서
+                // 갈라졌었다(리뷰). 여기 것과 전사 것이 같은 함수를 부르므로 갈라질 자리가 없다.
+                val sides = Rows.EditSides.of(w.what, o?.toString())
+                if (sides != null) {
+                    val f = com.intellij.diff.DiffContentFactory.getInstance()
+                    val request = com.intellij.diff.requests.SimpleDiffRequest(
+                        MagiBundle.msg("chat.diff.title.ok", sides.first),
+                        f.create(project, sides.second), f.create(project, sides.third),
+                        MagiBundle.msg("chat.diff.asked"), MagiBundle.msg("chat.diff.proposed"),
+                    )
+                    if (approvalDiffPresenter != null) approvalDiffPresenter.invoke(request)
+                    else com.intellij.diff.DiffManager.getInstance().showDiff(project, request)
+                    return
+                }
+                val manager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+                val identity = listOf(session, w.id)
+                val vf = manager.openFiles.firstOrNull { it.getUserData(approvalPatchKey) == identity } ?: run {
+                    // 파일 타입을 plain text 로 못박는다(라이브 실측): 이름이 .diff 면 IntelliJ 의
+                    // 패치 에디터가 잡는데, 코어의 write 승인 diff 는 헤더(---/+++/@@) 없는 헝크라
+                    // "Invalid patch file" 판이 선다 — 원문 diff 를 그대로 보여 주는 것이 계약이고
+                    // (재계산 금지), 항상 읽히는 쪽이 색입힘보다 먼저다.
+                    com.intellij.testFramework.LightVirtualFile(
+                        "magi-승인-${path.substringAfterLast('/')}-${w.id.takeLast(6)}.diff",
+                        com.intellij.openapi.fileTypes.PlainTextFileType.INSTANCE, w.diff.orEmpty(),
+                    ).apply { isWritable = false; putUserData(approvalPatchKey, identity) }
+                }
+                if (approvalPatchOpener != null) approvalPatchOpener.invoke(vf) else manager.openFile(vf, true)
+            } catch (e: Exception) {
+                if (e is com.intellij.openapi.progress.ProcessCanceledException || e is java.util.concurrent.CancellationException) throw e
+                report(MagiBundle.msg("chat.diff.failed", e.message ?: e.toString()))
             }
-            val manager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
-            val identity = listOf(session, w.id)
-            val vf = manager.openFiles.firstOrNull { it.getUserData(approvalPatchKey) == identity } ?: run {
-                // 파일 타입을 plain text 로 못박는다(라이브 실측): 이름이 .diff 면 IntelliJ 의
-                // 패치 에디터가 잡는데, 코어의 write 승인 diff 는 헤더(---/+++/@@) 없는 헝크라
-                // "Invalid patch file" 판이 선다 — 원문 diff 를 그대로 보여 주는 것이 계약이고
-                // (재계산 금지), 항상 읽히는 쪽이 색입힘보다 먼저다.
-                com.intellij.testFramework.LightVirtualFile(
-                    "magi-승인-${path.substringAfterLast('/')}-${w.id.takeLast(6)}.diff",
-                    com.intellij.openapi.fileTypes.PlainTextFileType.INSTANCE, w.diff.orEmpty(),
-                ).apply { isWritable = false; putUserData(approvalPatchKey, identity) }
-            }
-            manager.openFile(vf, true)
         }
 
         /** 이벤트 ts 를 이 자리의 시각으로. 못 읽으면 빈칸 — 지어내지 않는다. */

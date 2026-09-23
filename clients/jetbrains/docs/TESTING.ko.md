@@ -617,3 +617,12 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 두 면 비교는 실제 DiffContentFactory가 만든 문서를 표시 경계에서 받습니다. 새 질문 뒤에도 옛 버튼은 캡처한 이전 원문을 전달하며, 뷰 종료 후에는 표시하지 않습니다. 이 검사는 비교창의 실제 화면·탭 재사용을 검증하지 않습니다. 두 면 비교는 기존 DiffManager 동작을 유지하고, 이번 열린 파일 재사용 수정은 패치 문서에 한정합니다. 검토 동작은 승인 응답을 보내지 않습니다.
 
 2026-09-23 검증: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 44 통과. `npm test --prefix clients/vscode` 522 통과·7 건너뜀, 전체 `node clients/vscode/tools/transcript-test.mjs` 7개 test·50개 시나리오 통과(18.0초), 모두 종료 0입니다.
+
+
+### 승인 변경 보기의 실패와 취소
+
+`OutputEditorTest`는 패치 열기 실패가 IllegalStateException으로 이벤트 밖에 전파되는 것을 수정 전에 재현했습니다. 패치/두 면 비교 각각의 표시 경계에서 실패 후 안내·일반 초안·첨부·승인 버튼 상태 보존과 재시도를 검사합니다. 패치 재시도는 실제 FileEditorManager로 원문을 엽니다. 두 면 비교 재시도는 표시 요청 전달까지 검사하며 실물 창 열기는 검증하지 않습니다.
+
+ProcessCanceledException과 CancellationException은 패치·두 면 비교·원문 편집창 모두 같은 예외 객체로 재전파되고 실패 안내로 바뀌지 않습니다. 원문 편집창의 기존 포괄 catch도 이 계약에 맞춰 보완했습니다. 승인 패널은 일반 입력 모드이며, 원문 편집창의 답변 모드 보존 검사는 앞 절의 회귀로 유지합니다.
+
+2026-09-23 검증: JetBrains `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 46 통과. VS Code 단위 522 통과·7 건너뜀, 전체 Playwright 7개 test·50개 시나리오 통과(18.2초), 모두 종료 0입니다.
