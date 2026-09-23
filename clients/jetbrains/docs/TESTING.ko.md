@@ -651,3 +651,33 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 18.1초).
 - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
 
+
+### 미전송 질문 초안 복구 목록과 관리
+
+`AnswerDrafts`의 코어 상태 모델을 확장하고 `MagiToolWindow.View`에 미전송 질문 초안 복구 버튼 및 전용 상세 대화상자를 추가하여, 질문 전환·만료·완료 후 남은 수정본을 사용자가 직접 확인·복사·삭제할 수 있도록 보완했습니다 (§6.23).
+
+- **코어 상태 모델 (`AnswerDrafts.kt`)**:
+  - `Recovery` 모델: 독립 `id`, `session`, `callId`, `questionText`, `version`, `text`, `reason` 필드로 구성.
+  - `savedRecoveries` 및 `recoveries`: 현재 대기 중인 질문을 제외한(단, `draft.done` 상태에서 새 수정본이 남은 경우는 포함) 비어 있지 않은 초안 목록을 노출. 문자열 길이 0(`""`)만 빈 값으로 취급하여 공백·개행 원문을 완벽히 보존.
+  - `deletedGenerations` (`Set<Pair<Key, Long>>`): `deleteRecovery` 호출 시 삭제된 수정 세대를 영구 기록하여, 늦은 RPC 실패/성공 콜백이나 동일 질문 재그림 시에도 해당 세대가 부활하지 않도록 차단. 이후 사용자가 새로 작성한 세대(`version + 1`)는 정상 복구 가능.
+  - `edit` 재그림 가드: 기존 텍스트와 동일한 경우(`d.text == text`) 버전 번호를 증가시키지 않아 단순 UI 재그림이나 컴포저 텍스트 재확인으로 세대가 오인 상승하지 않도록 보호.
+  - 사유 분류: 세션 전환은 "다른 세션으로 이동"(`REASON_SESSION_CHANGED`), 질문 교체/부재는 "현재 대기 질문에서 벗어남"(`REASON_QUESTION_LEFT`)으로 사실에 근거해 명시.
+  - 완료 처리: 전송 성공 시 제출 당시 버전과 일치하는 초안은 정리하고, 전송 중 사용자가 새로 추가 입력한 수정본(`draft.version != attempt.version`)은 유지하여 복구 목록에 노출.
+- **IntelliJ UI 배선 및 조작 (`MagiToolWindow.kt`)**:
+  - 하단 복구 영역에 질문 초안 전용 복구 버튼 `answerRecovery` 배치 (일반 전송 실패 복구 버튼 `recovery`와 독립 분리).
+  - 버튼 문구에 항목 개수 반영 (`chat.answer.recovery` + ` (N)`), 복구 항목이 0개일 때는 숨김 처리.
+  - 클릭 시 `openAnswerRecoveryDialog`를 통해 `DialogWrapper` 기반 상세 창 표출 (단위 테스트 주입용 `answerRecoveryViewer` 지원):
+    - 세션 ID, 질문 본문, 사유, 그리고 원문 전체를 스크롤 가능한 읽기 전용 JTextArea에 trim/clip 없이 표시.
+    - 조작 3종: "원문 복사"(`chat.answer.recovery.copy`, 시스템 클립보드에만 복사하며 입력창 텍스트·모드·RPC 요청 0회 무변경), "이 항목 삭제"(`chat.answer.recovery.delete`, 선택 세대 영구 삭제 및 버튼 갱신), "닫기"(`common.cancel`).
+- **다국어 리소스 (`MagiBundle.properties`, `MagiBundle_ko.properties`)**:
+  - `chat.answer.recovery`, `chat.answer.recovery.tip`, `chat.answer.recovery.detail.title`, `chat.answer.recovery.session`, `chat.answer.recovery.question`, `chat.answer.recovery.reason`, `chat.answer.recovery.fulltext`, `chat.answer.recovery.copy`, `chat.answer.recovery.delete` 키를 영문/한국어 번들 양쪽에 동일하게 등록.
+- **회귀 검증 보강**:
+  - `AnswerDraftsTest` (9건): 질문 이탈 초안 노출, 반복 bind 중복 방지, 취소 시 복구 항목 미생성, 세션 분리, 완료 후 신규 편집본 보존, 삭제 후 늦은 콜백/재그림 부활 방지, 공백/줄바꿈 원문 보존 검증.
+  - `AnswerModeTest` (13건): 복구 버튼 노출 및 Viewer 연동, 클립보드 복사 시 입력창/RPC 무부작용, 삭제 후 늦은 콜백/동일 질문 재그림 시 부활 방지, done 질문의 신규 편집본 복구 뷰 노출 검증.
+- **2026-09-23 실측 검증**:
+  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 374 통과·5 건너뜀, 헤드리스 IntelliJ 51 통과, 합계 425 통과·5 건너뜀).
+  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀).
+  - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 17.7초).
+  - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
+
+

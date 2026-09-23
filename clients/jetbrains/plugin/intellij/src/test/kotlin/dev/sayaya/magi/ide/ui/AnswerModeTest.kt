@@ -20,14 +20,18 @@ class AnswerModeTest : BasePlatformTestCase() {
         val suggestions = mutableListOf<(String?) -> Unit>()
         val files = mutableListOf<(List<String>) -> Unit>()
         val choices = mutableListOf<(String) -> Unit>()
+        val recoveryViewerEvents = mutableListOf<Triple<dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery, () -> Unit, () -> Unit>>()
         val view = MagiToolWindow.View(project,
             sendConnection = { sid, error, work -> pending.add(Triple(sid, error, work)) }, sendSession = { session },
             suggestRequest = { _, done -> suggestions.add(done) },
             filesRequest = { _, done -> files.add(done) },
-            fileChooser = { _, chosen -> choices.add(chosen) })
+            fileChooser = { _, chosen -> choices.add(chosen) },
+            answerRecoveryViewer = { item, onCopy, onDelete -> recoveryViewerEvents.add(Triple(item, onCopy, onDelete)) })
         @Suppress("UNCHECKED_CAST") fun <T> field(name: String): T =
             view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view) as T
         val input: JTextArea get() = field("input")
+        val answers: dev.sayaya.magi.ide.usecase.AnswerDrafts get() = field("answers")
+        val answerRecoveryBtn: JButton get() = field("answerRecovery")
         fun question(id: String? = "q", scope: String = session) {
             val w = id?.let { Waiting(id = it, kind = "question", what = "Choose", options = listOf("Alpha", "Beta")) }
             view.javaClass.getDeclaredMethod("drawPrompt", Waiting::class.java, String::class.java)
@@ -173,5 +177,74 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.question(); h.direct(); h.input.text = "B"; h.key("magi.send")
         Disposer.dispose(h.view); h.finish(0, false)
         assertTrue(h.seen.isEmpty())
+    }
+    fun testAnswerRecoveryButtonVisibilityAndViewerInteraction() = check { h ->
+        h.input.text = "A"; h.question("q1"); h.direct(); h.input.text = "B"
+        h.question("q2")
+        assertEquals("A", h.input.text)
+        assertTrue(h.answerRecoveryBtn.isVisible)
+        assertTrue(h.answerRecoveryBtn.text.contains("(1)"))
+        assertEquals(1, h.answers.recoveries.size)
+        val rec = h.answers.recoveries.single()
+        assertEquals("B", rec.text)
+        assertEquals("q1", rec.callId)
+        assertEquals("Choose", rec.questionText)
+
+        // Invoke showAnswerRecovery
+        h.view.javaClass.getDeclaredMethod("showAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        assertEquals(1, h.recoveryViewerEvents.size)
+        val (item, onCopy, onDelete) = h.recoveryViewerEvents.single()
+        assertEquals("B", item.text)
+
+        // Copy does not delete, does not alter input, does not send RPC
+        onCopy()
+        assertEquals(1, h.answers.recoveries.size)
+        assertEquals("A", h.input.text)
+        assertTrue(h.pending.isEmpty())
+        val clipboardText = com.intellij.openapi.ide.CopyPasteManager.getInstance()
+            .getContents<String>(java.awt.datatransfer.DataFlavor.stringFlavor)
+        assertEquals("B", clipboardText)
+
+        // Delete removes item and hides button
+        onDelete()
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+    }
+    fun testLateCallbackAndRedrawAfterDeleteDoesNotReviveDraft() = check { h ->
+        h.input.text = "A"; h.question("q1"); h.direct(); h.input.text = "B"
+        h.key("magi.send")
+        assertEquals(1, h.pending.size)
+        h.question(null)
+        assertTrue(h.answerRecoveryBtn.isVisible)
+        val rec = h.answers.recoveries.single()
+
+        h.view.javaClass.getDeclaredMethod("deleteAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+
+        // Late RPC failure does not revive deleted draft
+        h.finish(0, false)
+        assertTrue(h.answers.recoveries.isEmpty())
+
+        // Redraw does not revive
+        h.question("q1")
+        h.question(null)
+        assertTrue(h.answers.recoveries.isEmpty())
+
+        // New answer draft on q1 can be created and recovered
+        h.question("q1"); h.direct(); h.input.text = "C"
+        h.question(null)
+        assertEquals(1, h.answers.recoveries.size)
+        assertEquals("C", h.answers.recoveries.single().text)
+    }
+    fun testDoneQuestionWithNewerEditsExposedInRecoveryView() = check { h ->
+        h.question("q1"); h.direct(); h.input.text = "A"; h.key("magi.send")
+        h.direct(); h.input.text = "B"
+        h.finish(0, true)
+        assertTrue(h.answerRecoveryBtn.isVisible)
+        assertEquals(1, h.answers.recoveries.size)
+        assertEquals("B", h.answers.recoveries.single().text)
     }
 }

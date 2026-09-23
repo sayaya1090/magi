@@ -179,6 +179,7 @@ class MagiToolWindow : ToolWindowFactory {
             approvalPatchOpener = approvalPatchOpener,
             approvalDiffPresenter = approvalDiffPresenter,
         ),
+        private val answerRecoveryViewer: ((dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery, onCopy: () -> Unit, onDelete: () -> Unit) -> Unit)? = null,
     ) : Disposable {
         private val workspace = Workspace(project)
         private val sendDrafts = dev.sayaya.magi.ide.usecase.SendDrafts()
@@ -200,6 +201,18 @@ class MagiToolWindow : ToolWindowFactory {
                     .createPopupChooserBuilder(sendDrafts.failures)
                     .setTitle(MagiBundle.msg("chat.send.recovery"))
                     .setItemChosenCallback { recoverSend(it.attempt) }
+                    .createPopup().showUnderneathOf(this)
+            }
+        }
+        private val answerRecovery = JButton().apply {
+            isVisible = false
+            addActionListener {
+                val items = answers.recoveries
+                if (items.isEmpty()) return@addActionListener
+                com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                    .createPopupChooserBuilder(items)
+                    .setTitle(MagiBundle.msg("chat.answer.recovery"))
+                    .setItemChosenCallback { showAnswerRecovery(it) }
                     .createPopup().showUnderneathOf(this)
             }
         }
@@ -592,6 +605,7 @@ class MagiToolWindow : ToolWindowFactory {
                 add(answerBar)
                 add(notice)
                 add(recovery)
+                add(answerRecovery)
                 add(hint)
             }, BorderLayout.SOUTH)
 
@@ -1845,6 +1859,71 @@ class MagiToolWindow : ToolWindowFactory {
             input.requestFocusInWindow()
         }
 
+        private fun drawAnswerRecovery() {
+            val list = answers.recoveries
+            answerRecovery.text = MagiBundle.msg("chat.answer.recovery") + " (${list.size})"
+            answerRecovery.toolTipText = MagiBundle.msg("chat.answer.recovery.tip")
+            answerRecovery.isVisible = list.isNotEmpty()
+            answerRecovery.parent?.revalidate()
+        }
+
+        private fun copyAnswerRecovery(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
+            com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(java.awt.datatransfer.StringSelection(item.text))
+        }
+
+        private fun deleteAnswerRecovery(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
+            answers.deleteRecovery(item.id)
+            drawAnswerRecovery()
+        }
+
+        private fun showAnswerRecovery(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
+            if (closing.get() || project.isDisposed) return
+            if (answerRecoveryViewer != null) {
+                answerRecoveryViewer.invoke(item, { copyAnswerRecovery(item) }, { deleteAnswerRecovery(item) })
+                return
+            }
+            openAnswerRecoveryDialog(item)
+        }
+
+        private fun openAnswerRecoveryDialog(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
+            val dlg = object : com.intellij.openapi.ui.DialogWrapper(project, true) {
+                val fullText = com.intellij.ui.components.JBTextArea(item.text).apply {
+                    isEditable = false
+                    lineWrap = true
+                    wrapStyleWord = true
+                }
+                init {
+                    title = MagiBundle.msg("chat.answer.recovery.detail.title")
+                    init()
+                }
+                override fun createCenterPanel(): javax.swing.JComponent =
+                    com.intellij.util.ui.FormBuilder.createFormBuilder()
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.session"), com.intellij.ui.components.JBLabel(item.session))
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.question"), com.intellij.ui.components.JBLabel(item.questionText ?: item.callId))
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.reason"), com.intellij.ui.components.JBLabel(item.reason))
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.fulltext"), com.intellij.ui.components.JBScrollPane(fullText).apply {
+                            preferredSize = java.awt.Dimension(450, 200)
+                        })
+                        .panel
+
+                override fun createActions(): Array<javax.swing.Action> = arrayOf(
+                    object : DialogWrapperAction(MagiBundle.msg("chat.answer.recovery.copy")) {
+                        override fun doAction(e: java.awt.event.ActionEvent?) {
+                            copyAnswerRecovery(item)
+                        }
+                    },
+                    object : DialogWrapperAction(MagiBundle.msg("chat.answer.recovery.delete")) {
+                        override fun doAction(e: java.awt.event.ActionEvent?) {
+                            deleteAnswerRecovery(item)
+                            close(OK_EXIT_CODE)
+                        }
+                    },
+                    cancelAction.apply { putValue(javax.swing.Action.NAME, MagiBundle.msg("common.cancel")) }
+                )
+            }
+            dlg.show()
+        }
+
         /**
          * 대기 중인 프롬프트를 그린다. **무엇을 그릴지는 [Waiting.ask] 가 정하고 여기는 그리기만 한다.**
          *
@@ -1892,11 +1971,6 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<span>${Markup.text(asked)}</span><br/>$subject$grounds$why</html>"
                 when (ask) {
-                    is Ask.Permission -> {
-                        add(MagiBundle.msg("chat.perm.allow")) { it.allow(w.id) }
-                        add(MagiBundle.msg("chat.perm.deny")) { it.deny(w.id) }
-                        add(MagiBundle.msg("chat.perm.always")) { it.always(w.id) }
-                    }
                     is Ask.Choose -> {
                         ask.options.forEach { opt ->
                             buttons.add(JButton(opt).apply {
@@ -1908,6 +1982,11 @@ class MagiToolWindow : ToolWindowFactory {
                         buttons.add(JButton(MagiBundle.msg("chat.answer.direct")).apply {
                             addActionListener { enterAnswer() }
                         })
+                    }
+                    is Ask.Permission -> {
+                        add(MagiBundle.msg("chat.perm.allow")) { it.allow(w.id) }
+                        add(MagiBundle.msg("chat.perm.deny")) { it.deny(w.id) }
+                        add(MagiBundle.msg("chat.perm.always")) { it.always(w.id) }
                     }
                     // 사유는 위 문구에 실었다. 단추는 안 만든다 — 지어낸 단추는 틀린 답을 보낸다.
                     is Ask.Undrawable -> Unit
@@ -1933,12 +2012,13 @@ class MagiToolWindow : ToolWindowFactory {
         private fun syncAnswerContext() {
             val q = waitingQuestion?.takeIf { it.ask is Ask.Choose && waitingSession == currentSendSession() }
             val previous = answers.question
-            answers.bind(currentSendSession(), q?.id, input.text)?.let {
+            answers.bind(currentSendSession(), q?.id, input.text, q?.what)?.let {
                 input.text = it
                 invalidateComposer()
             }
             if (previous != answers.question) invalidateComposer()
             paintAnswerMode()
+            drawAnswerRecovery()
         }
 
         private fun paintAnswerMode() {
@@ -1956,13 +2036,13 @@ class MagiToolWindow : ToolWindowFactory {
             if (closing.get() || composing) return
             syncAnswerContext()
             answers.enter(input.text)?.let { input.text = it }
-            invalidateComposer(); paintAnswerMode(); input.requestFocusInWindow()
+            invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
         private fun cancelAnswer() {
             if (composing) return
             answers.cancel(input.text)?.let { input.text = it }
-            invalidateComposer(); paintAnswerMode(); input.requestFocusInWindow()
+            invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
         private fun submitAnswer(text: String, expected: dev.sayaya.magi.ide.usecase.AnswerDrafts.Key? = answers.active) {
@@ -1972,7 +2052,7 @@ class MagiToolWindow : ToolWindowFactory {
             val attempt = answers.begin(text) ?: return
             answers.leaveAfterSubmit()
             input.text = answers.generalText()
-            invalidateComposer(); paintAnswerMode()
+            invalidateComposer(); paintAnswerMode(); drawAnswerRecovery()
             val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
                 workspace.onDaemon(sid, trouble, work)
             }
@@ -1994,6 +2074,7 @@ class MagiToolWindow : ToolWindowFactory {
                 } else report(MagiBundle.msg("common.notsent", error))
                 paintAnswerMode()
             }
+            drawAnswerRecovery()
         }
 
         /**
