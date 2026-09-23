@@ -626,3 +626,25 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 ProcessCanceledException과 CancellationException은 패치·두 면 비교·원문 편집창 모두 같은 예외 객체로 재전파되고 실패 안내로 바뀌지 않습니다. 원문 편집창의 기존 포괄 catch도 이 계약에 맞춰 보완했습니다. 승인 패널은 일반 입력 모드이며, 원문 편집창의 답변 모드 보존 검사는 앞 절의 회귀로 유지합니다.
 
 2026-09-23 검증: JetBrains `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain` 종료 0, core 369 통과·5 건너뜀, 헤드리스 IntelliJ 46 통과. VS Code 단위 522 통과·7 건너뜀, 전체 Playwright 7개 test·50개 시나리오 통과(18.2초), 모두 종료 0입니다.
+
+
+### 편집창 열기 책임 분리
+
+`MagiToolWindow.View`에 모여 있던 원문 열기(`openOutput`), 승인 변경 보기(`openApprovalDiff`), 도구 편집 diff 보기(`RowText.diffSides`)의 문서 생성 및 IDE 표시 책임을 협력 객체 `EditorOpener`로 분리했습니다.
+
+- **책임 분리**:
+  - `View`는 세션 식별, 입력 초안, 안내 레이블(`notice`), 창 생명주기(`closing`, `isDisposed`) 및 결과 안내(`report`)만 처리합니다.
+  - `EditorOpener`는 읽기 전용 가상 파일(`LightVirtualFile`) 생성, `Key` 기반 열린 파일 식별 및 재사용, `DiffContentFactory`/`DiffManager` 호출, 테스트 주입용 오프너/프레젠터 호출을 전담합니다.
+- **계약 보존**:
+  - `ProcessCanceledException` 및 `CancellationException`은 취소 이벤트로 처리하여 상위로 재전파하며 실패 안내로 변환하지 않습니다.
+  - 세션/요청별 식별자 격리, 열린 파일 재사용, 읽기 전용 속성, 닫힌 탭 재생성 동작을 그대로 유지합니다.
+  - 전역 싱글턴이나 불필요한 캐시를 추가하지 않았으며, `core` 모듈의 순수성을 보존하여 IntelliJ 의존성은 `plugin/intellij` 모듈 내에만 위치합니다.
+- **회귀 검증**:
+  - `OutputEditorTest` 7건 전체가 기존 버튼 클릭 경로를 통해 새 협력 객체를 거쳐 정상 실행됨을 확인했습니다.
+
+2026-09-23 검증:
+- JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 369 통과·5 건너뜀, 헤드리스 IntelliJ 46 통과).
+- VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀).
+- Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 17.6초).
+- 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
+
