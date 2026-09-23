@@ -613,14 +613,20 @@ class HeadlessIdeTest : BasePlatformTestCase() {
 
             val input: JBTextArea = field("input")
             val buttons: JPanel = field("buttons")
+            val head: JPanel = field("head")
+            val sendButton: JButton = field("sendButton")
             val answerBar: JPanel = field("answerBar")
             val answerCancel: JButton = field("answerCancel")
 
+            val recordedRequests = mutableListOf<Request>()
             fun completeSend(index: Int, ok: Boolean = true, error: String? = null) {
                 val (sid, errCb, work) = pendingSends[index]
                 if (ok) {
                     work(Companion(object : Daemon {
-                        override fun exchange(request: Request): Response = Response(ok = true)
+                        override fun exchange(request: Request): Response {
+                            recordedRequests.add(request)
+                            return Response(ok = true)
+                        }
                         override fun stream(request: Request, each: (Response) -> Boolean) {}
                         override fun close() {}
                     }, sid))
@@ -676,11 +682,17 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             // A 완료 (B는 아직 in-flight)
             completeSend(0, ok = true)
             assertEquals(busyMsg, input.emptyText.text)
+            val sayRequests = recordedRequests.filter { it.method in listOf("submit", "steer") }
+            assertEquals(1, sayRequests.size)
+            assertEquals("Message A", sayRequests[0].text)
 
             // B 완료
             completeSend(1, ok = true)
             assertEquals(defaultMsg, input.emptyText.text)
             assertEquals(defaultMsg, input.accessibleContext.accessibleName)
+            val sayRequestsAfterB = recordedRequests.filter { it.method in listOf("submit", "steer") }
+            assertEquals(2, sayRequestsAfterB.size)
+            assertEquals("Message B", sayRequestsAfterB[1].text)
 
             // 4. 답변 대기 중 직접 입력 재진입
             val w = Waiting(id = "q1", kind = "question", what = "Confirm?", options = listOf("Alpha", "Beta"))
@@ -744,10 +756,93 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertEquals(answerMsg, input.emptyText.text)
             assertEquals("Answer Draft 1", input.text)
 
-            // 7. 문서 텍스트 무유입 검증
+            // 7. 답변 제출 및 RPC 대기(in-flight) 중 재진입과 중복 제출 차단
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(3, pendingSends.size)
+
+            // 제출 직후 일반 모드로 복귀하여 일반 입력 허용 및 default 힌트 표출
+            assertFalse(answerBar.isVisible)
+            assertEquals(defaultMsg, input.emptyText.text)
+            assertEquals(defaultMsg, input.accessibleContext.accessibleName)
+            assertEquals("", input.text)
+
+            // 일반 메시지 작성 가능 여부 검증 (답변 in-flight 중 일반 입력 허용 계약 유지)
+            input.text = "General note while answer in flight"
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals("General note while answer in flight", input.text)
+            assertEquals(defaultMsg, input.emptyText.text)
             input.text = ""
             UIUtil.dispatchAllInvocationEvents()
+
+            // 답변 RPC 대기 중에 사용자가 동일 질문 q1의 "직접 입력" 재진입
+            val directBtnInFlight = buttons.components.filterIsInstance<JButton>().first { it.text == directBtnText }
+            directBtnInFlight.doClick()
+            UIUtil.dispatchAllInvocationEvents()
+
+            // 재진입 시: busy 힌트, 답변 초안 A("Answer Draft 1") 보존, sendButton 및 선택지 버튼 비활성화
+            assertTrue(answerBar.isVisible)
+            assertEquals(busyMsg, input.emptyText.text)
+            assertEquals(busyMsg, input.accessibleContext.accessibleName)
+            assertEquals("Answer Draft 1", input.text)
+            assertFalse(sendButton.isEnabled)
+            val choiceBtns = buttons.components.filterIsInstance<JButton>().filter { it.getClientProperty("magi.answerChoice") == true }
+            assertTrue(choiceBtns.isNotEmpty() && choiceBtns.all { !it.isEnabled })
+
+            // in-flight 중 Enter 입력 시 중복 전송 차단 (새로운 pendingSend가 생성되지 않음)
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(3, pendingSends.size)
+
+            // 8. 답변 RPC 실패 결과 수신 및 재시도 가능 안내 복귀
+            completeSend(2, ok = false, error = "Timeout")
+            // 실패 후: answer 힌트로 복귀, sendButton 재활성화, 기존 초안 A 유지
+            assertTrue(answerBar.isVisible)
             assertEquals(answerMsg, input.emptyText.text)
+            assertEquals(answerMsg, input.accessibleContext.accessibleName)
+            assertTrue(sendButton.isEnabled)
+            assertEquals("Answer Draft 1", input.text)
+
+            // 9. 재시도 제출 및 세션 전환 중 옛 결과 도착 격리
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(4, pendingSends.size)
+            assertFalse(answerBar.isVisible)
+            assertEquals(defaultMsg, input.emptyText.text)
+
+            // 결과 도착 전 session2로 전환
+            currentSession = "session2"
+            drawPromptMethod.invoke(view, null, "session2")
+            UIUtil.dispatchAllInvocationEvents()
+            input.text = "Session2 active draft"
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(defaultMsg, input.emptyText.text)
+
+            // session1의 옛 답변 RPC 완료 (성공)
+            completeSend(3, ok = true)
+            // 요청 종류 및 callId/answer 검증 (힌트 문자열만 검사하지 않음)
+            val answerReq = recordedRequests.first { it.method == "answer" }
+            assertEquals("answer", answerReq.method)
+            assertEquals("q1", answerReq.callId)
+            assertEquals("Answer Draft 1", answerReq.answer)
+
+            // session2의 현재 안내·초안·잠금이 옛 콜백에 의해 오염되지 않음을 검증
+            assertEquals("Session2 active draft", input.text)
+            assertEquals(defaultMsg, input.emptyText.text)
+            assertFalse(answerBar.isVisible)
+
+            // session1으로 복귀 시 답변 완료로 질문 프롬프트 숨김 및 일반 모드 확인
+            currentSession = "session1"
+            drawPromptMethod.invoke(view, w, "session1")
+            UIUtil.dispatchAllInvocationEvents()
+            assertFalse(head.isVisible)
+            assertFalse(answerBar.isVisible)
+            assertEquals(defaultMsg, input.emptyText.text)
+
+            // 10. 문서 텍스트 무유입 검증
+            input.text = ""
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(defaultMsg, input.emptyText.text)
             assertEquals("", input.text)
         } finally {
             Disposer.dispose(view)

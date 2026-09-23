@@ -866,5 +866,53 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - VoiceOver는 사용자 요청에 따라 검증 대상 및 완료 조건에서 제외합니다.
   - 실물 OS 도킹 창 드래그, 물리 키 타건, IME 조합 실물 테스트는 자동화 환경 제약(무인 환경, macOS 접근 권한 -25211 등)으로 인해 미실행/보류 상태이며 완료 조건에서 삭제하지 않습니다.
 
+### 6.29 답변 전송 중 안내 검증과 실물 인수 상태 기록
+
+§6.29 지침에 따라, 답변 RPC 대기(in-flight) 상태에서의 컴포저 힌트·초안 보존·중복 제출 방지 및 세션 전환 격리를 실제 View 액션 기반으로 검증하고, 실물 인수 환경 및 상태를 기록했습니다.
+
+#### 1. 답변 RPC 대기 경로의 안내 회귀 보완 (`HeadlessIdeTest.kt`)
+- **검증 배경**:
+  - 이전 §6.28까지의 답변 테스트는 작성→취소→재진입 경로를 검증했으나, 답변을 제출하고 백그라운드 RPC 결과를 기다리는 동안의 UI 상태(in-flight 힌트, 중복 제출 차단, 일반 모드 허용, 세션 전환 격리)는 힌트 테스트에 포함되지 않았음.
+- **테스트 구현 (`HeadlessIdeTest`)**:
+  - `sendConnection` 경계를 통해 답변 RPC를 보류하고, `Request.method`("submit"/"steer" vs "answer"), `callId`("q1"), `answer`("Answer Draft 1")를 실측 식별하는 `recordingDaemon`을 연결.
+  - **직접 입력 A 제출 후 일반 모드 복귀**:
+    - 질문 q1에서 "직접 입력" 클릭 후 "Answer Draft 1" 작성 → Enter 제출.
+    - 제출 직후 답변 바 숨김(`answerBar.isVisible == false`), 힌트는 `default`("Enter 전송")로 즉시 복귀, 입력창 비움(`input.text == ""`).
+    - 답변 RPC가 진행 중이어도 일반 메시지 작성 및 전송이 허용되는 기존 정책 유지 확인 (`sendDrafts.canSend("session1") == true`).
+  - **답변 in-flight 중 "직접 입력" 재진입**:
+    - 답변 RPC 완료 전 사용자가 동일 질문 q1의 "직접 입력" 버튼 클릭.
+    - 재진입 시: `busy` 힌트(`chat.composer.hint.busy`), accessibleName 동기화, 기존 답변 초안("Answer Draft 1") 복원 확인.
+    - 중복 제출 차단: `sendButton.isEnabled == false`, 질문 선택지 버튼 전체 비활성화, in-flight 중 Enter 입력 시 추가 RPC 미발생(`pendingSends.size` 불변) 확인.
+  - **답변 RPC 실패 결과 수신 및 재시도 가능 안내**:
+    - 실패 결과(`completeSend(2, ok = false, error = "Timeout")`) 수신 시 `answer` 힌트(`chat.composer.hint.answer`)로 복귀.
+    - `sendButton` 재활성화, 기존 초안 A("Answer Draft 1") 온전히 보존되어 즉시 재전송 가능한 상태 복원.
+  - **재시도 제출 및 세션 전환 중 옛 결과 도착 격리**:
+    - Enter로 재시도 제출 후 결과 도착 전 `session2`로 세션 전환.
+    - `session2`에서 새 일반 초안("Session2 active draft") 작성 및 `default` 힌트 유지.
+    - `session1`의 옛 답변 RPC가 성공 완료(`completeSend(3, ok = true)`)되었을 때, `session2`의 현재 텍스트·힌트·잠금이 옛 콜백에 의해 오염되지 않음을 검증.
+    - `session1`으로 복귀 시 답변 완료로 질문 프롬프트 숨김(`head.isVisible == false`) 및 일반 모드 복귀 확인.
+  - **문서 텍스트 무유입**:
+    - 안내 텍스트가 `input.text`로 유입되지 않고 순수 `""`를 유지함을 검증.
+
+#### 2. 실측 검증 결과
+- **2026-09-24 전체 검증 실행**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공.
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 62 통과 (총 62개 중), **합계 446 통과·5 건너뜀·0 실패**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.0초)**.
+
+#### 3. 환경 및 실물 인수 상태 기록
+- **실행 환경**:
+  - OS: macOS 26.6.2 (Darwin 25G83, arm64)
+  - Java / JVM: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
+  - IDE Platform: IntelliJ Platform 2026.1 (IU-2026.1)
+- **실물 인수 상태**:
+  - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
+  - 실물 GUI 인수(하단 독·320px/420px 사이드바 창 드래그, 물리 키 타건, 한글 IME 조합 실물 입력): 무인 자동화 환경 제약(Swing 독 패널의 OS 레벨 마우스 드래그 조작 불가, 사용자 작업 중인 데스크톱 세션 간섭 방지, 보조 접근 권한 제약)으로 인해 미실행/보류 상태로 유지하며 완료 조건에서 삭제하지 않습니다.
+
+
 
 
