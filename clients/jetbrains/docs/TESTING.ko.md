@@ -1018,14 +1018,52 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.9초 소요)**.
 
-#### 3. 환경 및 실물 인수 상태 기록
-- **실행 환경**:
-  - OS: macOS 26.6.2 (Darwin 25G83, arm64)
-  - Java / JVM: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
-  - IDE Platform: IntelliJ Platform 2026.1 (IU-2026.1)
-- **실물 인수 상태**:
-  - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
-  - 실물 GUI 인수(하단 독·320px/420px 사이드바 창 드래그, 물리 키 타건, 한글 IME 조합 실물 입력): 무인 자동화 환경 제약(CUA_REPL_ENABLED_SURFACES 부재, AppleScript UI 접근 권한 -25211 거절, 활성 그래픽 세션 간섭 방지)으로 인해 실물 GUI/IME 조작이 막혀 미검증 상태로 유지하며, 헤드리스 결과를 실물 통과로 간주하지 않고 완료 조건에서 임의 삭제하지 않습니다.
+### 6.32 실제 runIde 실물 GUI·IME 인수 및 환영 카드 레이아웃 결함 수정
+
+§6.32 지침에 따라 IntelliJ IDEA 2026.1 `runIde` 샌드박스에서 실물 GUI 화면 검증을 수행하고, 실측 과정에서 드러난 환영 카드(`Look.welcome`)의 가로 넘침·축 파괴 결함을 재현 및 수정했습니다. 실물 키보드·IME 조작은 실행 환경 제약에 따라 미검증으로 유지합니다.
+
+#### 1. 환영 카드(Look.welcome) 가로 넘침·축 파괴 결함 발견 및 제품 수정
+- **실물 runIde에서의 결함 발견**:
+  - 기존 `Look.welcome`은 `VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 6, true, false)`를 사용했습니다.
+  - Swing의 `VerticalFlowLayout.layoutContainer`는 `totalHeight > container.height` 조건이 발생하면 단일 열을 유지하지 않고 오른쪽으로 새 열(`x += hGap + colWidth; y = insets.top + vGap`)을 생성하는 다열 분할(wrap) 동작을 가집니다.
+  - 전사 패널 컨테이너(`Look.column()`)의 초기 선호 높이가 0이거나 미확장된 상태에서 자식 컴포넌트(`welcomeNote`)가 오른쪽 2열(`x = 400+ px`)로 강제 배치되어, 320px/420px 사이드바에서 심각한 가로 넘침(horizontal overflow), 중앙 축(central axis) 파괴, 텍스트 잘림 현상이 발생했습니다(실제 캡처 `/tmp/sandbox_project_window.png` 실측: 텍스트 대부분이 뷰포트 밖으로 밀려나고 우측 끝에 두 글자만 노출됨).
+- **제품 코드 수정 (`Look.kt`)**:
+  - `VerticalFlowLayout`을 완전히 제거하고, 다열 래핑을 원천 차단하는 전용 단일 수직 컬럼 `LayoutManager`로 교체했습니다.
+  - 가용 부모 폭(`contentW = parent.width - 32`) 내에서 `title`, `status`, `welcomeNote`를 수직 단일 축(`x = 16`, `width = contentW`)으로 엄격히 배치합니다.
+  - 부모 폭이 아직 계산되지 않은 초기 레이아웃 단계에서도 계통 추적(`availableContentWidth`)을 통해 뷰포트 폭을 즉시 반영하여 정확한 `preferredSize.height`를 산출하도록 보완했습니다.
+- **영구 회귀 테스트 추가 (`HeadlessIdeTest.kt`)**:
+  - `Look.column()` 컨테이너에 사전 크기 지정 없이 `Look.welcome`을 배치할 때 320px, 420px, 1300px에서 `n.bounds.x == 16`, `n.width == w - 32`, 마지막 글자 뷰 영역 안착(`rect.y + rect.height <= n.height`)을 단언하는 자동 회귀를 추가했습니다.
+
+#### 2. 실제 runIde 샌드박스 화면 인수 결과
+- **검사 환경 및 메타데이터**:
+  - 검사 SHA: `e86d6831671622e0604021c31f2783ee5149f99f`
+  - macOS: 26.6.2 (Darwin 25G83, arm64)
+  - Java / JDK: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
+  - IDE Platform: IntelliJ Platform 2026.1 (IU-2026.1 sandbox)
+  - UI 언어: 한국어 (Korean)
+  - 테마: 라이트 (Light Theme)
+  - 배율: 1x (1400×1000 윈도우)
+- **뷰포트별 실측 확인**:
+  - **1300px 이상 하단 독(Bottom Dock)**: 타이틀 `magi`, 상태 `연결됨 — 최신까지 받았습니다`, 안내문이 단일 행으로 중앙 축 정렬. 가로 넘침 0px, 불필요한 빈 높이 없음. 컴포저의 긴 안내 문구(`메시지 입력 (Enter 전송 · Shift+Enter 줄바꿈 · @ 파일)`) 및 `보내기` 버튼이 잘림 없이 100% 온전히 표출됨 (`/tmp/sandbox_magi_bottom.png`, `/tmp/sandbox_fixed_project.png`).
+  - **320px / 420px 사이드바**: 패딩 좌우 16px을 준수하며 2줄로 자연스럽게 줄바꿈 안착, 중앙 축 정확 일치, 마지막 글자까지 온전히 표출됨 (`/tmp/sandbox_320_exact.png`, `/tmp/sandbox_welcome_fixed_crop.png`).
+  - **1300→320→420→1300 동적 리사이즈 왕복**: 창 크기 변경 시 레이아웃 깨짐 없이 1열 수직 축과 줄바꿈이 정상 적응함을 확인.
+
+#### 3. 입력·키보드·IME 실물 인수 상태 및 환경 제약 기록
+- **VoiceOver**: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
+- **물리 키보드 조작 및 한글 IME 실물 인수**:
+  - 2026-09-24 06:34:09 시점, AppleScript / System Events 키 입력 주입 및 화면 캡처 시도 중 macOS 화면 보호기 / 화면 잠금(`CGSSessionScreenIsLocked=Yes`, `IOConsoleUsers` console session locked, `Display 3 Shield` Window ID 28497 활성화)으로 인해 화면 접근 및 캡처가 차단되었습니다 (`screencapture -l: could not create image from window`).
+  - §6.32 지침에 따라, 해당 물리 키 타건(Enter 전송, Shift+Enter 개행, Esc 취소, @ 파일 선택) 및 한글 IME 조합 확정 Enter 전송 분리 실물 검증을 통과로 처리하거나 헤드리스 결과로 대체하지 않고 **미검증** 상태로 남깁니다.
+
+#### 4. 전체 검증 실행 결과
+- **2026-09-24 전체 검증 실행**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (34초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 63 통과 (총 63개 중), **합계 447 통과·5 건너뜀·0 실패 (총 452개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.1초 소요)**.
+
 
 
 

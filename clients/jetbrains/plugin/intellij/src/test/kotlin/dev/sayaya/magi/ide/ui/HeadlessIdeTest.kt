@@ -591,6 +591,26 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         val longStatusPanel = Look.welcome("magi", longStatus, Look.warn, englishHint)
         val longStatusLabel = longStatusPanel.getComponent(1) as JLabel
         assertTrue("긴 상태 문구라도 최소 폭은 90 이하로 제한되어야 한다", longStatusLabel.minimumSize.width <= 90)
+
+        // 5. 실제 전사 column 컨테이너 안에서 사전 크기 지정 없이 배치될 때 가로 넘침(다열 분할) 방지 및 단일 중앙 축 검증
+        for (w in listOf(320, 420, 1300)) {
+            val col = Look.column()
+            val wPanel = Look.welcome(title, status, Look.success, koreanHint)
+            col.add(wPanel)
+            col.size = Dimension(w, 600)
+            col.doLayout()
+            wPanel.doLayout()
+
+            val n = wPanel.getComponent(2) as JTextPane
+            val targetW = w - 32
+            assertEquals("column 내 최초 배치에서 welcome 패널 폭은 가용 폭이어야 한다", w, wPanel.width)
+            assertEquals("column 내 최초 배치에서 설명 폭은 패딩을 제외한 가용 폭이어야 한다", targetW, n.width)
+            assertEquals("설명은 좌측 16px에서 시작해야 하며 2열로 가로 넘침되지 않아야 한다", 16, n.bounds.x)
+            assertEquals("welcome 패널 높이는 자식 컴포넌트 선호 높이와 일치해야 한다", wPanel.preferredSize.height, wPanel.height)
+            assertTrue("설명 높이가 선호 높이 이상 확보되어야 한다", n.height >= n.preferredSize.height)
+            val rect = n.modelToView2D(n.document.length - 1)
+            assertTrue("마지막 글자가 잘리지 않고 가시 영역 안에 있어야 한다", rect!!.y + rect.height <= n.height.toDouble())
+        }
     }
 
     /**

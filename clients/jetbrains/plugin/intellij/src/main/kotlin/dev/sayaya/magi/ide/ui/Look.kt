@@ -302,6 +302,22 @@ internal object Look {
             foreground = hue
         }
 
+    private fun availableContentWidth(c: java.awt.Component?): Int {
+        var cur = c
+        var padding = 0
+        while (cur != null) {
+            if (cur is JComponent) {
+                padding += cur.insets.left + cur.insets.right
+                if (cur.width > 0) {
+                    val w = cur.width - padding
+                    if (w > 0) return w
+                }
+            }
+            cur = cur.parent
+        }
+        return 0
+    }
+
     /**
      * 빈 전사가 서 있는 동안 그 자리를 채우는 인사.
      *
@@ -316,28 +332,85 @@ internal object Look {
      * TUI 의 시작 화면과 같은 규칙을 쓴다: 워드마크 + 흐린 상태 한 줄, 그리고 첫 행이 서면
      * 사라진다(부르는 쪽이 빈 목록일 때만 세운다).
      */
-    fun welcome(title: String, status: String, hue: Color, hint: String): JComponent =
-        JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 6, true, false)).apply {
-            isOpaque = false
-            border = JBUI.Borders.empty(28, 16, 8, 16)
-            add(JBLabel(title).apply {
-                foreground = primary
-                font = JBFont.h2()
-                horizontalAlignment = javax.swing.SwingConstants.CENTER
-            })
-            add(object : JBLabel(status) {
-                override fun getMinimumSize(): Dimension {
-                    val d = super.getMinimumSize()
-                    return Dimension(minOf(d.width, FLOOR), d.height)
-                }
-            }.apply {
-                foreground = hue
-                font = JBFont.small()
-                horizontalAlignment = javax.swing.SwingConstants.CENTER
-                toolTipText = status.ifBlank { null }
-            })
-            add(welcomeNote(hint, faint))
+    fun welcome(title: String, status: String, hue: Color, hint: String): JComponent {
+        val titleLabel = JBLabel(title).apply {
+            foreground = primary
+            font = JBFont.h2()
+            horizontalAlignment = javax.swing.SwingConstants.CENTER
         }
+        val statusLabel = object : JBLabel(status) {
+            override fun getMinimumSize(): Dimension {
+                val d = super.getMinimumSize()
+                return Dimension(minOf(d.width, FLOOR), d.height)
+            }
+        }.apply {
+            foreground = hue
+            font = JBFont.small()
+            horizontalAlignment = javax.swing.SwingConstants.CENTER
+            toolTipText = status.ifBlank { null }
+        }
+        val notePane = welcomeNote(hint, faint)
+
+        val vGap = 6
+        return object : JBPanel<JBPanel<*>>() {
+            init {
+                isOpaque = false
+                border = JBUI.Borders.empty(28, 16, 8, 16)
+                layout = object : java.awt.LayoutManager {
+                    override fun addLayoutComponent(name: String?, comp: java.awt.Component?) {}
+                    override fun removeLayoutComponent(comp: java.awt.Component?) {}
+
+                    override fun preferredLayoutSize(parent: java.awt.Container): Dimension {
+                        val ins = parent.insets
+                        val availW = parent.width.takeIf { it > 0 }
+                            ?: availableContentWidth(parent.parent).takeIf { it > 0 }
+                            ?: 0
+                        var h = ins.top + ins.bottom
+                        val count = parent.componentCount
+                        var visibleCount = 0
+                        for (i in 0 until count) {
+                            val c = parent.getComponent(i)
+                            if (c.isVisible) {
+                                h += c.preferredSize.height
+                                visibleCount++
+                            }
+                        }
+                        if (visibleCount > 1) {
+                            h += (visibleCount - 1) * vGap
+                        }
+                        val w = if (availW > 0) availW else {
+                            var maxW = 0
+                            for (i in 0 until count) {
+                                val c = parent.getComponent(i)
+                                if (c.isVisible) maxW = maxOf(maxW, c.preferredSize.width)
+                            }
+                            maxW + ins.left + ins.right
+                        }
+                        return Dimension(w, h)
+                    }
+
+                    override fun minimumLayoutSize(parent: java.awt.Container): Dimension = preferredLayoutSize(parent)
+
+                    override fun layoutContainer(parent: java.awt.Container) {
+                        val ins = parent.insets
+                        val contentW = (parent.width - ins.left - ins.right).coerceAtLeast(1)
+                        var y = ins.top
+                        for (i in 0 until parent.componentCount) {
+                            val c = parent.getComponent(i)
+                            if (c.isVisible) {
+                                val prefH = c.preferredSize.height
+                                c.setBounds(ins.left, y, contentW, prefH)
+                                y += prefH + vGap
+                            }
+                        }
+                    }
+                }
+                add(titleLabel)
+                add(statusLabel)
+                add(notePane)
+            }
+        }
+    }
 
     fun welcomeNote(text: String, hue: Color = faint): JComponent =
         object : javax.swing.JTextPane() {
@@ -345,7 +418,10 @@ internal object Look {
             override fun getPreferredSize(): Dimension {
                 val targetW = (parent as? javax.swing.JComponent)?.let {
                     it.width - it.insets.left - it.insets.right
-                }?.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: 0
+                }?.takeIf { it > 0 }
+                    ?: availableContentWidth(parent).takeIf { it > 0 }
+                    ?: width.takeIf { it > 0 }
+                    ?: 0
                 if (targetW > 0) {
                     val root = (ui as? javax.swing.plaf.TextUI)?.getRootView(this)
                     if (root != null) {
