@@ -1064,6 +1064,74 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.1초 소요)**.
 
+### 6.33 중첩 리사이즈 높이 계산 결함 수정, 좁은 폭 실물 실측 정정 및 키보드 조작 인수
+
+§6.33 지침에 따라 부모 컨테이너 폭 축소 시 구 자식 폭 참조로 인한 높이 부족 결함을 수정하고, 기존 실물 보고의 폭 측정 오류 정정, 실물 runIde에서의 정확한 경계 실측 및 증거 영구 보존, 물리 키보드 조작 검증을 수행했습니다.
+
+#### 1. 기존 보고 측정값 정정
+- **기존 320px/420px 보고 정정**:
+  - §6.32 보고에서 320px 근거로 제시했던 `/tmp/sandbox_320_exact.png`는 1400×1000 전체 창에서 magi 패널이 x=299..1364(약 1065px 폭)에 걸쳐 있던 것으로 확인되어 320px 입증 근거로 부적합했음을 정정합니다.
+  - `/tmp/sandbox_welcome_fixed_crop.png` 역시 크롭 이미지 폭(476px)일 뿐 원래 도구 창의 패널 폭이 아니었으므로, 기존 320/420px 및 왕복 인수 완료 주장을 취소하고 실측이 확인된 증거로 전면 대체합니다.
+- **실물 증거 영구 보존**:
+  - 임시 `/tmp` 디렉토리에만 두었던 증거 파일들을 저장소 내 영구 경로 `clients/jetbrains/docs/img/evidence/`에 커밋 보존하여 영구적으로 확인 가능하도록 조치했습니다.
+
+#### 2. 부모 컨테이너 축소 시 구 자식 폭 기반 높이 계산 결함 수정
+- **결함 원인**:
+  - `Look.welcome`의 `preferredLayoutSize` 및 `welcomeNote.getPreferredSize`가 이미 배치된 자식의 이전 폭(`wPanel.width = 1300`)을 우선 참조하고 있었습니다.
+  - 1300px 배치 후 부모 column만 `col.size = Dimension(320, 600)`으로 축소될 때, 자식의 구 폭(1300px) 기준으로 선호 높이를 산출하여 1행 높이(98px)만 배정되고 2행 줄바꿈에 필요한 140px에 미치지 못해 텍스트 하단이 잘리는 현상이 발생했습니다(allocated=98, required=140).
+- **제품 코드 수정 (`Look.kt`)**:
+  - `availableContentWidth`를 `availableContainerWidth(c)`로 개선하여 자식 자신의 구 폭보다 부모 컨테이너 계통(`cur.parent`)의 가용 폭을 우선 탐색하도록 변경했습니다.
+  - `wPanel`과 `notePane`이 부모가 다음 배치에 사용할 가용 폭(320px - 32px = 288px)을 즉시 반영하여 정확한 선호 높이(140px)를 산출합니다.
+  - `wPanel.minimumSize = Dimension(FLOOR, 0)` 및 `minimumLayoutSize = Dimension(FLOOR, pref.height)`를 설정하여 환영 카드의 최소 크기가 창 축소를 차단하지 않도록 보장했습니다.
+- **영구 회귀 테스트 추가 (`HeadlessIdeTest.kt`)**:
+  - 동일한 `Look.column()`과 `Look.welcome` 인스턴스를 유지한 채 1300→320→420→1300 동적 리사이즈 왕복을 실행하는 회귀를 추가했습니다:
+    - 각 뷰포트 단계에서 패널 폭 일치, 설명 가용 폭 일치, 좌측 16px 축 정렬 확인.
+    - `allocated >= required` 높이 충분성 단언 (`dynamicWelcome.height >= dynamicWelcome.preferredSize.height`, `n.height >= n.preferredSize.height`).
+    - 설명 하단이 welcome 패널 내부 및 부모 스크롤 콘텐츠(`dynamicCol.preferredSize.height`, `col.height`)에 완전히 포함됨을 단언.
+    - 마지막 글자 가시 영역 안착(`rect.y + rect.height <= n.height`) 단언.
+    - welcome 최소 폭이 90px 이하(`FLOOR`)를 유지함을 단언.
+
+#### 3. 실물 runIde 샌드박스 경계 실측 및 왕복 검증 결과
+- **검사 환경 및 메타데이터**:
+  - 대상 SHA: 현재 작업 트리 (직전 커밋 `207da370`)
+  - macOS: 26.6.2 (Darwin 25G83, arm64, Apple Silicon)
+  - Java / JDK: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
+  - IDE: IntelliJ Platform 2026.1 (IU-2026.1 sandbox, 1400×1000 윈도우)
+  - UI 언어: 한국어 (Korean), 테마: 라이트 (Light Theme), 배율: 1x
+- **실물 도구 창 경계 실측치 (`clients/jetbrains/docs/img/evidence/`)**:
+  - **1300px 하단 독 (`sandbox_real_1300_bottom.png`)**:
+    - 도구 창 경계: x=34부터 x=1365까지 (실측 폭 **1331px**, 1300px 요건 충족).
+    - 중앙 단일 축 정렬 유지, 텍스트 줄바꿈 없이 1줄 표출, 컴포저 전체 문구 노출.
+  - **420px 우측 사이드바 (`sandbox_real_420_sidebar.png`)**:
+    - 도구 창 경계: x=947부터 x=1365까지 (실측 폭 **418px**).
+    - 설명 2줄 자연 줄바꿈, 텍스트 잘림 없음, 여백 좌우 16px 정확 일치.
+  - **320px 우측 사이드바 (`sandbox_real_320_sidebar.png`)**:
+    - 도구 창 경계: x=1046부터 x=1365까지 (실측 폭 **319px**).
+    - 설명 2줄 자연 줄바꿈, allocated 높이 완전 확보(잘림 없음), 단일 수직 축 유지.
+  - **동일 창 동적 리사이즈 왕복 (`sandbox_roundtrip_320.png`, `sandbox_roundtrip_420.png`, `sandbox_roundtrip_1300.png`)**:
+    - 동일 runIde 실행 인스턴스에서 1300→320→420→1300으로 마우스 드래그 리사이즈 시 레이아웃 깨짐, 축 왜곡, 텍스트 잘림 없이 즉각 적응함을 확인.
+
+#### 4. 물리 키보드 타건 및 IME 실물 인수 상태
+- **물리 키보드 조작 실물 인수 (`clients/jetbrains/docs/img/evidence/`)**:
+  - 컴포저 입력창(`JBTextArea`)에 마우스 클릭 포커스 인가(포커스 링 확인).
+  - **Shift+Enter 줄바꿈**: "Test" 입력 후 `Shift+Enter` 입력 시 전송되지 않고 개행(`\n`)이 생성되어 2번째 줄로 정상 이동함을 확인 (`sandbox_after_typing_test.png`).
+  - **@ 파일 멘션**: " @" 문자열 정상 타이핑 확인 (`sandbox_typed_at.png`).
+  - **초안 삭제**: Cmd+A 및 백스페이스로 입력창 전체 삭제 확인.
+  - **Enter 단독 전송**: "Hello Magi" 타이핑 후 `Enter` 타건 시, 입력창이 즉시 비워지고 데몬으로 전송되어 전사 영역 상단에 사용자 메시지 행(`● 나 Hello Magi`, 타임스탬프 `08:03:24`)으로 정상 표출됨을 확인 (`sandbox_after_enter_send.png`).
+- **한글 IME 조합 확정 Enter 및 Esc 답변 취소 상태**:
+  - macOS 터미널 자동화 환경에서 OS 레벨 한글 입력기(IMKServer / TISSelectInputSource)의 조합 중 상태(composing / markedText)를 IDE의 JComponent로 가상 주입하는 데 따른 제약(화면 보호기 해제 후에도 OS 레벨 IME 마킹 이벤트를 외부에서 합성 주입 불가)으로 인해 실물 한글 IME 조합 확정 Enter 분리는 **미검증** 상태로 유지합니다.
+  - VoiceOver는 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
+
+#### 5. 전체 검증 실행 결과
+- **2026-09-24 전체 검증 실행**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (35초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 63 통과 (총 63개 중), **합계 447 통과·5 건너뜀·0 실패 (총 452개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.0초 소요)**.
+
 
 
 

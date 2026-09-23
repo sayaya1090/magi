@@ -302,18 +302,25 @@ internal object Look {
             foreground = hue
         }
 
-    private fun availableContentWidth(c: java.awt.Component?): Int {
+    private fun availableContainerWidth(c: java.awt.Component?): Int {
         var cur = c
         var padding = 0
         while (cur != null) {
-            if (cur is JComponent) {
-                padding += cur.insets.left + cur.insets.right
-                if (cur.width > 0) {
-                    val w = cur.width - padding
-                    if (w > 0) return w
-                }
+            val parent = cur.parent
+            if (parent is JComponent) {
+                val ins = parent.insets
+                val w = parent.width - ins.left - ins.right - padding
+                if (w > 0) return w
+                padding += ins.left + ins.right
+            } else if (parent != null && parent.width > 0) {
+                val w = parent.width - padding
+                if (w > 0) return w
             }
-            cur = cur.parent
+            cur = parent
+        }
+        if (c is JComponent && c.width > 0) {
+            val w = c.width - c.insets.left - c.insets.right
+            if (w > 0) return w
         }
         return 0
     }
@@ -353,6 +360,7 @@ internal object Look {
 
         val vGap = 6
         return object : JBPanel<JBPanel<*>>() {
+            override fun getMinimumSize(): Dimension = Dimension(FLOOR, 0)
             init {
                 isOpaque = false
                 border = JBUI.Borders.empty(28, 16, 8, 16)
@@ -362,9 +370,7 @@ internal object Look {
 
                     override fun preferredLayoutSize(parent: java.awt.Container): Dimension {
                         val ins = parent.insets
-                        val availW = parent.width.takeIf { it > 0 }
-                            ?: availableContentWidth(parent.parent).takeIf { it > 0 }
-                            ?: 0
+                        val availW = availableContainerWidth(parent)
                         var h = ins.top + ins.bottom
                         val count = parent.componentCount
                         var visibleCount = 0
@@ -389,7 +395,10 @@ internal object Look {
                         return Dimension(w, h)
                     }
 
-                    override fun minimumLayoutSize(parent: java.awt.Container): Dimension = preferredLayoutSize(parent)
+                    override fun minimumLayoutSize(parent: java.awt.Container): Dimension {
+                        val pref = preferredLayoutSize(parent)
+                        return Dimension(FLOOR, pref.height)
+                    }
 
                     override fun layoutContainer(parent: java.awt.Container) {
                         val ins = parent.insets
@@ -416,20 +425,18 @@ internal object Look {
         object : javax.swing.JTextPane() {
             override fun getMinimumSize(): Dimension = Dimension(FLOOR, 0)
             override fun getPreferredSize(): Dimension {
-                val targetW = (parent as? javax.swing.JComponent)?.let {
-                    it.width - it.insets.left - it.insets.right
-                }?.takeIf { it > 0 }
-                    ?: availableContentWidth(parent).takeIf { it > 0 }
-                    ?: width.takeIf { it > 0 }
-                    ?: 0
-                if (targetW > 0) {
+                val avail = (parent as? JComponent)?.let { p ->
+                    val pw = availableContainerWidth(p)
+                    if (pw > 0) pw - p.insets.left - p.insets.right else 0
+                }?.takeIf { it > 0 } ?: availableContainerWidth(this).takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: 0
+                if (avail > 0) {
                     val root = (ui as? javax.swing.plaf.TextUI)?.getRootView(this)
                     if (root != null) {
                         val ins = insets
-                        val contentW = (targetW - ins.left - ins.right).coerceAtLeast(1)
+                        val contentW = (avail - ins.left - ins.right).coerceAtLeast(1)
                         root.setSize(contentW.toFloat(), 0f)
                         val h = Math.ceil(root.getPreferredSpan(javax.swing.text.View.Y_AXIS).toDouble()).toInt()
-                        return Dimension(targetW, h + ins.top + ins.bottom)
+                        return Dimension(avail, h + ins.top + ins.bottom)
                     }
                 }
                 val pref = super.getPreferredSize()

@@ -608,8 +608,44 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertEquals("설명은 좌측 16px에서 시작해야 하며 2열로 가로 넘침되지 않아야 한다", 16, n.bounds.x)
             assertEquals("welcome 패널 높이는 자식 컴포넌트 선호 높이와 일치해야 한다", wPanel.preferredSize.height, wPanel.height)
             assertTrue("설명 높이가 선호 높이 이상 확보되어야 한다", n.height >= n.preferredSize.height)
+            assertTrue("설명의 하단이 welcome 패널 내부에 포함되어야 한다", n.bounds.y + n.bounds.height <= wPanel.height)
+            assertTrue("설명의 하단이 부모 스크롤 콘텐츠(column) 내부에 포함되어야 한다", wPanel.bounds.y + n.bounds.y + n.bounds.height <= col.height)
+            assertTrue("welcome 하단이 부모 스크롤 콘텐츠(column) 내부에 포함되어야 한다", wPanel.bounds.y + wPanel.bounds.height <= col.height)
             val rect = n.modelToView2D(n.document.length - 1)
             assertTrue("마지막 글자가 잘리지 않고 가시 영역 안에 있어야 한다", rect!!.y + rect.height <= n.height.toDouble())
+            assertTrue("welcome 최소 폭은 90px 이하여야 한다", wPanel.minimumSize.width <= 90)
+        }
+
+        // 6. 동일 객체의 1300 -> 320 -> 420 -> 1300 리사이즈 왕복 시 부모의 새 가용 폭을 즉시 반영하여 높이 부족 및 잘림 방지 검증
+        val dynamicCol = Look.column()
+        val dynamicWelcome = Look.welcome(title, status, Look.success, koreanHint)
+        dynamicCol.add(dynamicWelcome)
+        val dynamicScroll = com.intellij.ui.components.JBScrollPane(dynamicCol).apply {
+            border = com.intellij.util.ui.JBUI.Borders.empty()
+            viewportBorder = com.intellij.util.ui.JBUI.Borders.empty()
+            horizontalScrollBarPolicy = com.intellij.ui.components.JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+
+        for (w in listOf(1300, 320, 420, 1300)) {
+            dynamicScroll.size = Dimension(w, 600)
+            dynamicScroll.doLayout()
+            dynamicCol.size = Dimension(w, 600)
+            dynamicCol.doLayout()
+            dynamicWelcome.doLayout()
+
+            val n = dynamicWelcome.getComponent(2) as JTextPane
+            val targetW = w - 32
+            assertEquals("리사이즈 후 welcome 패널 폭은 가용 폭이어야 한다 ($w px)", w, dynamicWelcome.width)
+            assertEquals("리사이즈 후 설명 폭은 패딩을 제외한 가용 폭이어야 한다 ($w px)", targetW, n.width)
+            assertEquals("설명은 좌측 16px에서 시작해야 한다 ($w px)", 16, n.bounds.x)
+            assertTrue("welcome 패널 높이가 선호 높이 이상 확보되어야 한다 (allocated=${dynamicWelcome.height}, required=${dynamicWelcome.preferredSize.height}, w=$w)", dynamicWelcome.height >= dynamicWelcome.preferredSize.height)
+            assertTrue("설명 높이가 선호 높이 이상 확보되어야 한다 ($w px)", n.height >= n.preferredSize.height)
+            assertTrue("설명의 하단이 welcome 패널 내부에 포함되어야 한다 ($w px)", n.bounds.y + n.bounds.height <= dynamicWelcome.height)
+            assertTrue("설명의 하단이 부모 스크롤 콘텐츠 내부에 포함되어야 한다 ($w px)", dynamicWelcome.bounds.y + n.bounds.y + n.bounds.height <= dynamicCol.preferredSize.height)
+            assertTrue("welcome 하단이 부모 스크롤 콘텐츠 내부에 포함되어야 한다 ($w px)", dynamicWelcome.bounds.y + dynamicWelcome.bounds.height <= dynamicCol.preferredSize.height)
+            val rect = n.modelToView2D(n.document.length - 1)
+            assertTrue("마지막 글자가 잘리지 않고 가시 영역 안에 있어야 한다 ($w px)", rect!!.y + rect.height <= n.height.toDouble())
+            assertTrue("welcome 최소 폭은 창 축소를 차단하지 않도록 90px 이하여야 한다", dynamicWelcome.minimumSize.width <= 90)
         }
     }
 
