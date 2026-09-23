@@ -223,6 +223,15 @@ class MagiToolWindow : ToolWindowFactory {
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
         private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
+        private var restoringAnswerDraft = false
+        private fun restoreAnswerText(text: String) {
+            restoringAnswerDraft = true
+            try {
+                input.text = text
+            } finally {
+                restoringAnswerDraft = false
+            }
+        }
         private val hint = JBLabel(" ").apply {
             // 빈 공간 점유 방지(사용자 실측 피드백: 입력란 하단 과도한 여백 방지):
             // 알림 및 힌트가 존재할 때만 가시화하여 상시 레이아웃 낭비를 최소화합니다.
@@ -623,7 +632,7 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
                 private fun retract() {
                     sendDrafts.edited()
-                    answers.edit(input.text)
+                    if (!restoringAnswerDraft) answers.edit(input.text)
                     inputEpoch++
                     dropSuggestion(); debounce.restart()
                     // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
@@ -1868,10 +1877,12 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun copyAnswerRecovery(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
+            if (closing.get() || project.isDisposed) return
             com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(java.awt.datatransfer.StringSelection(item.text))
         }
 
         private fun deleteAnswerRecovery(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
+            if (closing.get() || project.isDisposed) return
             answers.deleteRecovery(item.id)
             drawAnswerRecovery()
         }
@@ -1896,15 +1907,31 @@ class MagiToolWindow : ToolWindowFactory {
                     title = MagiBundle.msg("chat.answer.recovery.detail.title")
                     init()
                 }
-                override fun createCenterPanel(): javax.swing.JComponent =
-                    com.intellij.util.ui.FormBuilder.createFormBuilder()
+                override fun createCenterPanel(): javax.swing.JComponent {
+                    val reasonText = when (item.reason) {
+                        dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_SESSION_CHANGED ->
+                            MagiBundle.msg("chat.answer.recovery.reason.session_changed")
+                        dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_QUESTION_LEFT ->
+                            MagiBundle.msg("chat.answer.recovery.reason.question_left")
+                        dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_SUBMISSION_FAILED ->
+                            MagiBundle.msg("chat.answer.recovery.reason.submission_failed")
+                        else -> item.reason
+                    }
+                    val form = com.intellij.util.ui.FormBuilder.createFormBuilder()
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.workspace"), com.intellij.ui.components.JBLabel(project.basePath ?: project.name))
                         .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.session"), com.intellij.ui.components.JBLabel(item.session))
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.question"), com.intellij.ui.components.JBLabel(item.questionText ?: item.callId))
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.reason"), com.intellij.ui.components.JBLabel(item.reason))
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.callid"), com.intellij.ui.components.JBLabel(item.callId))
+                    val qText = item.questionText
+                    if (!qText.isNullOrBlank()) {
+                        form.addLabeledComponent(MagiBundle.msg("chat.answer.recovery.question"), com.intellij.ui.components.JBLabel(qText))
+                    }
+                    return form
+                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.reason"), com.intellij.ui.components.JBLabel(reasonText))
                         .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.fulltext"), com.intellij.ui.components.JBScrollPane(fullText).apply {
                             preferredSize = java.awt.Dimension(450, 200)
                         })
                         .panel
+                }
 
                 override fun createActions(): Array<javax.swing.Action> = arrayOf(
                     object : DialogWrapperAction(MagiBundle.msg("chat.answer.recovery.copy")) {
@@ -2013,7 +2040,7 @@ class MagiToolWindow : ToolWindowFactory {
             val q = waitingQuestion?.takeIf { it.ask is Ask.Choose && waitingSession == currentSendSession() }
             val previous = answers.question
             answers.bind(currentSendSession(), q?.id, input.text, q?.what)?.let {
-                input.text = it
+                restoreAnswerText(it)
                 invalidateComposer()
             }
             if (previous != answers.question) invalidateComposer()
@@ -2035,13 +2062,13 @@ class MagiToolWindow : ToolWindowFactory {
         private fun enterAnswer() {
             if (closing.get() || composing) return
             syncAnswerContext()
-            answers.enter(input.text)?.let { input.text = it }
+            answers.enter(input.text)?.let { restoreAnswerText(it) }
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
         private fun cancelAnswer() {
             if (composing) return
-            answers.cancel(input.text)?.let { input.text = it }
+            answers.cancel(input.text)?.let { restoreAnswerText(it) }
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
@@ -2051,7 +2078,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (expected == null || answers.question != expected) return
             val attempt = answers.begin(text) ?: return
             answers.leaveAfterSubmit()
-            input.text = answers.generalText()
+            restoreAnswerText(answers.generalText())
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery()
             val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
                 workspace.onDaemon(sid, trouble, work)
@@ -2068,7 +2095,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (!answers.complete(attempt, error == null)) return@invokeLater
             if (currentSendSession() == attempt.key.session && answers.question == attempt.key) {
                 if (error == null) {
-                    answers.cancel(input.text)?.let { input.text = it }
+                    answers.cancel(input.text)?.let { restoreAnswerText(it) }
                     invalidateComposer()
                     drawPrompt(waitingQuestion)
                 } else report(MagiBundle.msg("common.notsent", error))

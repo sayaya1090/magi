@@ -681,3 +681,30 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
 
 
+### 실패 제출 원문 보존과 복구 오인 수정 (§6.24)
+
+동일 질문의 실패한 제출 원문과 새 수정본이 각각 보존되도록 `AnswerDrafts`의 세대별 복구 관리 모델을 개선하고, Swing의 프로그래밍적 텍스트 복원에 따른 버전 오인 상승을 차단하는 가드를 구축했습니다.
+
+- **실패 제출 A와 새 초안 B의 독립 보존 (`AnswerDrafts.kt`)**:
+  - `savedRecoveries`를 `Key(session, callId)` 단일 매핑에서 `id` 기준 복수 세대 저장소(`linkedMapOf<String, Recovery>()`)로 전환하여, 동일 질문에 대해 제출 실패된 원문(시도 세대)과 새 수정본(작성 세대)이 서로를 덮어쓰지 않고 각각 보존되도록 수정.
+  - `complete(attempt, ok=false)` 시 전송 실패한 원문 `attempt.text`를 `attempt.version`과 함께 `REASON_SUBMISSION_FAILED`로 즉시 복구 목록에 등록.
+  - 질문이 현재 대기 중인 상태에서도 실패 제출 A는 복구 목록에서 즉시 접근(`recoveries`에 노출)하여 전문 확인 및 복사가 가능하며, 컴포저에는 새로 작성 중인 B가 온전히 유지됨.
+  - 세대별 독립 삭제: A 삭제 시 B가 삭제되지 않고, B 삭제 시 A가 삭제되지 않음. `deleteRecovery`는 선택한 세대만 `deletedGenerations`에 기록하여 늦은 중복 콜백에 의한 부활을 영구 방지하며, 이후 사용자가 새로 작성한 세대 C는 정상적으로 복구 가능.
+- **수정 없는 재진입의 새 수정본 오인 방지 (`MagiToolWindow.kt`)**:
+  - 원인: Swing `JTextArea.setText` 호출 시 내부적으로 `remove(0, len)` 후 `insert(0, str)` DocumentEvent가 연속 발생하여, `retract()` 리스너가 빈 텍스트 `""`와 복원 텍스트를 연달아 `answers.edit`에 전달함으로써 사용자가 아무 입력도 하지 않았음에도 수정 세대 번호가 2회 상승하던 문제.
+  - 해결: `View`에 `restoringAnswerDraft` 플래그 및 `restoreAnswerText(text)` 도우미를 도입하여, 모델 상태에서 컴포저로 텍스트를 복원하는 경로(`enterAnswer`, `cancelAnswer`, `submitAnswer`, `finishAnswer`, `syncAnswerContext`)에서 `answers.edit` 호출을 선별적으로 차단. 사용자의 실제 타건·붙여넣기·IME 입력만 `answers.edit`로 기록.
+  - 일반 `sendDrafts.edited()`나 자동완성 `inputEpoch++` 무효화, 힌트 드롭 등은 전역 플래그로 일괄 차단하지 않고 상태 갱신 의도를 명확히 분리.
+- **UI 계약 누락 정리 및 다국어 지원**:
+  - 코어 사유 문자열을 의미 코드(`session_changed`, `question_left`, `submission_failed`)로 변경하고, `MagiBundle.properties` 및 `MagiBundle_ko.properties`에 영문/한국어 리소스를 쌍으로 정의.
+  - 복구 상세 대화상자(`openAnswerRecoveryDialog`)에 워크스페이스 출처(`project.basePath ?: project.name`)와 요청 ID(`item.callId`), 세션(`item.session`)을 명시적으로 노출.
+  - 상세 대화상자의 복사(`copyAnswerRecovery`) 및 삭제(`deleteAnswerRecovery`) 콜백에 `closing.get() || project.isDisposed` 가드를 추가하여, 창이 닫힌 뒤 보관된 콜백이 호출되더라도 클립보드 오염, UI 갱신, 복구 상태 부활이 발생하지 않도록 차단.
+- **회귀 검증 보강**:
+  - `AnswerDraftsTest` (11건): 실패 시도 A와 신규 초안 B의 동일 키 분리 보존, 현재 질문 중 실패 제출 접근성, 독립 삭제(A 삭제 시 B 유지, B 삭제 시 A 유지), 늦은 콜백 부활 방지, 신규 세대 C 복구 검증.
+  - `AnswerModeTest` (18건): Send→재진입→성공 시 복구 항목 0건 유지, 취소/재진입 반복 및 동일 질문 재그림 시 복구 항목 0건 유지, 재진입 후 실제 입력 B 작성 시 성공/실패 시 B 보존, View dispose 후 복사/삭제 콜백 무효화 검증.
+- **2026-09-23 실측 검증**:
+  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 381 통과·5 건너뜀, 헤드리스 IntelliJ 56 통과, 합계 437 통과·5 건너뜀).
+  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀).
+  - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 18.0초).
+  - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
+
+

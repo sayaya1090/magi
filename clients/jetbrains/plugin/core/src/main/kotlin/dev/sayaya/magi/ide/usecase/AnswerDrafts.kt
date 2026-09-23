@@ -29,7 +29,7 @@ class AnswerDrafts {
     )
     private val drafts = mutableMapOf<Key, Draft>()
     private val general = mutableMapOf<String, String>()
-    private val savedRecoveries = linkedMapOf<Key, Recovery>()
+    private val savedRecoveries = linkedMapOf<String, Recovery>()
     private val deletedGenerations = mutableSetOf<Pair<Key, Long>>()
     private var session: String? = null
     private var serial = 0L
@@ -39,8 +39,9 @@ class AnswerDrafts {
     var active: Key? = null; private set
 
     companion object {
-        const val REASON_SESSION_CHANGED = "다른 세션으로 이동"
-        const val REASON_QUESTION_LEFT = "현재 대기 질문에서 벗어남"
+        const val REASON_SESSION_CHANGED = "session_changed"
+        const val REASON_QUESTION_LEFT = "question_left"
+        const val REASON_SUBMISSION_FAILED = "submission_failed"
     }
 
     val recoveries: List<Recovery>
@@ -48,10 +49,12 @@ class AnswerDrafts {
             if (closed) return emptyList()
             return savedRecoveries.values.filter { rec ->
                 val d = drafts[rec.key]
-                (rec.key != question || d?.done == true) &&
-                    d != null &&
-                    d.text.isNotEmpty() &&
-                    !deletedGenerations.contains(Pair(rec.key, rec.version))
+                rec.text.isNotEmpty() &&
+                    !deletedGenerations.contains(Pair(rec.key, rec.version)) &&
+                    (rec.reason == REASON_SUBMISSION_FAILED ||
+                        rec.key != question ||
+                        d?.done == true ||
+                        (d != null && rec.version != d.version))
             }.reversed()
         }
 
@@ -60,7 +63,7 @@ class AnswerDrafts {
         val key = active
         if (key != null) {
             val d = drafts.getOrPut(key) { Draft() }
-            if (d.text != text) {
+            if (!d.done && d.text != text) {
                 d.text = text
                 d.version++
             }
@@ -87,7 +90,7 @@ class AnswerDrafts {
             val d = drafts[beforeQuestion]
             if (d != null && d.text.isNotEmpty()) {
                 val reason = if (changed) REASON_SESSION_CHANGED else REASON_QUESTION_LEFT
-                exposeRecovery(beforeQuestion, d, reason)
+                exposeRecovery(beforeQuestion, d.version, d.text, d.questionText, reason)
             }
         }
 
@@ -99,31 +102,41 @@ class AnswerDrafts {
         return null
     }
 
-    private fun exposeRecovery(key: Key, draft: Draft, reason: String) {
-        if (closed || draft.text.isEmpty()) return
-        if (deletedGenerations.contains(Pair(key, draft.version))) return
-        val existing = savedRecoveries[key]
-        if (existing != null && existing.version == draft.version && existing.text == draft.text) {
+    private fun exposeRecovery(
+        key: Key,
+        version: Long,
+        text: String,
+        questionText: String?,
+        reason: String
+    ) {
+        if (closed || text.isEmpty()) return
+        if (deletedGenerations.contains(Pair(key, version))) return
+        val existing = savedRecoveries.values.firstOrNull { it.key == key && it.version == version }
+        if (existing != null) {
+            if (reason == REASON_SUBMISSION_FAILED && existing.reason != REASON_SUBMISSION_FAILED) {
+                savedRecoveries[existing.id] = existing.copy(reason = reason)
+            }
             return
         }
+        val duplicate = savedRecoveries.values.firstOrNull { it.key == key && it.text == text && it.reason == reason }
+        if (duplicate != null) return
         val id = "ans-rec-${++recoverySerial}"
-        savedRecoveries[key] = Recovery(
+        savedRecoveries[id] = Recovery(
             id = id,
             session = key.session,
             callId = key.callId,
-            questionText = draft.questionText,
-            version = draft.version,
-            text = draft.text,
+            questionText = questionText,
+            version = version,
+            text = text,
             reason = reason,
         )
     }
 
     fun deleteRecovery(id: String): Boolean {
         if (closed) return false
-        val key = savedRecoveries.entries.firstOrNull { it.value.id == id }?.key ?: return false
-        val rec = savedRecoveries.remove(key) ?: return false
-        deletedGenerations.add(Pair(key, rec.version))
-        val draft = drafts[key]
+        val rec = savedRecoveries.remove(id) ?: return false
+        deletedGenerations.add(Pair(rec.key, rec.version))
+        val draft = drafts[rec.key]
         if (draft != null && draft.version == rec.version) {
             draft.text = ""
         }
@@ -142,7 +155,11 @@ class AnswerDrafts {
 
     fun cancel(text: String): String? {
         if (active == null || closed) return null
-        edit(text); active = null
+        val d = drafts[active]
+        if (d != null && !d.done) {
+            edit(text)
+        }
+        active = null
         return session?.let { general[it] }.orEmpty()
     }
 
@@ -167,18 +184,18 @@ class AnswerDrafts {
         draft.pending = null
         if (ok) {
             draft.done = true
+            savedRecoveries.values.removeIf { it.key == attempt.key && it.version == attempt.version }
             if (draft.version == attempt.version) {
                 draft.text = ""
-                savedRecoveries.remove(attempt.key)
-            } else {
-                exposeRecovery(attempt.key, draft, REASON_QUESTION_LEFT)
+            } else if (draft.text.isNotEmpty()) {
+                exposeRecovery(attempt.key, draft.version, draft.text, draft.questionText, REASON_QUESTION_LEFT)
             }
         } else {
-            if (draft.done || attempt.key != question) {
-                exposeRecovery(attempt.key, draft, REASON_QUESTION_LEFT)
+            exposeRecovery(attempt.key, attempt.version, attempt.text, draft.questionText, REASON_SUBMISSION_FAILED)
+            if (attempt.key != question && draft.text.isNotEmpty() && draft.version != attempt.version) {
+                exposeRecovery(attempt.key, draft.version, draft.text, draft.questionText, REASON_QUESTION_LEFT)
             }
         }
-        // On failure the draft is already retained; edits made since submission win.
         return true
     }
 

@@ -139,4 +139,82 @@ class AnswerDraftsTest {
         s.bind("s", null, "")
         assertEquals(1, s.recoveries.size)
     }
+    @Test fun `failed attempt and newer draft preserved separately on same question key`() {
+        val s = AnswerDrafts()
+        val sess = "s1"
+        val q1 = "q1"
+        val q2 = "q2"
+
+        s.bind(sess, q1, "general")
+        s.enter("general")
+        val attemptA = s.begin("submitted A")!!
+        s.leaveAfterSubmit()
+        s.enter("general")
+        s.edit("new B")
+
+        // While still on q1, submission of A fails
+        assertTrue(s.complete(attemptA, false))
+
+        // Failed attempt A is accessible even while q1 is current
+        val currentRecs = s.recoveries
+        assertEquals(1, currentRecs.size)
+        assertEquals("submitted A", currentRecs.single().text)
+        assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, currentRecs.single().reason)
+        assertEquals(attemptA.version, currentRecs.single().version)
+
+        // Leaving q1 for q2 exposes unsubmitted draft B as well
+        s.bind(sess, q2, "new B")
+        val bothRecs = s.recoveries
+        assertEquals(2, bothRecs.size)
+        val recB = bothRecs.first() // newest first
+        val recA = bothRecs.last()
+        assertEquals("new B", recB.text)
+        assertEquals(AnswerDrafts.REASON_QUESTION_LEFT, recB.reason)
+        assertEquals("submitted A", recA.text)
+        assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, recA.reason)
+
+        // Independent deletion: deleting A does not remove B
+        val idA = recA.id
+        val idB = recB.id
+        assertTrue(s.deleteRecovery(idA))
+        assertEquals(1, s.recoveries.size)
+        assertEquals("new B", s.recoveries.single().text)
+
+        // Duplicate late complete does not revive A
+        assertFalse(s.complete(attemptA, false))
+        assertEquals(1, s.recoveries.size)
+
+        // Deleting B leaves empty recoveries
+        assertTrue(s.deleteRecovery(idB))
+        assertTrue(s.recoveries.isEmpty())
+
+        // Returning to q1 and typing C creates new recoverable generation
+        s.bind(sess, q1, "general")
+        assertEquals("", s.enter("general"))
+        s.edit("draft C")
+        s.bind(sess, q2, "draft C")
+        assertEquals(1, s.recoveries.size)
+        assertEquals("draft C", s.recoveries.single().text)
+    }
+    @Test fun `deleting newer draft B does not remove failed attempt A`() {
+        val s = AnswerDrafts()
+        s.bind("s", "q", "general")
+        s.enter("general")
+        val attemptA = s.begin("submitted A")!!
+        s.leaveAfterSubmit()
+        s.enter("general")
+        s.edit("new B")
+        s.complete(attemptA, false)
+        s.bind("s", "q2", "new B")
+
+        val recs = s.recoveries
+        assertEquals(2, recs.size)
+        val recB = recs.first()
+        val recA = recs.last()
+
+        assertTrue(s.deleteRecovery(recB.id))
+        assertEquals(1, s.recoveries.size)
+        assertEquals("submitted A", s.recoveries.single().text)
+        assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, s.recoveries.single().reason)
+    }
 }

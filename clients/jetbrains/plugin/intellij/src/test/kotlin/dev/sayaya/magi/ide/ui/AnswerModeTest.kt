@@ -247,4 +247,112 @@ class AnswerModeTest : BasePlatformTestCase() {
         assertEquals(1, h.answers.recoveries.size)
         assertEquals("B", h.answers.recoveries.single().text)
     }
+    fun testReenterWithoutEditsDoesNotCreateSpuriousRecovery() = check { h ->
+        h.input.text = "general"
+        h.question("q1")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+        assertEquals(1, h.pending.size)
+
+        // Re-enter answer mode without typing anything
+        h.direct()
+        assertEquals("A", h.input.text)
+
+        // A succeeds
+        h.finish(0, true)
+
+        // Recoveries must be empty!
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+    }
+    fun testCancelAndReenterRepetitionsDoNotCreateSpuriousRecovery() = check { h ->
+        h.input.text = "general"
+        h.question("q1")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+
+        // Repeat cancel and direct re-entry multiple times without typing
+        h.direct()
+        h.key("magi.cancelAnswer")
+        h.direct()
+        h.key("magi.cancelAnswer")
+        h.direct()
+
+        // Redraw same question
+        h.question("q1")
+
+        // A succeeds
+        h.finish(0, true)
+
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+    }
+    fun testReenterWithActualEditsPreservesDraftOnSuccess() = check { h ->
+        h.input.text = "general"
+        h.question("q1")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+
+        // Re-enter and actually type B
+        h.direct()
+        h.input.text = "new B"
+        h.finish(0, true)
+
+        assertEquals(1, h.answers.recoveries.size)
+        assertEquals("new B", h.answers.recoveries.single().text)
+        assertTrue(h.answerRecoveryBtn.isVisible)
+    }
+    fun testReenterWithActualEditsPreservesBothOnFailure() = check { h ->
+        h.input.text = "general"
+        h.question("q1")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+
+        // Re-enter and type B
+        h.direct()
+        h.input.text = "new B"
+        h.finish(0, false)
+
+        // Question is still current; failed attempt A is in recoveries
+        val recs = h.answers.recoveries
+        assertEquals(1, recs.size)
+        assertEquals("A", recs.single().text)
+        assertEquals(dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_SUBMISSION_FAILED, recs.single().reason)
+
+        // In composer, user still has "new B"
+        assertEquals("new B", h.input.text)
+
+        // Leaving question exposes B as well
+        h.question("q2")
+        val both = h.answers.recoveries
+        assertEquals(2, both.size)
+        assertEquals("new B", both.first().text)
+        assertEquals("A", both.last().text)
+    }
+    fun testRecoveryCallbacksBlockedAfterViewDisposed() = check { h ->
+        h.question("q1"); h.direct(); h.input.text = "text1"
+        h.question(null)
+        val rec = h.answers.recoveries.single()
+        h.view.javaClass.getDeclaredMethod("showAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        val (_, onCopy, onDelete) = h.recoveryViewerEvents.single()
+
+        com.intellij.openapi.ide.CopyPasteManager.getInstance()
+            .setContents(java.awt.datatransfer.StringSelection("SENTINEL"))
+
+        Disposer.dispose(h.view)
+
+        // Callbacks invoked after view disposal must do nothing
+        onCopy()
+        val clip = com.intellij.openapi.ide.CopyPasteManager.getInstance()
+            .getContents<String>(java.awt.datatransfer.DataFlavor.stringFlavor)
+        assertEquals("SENTINEL", clip)
+
+        onDelete()
+        // Must not resurrect or alter state
+    }
 }
