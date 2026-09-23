@@ -913,6 +913,71 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
   - 실물 GUI 인수(하단 독·320px/420px 사이드바 창 드래그, 물리 키 타건, 한글 IME 조합 실물 입력): 무인 자동화 환경 제약(Swing 독 패널의 OS 레벨 마우스 드래그 조작 불가, 사용자 작업 중인 데스크톱 세션 간섭 방지, 보조 접근 권한 제약)으로 인해 미실행/보류 상태로 유지하며 완료 조건에서 삭제하지 않습니다.
 
+### 6.30 보고와 실제 검증 범위 일치 및 누락 경로 실측 검증
+
+§6.30 지침에 따라, 이전 보고와 실제 테스트 검증 범위 간의 불일치를 정정하고, 누락되었던 두 액션 경로(답변 보류 중 일반 메시지 Enter 전송 및 다른 세션 잠금 보존/해제 대조군)를 실제 액션 기반으로 검증했습니다. 제품 결함은 발견되지 않았으며 제품 코드는 변경하지 않고 테스트 검증 범위를 확장했습니다.
+
+#### 1. 이전 보고 내용 정정
+- **`sendDrafts.canSend("session1") == true` 단언 정정**: 이전 보고에 기재된 `canSend` 단언은 실제 View 테스트에 포함되어 있지 않았으며, 일반 메시지도 작성 후 지우기만 했을 뿐 Enter 키로 실제 전송하지 않았습니다. §6.30에서는 `canSend` 단순 조회에 의존하지 않고 실제 메시지 G("General G")를 Enter 액션으로 전송하여 결과를 실측했습니다.
+- **session2 잠금 검증 주장 정정**: 이전 테스트에서는 session2에 일반 초안만 작성되어 있었을 뿐 진행 중인 요청(in-flight 잠금)이 없었으므로 타 세션 잠금 보존을 온전히 검증하지 못했습니다. §6.30에서는 session2에 별도 질문 q2 수신 및 답변 B 제출/재진입을 통해 실제 in-flight 잠금을 형성한 뒤 격리를 검증했습니다.
+- **제품 결함 여부**: 두 항목 모두 제품 결함이 아니며 기존 제품 코드는 정상 동작하고 있었습니다. 따라서 제품 코드를 수정하지 않고 테스트의 검증 범위만 보고 내용과 일치하도록 보강했습니다.
+
+#### 2. 두 누락 경로의 실제 액션 검증 (`HeadlessIdeTest.kt`)
+- **세션/요청별 핸들 기반 식별 (`PendingSend`) 도입**:
+  - 하드코딩된 `pendingSends` 배열 인덱스(`completeSend(0)`, `1`, `2`, `3`)에 의존하던 방식을 제거하고, 세션·요청 종류(`kind: "say" | "answer"`)·RPC 요청 목록(`requests`)을 캡슐화한 `PendingSend` 핸들 객체로 전환했습니다.
+  - 각 전송 시점마다 개별 핸들(`sendA`, `sendB`, `answerA`, `sendG`, `s1AnswerRetry`, `s1General`, `s2AnswerB`, `s2AnswerB2`)을 고정하여 완료하도록 개선했습니다.
+- **누락 경로 1: 답변 A 보류 중 일반 메시지 G 실제 작성 및 Enter 전송**:
+  - 질문 q1에 대한 답변 A("Answer Draft 1")를 Enter로 제출한 뒤, 백그라운드 RPC 대기 상태에서 일반 모드 복귀(`answerBar.isVisible == false`, `defaultMsg`) 확인.
+  - 일반 모드에서 새 메시지 G("General G")를 입력하고 **실제 Enter 키 액션(`magi.send`)으로 전송**.
+  - G 전송 중 `busyMsg` 힌트 표출 및 입력 텍스트("General G") 유지 확인.
+  - G의 완료(성공) 전달(`sendG.complete(ok = true)`):
+    - 일반 요청의 `method in ["submit", "steer"]`, `text == "General G"` 실측 단언.
+    - 성공 후 일반 입력창 자동 비움(`""`) 및 `defaultMsg` 복귀 확인.
+    - G의 완료가 백그라운드의 답변 A 잠금을 풀거나 A의 내용을 변경하지 않음을 확인.
+  - 답변 모드 재진입(`directBtn.doClick()`):
+    - 답변 A가 여전히 in-flight 상태이므로 `busyMsg`, 초안 A("Answer Draft 1") 온전한 보존, `sendButton.isEnabled == false`, 질문 선택지 버튼 전체 비활성화 확인.
+    - in-flight 상태에서 Enter 입력 시 중복 제출 차단(`pendingSends.size` 불변) 재확인.
+  - 답변 A의 실패 결과(Timeout) 전달(`answerA.complete(ok = false, error = "Timeout")`):
+    - 답변 요청의 `method == "answer"`, `callId == "q1"`, `answer == "Answer Draft 1"` 실측 단언.
+    - 실패 후 `answerMsg` 복귀, `sendButton` 재활성화, 초안 A 보존 확인.
+- **누락 경로 2: 타 세션 잠금 보존과 해제 대조군 검증**:
+  - session1에서 답변 재시도 A2 제출 후 보류(`s1AnswerRetry`).
+  - session1에서 백그라운드 일반 메시지도 발송하여 보류(`s1General`).
+  - session2로 전환 후 별도 질문 q2(`Waiting("q2", ..., "Proceed on S2?")`) 수신.
+  - session2에서 "직접 입력" 클릭 -> 답변 B("Answer Draft 2") 작성 -> Enter 제출 -> 동일 q2 "직접 입력" 재진입하여 **session2에 실제 in-flight 잠금(busyMsg, 초안 B, sendButton 비활성화, 선택지 비활성화, Enter 중복 차단)** 형성.
+  - **session1의 옛 결과 전달 시 session2 잠금 불변 확인**:
+    - session1의 일반 전송 실패 전달(`s1General.complete(ok = false, error = "S1 network error")`): session2의 B, `busyMsg`, `sendButton` 비활성화, 선택지 비활성화, Enter 중복 차단 유지.
+    - session1의 답변 재시도 성공 전달(`s1AnswerRetry.complete(ok = true)`): session1 요청(`method == "answer"`, `callId == "q1"`, `answer == "Answer Draft 1"`) 확인 및 session2의 잠금 상태 일체 불변.
+  - **대조군: session2 자신의 결과 수신 시에만 잠금 해제 검증**:
+    - session2의 답변 B 실패 전달(`s2AnswerB.complete(ok = false, error = "S2 Timeout")`):
+      - session2 요청(`method == "answer"`, `callId == "q2"`, `answer == "Answer Draft 2"`) 확인.
+      - session2 잠금 해제 확인: `answerMsg` 복귀, `sendButton` 재활성화, 초안 B 보존.
+    - session2 재전송 후 성공 전달(`s2AnswerB2.complete(ok = true)`):
+      - session2 요청(`method == "answer"`, `callId == "q2"`, `answer == "Answer Draft 2"`) 확인.
+      - 답변 바 닫힘, `defaultMsg` 복귀, q2 종료, `input.text == ""` 확인.
+  - session1 복귀 시 답변 완료에 따른 프롬프트 숨김(`head.isVisible == false`) 및 일반 모드 확인.
+  - 문서 텍스트 무유입(`input.text == ""`, `defaultMsg`) 확인.
+
+#### 3. 실측 검증 결과
+- **2026-09-24 전체 검증 실행**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (34초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 62 통과 (총 62개 중), **합계 446 통과·5 건너뜀·0 실패 (총 451개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.1초 소요)**.
+
+#### 4. 환경 및 실물 인수 상태 기록
+- **실행 환경**:
+  - OS: macOS 26.6.2 (Darwin 25G83, arm64)
+  - Java / JVM: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
+  - IDE Platform: IntelliJ Platform 2026.1 (IU-2026.1)
+- **실물 인수 상태**:
+  - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
+  - 실물 GUI 인수(하단 독·320px/420px 사이드바 창 드래그, 물리 키 타건, 한글 IME 조합 실물 입력): 무인 자동화 환경 제약(CUA_REPL_ENABLED_SURFACES 부재, AppleScript UI 접근 권한 -25211 거절, 활성 그래픽 세션 간섭 방지)으로 인해 실물 GUI/IME 조작이 막혀 미검증 상태로 유지하며, 헤드리스 결과를 실물 통과로 간주하지 않고 완료 조건에서 임의 삭제하지 않습니다.
+
+
 
 
 

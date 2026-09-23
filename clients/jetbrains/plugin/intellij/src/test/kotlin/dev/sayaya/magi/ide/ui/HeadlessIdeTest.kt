@@ -598,12 +598,50 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      * 일반 전송 A 대기 중 B 편집·전송, 답변 대기 중 직접 입력 재진입, 답변 모드에서 연결 종료·재연결, 세션 전환을 실제 View 액션으로 검증한다.
      */
     fun `test 컴포저 플레이스홀더와 접근 가능한 이름이 실제 View 액션과 상태 전이에 일치한다`() {
-        val pendingSends = mutableListOf<Triple<String, (String) -> Unit, (Companion) -> Unit>>()
+        class PendingSend(
+            val id: Int,
+            val session: String,
+            val kind: String,
+            private val errCb: (String) -> Unit,
+            private val work: (Companion) -> Unit,
+        ) {
+            var completed = false
+                private set
+            val requests = mutableListOf<Request>()
+
+            fun complete(ok: Boolean = true, error: String? = null, connectionError: Boolean = false) {
+                check(!completed) { "PendingSend #$id ($kind on $session) already completed" }
+                completed = true
+                if (connectionError) {
+                    errCb(error ?: "failed")
+                } else {
+                    work(Companion(object : Daemon {
+                        override fun exchange(request: Request): Response {
+                            requests.add(request)
+                            return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
+                        }
+                        override fun stream(request: Request, each: (Response) -> Boolean) {}
+                        override fun close() {}
+                    }, session))
+                }
+                UIUtil.dispatchAllInvocationEvents()
+            }
+        }
+
+        val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
-        val view = MagiToolWindow.View(
+        lateinit var view: MagiToolWindow.View
+        view = MagiToolWindow.View(
             project,
             sendSession = { currentSession },
-            sendConnection = { sid, error, work -> pendingSends.add(Triple(sid, error, work)) }
+            sendConnection = { sid, error, work ->
+                val answersRef = view.javaClass.getDeclaredField("answers").apply { isAccessible = true }.get(view) as dev.sayaya.magi.ide.usecase.AnswerDrafts
+                val isAnswer = answersRef.question != null && answersRef.busy(answersRef.question) &&
+                        pendingSends.none { it.session == sid && it.kind == "answer" && !it.completed }
+                val kind = if (isAnswer) "answer" else "say"
+                val handle = PendingSend(pendingSends.size + 1, sid, kind, error, work)
+                pendingSends.add(handle)
+            }
         )
         try {
             UIUtil.dispatchAllInvocationEvents()
@@ -617,24 +655,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             val sendButton: JButton = field("sendButton")
             val answerBar: JPanel = field("answerBar")
             val answerCancel: JButton = field("answerCancel")
-
-            val recordedRequests = mutableListOf<Request>()
-            fun completeSend(index: Int, ok: Boolean = true, error: String? = null) {
-                val (sid, errCb, work) = pendingSends[index]
-                if (ok) {
-                    work(Companion(object : Daemon {
-                        override fun exchange(request: Request): Response {
-                            recordedRequests.add(request)
-                            return Response(ok = true)
-                        }
-                        override fun stream(request: Request, each: (Response) -> Boolean) {}
-                        override fun close() {}
-                    }, sid))
-                } else {
-                    errCb(error ?: "failed")
-                }
-                UIUtil.dispatchAllInvocationEvents()
-            }
 
             val defaultMsg = MagiBundle.msg("chat.composer.hint.default")
             val answerMsg = MagiBundle.msg("chat.composer.hint.answer")
@@ -660,7 +680,9 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             // Enter 입력으로 실제 일반 전송 A 실행
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals(1, pendingSends.size)
+            val sendA = pendingSends.last()
+            assertEquals("session1", sendA.session)
+            assertEquals("say", sendA.kind)
             // A 전송 중이며 추가 편집이 없으므로 hint는 busy
             assertEquals(busyMsg, input.emptyText.text)
             assertEquals(busyMsg, input.accessibleContext.accessibleName)
@@ -675,24 +697,24 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             // Enter 입력으로 실제 B 전송 실행
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals(2, pendingSends.size) // A, B 둘 다 발송됨
+            val sendB = pendingSends.last()
+            assertEquals("session1", sendB.session)
+            assertEquals("say", sendB.kind)
             assertEquals(busyMsg, input.emptyText.text)
             assertEquals(busyMsg, input.accessibleContext.accessibleName)
 
             // A 완료 (B는 아직 in-flight)
-            completeSend(0, ok = true)
+            sendA.complete(ok = true)
             assertEquals(busyMsg, input.emptyText.text)
-            val sayRequests = recordedRequests.filter { it.method in listOf("submit", "steer") }
-            assertEquals(1, sayRequests.size)
-            assertEquals("Message A", sayRequests[0].text)
+            val sayReqA = sendA.requests.first { it.method in listOf("submit", "steer") }
+            assertEquals("Message A", sayReqA.text)
 
             // B 완료
-            completeSend(1, ok = true)
+            sendB.complete(ok = true)
             assertEquals(defaultMsg, input.emptyText.text)
             assertEquals(defaultMsg, input.accessibleContext.accessibleName)
-            val sayRequestsAfterB = recordedRequests.filter { it.method in listOf("submit", "steer") }
-            assertEquals(2, sayRequestsAfterB.size)
-            assertEquals("Message B", sayRequestsAfterB[1].text)
+            val sayReqB = sendB.requests.first { it.method in listOf("submit", "steer") }
+            assertEquals("Message B", sayReqB.text)
 
             // 4. 답변 대기 중 직접 입력 재진입
             val w = Waiting(id = "q1", kind = "question", what = "Confirm?", options = listOf("Alpha", "Beta"))
@@ -756,10 +778,12 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertEquals(answerMsg, input.emptyText.text)
             assertEquals("Answer Draft 1", input.text)
 
-            // 7. 답변 제출 및 RPC 대기(in-flight) 중 재진입과 중복 제출 차단
+            // 7. 답변 A 제출 및 RPC 대기(in-flight) 중 일반 메시지 G 실제 작성 및 Enter 전송 (§6.30 누락 경로 1)
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals(3, pendingSends.size)
+            val answerA = pendingSends.last()
+            assertEquals("session1", answerA.session)
+            assertEquals("answer", answerA.kind)
 
             // 제출 직후 일반 모드로 복귀하여 일반 입력 허용 및 default 힌트 표출
             assertFalse(answerBar.isVisible)
@@ -767,20 +791,35 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertEquals(defaultMsg, input.accessibleContext.accessibleName)
             assertEquals("", input.text)
 
-            // 일반 메시지 작성 가능 여부 검증 (답변 in-flight 중 일반 입력 허용 계약 유지)
-            input.text = "General note while answer in flight"
+            // 일반 메시지 G를 실제로 작성하고 Enter 키 액션으로 전송
+            input.text = "General G"
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals("General note while answer in flight", input.text)
+            assertEquals("General G", input.text)
             assertEquals(defaultMsg, input.emptyText.text)
-            input.text = ""
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
+            val sendG = pendingSends.last()
+            assertEquals("session1", sendG.session)
+            assertEquals("say", sendG.kind)
+            // 일반 메시지 G가 in-flight 상태이므로 busy 힌트 표출 및 입력 텍스트 유지
+            assertEquals(busyMsg, input.emptyText.text)
+            assertEquals("General G", input.text)
 
-            // 답변 RPC 대기 중에 사용자가 동일 질문 q1의 "직접 입력" 재진입
+            // 일반 메시지 G의 완료(성공) 전달
+            sendG.complete(ok = true)
+            // 일반 요청의 method(submit/steer)와 text("General G") 확인
+            val gSayReq = sendG.requests.first { it.method in listOf("submit", "steer") }
+            assertTrue(gSayReq.method in listOf("submit", "steer"))
+            assertEquals("General G", gSayReq.text)
+
+            // G의 완료(성공)로 인해 같은 revision의 입력창이 비워지고 default 힌트 복귀
+            assertEquals(defaultMsg, input.emptyText.text)
+            assertEquals("", input.text)
+
+            // 답변 모드 재진입: 여전히 A가 in-flight 상태이므로 busy 힌트, 초안 A 보존, sendButton 및 선택지 비활성화
             val directBtnInFlight = buttons.components.filterIsInstance<JButton>().first { it.text == directBtnText }
             directBtnInFlight.doClick()
             UIUtil.dispatchAllInvocationEvents()
-
-            // 재진입 시: busy 힌트, 답변 초안 A("Answer Draft 1") 보존, sendButton 및 선택지 버튼 비활성화
             assertTrue(answerBar.isVisible)
             assertEquals(busyMsg, input.emptyText.text)
             assertEquals(busyMsg, input.accessibleContext.accessibleName)
@@ -790,48 +829,152 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertTrue(choiceBtns.isNotEmpty() && choiceBtns.all { !it.isEnabled })
 
             // in-flight 중 Enter 입력 시 중복 전송 차단 (새로운 pendingSend가 생성되지 않음)
+            val sendCountBeforeDuplicate = pendingSends.size
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals(3, pendingSends.size)
+            assertEquals(sendCountBeforeDuplicate, pendingSends.size)
 
-            // 8. 답변 RPC 실패 결과 수신 및 재시도 가능 안내 복귀
-            completeSend(2, ok = false, error = "Timeout")
-            // 실패 후: answer 힌트로 복귀, sendButton 재활성화, 기존 초안 A 유지
+            // 8. 답변 A의 RPC 실패 결과(Timeout) 수신 및 재시도 가능 안내 복귀
+            // 답변 요청의 method == "answer", callId == "q1", answer == "Answer Draft 1" 실측 검증
+            answerA.complete(ok = false, error = "Timeout")
+            val aAnswerReq = answerA.requests.first { it.method == "answer" }
+            assertEquals("answer", aAnswerReq.method)
+            assertEquals("q1", aAnswerReq.callId)
+            assertEquals("Answer Draft 1", aAnswerReq.answer)
+
+            // 실패 후: answer 힌트로 복귀, sendButton 재활성화, 기존 초안 A 보존
             assertTrue(answerBar.isVisible)
             assertEquals(answerMsg, input.emptyText.text)
             assertEquals(answerMsg, input.accessibleContext.accessibleName)
             assertTrue(sendButton.isEnabled)
             assertEquals("Answer Draft 1", input.text)
 
-            // 9. 재시도 제출 및 세션 전환 중 옛 결과 도착 격리
+            // 9. session1 답변 재시도 보류 + session2 질문 q2 답변 B 잠금 생성 및 격리 검증 (§6.30 누락 경로 2)
+            // session1에서 답변 재시도 A2 제출 후 보류
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals(4, pendingSends.size)
+            val s1AnswerRetry = pendingSends.last()
+            assertEquals("session1", s1AnswerRetry.session)
+            assertEquals("answer", s1AnswerRetry.kind)
             assertFalse(answerBar.isVisible)
             assertEquals(defaultMsg, input.emptyText.text)
 
-            // 결과 도착 전 session2로 전환
+            // session1에서 백그라운드 일반 메시지도 발송하여 보류 (실패 전달용)
+            input.text = "Session 1 background note"
+            UIUtil.dispatchAllInvocationEvents()
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            val s1General = pendingSends.last()
+            assertEquals("session1", s1General.session)
+            assertEquals("say", s1General.kind)
+
+            // session2로 전환 및 별도 질문 q2 수신
             currentSession = "session2"
-            drawPromptMethod.invoke(view, null, "session2")
+            val q2 = Waiting(id = "q2", kind = "question", what = "Proceed on S2?", options = listOf("Yes", "No"))
+            drawPromptMethod.invoke(view, q2, "session2")
             UIUtil.dispatchAllInvocationEvents()
-            input.text = "Session2 active draft"
-            UIUtil.dispatchAllInvocationEvents()
-            assertEquals(defaultMsg, input.emptyText.text)
-
-            // session1의 옛 답변 RPC 완료 (성공)
-            completeSend(3, ok = true)
-            // 요청 종류 및 callId/answer 검증 (힌트 문자열만 검사하지 않음)
-            val answerReq = recordedRequests.first { it.method == "answer" }
-            assertEquals("answer", answerReq.method)
-            assertEquals("q1", answerReq.callId)
-            assertEquals("Answer Draft 1", answerReq.answer)
-
-            // session2의 현재 안내·초안·잠금이 옛 콜백에 의해 오염되지 않음을 검증
-            assertEquals("Session2 active draft", input.text)
-            assertEquals(defaultMsg, input.emptyText.text)
             assertFalse(answerBar.isVisible)
+            assertEquals(defaultMsg, input.emptyText.text)
 
-            // session1으로 복귀 시 답변 완료로 질문 프롬프트 숨김 및 일반 모드 확인
+            // session2에서 직접 입력 클릭 -> 답변 B("Answer Draft 2") 작성 -> Enter 제출
+            val directBtnS2 = buttons.components.filterIsInstance<JButton>().first { it.text == directBtnText }
+            directBtnS2.doClick()
+            UIUtil.dispatchAllInvocationEvents()
+            assertTrue(answerBar.isVisible)
+            assertEquals(answerMsg, input.emptyText.text)
+
+            input.text = "Answer Draft 2"
+            UIUtil.dispatchAllInvocationEvents()
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            val s2AnswerB = pendingSends.last()
+            assertEquals("session2", s2AnswerB.session)
+            assertEquals("answer", s2AnswerB.kind)
+            assertFalse(answerBar.isVisible)
+            assertEquals(defaultMsg, input.emptyText.text)
+
+            // session2에서 동일 q2의 "직접 입력" 재진입하여 session2에 잠금 생성
+            val directBtnS2Reenter = buttons.components.filterIsInstance<JButton>().first { it.text == directBtnText }
+            directBtnS2Reenter.doClick()
+            UIUtil.dispatchAllInvocationEvents()
+
+            // session2 잠금 상태 단언: busy 힌트, 초안 B, sendButton 비활성화, 선택지 비활성화, Enter 중복 차단
+            assertTrue(answerBar.isVisible)
+            assertEquals(busyMsg, input.emptyText.text)
+            assertEquals(busyMsg, input.accessibleContext.accessibleName)
+            assertEquals("Answer Draft 2", input.text)
+            assertFalse(sendButton.isEnabled)
+            val choiceBtnsS2 = buttons.components.filterIsInstance<JButton>().filter { it.getClientProperty("magi.answerChoice") == true }
+            assertTrue(choiceBtnsS2.isNotEmpty() && choiceBtnsS2.all { !it.isEnabled })
+
+            val s2SendCountBefore = pendingSends.size
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(s2SendCountBefore, pendingSends.size)
+
+            // session1의 옛 실패 결과 전달 시 session2 잠금 보존 확인
+            s1General.complete(ok = false, error = "S1 network error")
+            assertTrue(answerBar.isVisible)
+            assertEquals(busyMsg, input.emptyText.text)
+            assertEquals(busyMsg, input.accessibleContext.accessibleName)
+            assertEquals("Answer Draft 2", input.text)
+            assertFalse(sendButton.isEnabled)
+            assertTrue(choiceBtnsS2.all { !it.isEnabled })
+            val s2CountAfterS1Fail = pendingSends.size
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(s2CountAfterS1Fail, pendingSends.size)
+
+            // session1의 옛 성공 결과 전달 시 session2 잠금 보존 확인
+            s1AnswerRetry.complete(ok = true)
+            val s1RetryReq = s1AnswerRetry.requests.first { it.method == "answer" }
+            assertEquals("answer", s1RetryReq.method)
+            assertEquals("q1", s1RetryReq.callId)
+            assertEquals("Answer Draft 1", s1RetryReq.answer)
+
+            // session2의 잠금(B, busy 안내, 전송 비활성화, 선택지 비활성화, Enter 중복 차단)이 온전히 유지됨을 단언
+            assertTrue(answerBar.isVisible)
+            assertEquals(busyMsg, input.emptyText.text)
+            assertEquals(busyMsg, input.accessibleContext.accessibleName)
+            assertEquals("Answer Draft 2", input.text)
+            assertFalse(sendButton.isEnabled)
+            assertTrue(choiceBtnsS2.all { !it.isEnabled })
+            val s2CountAfterS1Success = pendingSends.size
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(s2CountAfterS1Success, pendingSends.size)
+
+            // 대조군: session2 자신의 결과가 왔을 때 비로소 잠금이 해제됨을 검증
+            // 실패 시: answerMsg로 복귀, sendButton 활성화, 초안 B 보존
+            s2AnswerB.complete(ok = false, error = "S2 Timeout")
+            val s2FailReq = s2AnswerB.requests.first { it.method == "answer" }
+            assertEquals("answer", s2FailReq.method)
+            assertEquals("q2", s2FailReq.callId)
+            assertEquals("Answer Draft 2", s2FailReq.answer)
+
+            assertTrue(answerBar.isVisible)
+            assertEquals(answerMsg, input.emptyText.text)
+            assertEquals(answerMsg, input.accessibleContext.accessibleName)
+            assertTrue(sendButton.isEnabled)
+            assertEquals("Answer Draft 2", input.text)
+
+            // session2 재전송 후 성공 시: 답변 바 닫힘, defaultMsg 복귀, q2 종료
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            val s2AnswerB2 = pendingSends.last()
+            assertEquals("session2", s2AnswerB2.session)
+            assertEquals("answer", s2AnswerB2.kind)
+            s2AnswerB2.complete(ok = true)
+            val s2SuccessReq = s2AnswerB2.requests.first { it.method == "answer" }
+            assertEquals("answer", s2SuccessReq.method)
+            assertEquals("q2", s2SuccessReq.callId)
+            assertEquals("Answer Draft 2", s2SuccessReq.answer)
+
+            assertFalse(answerBar.isVisible)
+            assertEquals(defaultMsg, input.emptyText.text)
+            assertEquals("", input.text)
+
+            // session1 복귀 시 답변 완료에 따른 프롬프트 숨김 및 일반 모드 확인
             currentSession = "session1"
             drawPromptMethod.invoke(view, w, "session1")
             UIUtil.dispatchAllInvocationEvents()
