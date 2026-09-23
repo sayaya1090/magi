@@ -753,10 +753,66 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
       - 뷰 대조군 2: 삭제 후 실제 "new B" 입력 시 새 세대 정상 복구 및 버튼 표출 검증.
       - 뷰 대조군 3: 삭제 후 다른 세션 전환 시 부활 방지 검증.
 - **2026-09-23 실측 검증**:
-  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 387 통과·5 건너뜀, 헤드리스 IntelliJ 60 통과, 합계 447 통과·5 건너뜀).
-  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀).
+  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 382 통과·5 건너뜀 (총 387개 중), 헤드리스 IntelliJ 60 통과 (총 60개 중), 합계 442 통과·5 건너뜀 (총 447개 중)).
+  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀, 총 529개 중).
   - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 17.9초).
   - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
+
+### 6.27 환영문 블록 중앙 정렬과 컴포저 상태별 입력 안내 일치
+
+§6.25의 GUI 실측 피드백 및 §6.27 작업 지시에 따라, 환영 온보딩 카드의 분리 정렬 문제를 해결하고 컴포저(입력창)에 실제 사용 가능한 키 동작과 일치하는 상태별 플레이스홀더 및 접근 가능한 이름을 제공합니다.
+
+#### 1. 환영문 중앙 정렬 및 좁은 폭 줄바꿈 대응 (`Look.kt`)
+- **문제점**:
+  - 기존 `Look.welcome`은 제목과 상태 라벨을 가운데 정렬(`SwingConstants.CENTER`)한 반면, 안내 설명은 `note(hint)`(`JBLabel` 좌측 정렬)로 배치되어 하나의 블록임에도 시각적 정렬 축이 어긋나는 현상 발생.
+  - `JTextArea`나 일반 `JBLabel`은 좁은 폭(320px)에서 자동 줄바꿈되지 않거나 기본 최소 폭(`minimumSize`)이 긴 텍스트 너비(1000px 이상)로 고정되어 도구 창 전체의 축소를 방해하는 구조적 결함이 있었음.
+- **개선 내용**:
+  - `welcomeNote(hint, faint)` 도입:
+    - `JTextPane` 기반으로 구성하여 스타일 문서(`styledDocument`)의 단락 속성으로 `StyleConstants.ALIGN_CENTER`를 적용, 제목·상태와 완벽히 일치하는 단일 중앙 정렬 블록 완성.
+    - `isEditable = false`, `isOpaque = false`, 테마 약화 색상(`faint`), 기울임꼴(`Font.ITALIC`)을 적용하여 온보딩 안내 톤앤매너 유지.
+    - 사용자 텍스트나 모델 출력이 HTML 태그로 임의 해석되지 않도록 일반 텍스트 모드를 유지하며, 원문 텍스트 드래그 및 복사 가능성 보존.
+  - 가변 폭 세로 높이 계산:
+    - 부모 컨테이너 폭(`width`)에 맞춰 `TextUI.getRootView(this).setSize(w, 0f)` 및 `getPreferredSpan(View.Y_AXIS)`를 계산하여, 수직 레이아웃(`VerticalFlowLayout`)에서 좁은 폭 줄바꿈에 필요한 정확한 픽셀 높이를 반환. 가로 스크롤바 발생 및 텍스트 잘림 방지.
+  - 상태 라벨 최소 폭 보호:
+    - `status` 라벨의 `minimumSize.width`를 `FLOOR`(90px) 이하로 클램프하여, 연결 오류나 긴 상세 문구가 도구 창의 최소 폭 바닥을 1000px 이상으로 밀어 올리는 현상 방지. 전문은 `toolTipText`로 보존.
+- **폭별 실측 경계 (헤드리스 실제 측정치)**:
+  - 320px 사이드바: 본문 컨테이너 폭 288px (좌우 패딩 16px 제외) → 높이 56px (4줄 자동 줄바꿈, 가로 넘침 0px)
+  - 420px 사이드바: 본문 컨테이너 폭 388px → 높이 42px (3줄 자동 줄바꿈, 가로 넘침 0px)
+  - 1300px 하단 독: 본문 컨테이너 폭 1268px → 높이 14px (단일 행 자연 확장, 가로 넘침 0px)
+
+#### 2. 입력 안내와 실제 키 동작 일치 (`MagiToolWindow.kt`, `MagiBundle`)
+- **문제점**:
+  - 기존 컴포저는 빈 입력 상태에서 사용자가 어떤 키를 눌러 전송/줄바꿈/첨부를 수행해야 하는지 시각적·접근성 안내가 부재했음.
+  - 답변 모드, 전송 중(in-flight), 연결 끊김 상태에서도 동일한 빈 창으로 남아 불가능한 조작(예: 전송 중 재전송, 질문 대기 중 파일 첨부)을 오인할 여지가 있었음.
+- **개선 내용**:
+  - `MagiBundle.properties` 및 `MagiBundle_ko.properties`에 4대 핵심 상태별 안내 문구 등록:
+    - 기본 대화 (`chat.composer.hint.default`): `메시지 입력 (Enter 전송 · Shift+Enter 줄바꿈 · @ 파일)` / `Type a message (Enter to send · Shift+Enter for newline · @ for files)`
+    - 답변 모드 (`chat.composer.hint.answer`): `답변 입력 (Enter 전송 · Shift+Enter 줄바꿈 · Esc 취소)` / `Type an answer (Enter to send · Shift+Enter for newline · Esc to cancel)`
+    - 전송 중 (`chat.composer.hint.busy`): `전송 중… (Shift+Enter 줄바꿈)` / `Sending… (Shift+Enter for newline)`
+    - 연결 끊김 (`chat.composer.hint.disconnected`): `연결 끊김 (Shift+Enter 줄바꿈)` / `Disconnected (Shift+Enter for newline)`
+  - 동적 힌트 및 접근 가능한 이름 갱신 (`updateComposerHint`):
+    - `input.emptyText.text` (JetBrains 네이티브 플레이스홀더)와 `input.accessibleContext.accessibleName`을 동시 갱신하여 시각적 안내와 스크린리더 접근성을 1:1 일치.
+    - 상태 전환 훅 연결: 초기화(`init`), 연결 상태 변화(`paintLink`), 답변 모드 전환/취소(`paintAnswerMode`), 전송 시작(`say`), 전송 완료/실패(`finishSend`).
+  - **문서 텍스트 비유입 보장**:
+    - 안내 문구는 Swing `Document`의 내용으로 삽입되지 않고 `emptyText` 페인팅 레이어에만 머무르므로, `input.text`는 순수한 빈 문자열(`""`)로 유지됨.
+    - 일반 전송 초안(`SendDrafts`), 답변 초안(`AnswerDrafts`), 실제 데몬 RPC 전송 본문, 자동완성 제안 요청 어디에도 안내 텍스트가 유입되거나 오염을 일으키지 않음.
+  - **코어 모델 지원 (`SendDrafts.kt`)**:
+    - `SendDrafts.busy(session: String? = null): Boolean` 추가로 현재 세션 또는 전체 전송 중 상태를 안전하게 질의.
+
+#### 3. 실측 검증
+- **회귀 검증**:
+  - `SendDraftsTest`: `test busy marks session or global as busy` 단위 테스트 추가 (세션별 및 전역 잠금 상태 정확성 검증).
+  - `HeadlessIdeTest`:
+    - `test 환영 안내는 320px 420px 1300px에서 동일한 중앙 축으로 정렬되고 세로로 자연스럽게 늘어난다`: 320/420/1300px 폭별 높이 줄바꿈, 중앙 단락 속성, HTML 미해석 원문 보존, 긴 상태 라벨 최소 폭 클램프 검증.
+    - `test 컴포저 플레이스홀더와 접근 가능한 이름이 상태에 따라 갱신되고 문서 텍스트에 유입되지 않는다`: 초기 비연결, 연결 완료, 답변 모드 진입/취소, 전송 중, 연결 끊김 5단계 상태 전이 및 `input.text == ""` 무유입 검증.
+- **2026-09-23 전체 검증 결과**:
+  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, 19개 task 성공.
+    - XML 실측: core 383 통과·5 건너뜀 (총 388개 중), 헤드리스 IntelliJ 62 통과 (총 62개 중), 합계 **445 통과·5 건너뜀 (총 450개 중)**.
+  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀, 총 529개 중).
+  - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test bundle, 50개 기능 시나리오 전수 통과, 18.0초).
+- **실물 GUI 및 환경 범위**:
+  - 헤드리스 IDE 환경에서 실제 Swing 컴포넌트 렌더러와 TextUI 뷰 트리를 통해 320px, 420px, 1300px 폭별 레이아웃과 치수를 실측했습니다.
+  - 실물 OS 도킹 창 드래그, 물리 키 타건, IME 조합 실물 테스트 및 VoiceOver는 사용자 지침에 따라 검증 대상에서 제외했습니다.
 
 
 

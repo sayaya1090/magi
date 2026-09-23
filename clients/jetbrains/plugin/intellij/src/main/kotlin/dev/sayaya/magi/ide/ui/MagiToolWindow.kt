@@ -223,6 +223,22 @@ class MagiToolWindow : ToolWindowFactory {
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
         private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
+        private fun updateComposerHint() {
+            if (closing.get() || project.isDisposed) return
+            val activeKey = answers.active
+            val key = when {
+                activeKey != null -> {
+                    if (answers.busy(activeKey)) "chat.composer.hint.busy"
+                    else "chat.composer.hint.answer"
+                }
+                sendDrafts.busy(currentSendSession()) -> "chat.composer.hint.busy"
+                mood.colour == Look.error || mood.colour == Look.muted || mood.colour == Look.faint -> "chat.composer.hint.disconnected"
+                else -> "chat.composer.hint.default"
+            }
+            val msg = MagiBundle.msg(key)
+            input.emptyText.text = msg
+            input.accessibleContext.accessibleName = msg
+        }
         private var restoringAnswerDraft = false
         private fun restoreAnswerText(text: String) {
             restoringAnswerDraft = true
@@ -312,6 +328,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 인사는 이 상태를 글로 적고 있다. 글리프만 갈고 판을 안 다시 그리면 「연결 중…」이
             // 붙은 뒤에도 남는다 — 안심시키려고 세운 줄이 거짓말이 되는 자리다.
             if (shaper.list().isEmpty()) redrawLog()
+            updateComposerHint()
         }
 
         /**
@@ -673,6 +690,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
             root.add(scroll, BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
+            updateComposerHint()
             // 못 붙으면 **말하고 다시 붙어 본다.** 바로 아래 [offerHand] 는 못 세운 것을
             // 그대로 말하는데 이 줄은 안 했다 — 같은 init 의 두 줄이 실패를 다르게 다뤘다.
             //
@@ -1788,6 +1806,7 @@ class MagiToolWindow : ToolWindowFactory {
             val attempt = sendDrafts.begin(target, input.text, carry) ?: return
             val turnOpen = shaper.open
             invalidateComposer()
+            updateComposerHint()
             val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
                 workspace.onDaemon(sid, trouble, work)
             }
@@ -1845,6 +1864,7 @@ class MagiToolWindow : ToolWindowFactory {
                 report(MagiBundle.msg("common.notsent", error))
             }
             drawSendRecovery()
+            updateComposerHint()
         }
 
         private fun drawSendRecovery() {
@@ -2057,6 +2077,7 @@ class MagiToolWindow : ToolWindowFactory {
                 if (it.getClientProperty("magi.answerChoice") == true) it.isEnabled = !answers.busy()
             }
             answerBar.parent?.revalidate()
+            updateComposerHint()
         }
 
         private fun enterAnswer() {

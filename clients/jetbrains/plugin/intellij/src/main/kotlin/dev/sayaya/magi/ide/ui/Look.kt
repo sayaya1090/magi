@@ -325,12 +325,46 @@ internal object Look {
                 font = JBFont.h2()
                 horizontalAlignment = javax.swing.SwingConstants.CENTER
             })
-            add(JBLabel(status).apply {
+            add(object : JBLabel(status) {
+                override fun getMinimumSize(): Dimension {
+                    val d = super.getMinimumSize()
+                    return Dimension(minOf(d.width, FLOOR), d.height)
+                }
+            }.apply {
                 foreground = hue
                 font = JBFont.small()
                 horizontalAlignment = javax.swing.SwingConstants.CENTER
+                toolTipText = status.ifBlank { null }
             })
-            add(note(hint))
+            add(welcomeNote(hint, faint))
+        }
+
+    fun welcomeNote(text: String, hue: Color = faint): JComponent =
+        object : javax.swing.JTextPane() {
+            override fun getMinimumSize(): Dimension = Dimension(FLOOR, 0)
+            override fun getPreferredSize(): Dimension {
+                val w = width
+                if (w > 0) {
+                    val root = (ui as? javax.swing.plaf.TextUI)?.getRootView(this)
+                    if (root != null) {
+                        root.setSize(w.toFloat(), 0f)
+                        val h = root.getPreferredSpan(javax.swing.text.View.Y_AXIS).toInt()
+                        return Dimension(w, h.coerceAtLeast(super.getPreferredSize().height))
+                    }
+                }
+                val pref = super.getPreferredSize()
+                return Dimension(minOf(pref.width, JBUI.scale(420)), pref.height)
+            }
+        }.apply {
+            isEditable = false
+            isOpaque = false
+            font = JBFont.small().deriveFont(Font.ITALIC)
+            foreground = hue
+            val doc = styledDocument
+            this.text = text
+            val center = javax.swing.text.SimpleAttributeSet()
+            javax.swing.text.StyleConstants.setAlignment(center, javax.swing.text.StyleConstants.ALIGN_CENTER)
+            doc.setParagraphAttributes(0, doc.length, center, false)
         }
 
     /** 트랜스크립트 행 배치용 수직 패널. 가로 스크롤 발생을 방지하고 본문 자동 줄바꿈을 유도하기 위해 Scrollable.tracksViewportWidth를 true로 설정한다. */

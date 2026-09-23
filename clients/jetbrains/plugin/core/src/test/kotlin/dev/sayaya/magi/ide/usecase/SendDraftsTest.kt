@@ -33,4 +33,16 @@ class SendDraftsTest {
         s.close()
         assertNull(s.begin("s1", "C", emptyList()))
     }
+    @Test fun `busy reflects active in-flight submissions per session and globally`() {
+        val s = SendDrafts()
+        assertFalse(s.busy())
+        assertFalse(s.busy("s1"))
+        val a = s.begin("s1", "A", emptyList())!!
+        assertTrue(s.busy())
+        assertTrue(s.busy("s1"))
+        assertFalse(s.busy("s2"))
+        s.complete(a, null, "s1")
+        assertFalse(s.busy())
+        assertFalse(s.busy("s1"))
+    }
 }

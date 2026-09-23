@@ -15,6 +15,7 @@ class SendDrafts {
     private val pending = mutableMapOf<Long, Attempt>()
     private val failed = linkedMapOf<Long, Failure>()
     val failures: List<Failure> get() = failed.values.toList()
+    fun busy(session: String? = null): Boolean = if (session == null) pending.isNotEmpty() else pending.values.any { it.session == session }
     fun edited() { revision++ }
     fun begin(session: String, text: String, refs: List<FileRef>): Attempt? {
         if (closed || pending.values.any { it.session == session && it.revision == revision }) return null

@@ -1,6 +1,19 @@
 package dev.sayaya.magi.ide.ui
 
+import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.components.JBTextArea
+import com.intellij.util.ui.UIUtil
+import dev.sayaya.magi.ide.model.Waiting
+import dev.sayaya.magi.ide.usecase.End
+import dev.sayaya.magi.ide.usecase.Transcript
+import java.awt.Dimension
+import javax.swing.JButton
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.JTextPane
+import javax.swing.SwingConstants
+import javax.swing.text.StyleConstants
 
 /**
  * **창 없이 진짜 IDE 를 세우고 우리 것을 눌러 본다.**
@@ -466,5 +479,146 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             if (x is java.awt.Container) x.components.forEach { walk(it) }
         }
         walk(c)
+    }
+
+    /**
+     * 환영 안내는 제목·상태와 함께 동일한 중앙 축으로 정렬되고,
+     * 320px, 420px 사이드바와 1300px 하단 독에서 가로 넘침 없이 세로로 자연스럽게 늘어난다.
+     */
+    fun `test 환영 안내는 320px 420px 1300px에서 동일한 중앙 축으로 정렬되고 세로로 자연스럽게 늘어난다`() {
+        val title = "magi"
+        val status = "Connected"
+        val hint = "This is a welcome message that guides the user on how to use magi with enter, shift+enter, and files. " +
+            "It should wrap properly without horizontal scrolling or text clipping across all widths."
+        val panel = Look.welcome(title, status, Look.success, hint)
+
+        val titleLabel = panel.getComponent(0) as JLabel
+        val statusLabel = panel.getComponent(1) as JLabel
+        val notePane = panel.getComponent(2) as JTextPane
+
+        // 1. 중앙 정렬 및 서식 검증
+        assertEquals(SwingConstants.CENTER, titleLabel.horizontalAlignment)
+        assertEquals(SwingConstants.CENTER, statusLabel.horizontalAlignment)
+        val doc = notePane.styledDocument
+        val style = doc.getParagraphElement(0).attributes
+        assertEquals(StyleConstants.ALIGN_CENTER, StyleConstants.getAlignment(style))
+        assertFalse(notePane.isEditable)
+        assertFalse(notePane.isOpaque)
+
+        // 2. HTML 미해석 및 선택 가능한 원문 검증
+        val rawText = "<b>bold</b> & special <chars>"
+        val htmlTestPane = Look.welcomeNote(rawText) as JTextPane
+        assertEquals("HTML 태그가 파싱되지 않고 그대로 유지되어야 한다", rawText, htmlTestPane.text)
+
+        // 3. 320px, 420px, 1300px 폭별 높이 및 경계 실측
+        val widths = listOf(320, 420, 1300)
+        val heights = mutableMapOf<Int, Int>()
+        for (w in widths) {
+            panel.size = Dimension(w, 1000)
+            panel.doLayout()
+            val noteW = panel.width - 32 // margin 16 on each side
+            notePane.size = Dimension(noteW, 0)
+            val notePref = notePane.preferredSize
+            heights[w] = notePref.height
+            assertTrue("가로 오버플로우가 없어야 한다", notePref.width <= noteW)
+        }
+        assertTrue("320px 폭에서의 높이가 420px 폭보다 크거나 같아야 한다: ${heights[320]} vs ${heights[420]}", heights[320]!! >= heights[420]!!)
+        assertTrue("420px 폭에서의 높이가 1300px 폭보다 크거나 같아야 한다: ${heights[420]} vs ${heights[1300]}", heights[420]!! >= heights[1300]!!)
+
+        // 4. 긴 상태 문구(1000px 초과)가 있어도 최소 너비 바닥(FLOOR=90)을 위반하여 창 축소를 방해하지 않는다
+        val longStatus = "Very long status string that would normally expand the window width to over a thousand pixels if unconstrained"
+        val longStatusPanel = Look.welcome("magi", longStatus, Look.warn, hint)
+        val longStatusLabel = longStatusPanel.getComponent(1) as JLabel
+        assertTrue("긴 상태 문구라도 최소 폭은 90 이하로 제한되어야 한다", longStatusLabel.minimumSize.width <= 90)
+    }
+
+    /**
+     * 컴포저 플레이스홀더와 접근 가능한 이름이 상태에 따라 갱신되고,
+     * 문서 텍스트에 절대 유입되지 않는다.
+     */
+    fun `test 컴포저 플레이스홀더와 접근 가능한 이름이 상태에 따라 갱신되고 문서 텍스트에 유입되지 않는다`() {
+        val view = MagiToolWindow.View(project, pinned = "session1")
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            val inputField = view.javaClass.getDeclaredField("input").apply { isAccessible = true }
+            val input = inputField.get(view) as JBTextArea
+
+            // 1. 초기 비연결 상태: chat.composer.hint.disconnected
+            val disconnectedMsg = MagiBundle.msg("chat.composer.hint.disconnected")
+            assertEquals(disconnectedMsg, input.emptyText.text)
+            assertEquals(disconnectedMsg, input.accessibleContext.accessibleName)
+            assertEquals("초안이나 문서 텍스트에 힌트 텍스트가 유입되어서는 안 된다", "", input.text)
+
+            // 2. 연결 완료 상태: chat.composer.hint.default
+            view.sink.caughtUp()
+            UIUtil.dispatchAllInvocationEvents()
+            val defaultMsg = MagiBundle.msg("chat.composer.hint.default")
+            assertEquals(defaultMsg, input.emptyText.text)
+            assertEquals(defaultMsg, input.accessibleContext.accessibleName)
+            assertEquals("", input.text)
+            assertTrue(defaultMsg.contains("Enter"))
+            assertTrue(defaultMsg.contains("Shift+Enter"))
+            assertTrue(defaultMsg.contains("@"))
+
+            // 3. 답변 모드 진입: chat.composer.hint.answer
+            val w = Waiting(id = "q1", kind = "question", what = "Confirm?", options = listOf("Yes", "No"))
+            val drawPromptMethod = view.javaClass.getDeclaredMethod("drawPrompt", Waiting::class.java, String::class.java).apply { isAccessible = true }
+            drawPromptMethod.invoke(view, w, "session1")
+            UIUtil.dispatchAllInvocationEvents()
+
+            val directBtn = MagiBundle.msg("chat.answer.direct")
+            val buttonsPanel = view.javaClass.getDeclaredField("buttons").apply { isAccessible = true }.get(view) as JPanel
+            val directButton = buttonsPanel.components.filterIsInstance<JButton>().firstOrNull { it.text == directBtn }
+            assertNotNull("직접 입력 버튼이 존재해야 한다", directButton)
+            directButton!!.doClick()
+            UIUtil.dispatchAllInvocationEvents()
+
+            val answerMsg = MagiBundle.msg("chat.composer.hint.answer")
+            assertEquals(answerMsg, input.emptyText.text)
+            assertEquals(answerMsg, input.accessibleContext.accessibleName)
+            assertEquals("", input.text)
+            assertTrue(answerMsg.contains("Esc"))
+            assertFalse(answerMsg.contains("@"))
+
+            // 취소 시 기본 힌트로 복원
+            val answerCancelBtn = view.javaClass.getDeclaredField("answerCancel").apply { isAccessible = true }.get(view) as JButton
+            answerCancelBtn.doClick()
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(defaultMsg, input.emptyText.text)
+            assertEquals(defaultMsg, input.accessibleContext.accessibleName)
+
+            // 4. 전송 중(busy) 상태: chat.composer.hint.busy
+            val sendDraftsField = view.javaClass.getDeclaredField("sendDrafts").apply { isAccessible = true }
+            val sendDrafts = sendDraftsField.get(view) as dev.sayaya.magi.ide.usecase.SendDrafts
+            val attempt = sendDrafts.begin("session1", "hello", emptyList())
+            assertNotNull(attempt)
+            val updateComposerHintMethod = view.javaClass.getDeclaredMethod("updateComposerHint").apply { isAccessible = true }
+            updateComposerHintMethod.invoke(view)
+            val busyMsg = MagiBundle.msg("chat.composer.hint.busy")
+            assertEquals(busyMsg, input.emptyText.text)
+            assertEquals(busyMsg, input.accessibleContext.accessibleName)
+            assertEquals("", input.text)
+            assertTrue(busyMsg.contains("Shift+Enter"))
+            assertFalse(busyMsg.contains("@"))
+            sendDrafts.complete(attempt!!, null, "session1")
+            updateComposerHintMethod.invoke(view)
+            assertEquals(defaultMsg, input.emptyText.text)
+
+            // 5. 연결 끊김 전환: chat.composer.hint.disconnected
+            view.sink.ended(End.ByUs)
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(disconnectedMsg, input.emptyText.text)
+            assertEquals(disconnectedMsg, input.accessibleContext.accessibleName)
+            assertEquals("", input.text)
+
+            // 5. 사용자 입력 중에도 문서 텍스트가 힌트에 오염되지 않음
+            input.text = "User message text"
+            assertEquals("User message text", input.text)
+            assertEquals(17, input.document.length)
+            input.text = ""
+            assertEquals(disconnectedMsg, input.emptyText.text)
+        } finally {
+            Disposer.dispose(view)
+        }
     }
 }
