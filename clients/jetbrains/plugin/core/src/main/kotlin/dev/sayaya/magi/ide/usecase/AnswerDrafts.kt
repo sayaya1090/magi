@@ -138,7 +138,9 @@ class AnswerDrafts {
         deletedGenerations.add(Pair(rec.key, rec.version))
         val draft = drafts[rec.key]
         if (draft != null && draft.version == rec.version) {
-            draft.text = ""
+            if (active != rec.key) {
+                draft.text = ""
+            }
         }
         return true
     }

@@ -355,4 +355,127 @@ class AnswerModeTest : BasePlatformTestCase() {
         onDelete()
         // Must not resurrect or alter state
     }
+    fun testDeleteRecoveryWhileActiveDoesNotResurrectOnRedrawOrQuestionSwitch() = check { h ->
+        h.input.text = "general"
+        h.question("q")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+        h.finish(0, false)
+        h.direct()
+        assertEquals("A", h.input.text)
+        assertTrue(h.answerRecoveryBtn.isVisible)
+        val rec = h.answers.recoveries.single()
+        assertEquals("A", rec.text)
+
+        h.view.javaClass.getDeclaredMethod("showAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        val (item, _, onDelete) = h.recoveryViewerEvents.single()
+        assertEquals("A", item.text)
+        onDelete()
+
+        // 삭제 직후: 복구 목록 비어있음, 버튼 숨김, 입력창의 "A" 유지, 일반 초안은 "general" 유지
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+        assertEquals("A", h.input.text)
+        assertEquals("general", h.answers.generalText())
+
+        // 같은 질문 재그림 반복
+        h.question("q")
+        h.question("q")
+        h.question("q")
+
+        // q2 전환
+        h.question("q2")
+
+        // 기대값: 복구 목록 0건, 버튼 숨김, 입력창은 general로 복귀
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+        assertEquals("general", h.input.text)
+    }
+    fun testDeleteRecoveryCancelAndReenterDoesNotResurrectOnQuestionSwitch() = check { h ->
+        h.input.text = "general"
+        h.question("q")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+        h.finish(0, false)
+        h.direct()
+        val rec = h.answers.recoveries.single()
+
+        h.view.javaClass.getDeclaredMethod("showAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        val (_, _, onDelete) = h.recoveryViewerEvents.single()
+        onDelete()
+        assertTrue(h.answers.recoveries.isEmpty())
+
+        // Cancel answer mode -> restores general draft
+        h.key("magi.cancelAnswer")
+        assertEquals("general", h.input.text)
+        assertFalse(h.field<JPanel>("answerBar").isVisible)
+
+        // Re-enter direct answer mode -> restores "A" without version increment
+        h.direct()
+        assertEquals("A", h.input.text)
+        assertTrue(h.field<JPanel>("answerBar").isVisible)
+
+        // Question switch to q2 -> does not resurrect
+        h.question("q2")
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+        assertEquals("general", h.input.text)
+    }
+    fun testDeleteRecoveryThenActualEditIsRecovered() = check { h ->
+        h.input.text = "general"
+        h.question("q")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+        h.finish(0, false)
+        h.direct()
+        val rec = h.answers.recoveries.single()
+
+        h.view.javaClass.getDeclaredMethod("showAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        val (_, _, onDelete) = h.recoveryViewerEvents.single()
+        onDelete()
+        assertTrue(h.answers.recoveries.isEmpty())
+
+        // User actually types new B
+        h.input.text = "new B"
+
+        // Leaving question exposes new B
+        h.question("q2")
+        assertEquals(1, h.answers.recoveries.size)
+        val recB = h.answers.recoveries.single()
+        assertEquals("new B", recB.text)
+        assertTrue(recB.version > rec.version)
+        assertTrue(h.answerRecoveryBtn.isVisible)
+        assertTrue(h.answerRecoveryBtn.text.contains("(1)"))
+        assertEquals("general", h.input.text)
+    }
+    fun testDeleteRecoveryThenSessionSwitchDoesNotResurrect() = check { h ->
+        h.input.text = "general"
+        h.question("q")
+        h.direct()
+        h.input.text = "A"
+        h.key("magi.send")
+        h.finish(0, false)
+        h.direct()
+        val rec = h.answers.recoveries.single()
+
+        h.view.javaClass.getDeclaredMethod("showAnswerRecovery", dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery::class.java)
+            .apply { isAccessible = true }.invoke(h.view, rec)
+        val (_, _, onDelete) = h.recoveryViewerEvents.single()
+        onDelete()
+        assertTrue(h.answers.recoveries.isEmpty())
+
+        // Switch to session s2
+        h.session = "s2"
+        h.question("q2", "s2")
+        assertTrue(h.answers.recoveries.isEmpty())
+        assertFalse(h.answerRecoveryBtn.isVisible)
+    }
 }
+
+

@@ -217,4 +217,193 @@ class AnswerDraftsTest {
         assertEquals("submitted A", s.recoveries.single().text)
         assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, s.recoveries.single().reason)
     }
+
+    @Test fun `delete recovery while active on question does not resurrect on bind or redraw`() {
+        val s = AnswerDrafts()
+        // 1. bind("s", "q", "general") -> enter("general") -> begin("A")
+        s.bind("s", "q", "general")
+        s.enter("general")
+        val attemptA = s.begin("A")!!
+
+        // 2. leaveAfterSubmit() -> complete(A, false) -> enter("general")
+        s.leaveAfterSubmit()
+        assertTrue(s.complete(attemptA, false))
+        val returned = s.enter("general")
+        assertEquals("A", returned)
+        assertEquals(1, s.recoveries.size)
+        val recA = s.recoveries.single()
+        assertEquals("A", recA.text)
+        assertEquals(1L, recA.version)
+        assertEquals("q", recA.callId)
+        assertEquals("s", recA.session)
+        assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, recA.reason)
+
+        // 3. deleteRecovery(recA.id). No user edit.
+        assertTrue(s.deleteRecovery(recA.id))
+
+        // Assert immediately after delete: recoveries empty, composer text intact, general intact, active intact
+        assertEquals(0, s.recoveries.size)
+        assertEquals("general", s.generalText())
+        assertEquals(AnswerDrafts.Key("s", "q"), s.active)
+
+        // 4. Repeated redraws on same question do not resurrect
+        s.bind("s", "q", "A")
+        s.bind("s", "q", "A")
+        s.bind("s", "q", "A")
+        assertEquals(0, s.recoveries.size)
+
+        // 5. Question switch to q2: A does not resurrect!
+        val ret = s.bind("s", "q2", "A")
+        assertEquals("general", ret)
+        assertEquals(0, s.recoveries.size)
+        assertNull(s.active)
+    }
+
+    @Test fun `delete recovery then cancel and reenter does not resurrect on question switch`() {
+        val s = AnswerDrafts()
+        s.bind("s", "q", "general")
+        s.enter("general")
+        val attemptA = s.begin("A")!!
+        s.leaveAfterSubmit()
+        s.complete(attemptA, false)
+        assertEquals("A", s.enter("general"))
+        val recA = s.recoveries.single()
+
+        assertTrue(s.deleteRecovery(recA.id))
+        assertEquals(0, s.recoveries.size)
+
+        // Cancel restores general draft
+        val cancelRet = s.cancel("A")
+        assertEquals("general", cancelRet)
+        assertNull(s.active)
+
+        // Re-enter restores "A" without incrementing version
+        val reenterRet = s.enter("general")
+        assertEquals("A", reenterRet)
+        assertEquals(AnswerDrafts.Key("s", "q"), s.active)
+
+        // Leaving question does not resurrect A
+        val ret = s.bind("s", "q2", "A")
+        assertEquals("general", ret)
+        assertEquals(0, s.recoveries.size)
+    }
+
+    @Test fun `delete recovery then session switch does not resurrect`() {
+        val s = AnswerDrafts()
+        s.bind("s", "q", "general")
+        s.enter("general")
+        val attemptA = s.begin("A")!!
+        s.leaveAfterSubmit()
+        s.complete(attemptA, false)
+        assertEquals("A", s.enter("general"))
+        val recA = s.recoveries.single()
+
+        assertTrue(s.deleteRecovery(recA.id))
+        assertEquals(0, s.recoveries.size)
+
+        // Switch to session s2
+        val sessRet = s.bind("s2", "q", "A")
+        assertEquals("", sessRet)
+        assertEquals(0, s.recoveries.size)
+        assertNull(s.active)
+    }
+
+    @Test fun `delete recovery then actual edit B creates new recovery generation`() {
+        val s = AnswerDrafts()
+        s.bind("s", "q", "general")
+        s.enter("general")
+        val attemptA = s.begin("A")!!
+        s.leaveAfterSubmit()
+        s.complete(attemptA, false)
+        assertEquals("A", s.enter("general"))
+        val recA = s.recoveries.single()
+
+        assertTrue(s.deleteRecovery(recA.id))
+        assertEquals(0, s.recoveries.size)
+
+        // User actually edits to B
+        s.edit("B")
+        val ret = s.bind("s", "q2", "B")
+        assertEquals("general", ret)
+        assertEquals(1, s.recoveries.size)
+        val recB = s.recoveries.single()
+        assertEquals("B", recB.text)
+        assertEquals(2L, recB.version)
+        assertEquals("q", recB.callId)
+        assertEquals("s", recB.session)
+        assertEquals(AnswerDrafts.REASON_QUESTION_LEFT, recB.reason)
+    }
+
+    @Test fun `delete recovery then edit to B and back to A creates new generation based on edit history`() {
+        val s = AnswerDrafts()
+        s.bind("s", "q", "general")
+        s.enter("general")
+        val attemptA = s.begin("A")!!
+        s.leaveAfterSubmit()
+        s.complete(attemptA, false)
+        assertEquals("A", s.enter("general"))
+        val recA = s.recoveries.single()
+
+        assertTrue(s.deleteRecovery(recA.id))
+        assertEquals(0, s.recoveries.size)
+
+        // User edits to B then back to A
+        s.edit("B")
+        s.edit("A")
+        val ret = s.bind("s", "q2", "A")
+        assertEquals("general", ret)
+        assertEquals(1, s.recoveries.size)
+        val recA3 = s.recoveries.single()
+        assertEquals("A", recA3.text)
+        assertEquals(3L, recA3.version)
+        assertEquals("q", recA3.callId)
+        assertEquals(AnswerDrafts.REASON_QUESTION_LEFT, recA3.reason)
+    }
+
+    @Test fun `inactive A delete preserves busy B and duplicate late complete cannot alter state`() {
+        val s = AnswerDrafts()
+        // q0 has an existing draft exposed in recovery
+        s.bind("s", "q0", "general")
+        s.enter("general")
+        s.edit("draft q0")
+        s.bind("s", "q", "draft q0")
+        assertEquals(1, s.recoveries.size)
+        val recQ0 = s.recoveries.single()
+        assertEquals("draft q0", recQ0.text)
+
+        // Submit A on q
+        s.enter("general")
+        val attemptA = s.begin("submitted A")!!
+        s.leaveAfterSubmit()
+        s.complete(attemptA, false)
+        assertEquals(2, s.recoveries.size)
+
+        // User starts attempt B on q
+        s.enter("general")
+        s.edit("active B")
+        val attemptB = s.begin("active B")!!
+        assertTrue(s.busy())
+
+        // Delete inactive A while B is busy
+        val recA = s.recoveries.first { it.text == "submitted A" }
+        assertTrue(s.deleteRecovery(recA.id))
+        // other recovery recQ0 is preserved!
+        assertEquals(1, s.recoveries.size)
+        assertEquals("draft q0", s.recoveries.single().text)
+        // B's busy lock is preserved!
+        assertTrue(s.busy())
+
+        // Duplicate late complete for attempt A returns false, does not alter busy or revive
+        assertFalse(s.complete(attemptA, false))
+        assertTrue(s.busy())
+        assertEquals(1, s.recoveries.size)
+
+        // Complete B successfully
+        assertTrue(s.complete(attemptB, true))
+        assertFalse(s.busy())
+        assertEquals(1, s.recoveries.size)
+        assertEquals("draft q0", s.recoveries.single().text)
+    }
 }
+
+

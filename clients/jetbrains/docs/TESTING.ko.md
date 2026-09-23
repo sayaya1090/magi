@@ -708,3 +708,55 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
 
 
+### 활성 답변에서 삭제한 복구 항목의 부활 방지 (§6.26)
+
+활성 답변 모드에서 질문 초안의 복구 항목을 삭제한 뒤, 컴포저에 남아 있던 원문으로 인해 모델 동기화·재그림 과정에서 수정 세대가 오인 상승하여 삭제된 초안이 다시 복구 목록에 부활하던 결함을 해결했습니다.
+
+- **원인 분석**:
+  - `AnswerDrafts.deleteRecovery`는 삭제 대상과 같은 세대(`draft.version == rec.version`)인 경우 `draft.text = ""`로 초기화했습니다.
+  - 그러나 사용자가 해당 질문의 답변 모드에 진입해 있는 상태(`active == rec.key`)에서는 UI 컴포저(입력창)에 원문 "A"가 그대로 유지되어 있었습니다.
+  - 이후 뷰의 재그림이나 질문 컨텍스트 동기화(`syncAnswerContext` / `bind`)가 호출되면, 컴포저의 "A"가 `edit("A")`로 전달되어 `d.text`(`""`)와 불일치(`"" != "A"`)하므로 새 사용자 편집으로 오인되어 `d.version`을 1에서 2로 상승시켰습니다.
+  - 결과적으로 다른 질문으로 전환(`beforeQuestion != next`)할 때 `exposeRecovery`가 호출되면, `deletedGenerations`에는 세대 1만 등록되어 있어 세대 2로 승격된 "A"가 신규 복구 항목으로 다시 부활했습니다.
+- **수정 내용 (`AnswerDrafts.kt`)**:
+  - `deleteRecovery`에서 `active != rec.key` 조건을 추가하여, 해당 질문이 현재 활성화되어 있는 동안에는 모델의 `draft.text`를 인위적으로 빈 문자열로 지우지 않도록 정리했습니다:
+    ```kotlin
+    val draft = drafts[rec.key]
+    if (draft != null && draft.version == rec.version) {
+        if (active != rec.key) {
+            draft.text = ""
+        }
+    }
+    ```
+  - `active == rec.key`일 때 `draft.text`는 컴포저와 동일한 `"A"`를 유지하고 세대도 `1`로 유지되므로, 후속 `bind`, 재그림, 취소(`cancel`), 재진입(`enter`) 시 `edit("A")`가 호출되어도 `d.text == text`이므로 세대 번호가 불필요하게 상승하지 않습니다.
+  - 질문을 벗어날 때 `exposeRecovery`에 전달되는 세대 `1`은 `deletedGenerations`에 포함되어 있으므로 재노출이 완벽히 차단됩니다 (복구 건수 0건 유지).
+  - 질문이 비활성 상태(`active != rec.key`)일 때는 기존처럼 `draft.text = ""`로 초기화되어, 이후 해당 질문 재방문 시 빈 초안으로 진입하는 기존 동작을 유지합니다.
+  - **사용자 편집과의 경계 보존**:
+    - 삭제 후 사용자가 실제로 "B"를 입력하면 `edit("B")`에 의해 새 세대 2가 생성되어 복구 목록에 정상 등록됩니다.
+    - 원문을 편집했다가 동일한 문자열로 되돌린 경우("B" → "A")도 실제 편집 이력을 기준으로 새 세대 3이 생성되어 복구 목록에 정상 등록됩니다.
+    - 비활성 상태의 복구 항목 A를 삭제하더라도 현재 진행 중인 B의 초안 및 작업 잠금(`busy`)은 안전하게 보존됩니다.
+    - 늦게 도착한 중복 완료/실패 콜백은 이미 삭제된 항목을 부활시키지 않으며 다른 작업의 잠금을 변경하지 않습니다.
+- **수정 전 실패 및 수정 후 통과 검증**:
+  - **수정 전 실패 (임시 회귀 재현)**:
+    - 코어: `AnswerDraftsTest > delete recovery while active on question does not resurrect on bind or redraw` 실행 시 `org.opentest4j.AssertionFailedError: expected: <0> but was: <1>` 발생으로 실패 (A가 세대 2로 부활).
+    - 뷰: `AnswerModeTest > testDeleteRecoveryWhileActiveDoesNotResurrectOnRedrawOrQuestionSwitch` 실행 시 `junit.framework.AssertionFailedError` 발생으로 실패.
+  - **수정 후 통과 (영구 회귀 및 대조군 보강)**:
+    - `AnswerDraftsTest`:
+      - 기본 재현: bind → enter → begin(A) → complete(A, false) → enter(A) → deleteRecovery → bind(q, A) 동일 질문 재그림 반복 → bind(q2, A) 질문 전환 시 복구 0건 확인. 삭제 직후 컴포저 텍스트, 일반 초안, active 상태 불변 단언.
+      - 대조군 1: 삭제 후 취소(`cancel`) 및 재진입(`enter`) 후 질문 전환 시 부활 방지 검증.
+      - 대조군 2: 삭제 후 세션 전환 시 부활 방지 검증.
+      - 대조군 3: 삭제 후 실제 "B" 편집 시 새 세대 2로 정상 복구 검증.
+      - 대조군 4: "B"로 편집 후 다시 "A"로 복귀 시 편집 이력 기준 새 세대 3으로 정상 복구 검증.
+      - 대조군 5: 비활성 A 삭제 시 진행 중인 작업 B의 잠금(`busy`) 및 다른 복구 항목 보존, 늦은 중복 완료 콜백 무효화 검증.
+    - `AnswerModeTest`:
+      - 기본 뷰 재현: 일반 초안 → q → 직접 입력 A → Send → 실패 → 재진입 → 상세 대화상자의 삭제 콜백 → 동일 질문 재그림 반복 → q2 전환 시 복구 0건, 복구 버튼 숨김, 입력창 일반 초안 복귀 검증.
+      - 뷰 대조군 1: 삭제 후 취소 및 재진입 후 q2 전환 시 부활 방지 검증.
+      - 뷰 대조군 2: 삭제 후 실제 "new B" 입력 시 새 세대 정상 복구 및 버튼 표출 검증.
+      - 뷰 대조군 3: 삭제 후 다른 세션 전환 시 부활 방지 검증.
+- **2026-09-23 실측 검증**:
+  - JetBrains: `./gradlew :core:test :intellij:test :intellij:compileKotlin --console=plain --rerun-tasks` 종료 0, 19개 task 성공 (core 387 통과·5 건너뜀, 헤드리스 IntelliJ 60 통과, 합계 447 통과·5 건너뜀).
+  - VS Code: `npm test --prefix clients/vscode` 종료 0 (522 통과·7 건너뜀).
+  - Playwright: `node clients/vscode/tools/transcript-test.mjs` 종료 0 (7개 test·50개 기능 시나리오 전수 통과, 17.9초).
+  - 실물 GUI 검증은 보류 상태이며 VoiceOver는 대상에서 제외합니다.
+
+
+
