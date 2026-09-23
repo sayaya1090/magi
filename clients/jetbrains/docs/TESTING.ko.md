@@ -977,6 +977,57 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
   - 실물 GUI 인수(하단 독·320px/420px 사이드바 창 드래그, 물리 키 타건, 한글 IME 조합 실물 입력): 무인 자동화 환경 제약(CUA_REPL_ENABLED_SURFACES 부재, AppleScript UI 접근 권한 -25211 거절, 활성 그래픽 세션 간섭 방지)으로 인해 실물 GUI/IME 조작이 막혀 미검증 상태로 유지하며, 헤드리스 결과를 실물 통과로 간주하지 않고 완료 조건에서 임의 삭제하지 않습니다.
 
+### 6.31 옛 답변 실패 결과의 세션 격리 실측 검증
+
+§6.31 지침에 따라, 기존 일반 전송 실패(`finishSend`) 경로와 구별하여 동일한 답변 경로(`finishAnswer`)의 옛 성공 및 실패 결과를 두 독립 사례(독립 View/시도)로 실측 검증했습니다. 제품 결함은 발견되지 않았으며 제품 코드는 변경하지 않고 테스트 검증 범위를 확장했습니다.
+
+#### 1. 동일한 답변 경로의 성공·실패 두 독립 사례 검증 (`HeadlessIdeTest.kt`)
+- **경로 구분 명시**:
+  - `s1General.complete(ok = false)`는 일반 전송의 `finishSend` 실패 격리 경로이며, 답변 전송 실패와 구분됩니다.
+  - §6.31에서는 하나의 완료된 핸들을 재사용하지 않고 각각 독립된 View와 시도를 구성하여 성공 사례(사례 1)와 실패 사례(사례 2)를 검증했습니다.
+- **사례 1: session1 옛 답변 재시도 성공 격리 (`s1AnswerRetry.complete(ok = true)`)**:
+  - session1에서 답변 재시도 A2 제출 후 보류 -> session2 전환 -> 별도 질문 q2 수신 -> 답변 B("Answer Draft 2") Enter 제출 -> 재진입으로 session2 잠금(busyMsg, 초안 B, sendButton 비활성화, 선택지 비활성화, Enter 중복 차단) 형성.
+  - `s1AnswerRetry.complete(ok = true)`로 성공 전달:
+    - 요청 method == "answer", callId == "q1", answer == "Answer Draft 1" 확인.
+    - session2의 잠금 상태(초안 B, busy 안내, accessibleName, 버튼 비활성화, Enter 중복 차단) 일체 불변.
+  - 대조군: session2 자신의 결과 도착 시에만 잠금 해제(실패 시 answerMsg/재시도 가능, 재전송 후 성공 시 답변 바 닫힘/defaultMsg/q2 종료).
+  - session1 복귀 시 답변 완료에 따라 질문 프롬프트 숨김(`head.isVisible == false`) 및 일반 모드 확인.
+- **사례 2: session1 옛 답변 재시도 실패 격리 및 복귀 후 재시도 검증 (`checkCrossSessionAnswerFailureIsolation()`)**:
+  - 독립된 새 View를 생성하여 session1에서 질문 q1 수신 -> 답변 A("Answer Draft 1") 제출 후 보류(`s1AnswerRetryFail`).
+  - session2 전환 -> 질문 q2 수신 -> 답변 B("Answer Draft 2") 제출 -> 동일 q2 재진입으로 session2 잠금 형성.
+  - **session1 옛 답변 실패 결과 전달**: `s1AnswerRetryFail.complete(ok = false, error = "S1 answer failure")`:
+    - 해당 핸들의 실제 요청이 `method == "answer"`, `callId == "q1"`, `answer == "Answer Draft 1"`임을 실측 단언 (일반 전송 실패나 연결 끊김 콜백으로 대신하지 않음).
+    - **session2 잠금 온전한 보존**: 초안 B("Answer Draft 2"), `busyMsg`, accessibleName, `sendButton` 비활성화, 선택지 비활성화, Enter 중복 제출 차단(`pendingSends.size` 불변)이 온전히 유지됨을 단언.
+  - **대조군 검증**: session2 자신의 결과가 도착했을 때 비로소 잠금이 풀림 확인:
+    - session2 답변 B 실패 전달(`s2AnswerB.complete(ok = false, error = "S2 Timeout")`) -> session2 잠금 해제(`answerMsg`, `sendButton` 활성화, 초안 B 보존).
+    - session2 재전송 후 성공 전달(`s2AnswerB2.complete(ok = true)`) -> 답변 바 닫힘, `defaultMsg`, `input.text == ""`, q2 정상 종료.
+  - **session1 복귀 후 실패한 A의 원문 접근 및 재시도 가능 상태 검증**:
+    - session1으로 전환: 답변 실패로 인해 질문 프롬프트는 여전히 표시 상태 유지(`head.isVisible == true`), `answerBar.isVisible == false`, `defaultMsg`.
+    - 질문 q1의 "직접 입력" 클릭 시: `answerBar.isVisible == true`, `answerMsg`, accessibleName, 실패했던 기존 초안 A("Answer Draft 1") 온전한 복원, `sendButton` 재활성화 확인.
+    - Enter 재전송 성공 시: 요청 method="answer", callId="q1", answer="Answer Draft 1" 확인, 질문 프롬프트 정상 종료(`head.isVisible == false`), 답변 바 닫힘, `defaultMsg`, `input.text == ""` 확인.
+- **전용 회귀 테스트 추가**:
+  - `fun test 옛 답변 실패 결과가 도착해도 다른 세션의 잠금이 보존되고 원래 세션 복귀 후 답변 재시도가 가능하다()`
+
+#### 2. 실측 검증 결과
+- **2026-09-24 전체 검증 실행**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (34초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 63 통과 (총 63개 중), **합계 447 통과·5 건너뜀·0 실패 (총 452개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.9초 소요)**.
+
+#### 3. 환경 및 실물 인수 상태 기록
+- **실행 환경**:
+  - OS: macOS 26.6.2 (Darwin 25G83, arm64)
+  - Java / JVM: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
+  - IDE Platform: IntelliJ Platform 2026.1 (IU-2026.1)
+- **실물 인수 상태**:
+  - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외합니다.
+  - 실물 GUI 인수(하단 독·320px/420px 사이드바 창 드래그, 물리 키 타건, 한글 IME 조합 실물 입력): 무인 자동화 환경 제약(CUA_REPL_ENABLED_SURFACES 부재, AppleScript UI 접근 권한 -25211 거절, 활성 그래픽 세션 간섭 방지)으로 인해 실물 GUI/IME 조작이 막혀 미검증 상태로 유지하며, 헤드리스 결과를 실물 통과로 간주하지 않고 완료 조건에서 임의 삭제하지 않습니다.
+
+
 
 
 
