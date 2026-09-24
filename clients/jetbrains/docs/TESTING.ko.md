@@ -1605,3 +1605,25 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `HeadlessIdeTest`:
     - `IdeHand` 실제 인스턴스를 통한 `show` 파일 열기 디스크립터 및 `replace` 단일 Undo 문서 수정 실측 검증.
 
+---
+
+## 2026-09-25 JetBrains boolean JSON 타입 검사 및 HTTP 도구 파싱 공통화 (§6.44.10)
+
+- **엄격한 JSON boolean 타입 단언 헬퍼 구축 (`requireBoolean`)**:
+  - `HandServerTest.kt`에서 기존 `booleanOrNull != null` 판정이 문자열 `"false"`나 `"true"`에 대해서도 `booleanOrNull`이 동작하여 문자열 인코딩 회귀를 포착하지 못하던 문제 해결.
+  - `requireBoolean(element: JsonElement?, label: String): Boolean`:
+    - `element != null` 검사 (누락 방지)
+    - `element !is JsonNull` 검사 (JSON null 거절)
+    - `element is JsonPrimitive` 검사 (객체/배열 거절)
+    - `!element.isString` 검사 (문자열 `"true"` / `"false"` 인코딩 거절)
+    - `checkNotNull(element.booleanOrNull)` 검사 (숫자 `0` / `1` 및 부적격 원시값 거절)
+  - fixture `readOnly` 및 HTTP `annotations.readOnlyHint` 파싱에 동일 헬퍼를 공통 적용.
+
+- **HTTP 도구 목록 파싱 공통 경로 추출 (`parseHttpTools`)**:
+  - `parseHttpTools(toolsArray: JsonArray): List<CanonicalTool>` 함수를 추출하여 정상 `tools/list` 검사와 변이 시험이 동일한 파싱/단언 코드를 호출하도록 통합.
+  - 변이 시험 내부의 코드 중복을 제거하고 검증 일관성 확보.
+
+- **자동 변이 회귀 검증**:
+  - `readOnly` 및 `readOnlyHint`에 대해 `true` / `false`는 정상 통과.
+  - 문자열 `"true"` / `"false"`, 숫자 `0` / `1`, `JsonNull`, `null`, 미선언(누락), 객체(`{}`), 배열(`[]`) 변이 입력에 대해 전수 `IllegalStateException` 거절 검증.
+

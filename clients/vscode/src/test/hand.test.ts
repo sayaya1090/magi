@@ -453,6 +453,21 @@ function normalizeToolDefinitions(tools: { name: string; readOnly: unknown; sche
     });
 }
 
+function parseHttpTools(rawTools: unknown[]): { name: string; readOnly: boolean; schema: unknown }[] {
+  return rawTools.map((raw) => {
+    const t = raw as { name: string; inputSchema: unknown; annotations?: { readOnlyHint?: unknown } };
+    assert.ok(
+      t.annotations && typeof t.annotations.readOnlyHint === 'boolean',
+      `tool ${t.name} must declare boolean annotations.readOnlyHint`
+    );
+    return {
+      name: t.name,
+      readOnly: t.annotations.readOnlyHint as boolean,
+      schema: t.inputSchema,
+    };
+  });
+}
+
 test('§6.44.2/§6.44.7 Shared catalogue fixture ide_hand_catalogue.json matches handTools() losslessly', () => {
   const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
   const expected = JSON.parse(raw) as CatalogueTool[];
@@ -466,16 +481,9 @@ test('§6.44.2/§6.44.7 HTTP tools/list preserves inputSchema and annotations.re
   const hand = await Hand.start(new FakeIde());
   try {
     const list = (await rpc(hand, 'tools/list')).body.result as {
-      tools: { name: string; inputSchema: unknown; annotations?: { readOnlyHint?: unknown } }[];
+      tools: unknown[];
     };
-    const actual = list.tools.map((t) => {
-      assert.ok(t.annotations && typeof t.annotations.readOnlyHint === 'boolean', `tool ${t.name} must declare boolean annotations.readOnlyHint`);
-      return {
-        name: t.name,
-        readOnly: t.annotations.readOnlyHint as boolean,
-        schema: t.inputSchema,
-      };
-    });
+    const actual = parseHttpTools(list.tools);
     assert.deepEqual(normalizeToolDefinitions(actual), normalizeToolDefinitions(expected));
   } finally {
     hand.close();
@@ -553,25 +561,54 @@ test('§6.44.2/§6.44.7 Catalogue comparison fails on mutations (missing, extra 
   });
   assert.throws(() => assert.deepEqual(normalizeToolDefinitions(lineMinimum), normalizeToolDefinitions(expected)));
 
-  // 8. apply_edit readOnlyHint 삭제 (§6.44.7)
+  // 8. apply_edit readOnly / readOnlyHint 누락 시 실패 검증 (§6.44.7, §6.44.10)
   const missingReadOnly = expected.map((t) =>
     t.name === 'apply_edit' ? { ...t, readOnly: undefined as unknown as boolean } : t
   );
   assert.throws(() => normalizeToolDefinitions(missingReadOnly));
 
-  // HTTP annotations.readOnlyHint 누락 시 실패 검증
+  // HTTP annotations.readOnlyHint 누락 시 실패 검증 (parseHttpTools 공통 함수 사용)
   const httpMissingHint = expected.map((t) => {
     if (t.name !== 'apply_edit') {
       return { name: t.name, inputSchema: t.schema, annotations: { readOnlyHint: t.readOnly } };
     }
     return { name: t.name, inputSchema: t.schema, annotations: {} };
   });
-  assert.throws(() => {
-    httpMissingHint.map((t) => {
-      assert.ok(t.annotations && typeof (t.annotations as any).readOnlyHint === 'boolean');
-      return { name: t.name, readOnly: (t.annotations as any).readOnlyHint, schema: t.inputSchema };
+  assert.throws(() => parseHttpTools(httpMissingHint));
+
+  // §6.44.10 readOnly 및 readOnlyHint boolean 타입 변이 검증 (문자열 "true"/"false", 숫자 0/1, null, 누락)
+  for (const invalid of ['true', 'false', 0, 1, null, undefined]) {
+    // 1) catalogue / handTools readOnly
+    const invalidReadOnly = expected.map((t) =>
+      t.name === 'apply_edit' ? { ...t, readOnly: invalid as unknown as boolean } : t
+    );
+    assert.throws(() => normalizeToolDefinitions(invalidReadOnly));
+
+    // 2) HTTP annotations.readOnlyHint
+    const invalidHttpHint = expected.map((t) => {
+      if (t.name !== 'apply_edit') {
+        return { name: t.name, inputSchema: t.schema, annotations: { readOnlyHint: t.readOnly } };
+      }
+      return { name: t.name, inputSchema: t.schema, annotations: { readOnlyHint: invalid } };
     });
-  });
+    assert.throws(() => parseHttpTools(invalidHttpHint));
+  }
+
+  // true / false 는 정상 통과
+  for (const validBool of [true, false]) {
+    const validReadOnly = expected.map((t) =>
+      t.name === 'apply_edit' ? { ...t, readOnly: validBool } : t
+    );
+    assert.doesNotThrow(() => normalizeToolDefinitions(validReadOnly));
+
+    const validHttpHint = expected.map((t) => {
+      if (t.name !== 'apply_edit') {
+        return { name: t.name, inputSchema: t.schema, annotations: { readOnlyHint: t.readOnly } };
+      }
+      return { name: t.name, inputSchema: t.schema, annotations: { readOnlyHint: validBool } };
+    });
+    assert.doesNotThrow(() => parseHttpTools(validHttpHint));
+  }
 });
 
 

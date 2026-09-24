@@ -1338,5 +1338,20 @@ node --test clients/vscode/out/test/*.property.test.js
 - **계약 fixture 격리 (`src/test/contract_fixture.test.ts`):**
   - 디렉터리 기반 검사에서 비시나리오 카탈로그 파일(`ide_hand_catalogue.json`)을 분리하여 §6.38 시나리오 5종 계약과 상충 없이 공존함을 보장합니다.
 
+---
+
+### §6.44.10 JetBrains/VS Code boolean JSON 타입 검사 및 HTTP 도구 파싱 공통화
+
+- **HTTP 도구 목록 파싱 공통화 (`parseHttpTools`)**:
+  - `src/test/hand.test.ts`에 `parseHttpTools(rawTools: unknown[]): { name: string; readOnly: boolean; schema: unknown }[]`를 추출.
+  - 정상 `tools/list` RPC 검증과 변이 테스트가 동일한 파서 및 단언기를 호출하도록 코드 중복을 해소.
+  - `assert.ok(t.annotations && typeof t.annotations.readOnlyHint === 'boolean')`으로 `annotations.readOnlyHint`의 엄격한 boolean 타입을 단언.
+
+- **도구 `readOnly` 및 HTTP `readOnlyHint` boolean 타입 변이 검증**:
+  - `normalizeToolDefinitions`(`readOnly`) 및 `parseHttpTools`(`readOnlyHint`) 양쪽 모두:
+    - boolean `true` / `false`: 정상 통과 (`assert.doesNotThrow`).
+    - 문자열 `"true"` / `"false"`, 숫자 `0` / `1`, `null`, `undefined`(누락) 변이에 대해 전수 거절(`assert.throws`) 검증.
+
+
 
 

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
 import org.junit.jupiter.api.Test
@@ -120,11 +121,11 @@ class HandServerTest {
             // 프로토콜 기본값(쓰기)으로 잡혀 `show` 가 「이 턴이 그 파일을 고쳤다」로 기록에 오른다.
             val ro = tools.associate {
                 it.jsonObject["name"]!!.jsonPrimitive.content to
-                    it.jsonObject["annotations"]?.jsonObject?.get("readOnlyHint")?.jsonPrimitive?.content
+                    requireBoolean(it.jsonObject["annotations"]?.jsonObject?.get("readOnlyHint"), "tool ${it.jsonObject["name"]} annotations.readOnlyHint")
             }
-            assertEquals("true", ro["show"], "show 는 파일을 안 고친다고 말해야 한다")
-            assertEquals("true", ro["problems"], "진단을 읽는 것은 아무것도 안 고친다")
-            assertEquals("false", ro["apply_edit"], "apply_edit 는 고친다 — 그래야 기록에 changed 로 오른다")
+            assertEquals(true, ro["show"], "show 는 파일을 안 고친다고 말해야 한다")
+            assertEquals(true, ro["problems"], "진단을 읽는 것은 아무것도 안 고친다")
+            assertEquals(false, ro["apply_edit"], "apply_edit 는 고친다 — 그래야 기록에 changed 로 오른다")
 
             // 진단은 **없던 도구**다. 경로를 안 주면 열린 파일 전부라는 것까지 계약이다.
             rpc(s, "tools/call", """{"name":"problems","arguments":{}}""")
@@ -277,6 +278,14 @@ class HandServerTest {
         }
     }
 
+    private fun requireBoolean(element: JsonElement?, label: String): Boolean {
+        check(element != null) { "$label: missing or null" }
+        check(element !is JsonNull) { "$label: must not be JsonNull" }
+        check(element is JsonPrimitive) { "$label: expected JsonPrimitive but was ${element::class.simpleName}" }
+        check(!element.isString) { "$label: boolean must not be encoded as a JSON string" }
+        return checkNotNull(element.booleanOrNull) { "$label: invalid boolean literal: $element" }
+    }
+
     private fun normalizeTool(name: String, readOnly: Boolean, schema: JsonObject): CanonicalTool {
         return CanonicalTool(name, readOnly, normalizeJsonElement(schema) as JsonObject)
     }
@@ -286,11 +295,19 @@ class HandServerTest {
         return array.map { el ->
             val obj = el.jsonObject
             val name = obj["name"]!!.jsonPrimitive.content
-            val roElement = obj["readOnly"] ?: error("tool $name missing readOnly")
-            val roPrimitive = roElement.jsonPrimitive
-            check(roPrimitive.booleanOrNull != null) { "tool $name readOnly must be boolean, got: $roPrimitive" }
-            val ro = roPrimitive.boolean
+            val ro = requireBoolean(obj["readOnly"], "tool $name readOnly")
             val schema = obj["schema"]!!.jsonObject
+            normalizeTool(name, ro, schema)
+        }.sortedBy { it.name }
+    }
+
+    private fun parseHttpTools(toolsArray: JsonArray): List<CanonicalTool> {
+        return toolsArray.map { el ->
+            val obj = el.jsonObject
+            val name = obj["name"]!!.jsonPrimitive.content
+            val annotations = obj["annotations"]?.jsonObject ?: error("tool $name missing annotations")
+            val ro = requireBoolean(annotations["readOnlyHint"], "tool $name annotations.readOnlyHint")
+            val schema = obj["inputSchema"]!!.jsonObject
             normalizeTool(name, ro, schema)
         }.sortedBy { it.name }
     }
@@ -309,16 +326,7 @@ class HandServerTest {
         val expected = parseCatalogue(catalogueFixtureFile.readText())
         HandServer.start(Hand(FakeIde())).use { s ->
             val tools = rpc(s, "tools/list")["result"]!!.jsonObject["tools"]!!.jsonArray
-            val actual = tools.map { el ->
-                val obj = el.jsonObject
-                val name = obj["name"]!!.jsonPrimitive.content
-                val annotations = obj["annotations"]?.jsonObject ?: error("tool $name missing annotations")
-                val hintElement = annotations["readOnlyHint"] ?: error("tool $name missing annotations.readOnlyHint")
-                check(hintElement.jsonPrimitive.booleanOrNull != null) { "tool $name readOnlyHint must be boolean, got: $hintElement" }
-                val ro = hintElement.jsonPrimitive.boolean
-                val schema = obj["inputSchema"]!!.jsonObject
-                normalizeTool(name, ro, schema)
-            }.sortedBy { it.name }
+            val actual = parseHttpTools(tools)
             assertEquals(expected, actual)
         }
     }
@@ -395,25 +403,100 @@ class HandServerTest {
         }
         assertNotEquals(expected, lineMinimum)
 
-        // 8. apply_edit readOnlyHint 삭제 (§6.44.7)
+        // 8. apply_edit readOnlyHint / readOnly 누락 및 잘못된 타입 거절 (§6.44.7, §6.44.10)
         assertThrows(IllegalStateException::class.java) {
             val toolObj = buildJsonObject {
                 put("name", "apply_edit")
+                put("inputSchema", buildJsonObject {})
                 put("annotations", buildJsonObject {}) // missing readOnlyHint
             }
-            val annotations = toolObj["annotations"]?.jsonObject ?: error("missing")
-            val hint = annotations["readOnlyHint"] ?: error("tool apply_edit missing annotations.readOnlyHint")
-            check(hint.jsonPrimitive.booleanOrNull != null)
-            hint.jsonPrimitive.boolean
+            parseHttpTools(JsonArray(listOf(toolObj)))
         }
         assertThrows(IllegalStateException::class.java) {
             val toolObj = buildJsonObject {
                 put("name", "apply_edit")
+                put("schema", buildJsonObject {})
                 // missing readOnly
             }
-            val ro = toolObj["readOnly"] ?: error("tool apply_edit missing readOnly")
-            check(ro.jsonPrimitive.booleanOrNull != null)
-            ro.jsonPrimitive.boolean
+            parseCatalogue(JsonArray(listOf(toolObj)).toString())
+        }
+
+        // §6.44.10 readOnly 및 readOnlyHint boolean 타입 변이 검증 (문자열 "true"/"false", 숫자 0/1, null, 누락)
+        val invalidPrimitives: List<JsonElement?> = listOf(
+            JsonPrimitive("true"),
+            JsonPrimitive("false"),
+            JsonPrimitive(0),
+            JsonPrimitive(1),
+            JsonNull,
+            null,
+        )
+        for (invalid in invalidPrimitives) {
+            // 1) parseHttpTools
+            assertThrows(IllegalStateException::class.java) {
+                val toolObj = buildJsonObject {
+                    put("name", "apply_edit")
+                    put("inputSchema", buildJsonObject {})
+                    put("annotations", buildJsonObject {
+                        if (invalid != null) put("readOnlyHint", invalid)
+                    })
+                }
+                parseHttpTools(JsonArray(listOf(toolObj)))
+            }
+            // 2) parseCatalogue
+            assertThrows(IllegalStateException::class.java) {
+                val toolObj = buildJsonObject {
+                    put("name", "apply_edit")
+                    put("schema", buildJsonObject {})
+                    if (invalid != null) put("readOnly", invalid)
+                }
+                parseCatalogue(JsonArray(listOf(toolObj)).toString())
+            }
+        }
+
+        val invalidNonPrimitives: List<JsonElement> = listOf(
+            JsonArray(emptyList()),
+            buildJsonObject {},
+        )
+        for (invalid in invalidNonPrimitives) {
+            assertThrows(IllegalStateException::class.java) {
+                val toolObj = buildJsonObject {
+                    put("name", "apply_edit")
+                    put("inputSchema", buildJsonObject {})
+                    put("annotations", buildJsonObject {
+                        put("readOnlyHint", invalid)
+                    })
+                }
+                parseHttpTools(JsonArray(listOf(toolObj)))
+            }
+            assertThrows(IllegalStateException::class.java) {
+                val toolObj = buildJsonObject {
+                    put("name", "apply_edit")
+                    put("schema", buildJsonObject {})
+                    put("readOnly", invalid)
+                }
+                parseCatalogue(JsonArray(listOf(toolObj)).toString())
+            }
+        }
+
+        // true / false 는 정상 통과
+        for (validBool in listOf(true, false)) {
+            val httpTool = buildJsonObject {
+                put("name", "apply_edit")
+                put("inputSchema", buildJsonObject {})
+                put("annotations", buildJsonObject {
+                    put("readOnlyHint", validBool)
+                })
+            }
+            val parsedHttp = parseHttpTools(JsonArray(listOf(httpTool)))
+            assertEquals(validBool, parsedHttp.first().readOnly)
+
+            val catTool = buildJsonObject {
+                put("name", "apply_edit")
+                put("schema", buildJsonObject {})
+                put("readOnly", validBool)
+            }
+            val parsedCat = parseCatalogue(JsonArray(listOf(catTool)).toString())
+            assertEquals(validBool, parsedCat.first().readOnly)
         }
     }
 }
