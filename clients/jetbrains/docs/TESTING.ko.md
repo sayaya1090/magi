@@ -35,7 +35,7 @@
   Go 와 같은가, 붙어 보고 만난 것을 어느 갈래로 가르는가, 문마다 무엇을 싣는가.
 - **파서**(`LookNotesTest` 4, `MarkdownTest` 5, `RowTextTest` 12) — 모델이 준 글자에서 줄번호를
   뽑고, 마크다운을 펴고, 행의 글자를 정한다.
-- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6, `ContractFixtureHostTest` 2) — 소켓 없이 「살았나·죽었나·나갔나」 판정, 공통 계약 fixture 5종 검증 및 실제 View 호스트 수명·복원 경로 연동.
+- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6, `ContractFixtureHostTest` 4) — 소켓 없이 「살았나·죽었나·나갔나」 판정, 공통 계약 fixture 5종 검증 및 실제 View 호스트 수명·복원 경로 연동.
 
 `RowTextTest`는 UI 컴포넌트 내부에 사설 함수로 흩어져 있던 문자열 계산 로직 6종을 core 계층으로 분리하여
 IDE 인스턴스 기동 없이 순수 단위 테스트로 상시 검증할 수 있도록 개선한 테스트입니다.
@@ -537,30 +537,30 @@ JetBrains 합계는 **380 통과·6 건너뜀**입니다. core 수치만 전체 
 
 | 기능·조작 | VS Code 구현 경로 | JetBrains 구현 경로 | 차이·판정·검증 근거 |
 |---|---|---|---|
-| 전사·스트리밍·Think | core/transcript.ts, web/chat_html.ts | core/usecase/Rows.kt, UI/MagiToolWindow.kt rowPanel | 양쪽 구현 확인. Think 기본 펼침은 공통. RowsTest·RowTextTest와 VS 브라우저는 통과했지만 동일 사건 묶음으로 양쪽 화면 전체 동등성을 검사한 것은 아님 |
-| Markdown·긴 코드 | web/markdown_render.ts | UI/RichAnswer.kt, Look.kt | 의도된 구현 차이. JB는 Markdown 플러그인/JCEF 사용 가능 여부와 최근 4개·고정 탭 여부에 따라 경량 렌더로 폴백. 모든 과거 답변에서 같은 서식이라고 보장하지 않음 |
-| 도구 인자·결과 전문 | web/chat_html.ts, core/transcript.ts | UI/MagiToolWindow.kt Who.Tool, core/usecase/Rows.kt | 양쪽 펼침 경로 있음. JB는 접힌 도구 결과를 첫 줄로 보여 줌. 공통 브리지 렌더링 전환은 양쪽 미완료 |
-| 선택형 질문 | web/chat_html.ts, web/chat_adapter.ts | UI/MagiToolWindow.kt drawPrompt/add | 부분 대응. VS는 본문 선택지 전문·번호 축약 버튼·직접 입력, JB는 원문 버튼만 생성. CompanionTest는 answer RPC를 검증하며 버튼 폭·다수 선택지 실물 동등성은 미검증 |
-| 자유 질문·선택지 외 직접 답변 | core/answer_state.ts, web/chat_adapter.ts | core/model/Wire.kt Waiting.ask, UI drawPrompt | **JB 기능 없음.** options가 비면 Undrawable, 선택형도 직접 입력 버튼 없음. AskTest는 현재 거절 계약을 명시적으로 통과함. 다만 기본 Go ask_user는 현재 최소 2개 선택지를 요구하므로 자유 질문이 기본 도구에서 항상 발생하는 장애라고 단정하지 않음 |
+| 전사·스트리밍·Think | core/transcript.ts, web/chat_html.ts | Rows.kt, MagiToolWindow.kt rowPanel | 양쪽 구현 확인. Think 기본 펼침은 공통. RowsTest·RowTextTest와 VS 브라우저는 통과했지만 동일 사건 묶음으로 양쪽 화면 전체 동등성을 검사한 것은 아님 |
+| Markdown·긴 코드 | web/markdown_render.ts | RichAnswer.kt, Look.kt | 의도된 구현 차이. JB는 Markdown 플러그인/JCEF 사용 가능 여부와 최근 4개·고정 탭 여부에 따라 경량 렌더로 폴백. 모든 과거 답변에서 같은 서식이라고 보장하지 않음 |
+| 도구 인자·결과 전문 | web/chat_html.ts, core/transcript.ts | MagiToolWindow.kt Who.Tool, Rows.kt | 양쪽 펼침 경로 있음. JB는 접힌 도구 결과를 첫 줄로 보여 줌. 공통 브리지 렌더링 전환은 양쪽 미완료 |
+| 선택형 질문 | web/chat_html.ts, web/chat_adapter.ts | MagiToolWindow.kt drawPrompt/add | 부분 대응. VS는 본문 선택지 전문·번호 축약 버튼·직접 입력, JB는 원문 버튼만 생성. CompanionTest는 answer RPC를 검증하며 버튼 폭·다수 선택지 실물 동등성은 미검증 |
+| 자유 질문·선택지 외 직접 답변 | core/answer_state.ts, web/chat_adapter.ts | Wire.kt Waiting.ask, UI drawPrompt | **JB 기능 없음.** options가 비면 Undrawable, 선택형도 직접 입력 버튼 없음. AskTest는 현재 거절 계약을 명시적으로 통과함. 다만 기본 Go ask_user는 현재 최소 2개 선택지를 요구하므로 자유 질문이 기본 도구에서 항상 발생하는 장애라고 단정하지 않음 |
 | 일반/질문 초안·Esc·재진입 | core/answer_state.ts | UI의 단일 input, drawPrompt | **JB의 대응 상태 모델 없음.** 일반 입력은 질문 answer가 아니라 submit/steer로 전달. VS AnswerState/브라우저 결과와 같은 수준의 보존 계약이 없음 |
 | 질문 전송 잠금·늦은 결과·복구 목록 | core/answer_state.ts, web/recovery_controller.ts | UI add, Workspace.onDaemon | JB는 비동기 RPC 결과 실패 안내는 있으나 클라이언트 시도 ID·질문별 in-flight·복구 목록의 대응 구현 없음. 서버가 중복 답변을 거절하는 것과 클라이언트 중복 제출 방지는 다른 계약 |
-| 일반 전송 후 새 초안 보존 | core/answer_state.ts submitSay, web/chat_adapter.ts send | UI MagiToolWindow.kt say | **코드상 손실 위험.** JB 성공 콜백이 입력을 무조건 비움. 아래 J1 참고. 지연 응답을 이용한 UI 재현은 미수행 |
-| 승인 allow/deny/always | ide/chat.ts, core 프로토콜 | core/usecase/Companion.kt decide, UI drawPrompt | 공통 전송 토큰 확인. VS 브라우저와 JB CompanionTest 통과. 클릭 중복·세션 전환 교차 동등성은 미검증. 항상 허용의 의미는 서버 계약을 따름 |
-| 승인 diff | ide/diff.ts, core/diff.ts | UI openApprovalDiff, core/usecase/Rows.kt EditSides | 두 IDE 모두 네이티브 두 면/원문 패치 경로 있음. JB는 diff가 있어야 버튼이 뜨고 패치는 읽기 전용 PlainText LightVirtualFile. VS의 세션별 불변 캐시·열린 탭 보호·상한 관리와 같은 수명 계약은 확인되지 않음 |
+| 일반 전송 후 새 초안 보존 | core/answer_state.ts submitSay, web/chat_adapter.ts send | MagiToolWindow.kt say | **코드상 손실 위험.** JB 성공 콜백이 입력을 무조건 비움. 아래 J1 참고. 지연 응답을 이용한 UI 재현은 미수행 |
+| 승인 allow/deny/always | ide/chat.ts, core 프로토콜 | Companion.kt decide, UI drawPrompt | 공통 전송 토큰 확인. VS 브라우저와 JB CompanionTest 통과. 클릭 중복·세션 전환 교차 동등성은 미검증. 항상 허용의 의미는 서버 계약을 따름 |
+| 승인 diff | ide/diff.ts, core/diff.ts | UI openApprovalDiff, Rows.kt EditSides | 두 IDE 모두 네이티브 두 면/원문 패치 경로 있음. JB는 diff가 있어야 버튼이 뜨고 패치는 읽기 전용 PlainText LightVirtualFile. VS의 세션별 불변 캐시·열린 탭 보호·상한 관리와 같은 수명 계약은 확인되지 않음 |
 | 답변·결과 원문 편집창 열기 | ide/output.ts, core/output.ts | UI rowPanel, RichAnswer.kt | **JB 대응 액션 없음.** RichAnswer의 LightVirtualFile은 내장 Markdown 렌더링용이며 독립 원문 열기 기능이 아님. diff 열기와 복사는 존재 |
 | 파일·줄 이동 | ide/chat.ts의 파일 열기 및 ide/hand.ts | IdeHand.show, LookInlays·LookBanner 등 | 양쪽 IDE 파일 이동 경로 있음. 모든 전사 파일 참조의 클릭 대상·행 오프셋까지 동일하다는 판정은 보류 |
 | 빈 전사·연결 안내 | core/activity.ts, web/chat_adapter.ts | UI redrawLog의 Look.welcome, mood/link/notice | 양쪽 구현 있음. JB HeadlessIdeTest는 caughtUp 뒤 환영 문구를 검사. VS의 state×rows×ask 표와 달리 JB 환영 판정은 rows.isEmpty만 보므로 질문 공존 계약 차이 존재 |
-| 시작·재시도·재접속 | ide lifecycle, core lifecycle | UI/StartDaemon.kt, Workspace.kt, View follow/reattach | 양쪽 구현 및 단위 경로 확인. JB의 isUnitTestMode 기동 차단 때문에 헤드리스 통과를 실물 수동 재시도 통과로 읽지 않음 |
+| 시작·재시도·재접속 | ide lifecycle, core lifecycle | StartDaemon.kt, Workspace.kt, View follow/reattach | 양쪽 구현 및 단위 경로 확인. JB의 isUnitTestMode 기동 차단 때문에 헤드리스 통과를 실물 수동 재시도 통과로 읽지 않음 |
 | 대화 자동완성·@파일 | web/chat_adapter.ts, autocomplete 관련 모듈 | UI askSuggestion/askFiles | 부분 대응. JB는 응답 시 현재 prefix/token 비교, VS는 요청 식별·모드 문맥 무효화. 같은 글자로 돌아오는 ABA·dispose 뒤 늦은 응답은 JB 추가 검증 필요 |
 | 에디터 완성·진단·첨부 | ide/complete.ts·hand.ts·extension.ts | InlineCompletion.kt, Attach.kt, LookWhileTyping.kt, IdeHand.kt | 양쪽 구현 확인. IDE 제공 취소/EDT·문서 접근 방식은 다름. JB 첨부가 저장을 수행하는 계약과 미저장 버퍼 진단을 구별해야 함 |
 | 코드 설명·작성 출처·커밋 초안 | ide/extension.ts에 등록된 액션 | plugin.xml, Intentions.kt, WroteThisAction.kt, DraftCommitAction.kt | 양쪽 사용자 진입점 구현. JB 콘솔/터미널·VCS는 선택 플러그인 조건이 있어 비활성/미노출을 무조건 결함으로 세지 않음 |
 | 모델·권한·계획·예약·대화 관리 | ide/extension.ts 및 plan/설정 경로 | showInfo, MagiConfigurable.kt, PlanToolWindow.kt, Sessions | 양쪽 주요 경로 있음. VS QuickPick·명령과 JB 설정·팝업·고정 세션 탭은 의도된 UX 차이. 모든 관리 조작의 실물 왕복은 이번에 미검증 |
 | 프로젝트·세션 수명 | ide/chat.ts 및 lifecycle | Workspace.connect, View.dispose, Sessions.open | 구현 있으나 동등성 검증 부족. JB 일반 전송의 대상 session은 작업 스레드가 Published를 읽을 때 결정. 클릭 시점 세션 고정·늦은 콜백·닫기/재열기 교차 인수 필요 |
-| IDE 제공 모델 도구 | core/hand.ts, ide/hand.ts, handserver | core/usecase/Hand.kt, transport/HandServer.kt, UI/IdeHand.kt | show/apply_edit/problems의 이름·주요 입력·readOnly 계약은 대응. 양쪽 등록 경로 존재. 진단 생략 path는 VS가 진단 전체, JB가 열린 파일만 읽는 차이가 있으므로 결과 범위까지 동일하지 않음 |
+| IDE 제공 모델 도구 | core/hand.ts, ide/hand.ts, handserver | Hand.kt, HandServer.kt, IdeHand.kt | show/apply_edit/problems의 이름·주요 입력·readOnly 계약은 대응. 양쪽 등록 경로 존재. 진단 생략 path는 VS가 진단 전체, JB가 열린 파일만 읽는 차이가 있으므로 결과 범위까지 동일하지 않음 |
 
 ### 우선순위와 다음 구현 한 묶음
 
-**J1: JetBrains 일반 전송의 새 초안 보존을 먼저 처리합니다.** UI/MagiToolWindow.kt의 say는 클릭 시 text와 refs를 읽고 Workspace.onDaemon으로 넘깁니다. comp.say 성공 뒤 EDT 콜백은 input.text를 무조건 빈 값으로 설정합니다. 입력은 요청 대기 동안 비활성화되지 않습니다. 따라서 A 제출 → 응답 대기 중 B 작성 → A 성공 순서에서 B를 지우는 코드 경로가 있습니다. 이것은 코드 근거이며 지연 RPC를 통한 실행 재현은 아직 없습니다. 첨부는 carry만 제거하도록 이미 구현되어 있으므로 유지합니다.
+**J1: JetBrains 일반 전송의 새 초안 보존을 먼저 처리합니다.** MagiToolWindow.kt의 say는 클릭 시 text와 refs를 읽고 Workspace.onDaemon으로 넘깁니다. comp.say 성공 뒤 EDT 콜백은 input.text를 무조건 빈 값으로 설정합니다. 입력은 요청 대기 동안 비활성화되지 않습니다. 따라서 A 제출 → 응답 대기 중 B 작성 → A 성공 순서에서 B를 지우는 코드 경로가 있습니다. 이것은 코드 근거이며 지연 RPC를 통한 실행 재현은 아직 없습니다. 첨부는 carry만 제거하도록 이미 구현되어 있으므로 유지합니다.
 
 다음 작업은 이 전송 경로에 한정합니다. 먼저 응답 완료를 제어할 수 있는 얇은 전송 경계를 만들고 실제 UI 핸들러가 그 경계를 사용하도록 합니다. 별도 복사 로직을 테스트하지 않습니다. 전송 시 입력을 비우는 방식과 성공 시 같은 편집 버전에만 지우는 방식 중 계약을 명시하고, 문자열 동일 비교만 사용하지 않습니다(A→B→A도 새 편집입니다). 실패 시 새 입력을 덮어쓰지 않아야 하며, 제출한 텍스트의 재시도·복구 가능성을 보존합니다. 세션/프로젝트/뷰 귀속을 제출 시 고정하고 dispose 뒤 완료가 새 입력을 건드리지 않게 합니다.
 
@@ -1142,7 +1142,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - Java / JDK: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
 - IDE: IntelliJ Platform 2026.1 (IU-2026.1 sandbox, 1400×1000 윈도우, PID 61794 / 61417)
 - UI 언어: 한국어 (Korean), 테마: 라이트 (Light Theme), 배율: 1x, 시각: 2026-09-24 09:05 ~ 09:13 KST
-- 데몬 환경: `/tmp/magi-answer-live` 독립 소켓 및 프로젝트 파일(`file1.txt`, `file2.txt`, `src/hello.kt`), 질문 `live-q1`("Which approach should we use?", 선택지 `Alpha`, `Beta`)
+- 데몬 환경: `/tmp/magi-answer-live` 독립 소켓 및 프로젝트 파일(`file1.txt`, `file2.txt`, `src/hello.txt`), 질문 `live-q1`("Which approach should we use?", 선택지 `Alpha`, `Beta`)
 
 #### 2. @ 파일 선택 전체 흐름 실물 인수 (`clients/jetbrains/docs/img/evidence/`)
 - **후보 팝업 노출 (`sandbox_mention_popup.png`)**:
@@ -1153,7 +1153,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - 본문에서 `@fi` 토큰이 제거되어 `Check `로 복원되고, 컴포저 상단에 올바른 파일 참조 칩 `file1.txt ✕`가 생성되며, 포커스가 컴포저로 안전하게 복귀함을 확인.
   - **자동 전송 0회 확인**: `requests.jsonl` 전수 검사 결과, 제안/glob 외에 일반 메시지(`say`/`submit`)가 0회 전송되었음을 실측.
 - **선택 취소(Esc) 시 본문·초안·칩 불변 검증 (`sandbox_mention_cancelled.png`)**:
-  - 이어서 `@he` 입력하여 두 번째 팝업(`src/hello.kt`) 표출 확인 후 `Esc` (key code 53) 타건.
+  - 이어서 `@he` 입력하여 두 번째 팝업(`src/hello.txt`) 표출 확인 후 `Esc` (key code 53) 타건.
   - 팝업이 즉시 닫히며 입력 본문(`Check @he`), 기존 첨부 칩(`file1.txt ✕`)이 1개도 변경되거나 유실되지 않고 온전히 유지됨을 확인.
   - **자동 전송 0회 확인**: `requests.jsonl` 실측 결과 0회 전송.
 
@@ -1335,7 +1335,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 #### 8. 공통 계약 fixture 도입 및 양 플랫폼 실행기 구축 (§6.38)
 - **배경 및 구조 비교**:
   - JetBrains(`AnswerDrafts`/`SendDrafts`)와 VS Code(`answer_state`/`recovery_state`) 간 초안 보존, 질문 잠금, 세션 격리, 복구 관리의 핵심 불변식을 단일 진실 공급원(Single Source of Truth)으로 유지하기 위해 공통 JSON fixture 체계 구축.
-  - `clients/test-fixtures/` 디렉터리에 단일 원본 JSON 파일 5종 및 플랫폼 차이 대응표(`README.md`)를 보관하며, 복사본 없이 양 플랫폼 실행기가 동일한 파일을 직접 소비.
+  - `clients/test-fixtures/` 디렉터리에 단일 원본 JSON 파일 5종 및 플랫폼 차이 대응표(`clients/test-fixtures/README.md`)를 보관하며, 복사본 없이 양 플랫폼 실행기가 동일한 파일을 직접 소비.
 
 - **공통 JSON fixture 5종 (`clients/test-fixtures/`)**:
   1. `late_failure.json`: A 제출 → B 사용자 편집 → A 실패. B 입력 유지, 실패한 A의 복구 정보 보존, 시도별 잠금 해제.
@@ -1353,6 +1353,8 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 실제 `MagiToolWindow.View` 인스턴스를 생성하여 Swing 입력 이벤트, `restoreAnswerText` 복원 경로, `closing` 수명 가드 검증.
     - `same_string_edit`: A → B → A 실제 사용자 편집 후 `restoreAnswerText` 호출 시 `version == 3` 불변 및 후속 편집 시 `version == 4` 증가 실측.
     - `disposed_callback`: View 소유자 해제(`Disposer.dispose(view)`) 후 늦은 완료 콜백 및 선택 콜백 도달 시 `inputChanges`, `documentsOpened`, `newRequests`, `uiSideEffects` 0건 및 `canSubmit == false` 실측.
+    - `disposed callback after exchange started against actual finishAnswer EDT callback`: 실제 `comp.answer()` 호출 후 `Daemon.exchange` in-flight 중 View가 dispose된 후 도달한 늦은 결과가 `finishAnswer`의 EDT 콜백(`closing.get()` 가드)에 의해 차단되어 완료 상태가 무효화됨을 비동기 latch로 실측 (정상 생존 View 대조군 포함).
+    - `selection callback invalidation against actual View lifecycle without prior submit`: submit 없는 최신 `inputEpoch`에서 획득한 선택 콜백도 View dispose 후 `closing.get()` 가드에 의해 `input.text` 및 carry 칩 변경이 차단됨을 실측 (정상 생존 View 대조군 포함).
   - VS Code 실행기: `src/test/contract_fixture.test.ts`
     - 순수 모델 5종 검사(`runPureModelScenario`) 및 실제 호스트 어댑터 2종 검사(`runHostScenario`) 분리 검증.
     - `createWebviewInputAdapter` 및 `createSuggestController`와 연동하여 DOM/어댑터 수명 차단 검증.
@@ -1370,12 +1372,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 - **전체 회귀 검증 결과 (2026-09-24)**:
   - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
-    - 결과: 종료 코드 0, 19개 task 전체 성공 (37초 소요).
-    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 84 통과 (총 84개 중), **합계 474 통과·5 건너뜀·0 실패 (총 479개 중)**.
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (38초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 88 통과 (총 88개 중), **합계 478 통과·5 건너뜀·0 실패 (총 483개 중)**.
   - VS Code Suite: `npm test --prefix clients/vscode`
-    - 결과: 종료 코드 0, **528 통과·7 건너뜀·0 실패** (총 535개 중, 4.6초 소요).
+    - 결과: 종료 코드 0, **530 통과·7 건너뜀·0 실패** (총 537개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
-    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.0초 소요)**.
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.0초 소요)**.
 
 
 

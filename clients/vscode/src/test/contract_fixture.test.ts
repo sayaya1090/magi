@@ -255,6 +255,7 @@ function runPureModelScenario(fixture: FixtureData): void {
     // Assertions
     if (step.assert) {
       const ass = step.assert;
+      const unhandledKeys = new Set(Object.keys(ass));
       for (const k of Object.keys(ass)) {
         if (!VALID_ASSERT_KEYS.has(k)) {
           assert.fail(`[${scenarioId}] Step ${stepNum}: unknown assertion key '${k}'`);
@@ -271,59 +272,80 @@ function runPureModelScenario(fixture: FixtureData): void {
 
       if (ass.currentSession !== undefined) {
         check('currentSession', ass.currentSession, currentSession);
+        unhandledKeys.delete('currentSession');
       }
       if (ass.currentCallId !== undefined) {
         check('currentCallId', ass.currentCallId, currentCallId);
+        unhandledKeys.delete('currentCallId');
       }
       if (ass.inFlight !== undefined) {
         const inFlight = currentCallId ? mgr.isInFlight(currentCallId, companionKey, currentSession) : false;
         check('inFlight', ass.inFlight, inFlight);
+        unhandledKeys.delete('inFlight');
       }
       if (ass.inputText !== undefined) {
         check('inputText', ass.inputText, currentInputText);
+        unhandledKeys.delete('inputText');
       }
       if (ass.recoveriesCount !== undefined) {
         const recs = mgr.getRecoveryState().listItems({ companionKey, sessionId: currentSession });
         check('recoveriesCount', ass.recoveriesCount, recs.length);
+        unhandledKeys.delete('recoveriesCount');
       }
       if (ass.hasRecoveryForText !== undefined) {
         const recs = mgr.getRecoveryState().listItems({ companionKey, sessionId: currentSession });
         const has = recs.some((r) => r.text === ass.hasRecoveryForText);
         check('hasRecoveryForText', true, has);
+        unhandledKeys.delete('hasRecoveryForText');
       }
       if (ass.isDone !== undefined) {
         const inFlight = currentCallId ? mgr.isInFlight(currentCallId, companionKey, currentSession) : false;
         const qDraft = currentCallId ? mgr.getQuestionDraft(currentCallId, companionKey, currentSession) : '';
         const isDone = !inFlight && qDraft === '';
         check('isDone', ass.isDone, isDone);
+        unhandledKeys.delete('isDone');
       }
       if (ass.version !== undefined) {
         const ver = currentCallId ? mgr.getDraftVersion(currentCallId, companionKey, currentSession) : 0;
         check('version', ass.version, ver);
+        unhandledKeys.delete('version');
       }
       if (ass.isProgrammaticRestore !== undefined) {
         check('isProgrammaticRestore', ass.isProgrammaticRestore, isProgrammaticRestore);
+        unhandledKeys.delete('isProgrammaticRestore');
       }
       if (ass.isClosed !== undefined) {
         check('isClosed', ass.isClosed, isClosed);
+        unhandledKeys.delete('isClosed');
       }
       if (ass.inputChanges !== undefined) {
         check('inputChanges', ass.inputChanges, inputChanges);
+        unhandledKeys.delete('inputChanges');
       }
       if (ass.documentsOpened !== undefined) {
         check('documentsOpened', ass.documentsOpened, documentsOpened);
+        unhandledKeys.delete('documentsOpened');
       }
       if (ass.newRequests !== undefined) {
         check('newRequests', ass.newRequests, newRequests);
+        unhandledKeys.delete('newRequests');
       }
       if (ass.uiSideEffects !== undefined) {
         const actualEffects = inputChanges + documentsOpened + newRequests;
         check('uiSideEffects', ass.uiSideEffects, actualEffects);
+        unhandledKeys.delete('uiSideEffects');
       }
       if (ass.canSubmit !== undefined) {
         const inFlight = currentCallId ? mgr.isInFlight(currentCallId, companionKey, currentSession) : false;
         const canSubmit = !isClosed && !inFlight;
         check('canSubmit', ass.canSubmit, canSubmit);
+        unhandledKeys.delete('canSubmit');
+      }
+
+      if (unhandledKeys.size > 0) {
+        assert.fail(
+          `[${scenarioId}] Step ${stepNum}: unhandled assertion keys in pure model runner: ${Array.from(unhandledKeys).join(', ')}`
+        );
       }
     }
   }
@@ -389,12 +411,24 @@ function runHostScenario(fixture: FixtureData): void {
 
   const adapter = createWebviewInputAdapter(elements, actions, state, suggestCtrl);
 
-  // 대조군(Control): 정상 상태에서 콜백이 동작함을 사전 검증
+  // 대조군(Control): 정상 생존 상태에서 제안·멘션 및 선택 콜백이 실제 적용됨을 사전 검증
   adapter.onContextChange(companionKey, 'ctrl-sess');
-  say.value = 'Control Edit';
-  state.onInputChange('Control Edit');
-  const baseVer = state.getDraftVersion('general', companionKey, 'ctrl-sess');
-  assert.ok(baseVer >= 0, 'Observer must be wired up');
+  say.value = 'Control Draft';
+  state.onInputChange('Control Draft');
+  const ctrlReqId = suggestCtrl.getReqId();
+  adapter.handleMentions(['file1.txt', 'file2.txt'], ctrlReqId, 'general');
+  assert.equal(hintEl.textContent, 'files: file1.txt  file2.txt', 'Control mentions must update hintEl');
+  assert.deepEqual(suggestCtrl.getMentions(), ['file1.txt', 'file2.txt'], 'Control mentions must update suggestCtrl');
+  adapter.handleSuggestion('suggested_cmd', ctrlReqId, 'general');
+  assert.equal(hintEl.textContent, 'Tab: suggested_cmd', 'Control suggestion must update hintEl');
+  say.value = '';
+  adapter.handleCompose('Control Draft file1.txt');
+  assert.equal(say.value, 'Control Draft file1.txt', 'Control compose must update say.value');
+
+  // 리셋
+  say.value = '';
+  hintEl.textContent = '';
+  suggestCtrl.clearSuggestion();
 
   let currentSession = '';
   let currentCallId = '';
@@ -490,12 +524,12 @@ function runHostScenario(fixture: FixtureData): void {
         const prevRequests = newRequests;
         const prevDocs = documentsOpened;
 
-        // Dispose된 어댑터에 늦은 완료 콜백 주입
+        // Dispose된 어댑터에 늦은 완료 콜백 주입 (ok 및 attemptKey 동적 소비)
         adapter.handleReplyResult(
           {
             callId: att.callId,
             attemptId: att.attemptId,
-            ok: step.ok ?? false,
+            ok: step.ok ?? true,
             error: step.error,
             companionKey,
             session: att.session,
@@ -518,10 +552,11 @@ function runHostScenario(fixture: FixtureData): void {
         const prevDocs = documentsOpened;
         const prevHint = hintEl.textContent;
 
-        // Dispose된 서제스트 컨트롤러/어댑터에 늦은 선택/제안 콜백 주입
+        // Dispose된 서제스트 컨트롤러/어댑터에 늦은 선택/제안/컴포즈 콜백 주입
         const curReqId = suggestCtrl.getReqId();
         adapter.handleSuggestion(step.token || 'suggested', curReqId, currentCallId || 'general');
         adapter.handleMentions([step.token || 'file1.txt'], curReqId, currentCallId || 'general');
+        adapter.handleCompose(step.token || 'file1.txt');
 
         if (isClosed) {
           if (say.value !== prevSay) postDisposeInputChanges++;
@@ -537,6 +572,7 @@ function runHostScenario(fixture: FixtureData): void {
 
     if (step.assert) {
       const ass = step.assert;
+      const unhandledKeys = new Set(Object.keys(ass));
       for (const k of Object.keys(ass)) {
         if (!VALID_ASSERT_KEYS.has(k)) {
           assert.fail(`[${scenarioId}] Step ${stepNum}: unknown assertion key '${k}'`);
@@ -553,44 +589,65 @@ function runHostScenario(fixture: FixtureData): void {
 
       if (ass.currentSession !== undefined) {
         check('currentSession', ass.currentSession, currentSession);
+        unhandledKeys.delete('currentSession');
       }
       if (ass.currentCallId !== undefined) {
         check('currentCallId', ass.currentCallId, currentCallId);
+        unhandledKeys.delete('currentCallId');
       }
       if (ass.inFlight !== undefined) {
         const inFlight = currentCallId ? state.isInFlight(currentCallId, companionKey, currentSession) : false;
         check('inFlight', ass.inFlight, inFlight);
+        unhandledKeys.delete('inFlight');
       }
       if (ass.inputText !== undefined) {
         check('inputText', ass.inputText, say.value);
+        unhandledKeys.delete('inputText');
       }
       if (ass.isProgrammaticRestore !== undefined) {
         // 호스트에서 restore 액션은 applyAnswerModeUI를 호출하여 사용자 입력 이벤트 없이 직접 반영됨
         check('isProgrammaticRestore', ass.isProgrammaticRestore, action === 'restore');
+        unhandledKeys.delete('isProgrammaticRestore');
       }
       if (ass.version !== undefined) {
         const ver = state.getDraftVersion(currentCallId, companionKey, currentSession);
         check('version', ass.version, ver);
+        unhandledKeys.delete('version');
       }
       if (ass.isClosed !== undefined) {
         check('isClosed', ass.isClosed, isClosed);
+        unhandledKeys.delete('isClosed');
       }
       if (ass.inputChanges !== undefined) {
         check('inputChanges', ass.inputChanges, postDisposeInputChanges);
+        unhandledKeys.delete('inputChanges');
       }
       if (ass.documentsOpened !== undefined) {
         check('documentsOpened', ass.documentsOpened, postDisposeDocsOpened);
+        unhandledKeys.delete('documentsOpened');
       }
       if (ass.newRequests !== undefined) {
         check('newRequests', ass.newRequests, postDisposeNewRequests);
+        unhandledKeys.delete('newRequests');
       }
       if (ass.uiSideEffects !== undefined) {
         const actual = postDisposeInputChanges + postDisposeDocsOpened + postDisposeNewRequests;
         check('uiSideEffects', ass.uiSideEffects, actual);
+        unhandledKeys.delete('uiSideEffects');
       }
       if (ass.canSubmit !== undefined) {
-        const canSubmit = !isClosed;
-        check('canSubmit', ass.canSubmit, canSubmit);
+        // 실제 전송 API 호출 시도: 종료된 어댑터는 신규 요청을 전송하지 않아야 함
+        const reqsBefore = newRequests;
+        adapter.send();
+        const actualCanSubmit = newRequests > reqsBefore;
+        check('canSubmit', ass.canSubmit, actualCanSubmit);
+        unhandledKeys.delete('canSubmit');
+      }
+
+      if (unhandledKeys.size > 0) {
+        assert.fail(
+          `[${scenarioId}] Step ${stepNum}: unhandled assertion keys in host runner: ${Array.from(unhandledKeys).join(', ')}`
+        );
       }
     }
   }

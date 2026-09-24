@@ -44,7 +44,8 @@ SKIP_DIRS = {".git", "build", "node_modules", ".gradle", "vendor", "scratchpad",
 BARE = (r'(?<![\w:/.])((?:[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt)'
         r'|[A-Za-z_][A-Za-z_.-]*(?:/[A-Za-z_.-]+)+\.(?:js|mjs)))(?![\w])')
 # 심볼 정규식: 숫자를 포함하는 식별자(예: `sha256Of`)도 누락 없이 수집하도록 `\w`를 허용합니다.
-SYMBOL = re.compile(r'`?' + BARE + r'`?[^`\n]{0,14}`([A-Za-z_][\w.]*)`')
+# 쉼표(,)는 파일 목록 구분자이므로 파일명과 심볼 사이의 연결어에서 제외합니다.
+SYMBOL = re.compile(r'`?' + BARE + r'`?[^`\n,]{0,14}`([A-Za-z_][\w.]*)`')
 QUOTE = re.compile(r'`?' + BARE + r'`?[^`\n"]{0,30}"([^"\n]{12,120})"')
 MENTION = re.compile(r'`?' + BARE + r'`?')
 LINENO = re.compile(r'(?<![\w:/])[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt|ts|js|mjs|yml):\d+')

@@ -584,6 +584,7 @@ export function createWebviewInputAdapter(
   let currentWebviewId = '';
   let creationSeq = 0;
   let activeCreationTaskId: string | null = null;
+  let disposed = false;
 
   function updateInFlightStatus(): void {
     const uiRes = updateInFlightUI({
@@ -798,6 +799,7 @@ export function createWebviewInputAdapter(
   }
 
   function send(): void {
+    if (disposed) return;
     const t = say.value.trim();
     if (!t) return;
     const pending = answerState.getPendingQuestion();
@@ -863,6 +865,7 @@ export function createWebviewInputAdapter(
   }
 
   function submitChoice(callId: string, option: string): boolean {
+    if (disposed) return false;
     const replyTitle = (replyTargetEl?.textContent || '').trim() || undefined;
     const res = answerState.submitReply(callId, option, true, replyTitle);
     if (!res.ok) {
@@ -898,6 +901,7 @@ export function createWebviewInputAdapter(
   }
 
   function handleCompose(text: string): void {
+    if (disposed) return;
     clearAutoCompletion();
     const lead = text || '';
     say.value = lead + say.value;
@@ -910,6 +914,7 @@ export function createWebviewInputAdapter(
   }
 
   function handleMentions(files: string[], reqId?: number, target?: string): void {
+    if (disposed) return;
     const currentTarget = answerState.getPendingQuestion() || 'general';
     if (!suggestCtrl.acceptMentions(files, reqId, target ?? currentTarget)) return;
     const mentions = suggestCtrl.getMentions();
@@ -919,6 +924,7 @@ export function createWebviewInputAdapter(
   }
 
   function handleSuggestion(text: string, reqId?: number, target?: string): void {
+    if (disposed) return;
     const currentTarget = answerState.getPendingQuestion() || 'general';
     if (!suggestCtrl.acceptSuggestion(text, reqId, target ?? currentTarget)) return;
     const suggestion = suggestCtrl.getSuggestion();
@@ -941,6 +947,7 @@ export function createWebviewInputAdapter(
     },
     currentAsk: Ask | null
   ): void {
+    if (disposed) return;
     const res = answerState.onReplyResult(m, currentAsk as unknown as AskEvent | null);
     if (res.reenterAnswerMode) {
       applyAnswerModeUI(res.targetLabel, res.nextInputText);
@@ -1022,6 +1029,8 @@ export function createWebviewInputAdapter(
     getCurrentCompanionKey: () => currentCompanionKey,
     updateInFlightStatus,
     dispose(): void {
+      if (disposed) return;
+      disposed = true;
       suggestCtrl.dispose();
       say.removeEventListener('keydown', onKeyDown);
       say.removeEventListener('input', onInput);

@@ -315,6 +315,9 @@ func TestTheRowFieldsMatchTheKotlinCopy(t *testing.T) {
 			"사실은 가 있고 모양만 다르다.",
 		"why": "카운슬의 결론 행에서 `continue` 를 붙들고 있는 반대. 이 문은 그것을 결론 행의 " +
 			"`text` 에 이어 붙인다 — 사실은 가 있고, 따로 뽑아 그릴지는 화면의 결정이다.",
+		"outputSeq": "확정된 답변이나 도구 결과의 이벤트 순번. 젯브레인 에디터 탭 제목 및 식별에 사용된다.",
+		"outputText": "확정된 답변 또는 도구 결과 전문. 젯브레인은 가상 문서 URI 대신 행에 전문을 직접 보존하여 읽기 전용 에디터 탭으로 연다.",
+		"outputJson": "도구 결과가 JSON 형식인지 여부. 젯브레인 에디터 탭 열기 시 JSON 언어 문법 강조 적용에 사용된다.",
 	}
 	for f := range mine {
 		if got[f] {
