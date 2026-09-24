@@ -1484,16 +1484,20 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     8. `test valid candidate selection clears dismissedToken and accepts choice`
     9. `test dispose rejects in-flight delivery presentation and selection`
     10. `test extractAtToken parsing rules` 및 `test escapeGlob escapes all special glob meta characters`
-  - `SuggestCoordinatorViewTest`: 실제 View 헤드리스 통합 검증 9종
-    1. `test A request then B edit rejects mention delivery and does not invoke fileChooser`: A 요청 대기 중 B 입력/세대 증가 시 늦은 응답이 팝업을 열지 않음을 실측.
-    2. `test session switch rejects mention delivery and stale popup selection callback`: 세션 전환 후 도달한 선택 콜백이 입력을 변경하거나 첨부를 추가하지 않음을 실측.
-    3. `test mention target change rejects EDT presentation`: 멘션 대상 토큰 변경 시 팝업 억제 실측.
-    4. `test popup cancel dismisses token and blocks same token until token changes`: 팝업 취소 시 `dismissedToken`이 기록되어 동일 토큰 재요청이 차단되고 다른 토큰은 허용됨을 실측.
-    5. `test dispose rejects late response delivery`: View dispose 후 도달한 백그라운드 응답이 팝업을 열지 않음을 실측.
-    6. `test stale popup selection callback after dispose does not modify input or add attachment`: View dispose 후 구 팝업의 선택 콜백이 입력창/첨부를 일체 오염시키지 않음을 실측.
-    7. `test normal candidate selection applies file chip and trims input (control group)`: 정상 선택 시 `@토큰`이 잘리고 파일 칩이 1회 정확히 첨부되며 포커스가 요청되는 대조군 실측.
-    8. `test suggestion A request then B edit rejects hint label`: 제안 요청 A 대기 중 B 입력 시 힌트 표시 억제 실측.
-    9. `test suggestion normal acceptance displays hint label (control group)`: 정상 제안 수신 시 힌트가 가시화되는 대조군 실측.
+  - `SuggestCoordinatorViewTest`: 실제 View 헤드리스 통합 검증 12종 (수동 bumpEpoch 제거, 실제 Swing DocumentListener 연동)
+    1. `test A request then B to A edit rejects background mention delivery`: 수동 bumpEpoch 없이 실제 Swing 문서를 통해 A → B → A 편집 후 늦은 응답이 도달했을 때 팝업(`fileChooser`)이 열리지 않음을 실측 (본문 일치에도 불구하고 세대 불일치로 차단).
+    2. `test mention response delivered before edit then B to A edit before EDT dispatch rejects presentation and control succeeds`: 응답이 전달되어 EDT 큐에 들어간 뒤, 큐를 디스패치하기 전에 A → B → A 편집이 일어난 경우 EDT 최종 검사에서 팝업이 차단되고, 현재 세대의 신규 요청은 정상 표시되는 대조군 실측.
+    3. `test stale popup selection callback after B to A roundtrip edit rejects choice`: A → B → A 편집으로 입력창이 동일 문자열로 복귀한 상태에서 구 팝업의 선택 콜백이 호출되어도 입력 및 첨부를 변경하지 않음을 실측.
+    4. `test session switch rejects mention delivery and stale popup selection callback`: 세션 전환 후 도달한 선택 콜백이 입력을 변경하거나 첨부를 추가하지 않음을 실측.
+    5. `test mention target change rejects EDT presentation`: 멘션 대상 토큰 변경 시 팝업 억제 실측.
+    6. `test coordinator dismissMention direct invocation blocks same token until token changes via real input edit`: 코디네이터의 `dismissMention` 직접 호출 시 동일 토큰 재요청이 차단되고, 실제 입력 변경(`@beta`) 시 신규 요청이 허용됨을 명시적 실측.
+    7. `test dispose rejects late response delivery`: View dispose 후 도달한 백그라운드 응답이 팝업을 열지 않음을 실측.
+    8. `test stale popup selection callback after dispose does not modify input or add attachment`: View dispose 후 구 팝업의 선택 콜백이 입력창/첨부를 일체 오염시키지 않음을 실측.
+    9. `test normal candidate selection applies file chip and trims input (control group)`: 정상 선택 시 `@토큰`이 잘리고 파일 칩이 1회 정확히 첨부되며 포커스가 요청되는 대조군 실측.
+    10. `test suggestion A request then B to A edit rejects background suggestion delivery`: 수동 bumpEpoch 없이 실제 Swing 문서를 통해 A → B → A 편집 후 늦은 제안이 힌트 라벨에 반영되지 않음을 실측.
+    11. `test suggestion response delivered before edit then B to A edit before EDT dispatch rejects presentation and control succeeds`: 제안 응답이 EDT 큐에 대기 중 A → B → A 편집 발생 시 EDT 반영 차단 및 현재 세대 신규 제안 정상 표시 대조군 실측.
+    12. `test suggestion normal acceptance displays hint label (control group)`: 정상 제안 수신 시 힌트가 가시화되는 대조군 실측.
+  - **변이 검증(Mutation Test) 실측**: 제품 코드 `retract()`의 `suggestCoordinator.bumpEpoch()` 호출을 임시 주석 처리했을 때 위 A → B → A 회귀 5종이 즉시 실패(5 failed)함을 확인하고 원복 완료.
 
 - **실물 검증 여부**:
   - VoiceOver: 지침에 따라 검증 대상 및 완료 조건에서 제외.
@@ -1501,8 +1505,8 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 - **전체 회귀 검증 결과 (2026-09-24)**:
   - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
-    - 결과: 종료 코드 0, 19개 task 전체 성공 (40초 소요).
-    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 121 통과 (총 121개 중, 20개 테스트 순증), **합계 511 통과·5 건너뜀·0 실패 (총 516개 중)**.
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (39초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 124 통과 (총 124개 중, 23개 테스트 순증), **합계 514 통과·5 건너뜀·0 실패 (총 519개 중)**.
   - VS Code Suite: `npm test --prefix clients/vscode`
     - 결과: 종료 코드 0, **550 통과·7 건너뜀·0 실패** (총 557개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`

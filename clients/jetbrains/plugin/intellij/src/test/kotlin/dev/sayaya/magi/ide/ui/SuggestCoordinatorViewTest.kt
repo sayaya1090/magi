@@ -18,7 +18,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
         return method.invoke(target, *args)
     }
 
-    fun `test A request then B edit rejects mention delivery and does not invoke fileChooser`() {
+    fun `test A request then B to A edit rejects background mention delivery`() {
         var currentSession = "s1"
         var capturedDeliver: ((List<String>) -> Unit)? = null
         var fileChooserInvoked = false
@@ -33,19 +33,106 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
             UIUtil.dispatchAllInvocationEvents()
             val input: JBTextArea = field(view, "input")
             input.text = "@file1"
+            val initialEpoch = view.suggestCoordinator.epoch
 
             invokeMethod(view, "askFiles", "file1")
             assertNotNull("filesRequest must capture deliver callback", capturedDeliver)
 
-            // User edits input to B
+            // Real Swing DocumentListener editing: A -> B -> A (no manual bumpEpoch)
             input.text = "@file2"
-            view.suggestCoordinator.bumpEpoch()
+            input.text = "@file1"
+            assertTrue("Real document editing must advance epoch", view.suggestCoordinator.epoch > initialEpoch)
+            assertEquals("Current text must be restored to A", "@file1", input.text)
 
-            // Response for A arrives
+            // Response for A arrives on background delivery
             capturedDeliver!!.invoke(listOf("file1.txt"))
             UIUtil.dispatchAllInvocationEvents()
 
-            assertFalse("fileChooser must not be invoked for stale request A", fileChooserInvoked)
+            assertFalse("fileChooser must not be invoked for stale request A even if text matches", fileChooserInvoked)
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    fun `test mention response delivered before edit then B to A edit before EDT dispatch rejects presentation and control succeeds`() {
+        var currentSession = "s1"
+        var capturedDeliver: ((List<String>) -> Unit)? = null
+        var fileChooserInvoked = false
+
+        val view = MagiToolWindow.View(
+            project,
+            sendSession = { currentSession },
+            filesRequest = { _, deliver -> capturedDeliver = deliver },
+            fileChooser = { _, _ -> fileChooserInvoked = true }
+        )
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            val input: JBTextArea = field(view, "input")
+            input.text = "@file1"
+            val initialEpoch = view.suggestCoordinator.epoch
+
+            invokeMethod(view, "askFiles", "file1")
+            assertNotNull(capturedDeliver)
+
+            // Deliver while still in initial epoch (passes canDeliverMention, enqueues EDT runnable)
+            val deliverA = capturedDeliver!!
+            deliverA.invoke(listOf("file1.txt"))
+
+            // Before EDT queue is dispatched, user edits A -> B -> A through real Swing DocumentListener
+            input.text = "@file2"
+            input.text = "@file1"
+            assertTrue("Document editing must advance epoch", view.suggestCoordinator.epoch > initialEpoch)
+
+            // Now dispatch queued EDT runnable: canPresentMention must detect stale epoch and reject
+            UIUtil.dispatchAllInvocationEvents()
+            assertFalse("EDT presentation must be rejected when epoch changed before dispatch", fileChooserInvoked)
+
+            // Control group: fresh request in current epoch succeeds
+            capturedDeliver = null
+            invokeMethod(view, "askFiles", "file1")
+            assertNotNull(capturedDeliver)
+            capturedDeliver!!.invoke(listOf("file1.txt"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertTrue("Fresh request in current epoch must be presented", fileChooserInvoked)
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    fun `test stale popup selection callback after B to A roundtrip edit rejects choice`() {
+        var currentSession = "s1"
+        var capturedDeliver: ((List<String>) -> Unit)? = null
+        var capturedChosen: ((String) -> Unit)? = null
+
+        val view = MagiToolWindow.View(
+            project,
+            sendSession = { currentSession },
+            filesRequest = { _, deliver -> capturedDeliver = deliver },
+            fileChooser = { _, chosen -> capturedChosen = chosen }
+        )
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            val input: JBTextArea = field(view, "input")
+            input.text = "@file1"
+
+            invokeMethod(view, "askFiles", "file1")
+            capturedDeliver!!.invoke(listOf("file1.txt"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertNotNull("fileChooser must have captured chosen callback", capturedChosen)
+
+            // User edits A -> B -> A through real Swing DocumentListener
+            val epochBeforeEdit = view.suggestCoordinator.epoch
+            input.text = "@file2"
+            input.text = "@file1"
+            assertTrue(view.suggestCoordinator.epoch > epochBeforeEdit)
+
+            // Stale chosen callback from old popup invoked
+            capturedChosen!!.invoke("file1.txt")
+            UIUtil.dispatchAllInvocationEvents()
+
+            assertEquals("Input text must remain unchanged after stale choice", "@file1", input.text)
+            val refs: Collection<*> = field(view, "refs")
+            assertTrue("No attachment must be added by stale choice after roundtrip edit", refs.isEmpty())
         } finally {
             Disposer.dispose(view)
         }
@@ -119,7 +206,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test popup cancel dismisses token and blocks same token until token changes`() {
+    fun `test coordinator dismissMention direct invocation blocks same token until token changes via real input edit`() {
         var currentSession = "s1"
         var requestCount = 0
 
@@ -141,7 +228,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
             invokeMethod(view, "askFiles", "alpha")
             assertEquals(1, requestCount)
 
-            // Dismiss mention for alpha
+            // Direct invocation of coordinator.dismissMention with current epoch & session
             val ticket = SuggestCoordinator.MentionTicket(view.suggestCoordinator.epoch, "s1", "alpha")
             view.suggestCoordinator.dismissMention(ticket, "s1")
             assertEquals("alpha", view.suggestCoordinator.dismissedToken)
@@ -150,7 +237,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
             invokeMethod(view, "askFiles", "alpha")
             assertEquals("Request count must not increase for dismissed token", 1, requestCount)
 
-            // Different token should be allowed
+            // Real document edit to different token resets condition and allows request
             input.text = "@beta"
             invokeMethod(view, "askFiles", "beta")
             assertEquals("Request count must increase for different token", 2, requestCount)
@@ -256,7 +343,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test suggestion A request then B edit rejects hint label`() {
+    fun `test suggestion A request then B to A edit rejects background suggestion delivery`() {
         var currentSession = "s1"
         var capturedDeliver: ((String?) -> Unit)? = null
 
@@ -270,19 +357,68 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
             val input: JBTextArea = field(view, "input")
             val hint: JBLabel = field(view, "hint")
             input.text = "hel"
+            val initialEpoch = view.suggestCoordinator.epoch
 
             invokeMethod(view, "askSuggestion")
             assertNotNull(capturedDeliver)
 
-            // User types more
+            // User edits input A -> B -> A through real Swing DocumentListener
             input.text = "help"
-            view.suggestCoordinator.bumpEpoch()
+            input.text = "hel"
+            assertTrue("Document editing must advance epoch", view.suggestCoordinator.epoch > initialEpoch)
+            assertEquals("hel", input.text)
 
             capturedDeliver!!.invoke("lo world")
             UIUtil.dispatchAllInvocationEvents()
 
-            assertFalse("Hint must not be visible for stale suggestion A", hint.isVisible)
+            assertFalse("Hint must not be visible for stale suggestion A even if text matches", hint.isVisible)
             assertEquals(" ", hint.text)
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    fun `test suggestion response delivered before edit then B to A edit before EDT dispatch rejects presentation and control succeeds`() {
+        var currentSession = "s1"
+        var capturedDeliver: ((String?) -> Unit)? = null
+
+        val view = MagiToolWindow.View(
+            project,
+            sendSession = { currentSession },
+            suggestRequest = { _, deliver -> capturedDeliver = deliver }
+        )
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            val input: JBTextArea = field(view, "input")
+            val hint: JBLabel = field(view, "hint")
+            input.text = "hel"
+            val initialEpoch = view.suggestCoordinator.epoch
+
+            invokeMethod(view, "askSuggestion")
+            assertNotNull(capturedDeliver)
+
+            // Deliver while still in initial epoch (passes canDeliverSuggestion, enqueues EDT runnable)
+            val deliverA = capturedDeliver!!
+            deliverA.invoke("lo world")
+
+            // Before EDT queue is dispatched, user edits A -> B -> A through real Swing DocumentListener
+            input.text = "help"
+            input.text = "hel"
+            assertTrue("Document editing must advance epoch", view.suggestCoordinator.epoch > initialEpoch)
+
+            // Now dispatch queued EDT runnable: canPresentSuggestion must detect stale epoch and reject
+            UIUtil.dispatchAllInvocationEvents()
+            assertFalse("Hint must not be visible when epoch changed before EDT dispatch", hint.isVisible)
+            assertEquals(" ", hint.text)
+
+            // Control group: fresh request in current epoch succeeds
+            capturedDeliver = null
+            invokeMethod(view, "askSuggestion")
+            assertNotNull(capturedDeliver)
+            capturedDeliver!!.invoke("lo world")
+            UIUtil.dispatchAllInvocationEvents()
+            assertTrue("Fresh suggestion request in current epoch must be presented", hint.isVisible)
+            assertTrue("Hint text must contain suggestion", hint.text.contains("lo world"))
         } finally {
             Disposer.dispose(view)
         }
