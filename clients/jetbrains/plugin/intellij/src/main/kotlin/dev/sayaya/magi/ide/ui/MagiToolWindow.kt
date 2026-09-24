@@ -184,6 +184,7 @@ class MagiToolWindow : ToolWindowFactory {
         private val workspace = Workspace(project)
         private val sendDrafts = dev.sayaya.magi.ide.usecase.SendDrafts()
         private val answers = dev.sayaya.magi.ide.usecase.AnswerDrafts()
+        private val answerTransitions = AnswerTransitionCoordinator(answers)
         private var waitingQuestion: Waiting? = null
         private var waitingSession: String? = null
         internal val suggestCoordinator = SuggestCoordinator()
@@ -792,6 +793,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 스트림 닫기 전 closing 플래그를 먼저 설정하여 ended 콜백에서의 자동 재연결 트리거를 차단합니다.
             closing.set(true)
             sendDrafts.close()
+            answerTransitions.dispose()
             answers.close()
             suggestCoordinator.dispose()
             // 메인 패널만 전역 레지스트리와 도구 어댑터를 해제합니다(리뷰 F1·F2):
@@ -2084,16 +2086,25 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun invalidateComposer() { suggestCoordinator.bumpEpoch(); debounce.stop(); dropSuggestion() }
 
-        private fun syncAnswerContext() {
-            val q = waitingQuestion?.takeIf { it.ask is Ask.Choose && waitingSession == currentSendSession() }
-            val previous = answers.question
-            answers.bind(currentSendSession(), q?.id, input.text, q?.what)?.let {
-                restoreAnswerText(it)
-                invalidateComposer()
+        private fun applyAnswerTransition(transition: AnswerTransitionCoordinator.Transition) {
+            for (effect in transition.effects) {
+                when (effect) {
+                    is AnswerTransitionCoordinator.Effect.RestoreText -> restoreAnswerText(effect.text)
+                    AnswerTransitionCoordinator.Effect.InvalidateComposer -> invalidateComposer()
+                    AnswerTransitionCoordinator.Effect.PaintMode -> paintAnswerMode()
+                    AnswerTransitionCoordinator.Effect.DrawRecovery -> drawAnswerRecovery()
+                    AnswerTransitionCoordinator.Effect.RedrawPrompt -> drawPrompt(waitingQuestion)
+                    is AnswerTransitionCoordinator.Effect.ReportError -> report(MagiBundle.msg("common.notsent", effect.error))
+                }
             }
-            if (previous != answers.question) invalidateComposer()
-            paintAnswerMode()
-            drawAnswerRecovery()
+        }
+
+        private fun syncAnswerContext() {
+            val w = waitingQuestion
+            val ctx = if (w != null && w.ask is Ask.Choose) {
+                AnswerTransitionCoordinator.QuestionContext(waitingSession, w.id, w.what)
+            } else null
+            applyAnswerTransition(answerTransitions.sync(currentSendSession(), ctx, input.text))
         }
 
         private fun paintAnswerMode() {
@@ -2112,25 +2123,23 @@ class MagiToolWindow : ToolWindowFactory {
             if (closing.get() || inputGate.isComposing) return
             inputGate.onExplicitAction()
             syncAnswerContext()
-            answers.enter(input.text)?.let { restoreAnswerText(it) }
-            invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
+            applyAnswerTransition(answerTransitions.enter(input.text))
+            input.requestFocusInWindow()
         }
 
         private fun cancelAnswer() {
             if (!inputGate.canCancel()) return
             inputGate.onExplicitAction()
-            answers.cancel(input.text)?.let { restoreAnswerText(it) }
-            invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
+            applyAnswerTransition(answerTransitions.cancel(input.text))
+            input.requestFocusInWindow()
         }
 
         private fun submitAnswer(text: String, expected: dev.sayaya.magi.ide.usecase.AnswerDrafts.Key? = answers.active) {
             if (closing.get() || project.isDisposed || inputGate.isComposing) return
             syncAnswerContext()
-            if (expected == null || answers.question != expected) return
-            val attempt = answers.begin(text) ?: return
-            answers.leaveAfterSubmit()
-            restoreAnswerText(answers.generalText())
-            invalidateComposer(); paintAnswerMode(); drawAnswerRecovery()
+            val (attempt, transition) = answerTransitions.submit(text, expected)
+            if (attempt == null) return
+            applyAnswerTransition(transition)
             val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
                 workspace.onDaemon(sid, trouble, work)
             }
@@ -2143,16 +2152,9 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun finishAnswer(attempt: dev.sayaya.magi.ide.usecase.AnswerDrafts.Attempt, error: String?) = SwingUtilities.invokeLater {
             if (closing.get() || project.isDisposed) return@invokeLater
-            if (!answers.complete(attempt, error == null)) return@invokeLater
-            if (currentSendSession() == attempt.key.session && answers.question == attempt.key) {
-                if (error == null) {
-                    answers.cancel(input.text)?.let { restoreAnswerText(it) }
-                    invalidateComposer()
-                    drawPrompt(waitingQuestion)
-                } else report(MagiBundle.msg("common.notsent", error))
-                paintAnswerMode()
-            }
-            drawAnswerRecovery()
+            val outcome = answerTransitions.complete(attempt, error, currentSendSession(), input.text)
+            if (!outcome.handled) return@invokeLater
+            applyAnswerTransition(outcome.transition)
         }
 
         /**

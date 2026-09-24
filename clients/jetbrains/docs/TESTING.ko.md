@@ -1516,12 +1516,44 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
     - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
 
+---
 
+## 2026-09-24 JetBrains 답변 전이 조정 분리 (§6.43)
 
+- **책임 분리 및 전이 조정 추출 (`AnswerTransitionCoordinator.kt`)**:
+  - `MagiToolWindow.View`의 답변 모드 전이 및 프로그램 복원 가드 시퀀스를 `AnswerTransitionCoordinator`로 추출.
+  - View는 `answers: AnswerDrafts` 필드의 생성·소유·close 책임을 유지하며, coordinator는 생성자로 주입받아 사용.
+  - `waitingQuestion`, `waitingSession`, `restoringAnswerDraft`는 View의 고유 책임으로 유지하며, `DocumentListener`의 `answers.edit` 가드 범위 및 Swing UI 위젯 반영을 보존.
+  - `sync`, `enter`, `cancel`, `submit`, `complete`, `dispose` 메서드로 상태 모델을 전이하고 불변 효과 목록(`Effect`: `RestoreText`, `InvalidateComposer`, `PaintMode`, `DrawRecovery`, `RedrawPrompt`, `ReportError`)을 순서대로 생성하여 반환.
+  - View의 `applyAnswerTransition` 단일 `when` 디스패처로 순차 적용.
 
+- **자동 회귀 검증 구축 (`AnswerTransitionCoordinatorTest.kt`, `AnswerModeTest.kt`)**:
+  - `AnswerTransitionCoordinatorTest`: 순수 단위 검증 7종
+    1. `test sync isolates mismatched session question and respects matching and null question`: S1 수신 질문 상태에서 S2 sync 시 S1 callId 바인딩 차단, 다른 세션 격리, 동일 세션 정상 바인딩 및 null 질문 대조군 실측.
+    2. `test bind effects order and duplicate invalidation preservation`: bind 복원 및 질문 변경 조건에 따른 효과 순서와 중복 무효화(`InvalidateComposer` 2회) 보존 실측.
+    3. `test enter cancel roundtrip and submit success and rejections`: 직접 입력 답변 모드 진입/취소 왕복, submit 성공 및 expected 불일치·busy·빈 내용 거절 실측.
+    4. `test late failure preserves edits and old result cannot unlock retry`: A 제출 후 B 편집 상태에서 A 실패 시 B 보존 및 A 복구 목록 등록, 중복 결과 무효화 실측.
+    5. `test cross session result delivery only updates recovery`: S1 제출 결과가 S2 대기 중 도착 시 S2 컴포저 불변 및 `DrawRecovery`만 발생 실측.
+    6. `test current question success effects order and idempotent complete`: 현재 질문 성공 시 `RestoreText` → `InvalidateComposer` → `RedrawPrompt` → `PaintMode` → `DrawRecovery` 순서 및 중복 완료 무동작 실측.
+    7. `test dispose suppresses all operations and does not close underlying drafts`: coordinator dispose 후 전이 거절 및 underlying `drafts` 수명 보존(View가 close) 실측.
+  - `AnswerModeTest`: 실제 View 헤드리스 통합 검증 추가
+    - `testStaleReceivedSessionThenCurrentSessionSwitchDoesNotSendRpcToOldQuestion`: stale 수신 세션(S1) 질문을 가진 채 현재 세션(S2) 전환 후 전송 시, coordinator를 통해 S1 질문이 격리되어 옛 질문으로 RPC가 나가지 않고 S2 일반 전송(`say`)으로 안전하게 라우팅됨을 실측.
 
+- **실물 검증 여부**:
+  - VoiceOver: 지침에 따라 검증 대상 및 완료 조건에서 제외.
+  - 실물 macOS 두벌식 IME 조작: 이번 작업에서는 실제 OS IME 직접 조작을 재수행하지 않았으므로 미검증으로 유지하며 헤드리스 결과로 대체하지 않습니다.
 
-
-
-
+- **전체 검증 스위트 실측 결과**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, BUILD SUCCESSFUL (19 actionable tasks, 36s 소요).
+    - `:core`: 395 완료 (390 통과 · 5 건너뜀 · 0 실패).
+    - `:intellij`: 132 완료 (132 통과 · 0 실패).
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, 550 통과 · 7 건너뜀 · 0 실패 (총 557개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, 7 passed (17.9초 소요, axe-core 접근성 감사 42회 전수 무결점).
+  - Go idebridge Suite: `go test -v ./internal/adapter/idebridge/...`
+    - 결과: 종료 코드 0, 전수 통과.
+  - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
+    - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
 

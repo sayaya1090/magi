@@ -639,6 +639,44 @@ class AnswerModeTest : BasePlatformTestCase() {
         assertTrue(h.answers.recoveries.isEmpty())
         assertFalse(h.answerRecoveryBtn.isVisible)
     }
+    fun testStaleReceivedSessionThenCurrentSessionSwitchDoesNotSendRpcToOldQuestion() = check { h ->
+        h.session = "s1"
+        h.question("q1", "s1")
+        h.direct()
+        h.input.text = "answer draft"
+
+        // Session switches to s2 and sets general text in s2
+        h.session = "s2"
+        h.question(null, "s2")
+        h.input.text = "hello s2"
+
+        // Stale question arrives targeting s1 while user is on s2
+        h.question("q_stale", "s1")
+
+        // User sends in s2: must send general say to s2, not stale answer to q1 or q_stale
+        h.key("magi.send")
+
+        assertEquals(1, h.pending.size)
+        val (sid, _, work) = h.pending.single()
+        assertEquals("s2", sid)
+        work(dev.sayaya.magi.ide.usecase.Companion(object : dev.sayaya.magi.ide.usecase.Daemon {
+            override fun exchange(request: dev.sayaya.magi.ide.model.Request): dev.sayaya.magi.ide.model.Response {
+                h.seen.add(request)
+                return dev.sayaya.magi.ide.model.Response(ok = true)
+            }
+            override fun stream(request: dev.sayaya.magi.ide.model.Request, each: (dev.sayaya.magi.ide.model.Response) -> Boolean) {}
+            override fun close() {}
+        }, sid))
+        com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+
+        val req = h.seen.last()
+        assertTrue(req.method == "submit" || req.method == "steer")
+        assertFalse(h.seen.any { it.method == "answer" })
+        assertFalse(h.seen.any { it.callId == "q1" || it.callId == "q_stale" })
+        assertEquals("s2", req.session)
+        assertNull(req.callId)
+        assertFalse(h.field<javax.swing.JPanel>("answerBar").isVisible)
+    }
 }
 
 
