@@ -1572,7 +1572,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - `카탈로그 비교는 누락 도구, 여분 속성, 잘못된 required, 뒤집힌 readOnly 시 실패한다`: 임시 변이 4종(누락 도구, 뒤집힌 readOnly, 잘못된 required, 여분 속성) 감지 및 실패 검증.
   - `hand.test.ts`:
     - TypeScript `handTools()` 및 HTTP `tools/list`가 동일 fixture와 완벽 일치함을 검증하고, 변이 4종 감지 검증.
-  - `ContractFixtureTest.kt` / `contract_fixture.test.ts`:
+  - `ContractFixtureTest.kt`, `contract_fixture.test.ts`:
     - 디렉터리 검사에서 비시나리오 카탈로그 파일(`ide_hand_catalogue.json`)을 분리하여 §6.38 시나리오 5종 계약과 공존 보장.
 
 ---

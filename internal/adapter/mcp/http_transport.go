@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,24 @@ import (
 
 	"github.com/sayaya1090/magi/internal/httpx"
 )
+
+const unconfirmedCallNotice = "MCP_RESULT_UNKNOWN: no complete tool response was received; the operation may have run. Do not automatically retry a write; inspect the target application before retrying."
+
+// unconfirmedCallError wraps errors that occur after HTTP request dispatch for tools/call (§6.44.4).
+type unconfirmedCallError struct {
+	cause error
+}
+
+func (e *unconfirmedCallError) Error() string {
+	if e.cause == nil {
+		return unconfirmedCallNotice
+	}
+	return fmt.Sprintf("%s: %s", e.cause.Error(), unconfirmedCallNotice)
+}
+
+func (e *unconfirmedCallError) Unwrap() error {
+	return e.cause
+}
 
 // httpTransport implements MCP Streamable HTTP transport.
 // Specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/transports
@@ -115,6 +134,16 @@ func (t *httpTransport) reachable(ctx context.Context) bool {
 	return true
 }
 
+func (t *httpTransport) wrapUnconfirmed(method string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if method != "tools/call" {
+		return err
+	}
+	return &unconfirmedCallError{cause: err}
+}
+
 func (t *httpTransport) call(ctx context.Context, method string, params any, out any) error {
 	t.mu.Lock()
 	if t.closed {
@@ -145,6 +174,11 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 	}
 	t.applyHeaders(httpReq, "application/json, text/event-stream")
 
+	// If context was cancelled before Do, return the context error directly without unconfirmed wrapping.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	resp, err := t.httpClient.Do(httpReq)
 	if err != nil {
 		// Only when NOBODY was there. Do also fails when this side gave up — the per-call deadline
@@ -157,7 +191,7 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 		if ctx.Err() == nil {
 			t.missed()
 		}
-		return err
+		return t.wrapUnconfirmed(method, err)
 	}
 	defer resp.Body.Close()
 	t.captureSession(resp)
@@ -166,21 +200,30 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 		t.answered() // a refusal is the server speaking: somebody is home to refuse
 		// Surface a bounded snippet of the error body — servers often explain why.
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		var httpErr error
 		if s := strings.TrimSpace(string(snippet)); s != "" {
-			return fmt.Errorf("mcp: http %d: %s: %s", resp.StatusCode, resp.Status, s)
+			httpErr = fmt.Errorf("mcp: http %d: %s: %s", resp.StatusCode, resp.Status, s)
+		} else {
+			httpErr = fmt.Errorf("mcp: http %d: %s", resp.StatusCode, resp.Status)
 		}
-		return fmt.Errorf("mcp: http %d: %s", resp.StatusCode, resp.Status)
+		return t.wrapUnconfirmed(method, httpErr)
 	}
 
 	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		err := t.readSSEStream(ctx, resp.Body, id, out)
 		if err == nil {
 			t.answered()
+			return nil
+		}
+		var rpcErr *rpcError
+		if errors.As(err, &rpcErr) {
+			t.answered()
+			return rpcErr
 		}
 		// A stream that broke halfway neither resets the streak nor adds to it: the headers came
 		// from somewhere, so it is not "nobody home", and the break may be ours (a cancelled turn
 		// closes the body from this side).
-		return err
+		return t.wrapUnconfirmed(method, err)
 	}
 
 	// Single JSON response. The streak resets on a message that ARRIVED WHOLE — including one
@@ -189,14 +232,28 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 	// never dropped: each half-answer wiped the count of the ones before it.
 	var msg message
 	if err := json.NewDecoder(resp.Body).Decode(&msg); err != nil {
-		return err
+		return t.wrapUnconfirmed(method, err)
 	}
 	t.answered()
-	if msg.Error != nil {
+
+	if msg.JSONRPC != jsonRPCVersion {
+		return t.wrapUnconfirmed(method, fmt.Errorf("mcp: invalid jsonrpc version: %q", msg.JSONRPC))
+	}
+	if msg.ID == nil || *msg.ID != id {
+		return t.wrapUnconfirmed(method, fmt.Errorf("mcp: response id mismatch: expected %d, got %v", id, msg.ID))
+	}
+	hasResult := len(msg.Result) > 0 && !bytes.Equal(msg.Result, []byte("null"))
+	hasError := msg.Error != nil
+	if (hasResult && hasError) || (!hasResult && !hasError) {
+		return t.wrapUnconfirmed(method, fmt.Errorf("mcp: response must contain either result or error"))
+	}
+	if hasError {
 		return fmt.Errorf("mcp: %s: %s", method, msg.Error.Message)
 	}
 	if out != nil && len(msg.Result) > 0 {
-		return json.Unmarshal(msg.Result, out)
+		if err := json.Unmarshal(msg.Result, out); err != nil {
+			return t.wrapUnconfirmed(method, err)
+		}
 	}
 	return nil
 }
@@ -235,8 +292,16 @@ func (t *httpTransport) readSSEStream(ctx context.Context, r io.Reader, id int64
 				return fmt.Errorf("mcp: bad SSE event JSON: %w", err)
 			}
 			if msg.ID != nil && *msg.ID == id {
-				if msg.Error != nil {
-					return fmt.Errorf("mcp: %s", msg.Error.Message)
+				if msg.JSONRPC != jsonRPCVersion {
+					return fmt.Errorf("mcp: invalid jsonrpc version: %q", msg.JSONRPC)
+				}
+				hasResult := len(msg.Result) > 0 && !bytes.Equal(msg.Result, []byte("null"))
+				hasError := msg.Error != nil
+				if (hasResult && hasError) || (!hasResult && !hasError) {
+					return fmt.Errorf("mcp: response must contain either result or error")
+				}
+				if hasError {
+					return msg.Error
 				}
 				if out != nil && len(msg.Result) > 0 {
 					return json.Unmarshal(msg.Result, out)
