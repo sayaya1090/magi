@@ -6,7 +6,7 @@
 > 어떤 계층은 push마다 동작하고, 어떤 계층은 데몬이 실행 중일 때만 동작하며, 릴리스 태그 배포 시에만 가동되는 계층도 있습니다.
 > 이러한 조건을 구분하지 않으면 실행되지 않고 건너뛴 상태를 통과한 것으로 오인하기 쉽습니다.
 
-**마지막 실측: 2026-09-12 — 총 353개 통과, 실패 0, 건너뜀 6**(모델 적합성 5건 — 명시적 요청 시에만 실행됩니다).
+**마지막 실측: 2026-09-24 — 총 476개 통과, 실패 0, 건너뜀 5**(모델 적합성 5건 — 명시적 요청 시에만 실행됩니다).
 `LiveDaemonTest`는 로컬 머신에 데몬이 실행 중일 때 정상 실행됩니다.
 건너뜀 수치가 5건과 6건 사이에서 변동하는 것은 데몬 프로세스 상주 여부에 따른 정상 동작입니다. 본 문서는 커밋마다 실측 수치를 갱신합니다.
 테스트 통과는 단순한 기억이 아니라 실측 날짜와 수치로 보존되어야 검증 근거가 확보됩니다.
@@ -35,7 +35,7 @@
   Go 와 같은가, 붙어 보고 만난 것을 어느 갈래로 가르는가, 문마다 무엇을 싣는가.
 - **파서**(`LookNotesTest` 4, `MarkdownTest` 5, `RowTextTest` 12) — 모델이 준 글자에서 줄번호를
   뽑고, 마크다운을 펴고, 행의 글자를 정한다.
-- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6) — 소켓 없이 「살았나·죽었나·나갔나」 판정 및 공통 계약 fixture 5종 검증.
+- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6, `ContractFixtureHostTest` 2) — 소켓 없이 「살았나·죽었나·나갔나」 판정, 공통 계약 fixture 5종 검증 및 실제 View 호스트 수명·복원 경로 연동.
 
 `RowTextTest`는 UI 컴포넌트 내부에 사설 함수로 흩어져 있던 문자열 계산 로직 6종을 core 계층으로 분리하여
 IDE 인스턴스 기동 없이 순수 단위 테스트로 상시 검증할 수 있도록 개선한 테스트입니다.
@@ -1344,12 +1344,18 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   4. `same_string_edit.json`: A → B → A 사용자 편집, 별도 restore 대조. 실제 편집 세대와 프로그램 복원을 구분.
   5. `disposed_callback.json`: 요청 시작 → 소유자 dispose → 결과/선택 콜백. 입력·문서 열기·새 요청 등 종료된 UI 부작용 없음.
 
-- **실행기 구현 (`ContractFixtureTest.kt`, `contract_fixture.test.ts`)**:
-  - JetBrains: `plugin/core/src/test/kotlin/dev/sayaya/magi/ide/usecase/ContractFixtureTest.kt`
+- **실행기 구현 (`ContractFixtureTest.kt`, `ContractFixtureHostTest.kt`, `contract_fixture.test.ts`)**:
+  - JetBrains 순수 모델 실행기: `plugin/core/src/test/kotlin/dev/sayaya/magi/ide/usecase/ContractFixtureTest.kt`
     - `build.gradle.kts`에 `contractFixtures` 입력 및 시스템 프로퍼티 등록, Gradle 캐시 및 UP-TO-DATE 자동 무효화 연동.
     - `AnswerDrafts`의 `version(key)` 확장으로 편집 세대 증가 및 복원 분리 검증.
-  - VS Code: `src/test/contract_fixture.test.ts`
-    - `createAnswerState`와 `RecoveryStateManager`를 연동하여 단계별 상태 전이 및 격리 검증.
+    - 5개 시나리오 전수 검증 및 엄격한 키(`validActions`, `validAssertKeys`) 유효성 검사 적용.
+  - JetBrains 실제 호스트 실행기: `plugin/intellij/src/test/kotlin/dev/sayaya/magi/ide/ui/ContractFixtureHostTest.kt`
+    - 실제 `MagiToolWindow.View` 인스턴스를 생성하여 Swing 입력 이벤트, `restoreAnswerText` 복원 경로, `closing` 수명 가드 검증.
+    - `same_string_edit`: A → B → A 실제 사용자 편집 후 `restoreAnswerText` 호출 시 `version == 3` 불변 및 후속 편집 시 `version == 4` 증가 실측.
+    - `disposed_callback`: View 소유자 해제(`Disposer.dispose(view)`) 후 늦은 완료 콜백 및 선택 콜백 도달 시 `inputChanges`, `documentsOpened`, `newRequests`, `uiSideEffects` 0건 및 `canSubmit == false` 실측.
+  - VS Code 실행기: `src/test/contract_fixture.test.ts`
+    - 순수 모델 5종 검사(`runPureModelScenario`) 및 실제 호스트 어댑터 2종 검사(`runHostScenario`) 분리 검증.
+    - `createWebviewInputAdapter` 및 `createSuggestController`와 연동하여 DOM/어댑터 수명 차단 검증.
   - 실패 보고 계약: 단언 실패 시 반드시 `scenarioId`, `step`, `expected`, `actual`을 명시하여 보고하며 미지원 동작 묵인이나 동적 예상값 위조 금지.
 
 - **변이 실패(Negative Mutation) 검증**:

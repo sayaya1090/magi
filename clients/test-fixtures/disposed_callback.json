@@ -1,6 +1,6 @@
 {
   "id": "disposed_callback",
-  "title": "종료 후 콜백: 소유자 dispose 후 결과 콜백 무효화 및 부작용 차단",
+  "title": "종료 후 콜백: 소유자 dispose 후 결과 및 선택 콜백 무효화 및 부작용 차단",
   "description": "요청 시작 후 소유자가 dispose된 상태에서 늦은 결과/선택 콜백이 도착하더라도 입력 변경, 문서 열기, 새 요청 등 UI 부작용이 발생하지 않음",
   "steps": [
     {
@@ -17,9 +17,9 @@
     {
       "step": 2,
       "action": "userEdit",
-      "text": "Active Request Text",
+      "text": "Active Request Text @file1.txt",
       "assert": {
-        "inputText": "Active Request Text"
+        "inputText": "Active Request Text @file1.txt"
       }
     },
     {
@@ -46,7 +46,22 @@
       "assert": {
         "isClosed": true,
         "uiSideEffects": 0,
+        "inputChanges": 0,
+        "documentsOpened": 0,
+        "newRequests": 0,
         "canSubmit": false
+      }
+    },
+    {
+      "step": 6,
+      "action": "selectionCallback",
+      "token": "file1.txt",
+      "assert": {
+        "isClosed": true,
+        "uiSideEffects": 0,
+        "inputChanges": 0,
+        "documentsOpened": 0,
+        "newRequests": 0
       }
     }
   ]

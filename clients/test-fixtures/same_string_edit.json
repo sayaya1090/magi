@@ -46,7 +46,17 @@
       "text": "Text B",
       "assert": {
         "inputText": "Text B",
-        "isProgrammaticRestore": true
+        "isProgrammaticRestore": true,
+        "version": 3
+      }
+    },
+    {
+      "step": 6,
+      "action": "userEdit",
+      "text": "Text C",
+      "assert": {
+        "inputText": "Text C",
+        "version": 4
       }
     }
   ]

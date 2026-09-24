@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 import java.io.File
 
 /**
- * 공통 계약 fixture 테스트 실행기 (§6.38)
+ * 공통 계약 fixture 순수 모델 테스트 실행기 (§6.38)
  *
  * `clients/test-fixtures/`의 단일 원본 JSON 파일 5종을 직접 읽어 실행합니다.
  * JetBrains와 VS Code는 복제본 없이 동일한 fixture 파일을 공유합니다.
@@ -23,6 +23,37 @@ class ContractFixtureTest {
         File(root, "clients/test-fixtures").canonicalFile
     }
 
+    private val validActions = setOf(
+        "switchSession",
+        "userEdit",
+        "submit",
+        "result",
+        "deleteRecovery",
+        "restore",
+        "dispose",
+        "selectionCallback",
+    )
+
+    private val validAssertKeys = setOf(
+        "currentSession",
+        "currentCallId",
+        "inFlight",
+        "inputText",
+        "recoveriesCount",
+        "hasRecoveryForText",
+        "isDone",
+        "version",
+        "isProgrammaticRestore",
+        "isClosed",
+        "uiSideEffects",
+        "inputChanges",
+        "documentsOpened",
+        "newRequests",
+        "canSubmit",
+    )
+
+    private fun fail(message: String): Nothing = throw AssertionError(message)
+
     private fun loadFixture(filename: String): JsonObject {
         val file = File(fixturesDir, filename)
         assertTrue(file.isFile, "Fixture file not found: ${file.absolutePath}")
@@ -38,7 +69,9 @@ class ContractFixtureTest {
         var currentCallId: String? = null
         var currentInputText = ""
         var isClosed = false
-        var uiSideEffects = 0
+        var inputChanges = 0
+        var documentsOpened = 0
+        var newRequests = 0
         var isProgrammaticRestore = false
         val attemptMap = mutableMapOf<String, AnswerDrafts.Attempt>()
 
@@ -47,10 +80,14 @@ class ContractFixtureTest {
             val stepNum = stepObj["step"]!!.jsonPrimitive.int
             val action = stepObj["action"]!!.jsonPrimitive.content
 
+            if (action !in validActions) {
+                fail("[$scenarioId] Step $stepNum: unsupported action '$action'")
+            }
+
             when (action) {
                 "switchSession" -> {
                     if (isClosed) {
-                        uiSideEffects++
+                        inputChanges++
                     } else {
                         val session = stepObj["session"]?.jsonPrimitive?.content
                         val callId = stepObj["callId"]?.jsonPrimitive?.content
@@ -73,7 +110,7 @@ class ContractFixtureTest {
                 }
                 "userEdit" -> {
                     if (isClosed) {
-                        uiSideEffects++
+                        inputChanges++
                     } else {
                         val text = stepObj["text"]!!.jsonPrimitive.content
                         currentInputText = text
@@ -82,37 +119,39 @@ class ContractFixtureTest {
                     }
                 }
                 "submit" -> {
+                    val attemptKey = stepObj["attemptKey"]?.jsonPrimitive?.content
+                        ?.takeIf { it.isNotBlank() }
+                        ?: fail("[$scenarioId] Step $stepNum: submit requires non-blank attemptKey")
                     if (isClosed) {
-                        uiSideEffects++
+                        newRequests++
                     } else {
-                        val attemptKey = stepObj["attemptKey"]!!.jsonPrimitive.content
                         val att = drafts.begin(currentInputText)
                         if (att != null) {
                             attemptMap[attemptKey] = att
                             drafts.leaveAfterSubmit()
+                        } else {
+                            fail("[$scenarioId] Step $stepNum: submit failed to begin attempt for key '$attemptKey'")
                         }
                     }
                 }
                 "result" -> {
-                    val attemptKey = stepObj["attemptKey"]!!.jsonPrimitive.content
-                    val ok = stepObj["ok"]!!.jsonPrimitive.boolean
+                    val attemptKey = stepObj["attemptKey"]?.jsonPrimitive?.content
+                        ?.takeIf { it.isNotBlank() }
+                        ?: fail("[$scenarioId] Step $stepNum: result requires non-blank attemptKey")
                     val att = attemptMap[attemptKey]
+                        ?: fail("[$scenarioId] Step $stepNum: unknown attemptKey '$attemptKey'")
+                    val ok = stepObj["ok"]!!.jsonPrimitive.boolean
 
                     if (isClosed) {
-                        // Dispose된 소유자에게 늦은 콜백이 도착한 경우 부작용이 발생하면 안 됨
-                        if (att != null) {
-                            val handled = drafts.complete(att, ok)
-                            if (handled) uiSideEffects++
-                        }
+                        val handled = drafts.complete(att, ok)
+                        if (handled) newRequests++
                     } else {
-                        if (att != null) {
-                            drafts.complete(att, ok)
-                        }
+                        drafts.complete(att, ok)
                     }
                 }
                 "deleteRecovery" -> {
                     if (isClosed) {
-                        uiSideEffects++
+                        inputChanges++
                     } else {
                         val target = stepObj["target"]?.jsonPrimitive?.content ?: "last"
                         val recs = drafts.recoveries
@@ -120,12 +159,14 @@ class ContractFixtureTest {
                         if (targetRec != null) {
                             val deleted = drafts.deleteRecovery(targetRec.id)
                             assertTrue(deleted, "[$scenarioId] Step $stepNum: failed to delete recovery ${targetRec.id}")
+                        } else {
+                            fail("[$scenarioId] Step $stepNum: no recovery item to delete")
                         }
                     }
                 }
                 "restore" -> {
                     if (isClosed) {
-                        uiSideEffects++
+                        inputChanges++
                     } else {
                         val text = stepObj["text"]!!.jsonPrimitive.content
                         currentInputText = text
@@ -136,14 +177,28 @@ class ContractFixtureTest {
                     drafts.close()
                     isClosed = true
                 }
-                else -> {
-                    fail("[$scenarioId] Step $stepNum: unsupported action '$action'")
+                "selectionCallback" -> {
+                    if (isClosed) {
+                        // Dispose된 상태의 선택 콜백은 무시되어야 함
+                    } else {
+                        val token = stepObj["token"]?.jsonPrimitive?.content
+                        if (token != null) {
+                            currentInputText += token
+                            drafts.edit(currentInputText)
+                        }
+                    }
                 }
             }
 
             // Assertions
             val assertObj = stepObj["assert"]?.jsonObject
             if (assertObj != null) {
+                for (key in assertObj.keys) {
+                    if (key !in validAssertKeys) {
+                        fail("[$scenarioId] Step $stepNum: unknown assertion key '$key'")
+                    }
+                }
+
                 fun check(field: String, expected: Any?, actual: Any?) {
                     assertEquals(
                         expected,
@@ -200,9 +255,22 @@ class ContractFixtureTest {
                     val expClosed = assertObj["isClosed"]!!.jsonPrimitive.boolean
                     check("isClosed", expClosed, isClosed)
                 }
+                if (assertObj.containsKey("inputChanges")) {
+                    val exp = assertObj["inputChanges"]!!.jsonPrimitive.int
+                    check("inputChanges", exp, inputChanges)
+                }
+                if (assertObj.containsKey("documentsOpened")) {
+                    val exp = assertObj["documentsOpened"]!!.jsonPrimitive.int
+                    check("documentsOpened", exp, documentsOpened)
+                }
+                if (assertObj.containsKey("newRequests")) {
+                    val exp = assertObj["newRequests"]!!.jsonPrimitive.int
+                    check("newRequests", exp, newRequests)
+                }
                 if (assertObj.containsKey("uiSideEffects")) {
                     val expEffects = assertObj["uiSideEffects"]!!.jsonPrimitive.int
-                    check("uiSideEffects", expEffects, uiSideEffects)
+                    val actualEffects = inputChanges + documentsOpened + newRequests
+                    check("uiSideEffects", expEffects, actualEffects)
                 }
                 if (assertObj.containsKey("canSubmit")) {
                     val expCanSubmit = assertObj["canSubmit"]!!.jsonPrimitive.boolean
