@@ -50,7 +50,10 @@ class HandEdtCallTest {
 
         try {
             val edtCall = HandEdtCall(
-                enqueue = { r -> threadPool.execute(r) },
+                enqueue = { r ->
+                    threadPool.execute(r)
+                    assertTrue(workStartedLatch.await(5, TimeUnit.SECONDS))
+                },
                 isEdt = { false },
                 isDisposed = { false },
                 timeoutMillis = 50,
@@ -76,6 +79,8 @@ class HandEdtCallTest {
             assertEquals(1, workCount.get())
         } finally {
             workReleaseLatch.countDown()
+            threadPool.shutdown()
+            threadPool.awaitTermination(5, TimeUnit.SECONDS)
             threadPool.shutdownNow()
         }
     }
