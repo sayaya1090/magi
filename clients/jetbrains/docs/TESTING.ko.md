@@ -35,7 +35,7 @@
   Go 와 같은가, 붙어 보고 만난 것을 어느 갈래로 가르는가, 문마다 무엇을 싣는가.
 - **파서**(`LookNotesTest` 4, `MarkdownTest` 5, `RowTextTest` 12) — 모델이 준 글자에서 줄번호를
   뽑고, 마크다운을 펴고, 행의 글자를 정한다.
-- **규칙 층**(`DaemonLifecycleTest` 11) — 소켓 없이 「살았나·죽었나·나갔나」 판정만.
+- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6) — 소켓 없이 「살았나·죽었나·나갔나」 판정 및 공통 계약 fixture 5종 검증.
 
 `RowTextTest`는 UI 컴포넌트 내부에 사설 함수로 흩어져 있던 문자열 계산 로직 6종을 core 계층으로 분리하여
 IDE 인스턴스 기동 없이 순수 단위 테스트로 상시 검증할 수 있도록 개선한 테스트입니다.
@@ -1331,6 +1331,45 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.2초 소요)**.
+
+#### 8. 공통 계약 fixture 도입 및 양 플랫폼 실행기 구축 (§6.38)
+- **배경 및 구조 비교**:
+  - JetBrains(`AnswerDrafts`/`SendDrafts`)와 VS Code(`answer_state`/`recovery_state`) 간 초안 보존, 질문 잠금, 세션 격리, 복구 관리의 핵심 불변식을 단일 진실 공급원(Single Source of Truth)으로 유지하기 위해 공통 JSON fixture 체계 구축.
+  - `clients/test-fixtures/` 디렉터리에 단일 원본 JSON 파일 5종 및 플랫폼 차이 대응표(`README.md`)를 보관하며, 복사본 없이 양 플랫폼 실행기가 동일한 파일을 직접 소비.
+
+- **공통 JSON fixture 5종 (`clients/test-fixtures/`)**:
+  1. `late_failure.json`: A 제출 → B 사용자 편집 → A 실패. B 입력 유지, 실패한 A의 복구 정보 보존, 시도별 잠금 해제.
+  2. `cross_session_result.json`: S1 제출 → S2 전환·제출 → S1 결과. S2 입력·잠금 불변, S1 복귀 시 S1 결과 반영.
+  3. `delete_recovery.json`: 복구 항목 생성 → 삭제 → 재그림·세션 왕복. 삭제한 세대 재등장 없음, 새 편집은 복구 가능.
+  4. `same_string_edit.json`: A → B → A 사용자 편집, 별도 restore 대조. 실제 편집 세대와 프로그램 복원을 구분.
+  5. `disposed_callback.json`: 요청 시작 → 소유자 dispose → 결과/선택 콜백. 입력·문서 열기·새 요청 등 종료된 UI 부작용 없음.
+
+- **실행기 구현 (`ContractFixtureTest.kt`, `contract_fixture.test.ts`)**:
+  - JetBrains: `plugin/core/src/test/kotlin/dev/sayaya/magi/ide/usecase/ContractFixtureTest.kt`
+    - `build.gradle.kts`에 `contractFixtures` 입력 및 시스템 프로퍼티 등록, Gradle 캐시 및 UP-TO-DATE 자동 무효화 연동.
+    - `AnswerDrafts`의 `version(key)` 확장으로 편집 세대 증가 및 복원 분리 검증.
+  - VS Code: `src/test/contract_fixture.test.ts`
+    - `createAnswerState`와 `RecoveryStateManager`를 연동하여 단계별 상태 전이 및 격리 검증.
+  - 실패 보고 계약: 단언 실패 시 반드시 `scenarioId`, `step`, `expected`, `actual`을 명시하여 보고하며 미지원 동작 묵인이나 동적 예상값 위조 금지.
+
+- **변이 실패(Negative Mutation) 검증**:
+  - `late_failure.json` Step 5의 `inputText` 기대값을 임시로 `"WRONG_TEXT"`로 변조한 뒤 양 플랫폼 실행기 실행:
+    - JetBrains: `[late_failure] Step 5 assertion failed for 'inputText': expected WRONG_TEXT, but was Draft B` 발생 확인.
+    - VS Code: `[late_failure] Step 5 assertion failed for 'inputText': expected "WRONG_TEXT", but was "Draft B"` 발생 확인.
+  - 양 실행기가 실제로 동일한 5개 fixture를 소비하며 결함을 감지함을 실측 후 즉시 원복.
+
+- **실물 검증 여부**:
+  - 헤드리스 JVM 및 Node.js 런타임 상의 계약 실행기 전수 검증 완료.
+  - 실제 macOS 두벌식 IME 조작은 미검증으로 기록하며 VoiceOver는 검증 대상에서 제외.
+
+- **전체 회귀 검증 결과 (2026-09-24)**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (37초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 84 통과 (총 84개 중), **합계 474 통과·5 건너뜀·0 실패 (총 479개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **528 통과·7 건너뜀·0 실패** (총 535개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.0초 소요)**.
 
 
 

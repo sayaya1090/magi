@@ -1,0 +1,57 @@
+{
+  "id": "late_failure",
+  "title": "늦은 실패: 사용자 편집 보존 및 시도별 잠금",
+  "description": "A 제출 후 B 사용자 편집 상태에서 A 실패 시 B 입력 유지, 실패한 A의 복구 정보 보존, 시도별 잠금 해제",
+  "steps": [
+    {
+      "step": 1,
+      "action": "switchSession",
+      "session": "s1",
+      "callId": "q1",
+      "assert": {
+        "currentSession": "s1",
+        "currentCallId": "q1",
+        "inFlight": false
+      }
+    },
+    {
+      "step": 2,
+      "action": "userEdit",
+      "text": "Draft A",
+      "assert": {
+        "inputText": "Draft A"
+      }
+    },
+    {
+      "step": 3,
+      "action": "submit",
+      "callId": "q1",
+      "attemptKey": "att_a",
+      "assert": {
+        "inFlight": true
+      }
+    },
+    {
+      "step": 4,
+      "action": "userEdit",
+      "text": "Draft B",
+      "assert": {
+        "inputText": "Draft B",
+        "inFlight": true
+      }
+    },
+    {
+      "step": 5,
+      "action": "result",
+      "attemptKey": "att_a",
+      "ok": false,
+      "error": "timeout",
+      "assert": {
+        "inputText": "Draft B",
+        "inFlight": false,
+        "recoveriesCount": 1,
+        "hasRecoveryForText": "Draft A"
+      }
+    }
+  ]
+}

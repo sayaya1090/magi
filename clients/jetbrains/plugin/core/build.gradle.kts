@@ -104,6 +104,10 @@ tasks.test {
     val consoleMark = rootProject.projectDir.resolve("../../../internal/webassets/assets.go").canonicalFile
     inputs.files(consoleMark).withPropertyName("consoleMarkOrigin").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("magi.console.mark", consoleMark.absolutePath)
+
+    val contractFixtures = rootProject.projectDir.resolve("../../test-fixtures").canonicalFile
+    inputs.files(contractFixtures).withPropertyName("contractFixtures").withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("magi.contract.fixtures", contractFixtures.absolutePath)
 }
 
 // **이 검사를 「한 번 실패시켜」 확인할 때, 볼 것은 초록이 아니라 `> Task :core:test` 가

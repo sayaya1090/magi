@@ -1,0 +1,87 @@
+{
+  "id": "cross_session_result",
+  "title": "다른 세션 결과: 활성 세션 불변 및 복귀 시 반영",
+  "description": "S1 제출 후 S2 전환·제출 상태에서 S1 결과 수신 시 S2의 입력 및 잠금 상태가 불변이며, S1 복귀 시 S1 결과가 반영됨",
+  "steps": [
+    {
+      "step": 1,
+      "action": "switchSession",
+      "session": "s1",
+      "callId": "q1",
+      "assert": {
+        "currentSession": "s1",
+        "currentCallId": "q1",
+        "inFlight": false
+      }
+    },
+    {
+      "step": 2,
+      "action": "userEdit",
+      "text": "Draft S1",
+      "assert": {
+        "inputText": "Draft S1"
+      }
+    },
+    {
+      "step": 3,
+      "action": "submit",
+      "callId": "q1",
+      "attemptKey": "att_s1",
+      "assert": {
+        "inFlight": true
+      }
+    },
+    {
+      "step": 4,
+      "action": "switchSession",
+      "session": "s2",
+      "callId": "q2",
+      "assert": {
+        "currentSession": "s2",
+        "currentCallId": "q2",
+        "inFlight": false
+      }
+    },
+    {
+      "step": 5,
+      "action": "userEdit",
+      "text": "Draft S2",
+      "assert": {
+        "inputText": "Draft S2"
+      }
+    },
+    {
+      "step": 6,
+      "action": "submit",
+      "callId": "q2",
+      "attemptKey": "att_s2",
+      "assert": {
+        "inFlight": true,
+        "inputText": "Draft S2"
+      }
+    },
+    {
+      "step": 7,
+      "action": "result",
+      "attemptKey": "att_s1",
+      "ok": true,
+      "assert": {
+        "currentSession": "s2",
+        "currentCallId": "q2",
+        "inputText": "Draft S2",
+        "inFlight": true
+      }
+    },
+    {
+      "step": 8,
+      "action": "switchSession",
+      "session": "s1",
+      "callId": "q1",
+      "assert": {
+        "currentSession": "s1",
+        "inFlight": false,
+        "isDone": true
+      }
+    }
+  ]
+}

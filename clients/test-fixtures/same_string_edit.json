@@ -1,0 +1,53 @@
+{
+  "id": "same_string_edit",
+  "title": "같은 문자열 편집: 사용자 편집 세대 증가와 프로그램 복원 구분",
+  "description": "A -> B -> A로 사용자가 다시 타이핑한 경우 문자열이 동일하더라도 편집 세대가 증가하여 구분되며, 프로그램 restore는 새로운 사용자 편집 세대를 생성하지 않고 복원함",
+  "steps": [
+    {
+      "step": 1,
+      "action": "switchSession",
+      "session": "s1",
+      "callId": "q1",
+      "assert": {
+        "currentSession": "s1",
+        "currentCallId": "q1"
+      }
+    },
+    {
+      "step": 2,
+      "action": "userEdit",
+      "text": "Text A",
+      "assert": {
+        "inputText": "Text A",
+        "version": 1
+      }
+    },
+    {
+      "step": 3,
+      "action": "userEdit",
+      "text": "Text B",
+      "assert": {
+        "inputText": "Text B",
+        "version": 2
+      }
+    },
+    {
+      "step": 4,
+      "action": "userEdit",
+      "text": "Text A",
+      "assert": {
+        "inputText": "Text A",
+        "version": 3
+      }
+    },
+    {
+      "step": 5,
+      "action": "restore",
+      "text": "Text B",
+      "assert": {
+        "inputText": "Text B",
+        "isProgrammaticRestore": true
+      }
+    }
+  ]
+}

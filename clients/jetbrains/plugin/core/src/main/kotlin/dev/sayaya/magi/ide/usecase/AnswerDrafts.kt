@@ -178,6 +178,7 @@ class AnswerDrafts {
     fun leaveAfterSubmit() { active = null }
     fun busy(key: Key? = question): Boolean = drafts[key]?.pending != null
     fun done(key: Key? = question): Boolean = drafts[key]?.done == true
+    fun version(key: Key? = question): Long = drafts[key]?.version ?: 0L
 
     fun complete(attempt: Attempt, ok: Boolean): Boolean {
         if (closed) return false

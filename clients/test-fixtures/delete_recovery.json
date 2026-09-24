@@ -1,0 +1,103 @@
+{
+  "id": "delete_recovery",
+  "title": "복구 삭제: 삭제 세대 재등장 방지 및 신규 편집 복구 가능",
+  "description": "복구 항목 생성 후 삭제 시 재그림 및 세션 왕복 후에도 삭제된 세대가 재등장하지 않으며, 새 편집은 정상적으로 복구 가능",
+  "steps": [
+    {
+      "step": 1,
+      "action": "switchSession",
+      "session": "s1",
+      "callId": "q1",
+      "questionText": "Question 1",
+      "assert": {
+        "currentSession": "s1",
+        "currentCallId": "q1"
+      }
+    },
+    {
+      "step": 2,
+      "action": "userEdit",
+      "text": "Draft to recover",
+      "assert": {
+        "inputText": "Draft to recover"
+      }
+    },
+    {
+      "step": 3,
+      "action": "submit",
+      "callId": "q1",
+      "attemptKey": "att_fail",
+      "assert": {
+        "inFlight": true
+      }
+    },
+    {
+      "step": 4,
+      "action": "result",
+      "attemptKey": "att_fail",
+      "ok": false,
+      "error": "rejected",
+      "assert": {
+        "recoveriesCount": 1,
+        "hasRecoveryForText": "Draft to recover"
+      }
+    },
+    {
+      "step": 5,
+      "action": "deleteRecovery",
+      "target": "last",
+      "assert": {
+        "recoveriesCount": 0
+      }
+    },
+    {
+      "step": 6,
+      "action": "switchSession",
+      "session": "s2",
+      "callId": "q2",
+      "assert": {
+        "currentSession": "s2",
+        "currentCallId": "q2"
+      }
+    },
+    {
+      "step": 7,
+      "action": "switchSession",
+      "session": "s1",
+      "callId": "q1",
+      "assert": {
+        "currentSession": "s1",
+        "currentCallId": "q1",
+        "recoveriesCount": 0
+      }
+    },
+    {
+      "step": 8,
+      "action": "userEdit",
+      "text": "New fresh edit",
+      "assert": {
+        "inputText": "New fresh edit"
+      }
+    },
+    {
+      "step": 9,
+      "action": "submit",
+      "callId": "q1",
+      "attemptKey": "att_fail_2",
+      "assert": {
+        "inFlight": true
+      }
+    },
+    {
+      "step": 10,
+      "action": "result",
+      "attemptKey": "att_fail_2",
+      "ok": false,
+      "error": "server_down",
+      "assert": {
+        "recoveriesCount": 1,
+        "hasRecoveryForText": "New fresh edit"
+      }
+    }
+  ]
+}
