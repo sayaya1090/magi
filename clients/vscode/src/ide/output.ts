@@ -15,7 +15,7 @@ import { Event } from '../core/protocol';
  * Keeps immutable snapshots of finalized assistant answers and tool results at the
  * moment requested, without reading the live disk or executing commands.
  *
- * Protects documents currently open in editor tabs from LRU eviction.
+ * Protects documents currently open in editor tabs from eviction (insertion-order FIFO).
  * Never degrades missing or expired snapshots to empty documents.
  */
 export class OutputProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {

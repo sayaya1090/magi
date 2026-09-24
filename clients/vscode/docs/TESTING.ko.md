@@ -126,6 +126,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `recovery_state.property.test.ts` (fast-check 복구 저장소 상태 속성 기반 회귀 검사) | ★ **실패 초안 복구 모델의 등록·합산·삭제·정렬 불변식 검증 (§5.8.4).** 빈 문자열 거부 및 공백·개행·한글 원문 보존, 동일 `eventKey` 재생 멱등성(시도 횟수 불변), 동일 실패 건 합산(횟수 증가·seq 갱신·최신 오류 반영 및 stale 오류 제거), 이기종 출처·종류·원문의 엄격한 격리, 삭제된 항목의 동일 사건 재생 부활 차단 및 신규 사건 등록, 40단계 무작위 명령 시퀀스의 seq 역순 정렬 및 문맥 격리를 검증합니다 |
 | `fc_helpers.test.ts` (fast-check 지원 도구 및 재현성 검증) | ★ **fast-check 헬퍼 설정, 파라미터 파싱, 축소(shrinking) 활성화 및 크로스 플랫폼 재현 실행 검증 (§5.8.4).** `MAGI_FC_SEED`(엄격한 32비트 부호 있는 정수, 소수/지수/문자열 거절), `MAGI_FC_PATH`(콜론 구분 정수 인덱스 경로, seed 필수), `endOnFailure: false`를 통한 반례 축소(`numShrinks > 0`), `getReproductionExecution`과 `spawnSync(shell: false)`를 통한 Windows/POSIX 공통 1회 실패 재현 및 앵커링된 단일 속성 실행 정합성을 검증합니다 |
 | `contract_fixture.test.ts` (공통 계약 fixture 실행) | ★ **공통 계약 fixture 5종의 단일 원본 직접 읽기 및 실행 검증 (§6.38).** `clients/test-fixtures/`의 5개 핵심 계약 fixture(`late_failure`, `cross_session_result`, `delete_recovery`, `same_string_edit`, `disposed_callback`)를 JetBrains와 복제본 없이 공유하여 실행합니다. 각 시나리오의 단계별 실행과 상태 단언, 실패 시 시나리오 ID·단계·기대값·실제값 보고 계약을 검증합니다 |
+| `snapshot.test.ts` (불변 스냅샷 공통 저장소) | **불변 스냅샷 공통 저장소(`ImmutableSnapshotStore`)의 불변성, 삽입 순서(FIFO) 축출, 임시 보호 및 탭 수명 검증 (§6.40).** 동일 키 재저장 시 최초 내용 불변성 및 false 반환, get() 접근에도 순서가 바뀌지 않는 엄격한 삽입 순서(FIFO) 축출, 중첩 임시 보호(`protectTemp`)의 참조 카운팅 및 멱등 해제, 모든 항목 고정 시 일시적 용량 초과 허용, diff 두 면 동시 생성 중 보호, 열기 실패 시 finally 블록을 통한 안전 해제, 탭 종료 시 새 put 없는 즉각 정리(`evictExcess`), 빈 문자열 문서 유효성 및 ApprovalSnapshots/OutputSnapshots 상속 동등성을 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -1274,3 +1275,24 @@ node --test clients/vscode/out/test/*.property.test.js
 현재 registry는 7개 test·50개 기능 시나리오입니다. 과거 실행표는 당시 결과를 유지합니다. 이번 보완은 FIFO 처리 동기화, 실제 답변 B와 포커스 보존, 답변 모드 재진입 뒤 전송 잠금, 두 viewport의 경계·승인 Enter 게시, 스크롤 위치를 검사합니다. 승인 Enter는 코드로 포커스를 준 뒤 실행하며 Tab 순회 검사와 구분합니다. 실행 결과와 검사 커밋은 #201 후속 댓글에 기록합니다.
 
 최종 실행: `npm test --prefix clients/vscode` 종료 0(522 통과·7 건너뜀), 전체 `node clients/vscode/tools/transcript-test.mjs` 종료 0(7개 test·50개 기능 시나리오, 17.8초). 역순·테마 역순과 실물 IDE는 이번 회차에 실행하지 않았습니다.
+
+---
+
+### §6.40 VS Code 불변 스냅샷 공통 저장소 추출 (`ImmutableSnapshotStore`)
+
+- **추출 모듈:**
+  - `src/core/snapshot.ts`에 VS Code 및 DOM API 의존성이 전혀 없는 순수 TypeScript 클래스 `ImmutableSnapshotStore<T = string>`를 구축했습니다.
+  - `src/core/diff.ts`의 `ApprovalSnapshots` 및 `src/core/output.ts`의 `OutputSnapshots`가 `ImmutableSnapshotStore<string>`을 상속(subclass)하여 기존 공개 API와 자료 식별 계약, URI 구조를 100% 보존합니다.
+  - LRU로 잘못 기재되어 있던 주석을 실제 구현 동작인 **엄격한 삽입 순서(FIFO) 축출**로 정정했습니다 (`src/core/output.ts`, `src/ide/diff.ts`, `src/ide/output.ts`, `docs/DIAGRAMS.ko.md`, `docs/MANUAL.ko.md`).
+  - Provider 이벤트 구독 로직은 이번 커밋에 섞지 않고 각 Provider(`DiffProvider`, `OutputProvider`)에 그대로 유지했습니다 (§6.41 분리).
+- **공통 저장소 계약 및 회귀 검증 (`src/test/snapshot.test.ts`):**
+  1. **동일 키 재저장 불변성:** 이미 존재하는 키에 `put()` 호출 시 기존 내용을 덮어쓰지 않고 `false`를 반환하며 최초 내용을 온전히 보존합니다.
+  2. **빈 문자열 문서 계약:** 빈 문자열(`""`)은 유효한 내용으로 정상 저장·조회되며 `undefined`나 누락으로 오인되지 않습니다.
+  3. **get 이후 축출 순서 (not LRU):** `get()` 호출은 내부 순서를 갱신하지 않으므로, 용량 초과 시 접근 여부와 무관하게 가장 먼저 삽입된 항목이 축출되는 엄격한 FIFO 순서를 확인했습니다.
+  4. **중첩 임시 보호 개별 해제 및 참조 카운팅:** `protectTemp`는 키별 참조 카운터를 관리하여 한 비동기 작업이 끝나 unprotect되어도 다른 작업이 들고 있는 동안 축출되지 않으며, unprotect 함수의 중복 호출은 멱등적(idempotent)으로 안전합니다.
+  5. **모든 항목 고정 시 일시적 용량 초과:** 모든 항목이 탭에 열려 있거나 임시 보호 중인 경우 캐시 한도를 일시적으로 초과하여 보존하며 강제 축출하지 않습니다.
+  6. **diff 두 면 동시 보호:** diff의 좌우 두 면(left/right)을 생성하는 동안 용량 한도 1인 저장소에서도 선행 저장 면이 후행 저장 면에 의해 축출되지 않고 공존함을 확인했습니다.
+  7. **열기 실패 시 finally 안전 해제:** 에디터 열기 중 예외가 발생하더라도 `finally` 블록의 unprotect를 통해 임시 보호가 누수 없이 전량 해제되고 미고정 항목이 즉시 정리됩니다.
+  8. **탭 종료 뒤 추가 put 없는 즉각 정리:** `evictExcess()` 호출 시 새 `put()` 호출을 기다리지 않고 닫힌 탭의 항목을 즉시 캐시 용량 한도까지 축출합니다.
+  9. **하위 클래스 상속 동등성:** `ApprovalSnapshots` 및 `OutputSnapshots`가 `ImmutableSnapshotStore`의 모든 동작을 정확히 공유하며 `instanceof` 계약을 충족합니다.
+

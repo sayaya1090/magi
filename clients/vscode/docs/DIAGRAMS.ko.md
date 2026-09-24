@@ -397,8 +397,8 @@ flowchart LR
 
   subgraph Ext["VS Code 확장"]
     subgraph VirtDocs["가상 문서 제공자"]
-      pDiff["DiffProvider (magi-diff:)<br/>ApprovalSnapshots (LRU 100)"]
-      pOut["OutputProvider (magi-output:)<br/>OutputSnapshots (LRU 100)"]
+      pDiff["DiffProvider (magi-diff:)<br/>ApprovalSnapshots (FIFO 100)"]
+      pOut["OutputProvider (magi-output:)<br/>OutputSnapshots (FIFO 100)"]
     end
 
     subgraph NativeBridges["에디터 네이티브 브리지"]

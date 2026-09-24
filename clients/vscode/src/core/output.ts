@@ -8,6 +8,9 @@
  */
 
 import { Event } from './protocol';
+import { ImmutableSnapshotStore } from './snapshot';
+
+export { ImmutableSnapshotStore } from './snapshot';
 
 export type OutputKind = 'assistant' | 'tool-result';
 export type OutputLanguage = 'markdown' | 'plaintext' | 'json';
@@ -205,110 +208,8 @@ export function defaultOutputFilename(item: OutputItem): string {
  *
  *  - Immutability: Once stored for a key, subsequent calls to put() preserve initial content.
  *  - Open Tab Protection: When capacity is exceeded, entries that are pinned (open tabs or in-flight)
- *    are protected from LRU eviction.
+ *    are protected from eviction (insertion-order FIFO).
  *  - Temporary Overflow: If all entries are pinned, allows capacity to be exceeded until unpinned.
  */
-export class OutputSnapshots {
-  private readonly store = new Map<string, string>();
-  private readonly order: string[] = [];
-  private readonly tempPinned = new Map<string, number>();
+export class OutputSnapshots extends ImmutableSnapshotStore<string> {}
 
-  constructor(
-    private readonly maxEntries: number = 100,
-    private readonly isPinned?: (key: string) => boolean
-  ) {}
-
-  /**
-   * Temporarily protects keys from eviction during in-flight open operations.
-   * Reference-counted to support concurrent operations independently.
-   */
-  protectTemp(keys: string[]): () => void {
-    for (const k of keys) {
-      const current = this.tempPinned.get(k) ?? 0;
-      this.tempPinned.set(k, current + 1);
-    }
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      for (const k of keys) {
-        const count = this.tempPinned.get(k) ?? 0;
-        if (count <= 1) {
-          this.tempPinned.delete(k);
-        } else {
-          this.tempPinned.set(k, count - 1);
-        }
-      }
-      this.evictExcess();
-    };
-  }
-
-  put(key: string, content: string): boolean {
-    if (this.store.has(key)) {
-      return false; // Immutable: keep initial content
-    }
-    this.order.push(key);
-    this.store.set(key, content);
-
-    while (this.order.length > this.maxEntries) {
-      const evictIndex = this.order.slice(0, -1).findIndex((k) => !this.isProtected(k));
-      if (evictIndex < 0) {
-        break; // All older entries protected; allow temporary limit overflow
-      }
-      const [evicted] = this.order.splice(evictIndex, 1);
-      this.store.delete(evicted);
-    }
-    return true;
-  }
-
-  /**
-   * Evicts unpinned entries if size exceeds maxEntries.
-   */
-  evictExcess(): number {
-    let count = 0;
-    while (this.order.length > this.maxEntries) {
-      const evictIndex = this.order.findIndex((k) => !this.isProtected(k));
-      if (evictIndex < 0) {
-        break;
-      }
-      const [evicted] = this.order.splice(evictIndex, 1);
-      this.store.delete(evicted);
-      count++;
-    }
-    return count;
-  }
-
-  private isProtected(key: string): boolean {
-    if (this.tempPinned.has(key)) return true;
-    return this.isPinned ? this.isPinned(key) : false;
-  }
-
-  get(key: string): string | undefined {
-    return this.store.get(key);
-  }
-
-  has(key: string): boolean {
-    return this.store.has(key);
-  }
-
-  delete(key: string): boolean {
-    const idx = this.order.indexOf(key);
-    if (idx >= 0) this.order.splice(idx, 1);
-    this.tempPinned.delete(key);
-    return this.store.delete(key);
-  }
-
-  get size(): number {
-    return this.store.size;
-  }
-
-  get tempPinnedSize(): number {
-    return this.tempPinned.size;
-  }
-
-  clear(): void {
-    this.store.clear();
-    this.order.length = 0;
-    this.tempPinned.clear();
-  }
-}

@@ -16,7 +16,7 @@ import {
  * Keeps immutable snapshots of the approval state at the moment requested, without reading
  * the live disk or mutating files.
  *
- * Protects documents currently open in editor tabs from LRU eviction.
+ * Protects documents currently open in editor tabs from eviction (insertion-order FIFO).
  * Never degrades missing or expired snapshots to empty documents.
  */
 export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
