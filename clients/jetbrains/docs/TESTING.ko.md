@@ -1132,6 +1132,77 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.0초 소요)**.
 
+### 6.34 남은 입력 기능 실물 인수 결과 (2026-09-24)
+
+§6.34 지침에 따라 별도 runIde 테스트 세션을 구성하여 `@` 파일 선택 후보 팝업·선택·취소의 전체 흐름, 실제 질문 세션에서의 답변 모드 키 조작(Shift+Enter 개행, Esc 복원, 재진입 초안 유지, in-flight 중복 Enter 차단, 실패 후 초안 보존, Enter 최종 제출 및 submit/steer 분리), 한글 IME 상태 및 전체 회귀 스위트를 실측 검증했습니다.
+
+#### 1. 검증 환경 및 메타데이터
+- 대상 커밋 SHA: `de42f12a` (HEAD)
+- OS: macOS 26.6.2 (Darwin 25G83, arm64, Apple Silicon)
+- Java / JDK: OpenJDK / GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01), Gradle JVM toolchain 21
+- IDE: IntelliJ Platform 2026.1 (IU-2026.1 sandbox, 1400×1000 윈도우, PID 61794 / 61417)
+- UI 언어: 한국어 (Korean), 테마: 라이트 (Light Theme), 배율: 1x, 시각: 2026-09-24 09:05 ~ 09:13 KST
+- 데몬 환경: `/tmp/magi-answer-live` 독립 소켓 및 프로젝트 파일(`file1.txt`, `file2.txt`, `src/hello.kt`), 질문 `live-q1`("Which approach should we use?", 선택지 `Alpha`, `Beta`)
+
+#### 2. @ 파일 선택 전체 흐름 실물 인수 (`clients/jetbrains/docs/img/evidence/`)
+- **후보 팝업 노출 (`sandbox_mention_popup.png`)**:
+  - 식별 가능한 프로젝트 파일 3종 준비 후 컴포저 포커스 인가, `Check @fi` 입력.
+  - 400ms 디바운스 후 데몬의 `glob` RPC 호출(`{"method":"tool","name":"glob","args":{"pattern":"**/*fi*"}}`), 입력창 하단에 `@fi — 파일 첨부` 레이블 및 파일 후보(`file1.txt`, `file2.txt`) 팝업이 정상 표출됨을 확인.
+- **키보드 후보 선택 및 파일 참조 칩 추가 (`sandbox_mention_selected.png`)**:
+  - 키보드 Enter로 첫 번째 후보 `file1.txt` 선택.
+  - 본문에서 `@fi` 토큰이 제거되어 `Check `로 복원되고, 컴포저 상단에 올바른 파일 참조 칩 `file1.txt ✕`가 생성되며, 포커스가 컴포저로 안전하게 복귀함을 확인.
+  - **자동 전송 0회 확인**: `requests.jsonl` 전수 검사 결과, 제안/glob 외에 일반 메시지(`say`/`submit`)가 0회 전송되었음을 실측.
+- **선택 취소(Esc) 시 본문·초안·칩 불변 검증 (`sandbox_mention_cancelled.png`)**:
+  - 이어서 `@he` 입력하여 두 번째 팝업(`src/hello.kt`) 표출 확인 후 `Esc` (key code 53) 타건.
+  - 팝업이 즉시 닫히며 입력 본문(`Check @he`), 기존 첨부 칩(`file1.txt ✕`)이 1개도 변경되거나 유실되지 않고 온전히 유지됨을 확인.
+  - **자동 전송 0회 확인**: `requests.jsonl` 실측 결과 0회 전송.
+
+#### 3. 답변 모드 키 조작 실물 인수 (`clients/jetbrains/docs/img/evidence/`)
+- **일반 초안 G 작성 및 답변 모드 진입 (`sandbox_answer_mode_entered.png`)**:
+  - 실제 질문 `live-q1` 상태에서 일반 초안 G("General Draft G")를 컴포저에 작성.
+  - 질문 카드의 "직접 입력" 단추(1728, 365) 클릭 시 답변 모드로 전환: `답변 모드 · Which approach should we use?` 바와 `답변 취소` 단추 표출, 컴포저는 빈 입력창으로 전환.
+- **Shift+Enter 개행 및 미전송 확인 (`sandbox_answer_shift_enter.png`)**:
+  - 답변 초안 A 작성 중 `Answer Line 1` 입력 후 `Shift+Enter` 타건 시 전송되지 않고 개행(`\n`)만 추가됨을 확인, 이어서 `Line 2` 입력.
+  - `requests.jsonl` 실측 결과 0회 전송.
+- **Esc 답변 취소 및 일반 모드·초안 G 복원 (`sandbox_answer_esc_cancelled.png`)**:
+  - `Esc` (key code 53) 타건 시 전송 없이 답변 모드가 즉시 종료되며 일반 모드로 복귀.
+  - 컴포저에 일반 초안 `General Draft G`와 첨부 칩 `file1.txt ✕`가 온전히 복원됨을 확인. `requests.jsonl` 실측 0회 전송.
+- **동일 질문 재진입 시 답변 초안 A 복원 (`sandbox_answer_reentered.png`)**:
+  - "직접 입력" 단추를 다시 클릭했을 때, 이전에 작성했던 답변 초안 `Answer Line 1\n Line 2`가 그대로 복원됨을 확인. `requests.jsonl` 실측 0회 전송.
+- **전송 중(In-Flight) 재진입 및 중복 Enter 차단 (`sandbox_answer_inflight_busy.png`)**:
+  - 컴포저 포커스 상태에서 `Enter` (key code 36)로 1차 제출 시도: 컴포저는 즉시 일반 모드(`General Draft G` 복원)로 전환되고 백그라운드에서 데몬으로 1차 answer RPC 발송(`{"method":"answer","session":"live-answer","callId":"live-q1","answer":"Answer Line 1\nLine 2"}`).
+  - 데몬이 응답을 지연(3.0s)하는 도중 사용자가 "직접 입력"을 다시 클릭하여 재진입:
+    - `보내기` 단추 비활성화(`sendButton.isEnabled == false`), `Alpha`/`Beta` 단추 비활성화, 하단에 `원래 대화로 돌아가 입력창을 비운 뒤 복원하세요.` 안내 표시 확인.
+    - 이 상태에서 중복 `Enter` (key code 36) 타건: `answers.busy()`에 의해 차단되어 데몬으로 중복 요청이 1건도 발송되지 않음을 확인 (`requests.jsonl` 요청 수 1건 유지).
+- **실패 후 답변 초안 A 보존 (`sandbox_answer_failed_preserved.png`)**:
+  - 데몬에서 의도된 1차 실패 응답(`{"ok":false,"error":"Live simulated answer failure"}`) 수신: 에러 알림 `보내지 못했습니다: Live simulated answer failure` 표출, 컴포저의 답변 초안 `Answer Line 1\n Line 2`가 유실되지 않고 온전히 보존됨을 확인.
+- **Enter 최종 제출 성공 및 일반 submit/steer 분리 (`sandbox_answer_submitted_success.png`)**:
+  - 컴포저에서 2차 `Enter` 타건 제출: 데몬으로 2차 answer RPC 발송, 데몬 성공(`ok: true`) 및 `waiting` 해제.
+  - 질문 카드가 즉시 제거되고, 답변 모드 바 닫힘, 컴포저는 일반 초안 `General Draft G` 및 첨부 칩 `file1.txt ✕`로 완전 복원됨을 확인.
+  - `requests.jsonl` 전수 감사: 발송된 요청은 오직 해당 `callId`의 `method: "answer"` 2건뿐이었으며, 일반 `submit`이나 `steer`는 0건으로 엄격히 분리됨을 실측 확인.
+
+#### 4. 한글 IME 조합 확정과 전송 분리 상태
+- **자동화 제약 및 미검증 명시**:
+  - macOS 터미널 자동화 환경에서 AppleScript/cliclick/CGEvent 가상 키스트로크는 OS 레벨 텍스트 입력 서비스(TIS/IMKServer)의 자소 조합 중 상태(markedText / composing preedit)를 생성하지 않고 완성 문자로 즉각 커밋합니다.
+  - §6.34 지침("완성된 한글 문자열 붙여넣기나 DocumentEvent 주입은 OS IME 인수로 세지 않습니다. 자동화가 이 경로를 만들 수 없으면 미검증 상태와 필요한 실제 조작을 명시합니다.")에 따라, 실제 물리 키보드 타건을 통한 macOS 한글 두벌식 조합 확정 Enter는 **미검증** 상태로 보고합니다.
+- **필요한 실제 조작**:
+  - macOS 한글 두벌식 입력기를 활성화한 상태에서 컴포저에 자모를 입력해 음절이 밑줄 친 조합 중(markedText)인 상태를 형성한 후, 첫 번째 `Enter`를 타건할 때 글자만 확정(밑줄 해제)되고 전송되지 않아야 하며, 조합이 끝난 상태에서 두 번째 `Enter`를 쳤을 때만 실제 1회 전송되어야 합니다.
+- **헤드리스 단위 검증 대조**:
+  - 헤드리스 테스트(`AnswerModeTest.testCompositionDoesNotSubmitOrCancel`)에서는 `InputMethodEvent(INPUT_METHOD_TEXT_CHANGED, committedCharacterCount=0)`가 주입되었을 때 `composing == true`가 유지되어 `magi.send`와 `magi.cancelAnswer`가 모두 차단되고 RPC가 0건 전송됨을 보증하고 있습니다.
+- **VoiceOver**:
+  - 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외.
+
+#### 5. 전체 회귀 검증 실행 결과
+- **2026-09-24 전체 검증 실행**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (35초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 63 통과 (총 63개 중), **합계 447 통과·5 건너뜀·0 실패 (총 452개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.7초 소요)**.
+
+
 
 
 
