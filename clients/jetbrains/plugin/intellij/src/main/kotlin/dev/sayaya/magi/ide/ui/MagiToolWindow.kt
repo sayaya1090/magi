@@ -187,10 +187,24 @@ class MagiToolWindow : ToolWindowFactory {
         private var waitingQuestion: Waiting? = null
         private var waitingSession: String? = null
         private var inputEpoch = 0L
-        private var composing = false
-        private var enterPressed = false
-        private var enterCommitted = false
         private var commitResetTimer: javax.swing.Timer? = null
+        private val inputGate: ComposerInputGate = ComposerInputGate(
+            onScheduleTimer = { delayMs -> scheduleCommitReset(delayMs) },
+            onCancelTimer = { cancelCommitReset() }
+        )
+        private fun scheduleCommitReset(delayMs: Long) {
+            commitResetTimer?.stop()
+            commitResetTimer = javax.swing.Timer(delayMs.toInt()) {
+                inputGate.onTimerExpired()
+            }.apply {
+                isRepeats = false
+                start()
+            }
+        }
+        private fun cancelCommitReset() {
+            commitResetTimer?.stop()
+            commitResetTimer = null
+        }
         private val sendButton = JButton(MagiBundle.msg("chat.send")).apply { addActionListener { say() } }
         private val answerLabel = JBLabel()
         private val answerCancel = JButton(MagiBundle.msg("chat.answer.cancel")).apply { addActionListener { cancelAnswer() } }
@@ -670,51 +684,30 @@ class MagiToolWindow : ToolWindowFactory {
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
             input.addInputMethodListener(object : java.awt.event.InputMethodListener {
                 override fun inputMethodTextChanged(e: java.awt.event.InputMethodEvent) {
-                    val wasComposing = composing
                     val isComposing = e.text?.let { it.endIndex - it.beginIndex > e.committedCharacterCount } ?: false
-                    composing = isComposing
-                    if (wasComposing && !isComposing && e.committedCharacterCount > 0) {
-                        enterCommitted = true
-                        commitResetTimer?.stop()
-                        commitResetTimer = javax.swing.Timer(250) {
-                            enterCommitted = false
-                        }.apply {
-                            isRepeats = false
-                            start()
-                        }
-                    }
+                    inputGate.onCompositionChanged(isComposing, e.committedCharacterCount)
                 }
                 override fun caretPositionChanged(e: java.awt.event.InputMethodEvent) {}
             })
             input.addKeyListener(object : java.awt.event.KeyAdapter() {
                 override fun keyPressed(e: java.awt.event.KeyEvent) {
-                    if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER) {
-                        enterPressed = true
-                    } else {
-                        enterPressed = false
-                        enterCommitted = false
-                        commitResetTimer?.stop()
-                    }
+                    inputGate.onKeyPressed(e.keyCode == java.awt.event.KeyEvent.VK_ENTER)
                 }
                 override fun keyReleased(e: java.awt.event.KeyEvent) {
-                    if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER) {
-                        enterPressed = false
-                        enterCommitted = false
-                        commitResetTimer?.stop()
-                    }
+                    inputGate.onKeyReleased(e.keyCode == java.awt.event.KeyEvent.VK_ENTER)
                 }
             })
             input.addFocusListener(object : java.awt.event.FocusAdapter() {
                 override fun focusLost(e: java.awt.event.FocusEvent) {
-                    enterPressed = false
-                    enterCommitted = false
-                    commitResetTimer?.stop()
+                    inputGate.onFocusLost()
                 }
             })
             input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
                 .put(javax.swing.KeyStroke.getKeyStroke("ESCAPE"), "magi.cancelAnswer")
             input.actionMap.put("magi.cancelAnswer", object : javax.swing.AbstractAction() {
-                override fun actionPerformed(e: java.awt.event.ActionEvent) { cancelAnswer() }
+                override fun actionPerformed(e: java.awt.event.ActionEvent) {
+                    if (inputGate.canCancel()) cancelAnswer()
+                }
             })
             // Enter 는 보낸다 — 웹도 터미널도 그렇다. 줄바꿈은 Shift+Enter 로 남긴다.
             // registerKeyboardAction 이 아니라 inputMap 인 이유: JTextArea 의 insert-break 가
@@ -725,14 +718,7 @@ class MagiToolWindow : ToolWindowFactory {
                 .put(javax.swing.KeyStroke.getKeyStroke("shift ENTER"), "insert-break")
             input.actionMap.put("magi.send", object : javax.swing.AbstractAction() {
                 override fun actionPerformed(e: java.awt.event.ActionEvent) {
-                    if (composing) return
-                    if (enterCommitted) {
-                        if (!enterPressed) {
-                            enterCommitted = false
-                            commitResetTimer?.stop()
-                        }
-                        return
-                    }
+                    if (!inputGate.canSendOnEnter()) return
                     say()
                 }
             })
@@ -811,9 +797,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
-            enterPressed = false
-            enterCommitted = false
-            runCatching { commitResetTimer?.stop() }
+            inputGate.dispose()
             runCatching { following?.close() }
             following = null
             val server = hand ?: return
@@ -1849,9 +1833,8 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun say() {
-            if (composing) return
-            enterCommitted = false
-            commitResetTimer?.stop()
+            if (inputGate.isComposing) return
+            inputGate.onExplicitAction()
             syncAnswerContext()
             if (answers.active != null) { submitAnswer(input.text); return }
             val text = input.text.trim()
@@ -2138,24 +2121,22 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun enterAnswer() {
-            if (closing.get() || composing) return
-            enterCommitted = false
-            commitResetTimer?.stop()
+            if (closing.get() || inputGate.isComposing) return
+            inputGate.onExplicitAction()
             syncAnswerContext()
             answers.enter(input.text)?.let { restoreAnswerText(it) }
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
         private fun cancelAnswer() {
-            if (composing) return
-            enterCommitted = false
-            commitResetTimer?.stop()
+            if (!inputGate.canCancel()) return
+            inputGate.onExplicitAction()
             answers.cancel(input.text)?.let { restoreAnswerText(it) }
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
         private fun submitAnswer(text: String, expected: dev.sayaya.magi.ide.usecase.AnswerDrafts.Key? = answers.active) {
-            if (closing.get() || project.isDisposed || composing) return
+            if (closing.get() || project.isDisposed || inputGate.isComposing) return
             syncAnswerContext()
             if (expected == null || answers.question != expected) return
             val attempt = answers.begin(text) ?: return

@@ -246,10 +246,14 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.key("magi.send")
         assertTrue(h.pending.isEmpty()) // 확정 Enter 전송 차단
 
+        // 250ms 타이머 만료 콜백을 결정적으로 주입: 키가 여전히 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없음
+        val timer = h.field<javax.swing.Timer>("commitResetTimer")
+        timer?.actionListeners?.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
+
         // 키를 떼지 않고 계속 누르고 있는 상태(auto-repeat) Enter 재발생
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
         h.key("magi.send")
-        assertTrue(h.pending.isEmpty()) // 키를 떼기 전의 auto-repeat 전송 차단
+        assertTrue(h.pending.isEmpty()) // 타이머 만료 후에도 키를 떼기 전 auto-repeat 전송은 차단 유지 (요청 0건)
 
         // Enter 키를 뗌 (keyReleased)
         val enterRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')

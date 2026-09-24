@@ -1345,7 +1345,12 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertTrue(pendingSends.isEmpty())
             assertEquals("한", input.text)
 
-            // 4. 키를 떼지 않은 상태(auto-repeat) Enter 재발생 시에도 전송 차단
+            // 4. 키를 떼지 않은 상태에서 250ms 타이머 만료 콜백을 결정적으로 주입:
+            // 물리 키가 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없으므로 만료되어도 차단 유지
+            val timer = field<javax.swing.Timer?>("commitResetTimer")
+            timer?.actionListeners?.forEach { it.actionPerformed(ActionEvent(timer, 0, "")) }
+
+            // 키를 떼지 않은 상태(auto-repeat) Enter 재발생 시에도 전송 차단 (타이머 만료 후에도 요청 0건)
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             assertTrue(pendingSends.isEmpty())
