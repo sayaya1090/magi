@@ -548,6 +548,86 @@ func TestHTTPTransportFieldPresenceAndAuthoritativeScenarios(t *testing.T) {
 			isUnconfirmed: false,
 			expectedMsg:   "tool not found",
 		},
+		// §6.44.9 RPC error completeness test cases (JSON)
+		{
+			name:          "JSON: error missing code -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"message":"x"}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "missing 'code'",
+		},
+		{
+			name:          "JSON: error missing message -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":-32000}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "missing 'message'",
+		},
+		{
+			name:          "JSON: error code is null -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":null,"message":"x"}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error code is null",
+		},
+		{
+			name:          "JSON: error message is null -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":-32000,"message":null}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error message is null",
+		},
+		{
+			name:          "JSON: error code is string -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":"-32000","message":"x"}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error code is not a number",
+		},
+		{
+			name:          "JSON: error code is float -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":-32000.5,"message":"x"}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error code must be an integer",
+		},
+		{
+			name:          "JSON: error message is number -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":-32000,"message":123}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error message must be a string",
+		},
+		{
+			name:          "JSON: error is empty object -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "missing 'code'",
+		},
+		{
+			name:          "JSON: error with code=0 and message=\"\" is valid authoritative error",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":0,"message":""}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: false,
+		},
+		{
+			name:          "JSON: error with negative code, message, and data is valid authoritative error",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":-32601,"message":"Method not found","data":{"detail":"more"}}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: false,
+			expectedMsg:   "Method not found",
+		},
 		{
 			name:          "SSE: result:null + error -> unconfirmed",
 			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":null,\"error\":{\"code\":-32000,\"message\":\"x\"}}\n\n",
@@ -586,6 +666,86 @@ func TestHTTPTransportFieldPresenceAndAuthoritativeScenarios(t *testing.T) {
 			expectError:   true,
 			isUnconfirmed: false,
 			expectedMsg:   "tool not found",
+		},
+		// §6.44.9 RPC error completeness test cases (SSE)
+		{
+			name:          "SSE: error missing code -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"message\":\"x\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "missing 'code'",
+		},
+		{
+			name:          "SSE: error missing message -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32000}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "missing 'message'",
+		},
+		{
+			name:          "SSE: error code is null -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":null,\"message\":\"x\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error code is null",
+		},
+		{
+			name:          "SSE: error message is null -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32000,\"message\":null}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error message is null",
+		},
+		{
+			name:          "SSE: error code is string -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":\"-32000\",\"message\":\"x\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error code is not a number",
+		},
+		{
+			name:          "SSE: error code is float -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32000.5,\"message\":\"x\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error code must be an integer",
+		},
+		{
+			name:          "SSE: error message is number -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32000,\"message\":123}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "error message must be a string",
+		},
+		{
+			name:          "SSE: error is empty object -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "missing 'code'",
+		},
+		{
+			name:          "SSE: error with code=0 and message=\"\" is valid authoritative error",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":0,\"message\":\"\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: false,
+		},
+		{
+			name:          "SSE: error with negative code, message, and data is valid authoritative error",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32601,\"message\":\"Method not found\",\"data\":{\"detail\":\"more\"}}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: false,
+			expectedMsg:   "Method not found",
 		},
 	}
 
@@ -633,6 +793,92 @@ func TestHTTPTransportFieldPresenceAndAuthoritativeScenarios(t *testing.T) {
 				}
 				if len(res.Content) != 1 || res.Content[0].Text != "ok" {
 					t.Errorf("unexpected content: %+v", res.Content)
+				}
+			}
+		})
+	}
+}
+
+func TestParseHTTPRPCErrorDirectUnit(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		expectError bool
+		expectedCode int
+		expectedMsg  string
+	}{
+		{
+			name:        "missing code",
+			raw:         `{"message":"x"}`,
+			expectError: true,
+		},
+		{
+			name:        "missing message",
+			raw:         `{"code":-32000}`,
+			expectError: true,
+		},
+		{
+			name:        "null code",
+			raw:         `{"code":null,"message":"x"}`,
+			expectError: true,
+		},
+		{
+			name:        "null message",
+			raw:         `{"code":-32000,"message":null}`,
+			expectError: true,
+		},
+		{
+			name:        "string code",
+			raw:         `{"code":"-32000","message":"x"}`,
+			expectError: true,
+		},
+		{
+			name:        "float code",
+			raw:         `{"code":-32000.5,"message":"x"}`,
+			expectError: true,
+		},
+		{
+			name:        "number message",
+			raw:         `{"code":-32000,"message":123}`,
+			expectError: true,
+		},
+		{
+			name:        "empty object",
+			raw:         `{}`,
+			expectError: true,
+		},
+		{
+			name:         "code=0 message=\"\"",
+			raw:          `{"code":0,"message":""}`,
+			expectError:  false,
+			expectedCode: 0,
+			expectedMsg:  "",
+		},
+		{
+			name:         "code=-32601 message=\"not found\" and data",
+			raw:          `{"code":-32601,"message":"not found","data":{"extra":true}}`,
+			expectError:  false,
+			expectedCode: -32601,
+			expectedMsg:  "not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rpcErr, err := parseHTTPRPCError([]byte(tt.raw))
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil (rpcErr: %+v)", rpcErr)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if rpcErr.Code != tt.expectedCode {
+					t.Errorf("Code = %d, expected %d", rpcErr.Code, tt.expectedCode)
+				}
+				if rpcErr.Message != tt.expectedMsg {
+					t.Errorf("Message = %q, expected %q", rpcErr.Message, tt.expectedMsg)
 				}
 			}
 		})

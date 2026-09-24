@@ -154,7 +154,71 @@ type httpMessage struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
-// validateHTTPResponse validates JSON-RPC response fields and extracts the result or error (§6.44.6).
+// parseHTTPRPCError strictly validates that raw is a complete JSON-RPC 2.0 error object (§6.44.9).
+// It verifies:
+// 1. raw is a non-null JSON object (not primitive, array, or null).
+// 2. "code" field is explicitly present, non-null, and a valid integer (not float or string).
+// 3. "message" field is explicitly present, non-null, and a string (not number, bool, etc.).
+// 4. code=0 and message="" are valid if both fields are properly present.
+// 5. Additional extension fields such as "data" are permitted.
+func parseHTTPRPCError(raw json.RawMessage) (*rpcError, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, fmt.Errorf("mcp: response error field is null or empty")
+	}
+
+	var obj map[string]json.RawMessage
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&obj); err != nil {
+		return nil, fmt.Errorf("mcp: error field is not a JSON object: %w", err)
+	}
+	if obj == nil {
+		return nil, fmt.Errorf("mcp: error field is null")
+	}
+
+	codeRaw, hasCode := obj["code"]
+	if !hasCode {
+		return nil, fmt.Errorf("mcp: error object missing 'code'")
+	}
+	if bytes.Equal(bytes.TrimSpace(codeRaw), []byte("null")) {
+		return nil, fmt.Errorf("mcp: error code is null")
+	}
+
+	var rawVal any
+	codeDec := json.NewDecoder(bytes.NewReader(codeRaw))
+	codeDec.UseNumber()
+	if err := codeDec.Decode(&rawVal); err != nil {
+		return nil, fmt.Errorf("mcp: error code is invalid JSON: %w", err)
+	}
+	codeNum, ok := rawVal.(json.Number)
+	if !ok {
+		return nil, fmt.Errorf("mcp: error code is not a number, got %T", rawVal)
+	}
+	codeInt, err := codeNum.Int64()
+	if err != nil {
+		return nil, fmt.Errorf("mcp: error code must be an integer: %w", err)
+	}
+
+	msgRaw, hasMsg := obj["message"]
+	if !hasMsg {
+		return nil, fmt.Errorf("mcp: error object missing 'message'")
+	}
+	if bytes.Equal(bytes.TrimSpace(msgRaw), []byte("null")) {
+		return nil, fmt.Errorf("mcp: error message is null")
+	}
+
+	var msgStr string
+	msgDec := json.NewDecoder(bytes.NewReader(msgRaw))
+	if err := msgDec.Decode(&msgStr); err != nil {
+		return nil, fmt.Errorf("mcp: error message must be a string: %w", err)
+	}
+
+	return &rpcError{
+		Code:    int(codeInt),
+		Message: msgStr,
+	}, nil
+}
+
+// validateHTTPResponse validates JSON-RPC response fields and extracts the result or error (§6.44.6, §6.44.9).
 // It returns an *rpcError if the response contains an authoritative error object from the server,
 // which callers must NOT wrap in unconfirmedCallError.
 // If the response violates protocol constraints (e.g., ID mismatch, version mismatch, ambiguous result/error,
@@ -175,17 +239,11 @@ func validateHTTPResponse(msg *httpMessage, expectedID int64, method string, out
 	}
 
 	if hasError {
-		if bytes.Equal(bytes.TrimSpace(msg.Error), []byte("null")) {
-			return fmt.Errorf("mcp: response error field is null")
+		rpcErr, err := parseHTTPRPCError(msg.Error)
+		if err != nil {
+			return err
 		}
-		var rpcErr rpcError
-		if err := json.Unmarshal(msg.Error, &rpcErr); err != nil {
-			return fmt.Errorf("mcp: bad error object: %w", err)
-		}
-		if rpcErr.Code == 0 && rpcErr.Message == "" {
-			return fmt.Errorf("mcp: incomplete error object")
-		}
-		return &rpcErr
+		return rpcErr
 	}
 
 	// hasResult is true
