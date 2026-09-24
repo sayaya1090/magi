@@ -645,16 +645,68 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
             UIUtil.dispatchAllInvocationEvents()
         }
 
-        fun cleanup() {
+        fun cleanup(joinTimeoutMs: Long = 5000, interruptGraceMs: Long = 1000) {
             if (exchangeReleaseLatch.count > 0) {
                 exchangeReleaseLatch.countDown()
             }
             val worker = workerThreadRef.get()
             if (worker != null && worker.isAlive) {
-                worker.join(5000)
-                if (worker.isAlive) {
-                    fail("Worker thread did not terminate within cleanup timeout")
+                try {
+                    worker.join(joinTimeoutMs)
+                } catch (ie: InterruptedException) {
+                    Thread.currentThread().interrupt()
                 }
+                if (worker.isAlive) {
+                    worker.interrupt()
+                    try {
+                        worker.join(interruptGraceMs)
+                    } catch (ie: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+                    if (worker.isAlive) {
+                        throw AssertionError("Worker thread ${worker.name} did not terminate within cleanup timeout (${joinTimeoutMs}ms + ${interruptGraceMs}ms grace)")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cleanupFixtureResources(
+        primaryError: Throwable? = null,
+        cleanupWorker: () -> Unit,
+        disposeView: () -> Unit
+    ) {
+        var cleanupError: Throwable? = null
+        try {
+            cleanupWorker()
+        } catch (t: Throwable) {
+            cleanupError = t
+        }
+
+        var disposeError: Throwable? = null
+        try {
+            disposeView()
+        } catch (t: Throwable) {
+            disposeError = t
+        }
+
+        if (primaryError != null) {
+            if (cleanupError != null) {
+                primaryError.addSuppressed(cleanupError)
+            }
+            if (disposeError != null) {
+                primaryError.addSuppressed(disposeError)
+            }
+            throw primaryError
+        } else {
+            if (cleanupError != null) {
+                if (disposeError != null) {
+                    cleanupError.addSuppressed(disposeError)
+                }
+                throw cleanupError
+            }
+            if (disposeError != null) {
+                throw disposeError
             }
         }
     }
@@ -670,7 +722,17 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
         val answerKey: AnswerDrafts.Key,
         val currentSession: String,
         val callId: String,
-    )
+    ) {
+        var isDisposed: Boolean = false
+            private set
+
+        fun dispose() {
+            if (!isDisposed) {
+                isDisposed = true
+                Disposer.dispose(view)
+            }
+        }
+    }
 
     private fun setupAnswerModeView(
         currentSession: String = "s1",
@@ -681,6 +743,14 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
     ): AnswerModeFixture {
         val harness = InFlightExchangeHarness(responseSupplier)
         var view: MagiToolWindow.View? = null
+        var isViewDisposed = false
+        fun disposeCreatedView() {
+            if (view != null && !isViewDisposed) {
+                isViewDisposed = true
+                Disposer.dispose(view!!)
+            }
+        }
+        var setupError: Throwable? = null
         try {
             val v = MagiToolWindow.View(
                 project,
@@ -732,26 +802,56 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
                 callId = callId
             )
         } catch (t: Throwable) {
-            harness.cleanup()
-            if (view != null) {
-                Disposer.dispose(view)
-            }
+            setupError = t
+            cleanupFixtureResources(
+                primaryError = setupError,
+                cleanupWorker = { harness.cleanup() },
+                disposeView = { disposeCreatedView() }
+            )
+            throw setupError
+        }
+    }
+
+    private fun runAnswerExchangeScenario(
+        answerText: String,
+        threadName: String,
+        currentSession: String = "s1",
+        callId: String = "q1",
+        responseSupplier: (Request) -> Response = { Response(ok = true) },
+        block: (AnswerModeFixture) -> Unit
+    ) {
+        val fixture = setupAnswerModeView(
+            currentSession = currentSession,
+            callId = callId,
+            answerText = answerText,
+            threadName = threadName,
+            responseSupplier = responseSupplier
+        )
+        var testError: Throwable? = null
+        try {
+            block(fixture)
+        } catch (t: Throwable) {
+            testError = t
             throw t
+        } finally {
+            cleanupFixtureResources(
+                primaryError = testError,
+                cleanupWorker = { fixture.harness.cleanup() },
+                disposeView = { fixture.dispose() }
+            )
         }
     }
 
     fun `test answer exchange survives and completes when view is alive`() {
         val currentSession = "s1"
         val callId = "q1"
-        val fixture = setupAnswerModeView(
+        runAnswerExchangeScenario(
             currentSession = currentSession,
             callId = callId,
             answerText = "alive answer",
             threadName = "alive-success-send-conn",
             responseSupplier = { Response(ok = true) }
-        )
-        var isDisposed = false
-        try {
+        ) { fixture ->
             fixture.harness.releaseAndAwaitWork()
 
             assertEquals(1, fixture.harness.capturedRequests.size)
@@ -764,27 +864,19 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
             assertFalse("Answer key must no longer be busy after successful completion", fixture.answers.busy(fixture.answerKey))
             assertTrue("Answer key must be done after successful completion", fixture.answers.done(fixture.answerKey))
             assertTrue("No recovery draft should remain for successfully answered question", fixture.answers.recoveries.none { it.key == fixture.answerKey })
-        } finally {
-            fixture.harness.cleanup()
-            if (!isDisposed) {
-                Disposer.dispose(fixture.view)
-                isDisposed = true
-            }
         }
     }
 
     fun `test answer exchange survives and preserves recovery when remote fails`() {
         val currentSession = "s1"
         val callId = "q1"
-        val fixture = setupAnswerModeView(
+        runAnswerExchangeScenario(
             currentSession = currentSession,
             callId = callId,
             answerText = "failed answer",
             threadName = "alive-fail-send-conn",
             responseSupplier = { Response(ok = false, error = "remote refused") }
-        )
-        var isDisposed = false
-        try {
+        ) { fixture ->
             fixture.harness.releaseAndAwaitWork()
 
             assertEquals(1, fixture.harness.capturedRequests.size)
@@ -804,29 +896,20 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
 
             assertTrue("Notice should be visible on failure", fixture.notice.isVisible)
             assertTrue("Notice text should report failure error", fixture.notice.text.contains("remote refused"))
-        } finally {
-            fixture.harness.cleanup()
-            if (!isDisposed) {
-                Disposer.dispose(fixture.view)
-                isDisposed = true
-            }
         }
     }
 
     fun `test answer exchange late success is rejected without ui mutation after view disposed`() {
         val currentSession = "s1"
         val callId = "q1"
-        val fixture = setupAnswerModeView(
+        runAnswerExchangeScenario(
             currentSession = currentSession,
             callId = callId,
             answerText = "disposed answer",
             threadName = "disposed-success-send-conn",
             responseSupplier = { Response(ok = true) }
-        )
-        var isDisposed = false
-        try {
-            Disposer.dispose(fixture.view)
-            isDisposed = true
+        ) { fixture ->
+            fixture.dispose()
             UIUtil.dispatchAllInvocationEvents()
 
             assertTrue("View closing must be true after dispose", fixture.closing.get())
@@ -850,12 +933,6 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
             assertEquals("Notice visibility must not change after late callback on disposed view", noticeVisibleAfterDispose, fixture.notice.isVisible)
             assertEquals("No new requests should be produced after dispose", requestsAfterDispose, fixture.harness.capturedRequests.size)
             assertFalse("Answer key must NOT be marked done because finishAnswer was aborted on disposed view", fixture.answers.done(fixture.answerKey))
-        } finally {
-            fixture.harness.cleanup()
-            if (!isDisposed) {
-                Disposer.dispose(fixture.view)
-                isDisposed = true
-            }
         }
     }
 
@@ -863,17 +940,14 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
         val currentSession = "s1"
         val callId = "q1"
         val failureError = "remote refused on disposed view"
-        val fixture = setupAnswerModeView(
+        runAnswerExchangeScenario(
             currentSession = currentSession,
             callId = callId,
             answerText = "disposed failure answer",
             threadName = "disposed-fail-send-conn",
             responseSupplier = { Response(ok = false, error = failureError) }
-        )
-        var isDisposed = false
-        try {
-            Disposer.dispose(fixture.view)
-            isDisposed = true
+        ) { fixture ->
+            fixture.dispose()
             UIUtil.dispatchAllInvocationEvents()
 
             assertTrue("View closing must be true after dispose", fixture.closing.get())
@@ -901,13 +975,142 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
             assertEquals("No new requests should be produced after dispose", requestsAfterDispose, fixture.harness.capturedRequests.size)
             assertEquals("No new recovery draft should be added after late failure callback on disposed view", recoveriesAfterDispose, fixture.answers.recoveries.size)
             assertFalse("Answer key must NOT be marked done after late failure callback on disposed view", fixture.answers.done(fixture.answerKey))
-        } finally {
-            fixture.harness.cleanup()
-            if (!isDisposed) {
-                Disposer.dispose(fixture.view)
-                isDisposed = true
+        }
+    }
+
+    fun `test cleanupFixtureResources executes disposeView exactly once even when cleanupWorker fails`() {
+        var disposeCount = 0
+        val cleanupError = RuntimeException("cleanup worker failed")
+        val thrown = try {
+            cleanupFixtureResources(
+                primaryError = null,
+                cleanupWorker = { throw cleanupError },
+                disposeView = { disposeCount++ }
+            )
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertSame(cleanupError, thrown)
+        assertEquals(1, disposeCount)
+    }
+
+    fun `test cleanupFixtureResources preserves primary error and attaches cleanup and dispose errors as suppressed`() {
+        val primary = RuntimeException("primary failure")
+        val cleanupError = RuntimeException("cleanup worker failed")
+        val disposeError = RuntimeException("dispose view failed")
+        var disposeCount = 0
+        val thrown = try {
+            cleanupFixtureResources(
+                primaryError = primary,
+                cleanupWorker = { throw cleanupError },
+                disposeView = {
+                    disposeCount++
+                    throw disposeError
+                }
+            )
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertSame(primary, thrown)
+        assertEquals(1, disposeCount)
+        assertEquals(2, thrown!!.suppressed.size)
+        assertSame(cleanupError, thrown.suppressed[0])
+        assertSame(disposeError, thrown.suppressed[1])
+    }
+
+    fun `test cleanupFixtureResources propagates cleanup failure when primary has no error`() {
+        val cleanupError = RuntimeException("cleanup worker failed")
+        var disposeCount = 0
+        val thrown = try {
+            cleanupFixtureResources(
+                primaryError = null,
+                cleanupWorker = { throw cleanupError },
+                disposeView = { disposeCount++ }
+            )
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertSame(cleanupError, thrown)
+        assertEquals(1, disposeCount)
+        assertEquals(0, thrown!!.suppressed.size)
+    }
+
+    fun `test cleanupFixtureResources propagates dispose failure when cleanup succeeds and primary has no error`() {
+        val disposeError = RuntimeException("dispose view failed")
+        var cleanupCount = 0
+        val thrown = try {
+            cleanupFixtureResources(
+                primaryError = null,
+                cleanupWorker = { cleanupCount++ },
+                disposeView = { throw disposeError }
+            )
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertSame(disposeError, thrown)
+        assertEquals(1, cleanupCount)
+        assertEquals(0, thrown!!.suppressed.size)
+    }
+
+    fun `test cleanupFixtureResources combines dispose error as suppressed when cleanup fails and primary has no error`() {
+        val cleanupError = RuntimeException("cleanup worker failed")
+        val disposeError = RuntimeException("dispose view failed")
+        val thrown = try {
+            cleanupFixtureResources(
+                primaryError = null,
+                cleanupWorker = { throw cleanupError },
+                disposeView = { throw disposeError }
+            )
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertSame(cleanupError, thrown)
+        assertEquals(1, thrown!!.suppressed.size)
+        assertSame(disposeError, thrown.suppressed[0])
+    }
+
+    fun `test in-flight exchange harness cleanup interrupts stubborn worker and reports failure if still alive`() {
+        val harness = InFlightExchangeHarness()
+        val running = AtomicBoolean(true)
+        val stubbornThread = kotlin.concurrent.thread(name = "stubborn-worker", isDaemon = true) {
+            while (running.get()) {
+                try {
+                    Thread.sleep(10000)
+                } catch (e: InterruptedException) {
+                    // ignore interrupt until flag is cleared
+                }
             }
         }
+        harness.workerThreadRef.set(stubbornThread)
+        try {
+            val err = try {
+                harness.cleanup(joinTimeoutMs = 10, interruptGraceMs = 10)
+                null
+            } catch (t: Throwable) {
+                t
+            }
+            assertNotNull("Harness cleanup must report failure when thread does not terminate", err)
+            assertTrue("Error message must describe timeout", err!!.message?.contains("did not terminate within cleanup timeout") == true)
+        } finally {
+            running.set(false)
+            stubbornThread.interrupt()
+            stubbornThread.join(1000)
+        }
+    }
+
+    fun `test in-flight exchange harness cleanup successfully joins worker when released`() {
+        val harness = InFlightExchangeHarness()
+        val thread = kotlin.concurrent.thread(name = "normal-worker", isDaemon = true) {
+            harness.exchangeReleaseLatch.await()
+        }
+        harness.workerThreadRef.set(thread)
+        harness.cleanup(joinTimeoutMs = 1000, interruptGraceMs = 500)
+        assertFalse("Worker thread should be terminated after cleanup", thread.isAlive)
     }
 
     fun `test selection callback invalidation against actual View lifecycle without prior submit`() {

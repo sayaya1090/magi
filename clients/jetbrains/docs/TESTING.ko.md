@@ -1425,8 +1425,22 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 종료 성공: dispose 직후 대비 입력·안내 라벨·요청 수 불변, `done=false` 검증.
 
 - **실패 정리와 fixture 유효성 유지**:
-  - `InFlightExchangeHarness.cleanup()`: `finally` 블록에서 `exchangeReleaseLatch.countDown()`을 호출하여 대기 중인 worker 스레드를 반드시 해제하고, join 상한(5000ms) 후에도 종료되지 않으면 즉시 `fail()` 처리.
-  - `setupAnswerModeView`: 초기화 및 사전 클릭 도중 예외가 발생하더라도 `harness.cleanup()` 및 `Disposer.dispose(view)`를 호출하여 자원 누수 원천 차단.
+  - `InFlightExchangeHarness.cleanup()`: `finally` 블록에서 `exchangeReleaseLatch.countDown()`을 호출하여 대기 중인 worker 스레드를 반드시 해제하고, join 상한(5000ms) 후에도 종료되지 않으면 worker 스레드 `interrupt()` 호출 및 추가 유예 시간(1000ms) 후에도 생존 시 명시적 `AssertionError` 보고.
+  - `cleanupFixtureResources` 통합 정리 함수 구축:
+    - worker 정리 성공 여부와 무관하게 `disposeView()`를 반드시 1회 실행(중첩 try-catch 구조).
+    - 본문/초기화 실패 시 주 예외(`primaryError`)를 온전히 보존하고, `cleanupWorker()` 및 `disposeView()` 실패 예외를 `primaryError.addSuppressed()`로 첨부하여 재전파.
+    - 본문 성공 시 정리 예외가 발생하면 즉시 테스트 실패로 전파(정리 예외 은폐 금지).
+  - `setupAnswerModeView` 및 `runAnswerExchangeScenario`:
+    - 초기화 도중 예외 발생 시 및 4개 exchange 테스트 종료 시 모두 동일한 `cleanupFixtureResources`를 호출하여 자원 누수와 예외 누락을 원천 차단.
+    - `AnswerModeFixture.dispose()` 및 `disposeCreatedView()`를 통해 이미 dispose된 View의 중복 해제 방지.
+  - `cleanupFixtureResources` 및 `cleanup()` 전용 회귀 테스트 7종 추가:
+    1. `test cleanupFixtureResources executes disposeView exactly once even when cleanupWorker fails`: worker 정리 실패 시에도 dispose 정확히 1회 실행 검증.
+    2. `test cleanupFixtureResources preserves primary error and attaches cleanup and dispose errors as suppressed`: 본문·정리 동시 실패 시 주 예외 보존 및 suppressed 2건 첨부 검증.
+    3. `test cleanupFixtureResources propagates cleanup failure when primary has no error`: 정상 본문 뒤 cleanup 실패 전파 검증.
+    4. `test cleanupFixtureResources propagates dispose failure when cleanup succeeds and primary has no error`: 정상 본문 뒤 dispose 실패 전파 검증.
+    5. `test cleanupFixtureResources combines dispose error as suppressed when cleanup fails and primary has no error`: cleanup 실패를 주 예외로, dispose 실패를 suppressed로 결합 검증.
+    6. `test in-flight exchange harness cleanup interrupts stubborn worker and reports failure if still alive`: worker 스레드 미종료 시 interrupt 호출 및 타임아웃 오류 보고 검증.
+    7. `test in-flight exchange harness cleanup successfully joins worker when released`: 정상 래치 해제 시 worker 안전 회수 검증.
   - VS Code `src/test/contract_fixture.test.ts`: `runHostScenario` 내 `try ... finally` 블록을 보완하여 정상 완료뿐 아니라 스텝 단언 실패 및 누락 attemptKey 예외 발생 시에도 `adapter.dispose(); suggestCtrl.dispose();` 보장.
   - CI 워크플로 `internal/adapter/idebridge/rows_test.go`: `gofmt -l` 검사 통과를 위해 map 선언 정렬 공백 수정.
 
@@ -1436,8 +1450,8 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 - **전체 회귀 검증 결과 (2026-09-24)**:
   - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
-    - 결과: 종료 코드 0, 19개 task 전체 성공 (39초 소요).
-    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 94 통과 (총 94개 중), **합계 484 통과·5 건너뜀·0 실패 (총 489개 중)**.
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (37초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 101 통과 (총 101개 중), **합계 491 통과·5 건너뜀·0 실패 (총 496개 중)**.
   - VS Code Suite: `npm test --prefix clients/vscode`
     - 결과: 종료 코드 0, **533 통과·7 건너뜀·0 실패** (총 540개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
