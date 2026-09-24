@@ -127,6 +127,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `fc_helpers.test.ts` (fast-check 지원 도구 및 재현성 검증) | ★ **fast-check 헬퍼 설정, 파라미터 파싱, 축소(shrinking) 활성화 및 크로스 플랫폼 재현 실행 검증 (§5.8.4).** `MAGI_FC_SEED`(엄격한 32비트 부호 있는 정수, 소수/지수/문자열 거절), `MAGI_FC_PATH`(콜론 구분 정수 인덱스 경로, seed 필수), `endOnFailure: false`를 통한 반례 축소(`numShrinks > 0`), `getReproductionExecution`과 `spawnSync(shell: false)`를 통한 Windows/POSIX 공통 1회 실패 재현 및 앵커링된 단일 속성 실행 정합성을 검증합니다 |
 | `contract_fixture.test.ts` (공통 계약 fixture 실행) | ★ **공통 계약 fixture 5종의 단일 원본 직접 읽기 및 실행 검증 (§6.38).** `clients/test-fixtures/`의 5개 핵심 계약 fixture(`late_failure`, `cross_session_result`, `delete_recovery`, `same_string_edit`, `disposed_callback`)를 JetBrains와 복제본 없이 공유하여 실행합니다. 각 시나리오의 단계별 실행과 상태 단언, 실패 시 시나리오 ID·단계·기대값·실제값 보고 계약을 검증합니다 |
 | `snapshot.test.ts` (불변 스냅샷 공통 저장소) | **불변 스냅샷 공통 저장소(`ImmutableSnapshotStore`)의 불변성, 삽입 순서(FIFO) 축출, 임시 보호 및 탭 수명 검증 (§6.40).** 동일 키 재저장 시 최초 내용 불변성 및 false 반환, get() 접근에도 순서가 바뀌지 않는 엄격한 삽입 순서(FIFO) 축출, 중첩 임시 보호(`protectTemp`)의 참조 카운팅 및 멱등 해제, 모든 항목 고정 시 일시적 용량 초과 허용, diff 두 면 동시 생성 중 보호, 열기 실패 시 finally 블록을 통한 안전 해제, 탭 종료 시 새 put 없는 즉각 정리(`evictExcess`), 빈 문자열 문서 유효성 및 ApprovalSnapshots/OutputSnapshots 상속 동등성을 검증합니다 |
+| `provider_lifecycle.test.ts` (가상 문서 프로바이더 수명 및 탭 보호) | **가상 문서 프로바이더 수명 헬퍼(`ProviderLifecycle`)와 DiffProvider/OutputProvider 연결 검증 (§6.41).** 일반 문서 및 일반 탭 보호, DiffProvider의 TabInputTextDiff original/modified 양면 개별 보호, OutputProvider의 TabInputText 한정 보호(경로 차이 보존), 이종 scheme 비보호 격리, 문서·탭 종료 이벤트 시 추가 put 없는 즉각 정리(`evictExcess`), 관계없는 scheme 이벤트 무시, 언어 변경 중 close 이벤트 발생 시에도 임시 보호 유지 및 변경된 TextDocument 표시, 열기 실패 시 finally 블록을 통한 안전 해제, 빈 문자열과 만료 자료 오류 구분, 2회 중복 dispose 시 리스너 1회 해제 및 지연 콜백 무동작을 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -1295,4 +1296,23 @@ node --test clients/vscode/out/test/*.property.test.js
   7. **열기 실패 시 finally 안전 해제:** 에디터 열기 중 예외가 발생하더라도 `finally` 블록의 unprotect를 통해 임시 보호가 누수 없이 전량 해제되고 미고정 항목이 즉시 정리됩니다.
   8. **탭 종료 뒤 추가 put 없는 즉각 정리:** `evictExcess()` 호출 시 새 `put()` 호출을 기다리지 않고 닫힌 탭의 항목을 즉시 캐시 용량 한도까지 축출합니다.
   9. **하위 클래스 상속 동등성:** `ApprovalSnapshots` 및 `OutputSnapshots`가 `ImmutableSnapshotStore`의 모든 동작을 정확히 공유하며 `instanceof` 계약을 충족합니다.
+
+---
+
+### §6.41 VS Code 문서 Provider 수명 헬퍼 추출 (`ProviderLifecycle`)
+
+- **추출 모듈:**
+  - `src/ide/provider_lifecycle.ts`에 가상 문서 프로바이더의 탭/문서 감시, 닫힘 이벤트 구독 및 해제를 담당하는 `ProviderLifecycle` 헬퍼를 구축했습니다.
+  - `src/ide/diff.ts`의 `DiffProvider`와 `src/ide/output.ts`의 `OutputProvider`가 `ProviderLifecycle`을 소유하도록 중복 코드를 제거했습니다.
+  - `core/snapshot.ts`에는 VS Code API 의존성을 일체 추가하지 않고 순수성을 유지했습니다.
+  - `DiffProvider`의 `TabInputTextDiff` original/modified 양면 검사와 `OutputProvider`의 `TabInputText` 단면 검사 차이를 `supportsDiffTabs` 옵션으로 명시 보존했습니다.
+  - 본문 저장·원문 조회·URI 생성·자료 식별·언어 모드·사용자 오류 메시지는 각 Provider 책임으로 온전히 유지했습니다.
+- **수명 및 예외 계약:**
+  1. **열린 탭 감시 및 scheme 격리:** `workspace.textDocuments`와 `window.tabGroups.all`을 대조하며, 이종 scheme 문서나 무관한 경로는 open 대상에서 엄격히 배제합니다.
+  2. **닫힘 시 즉시 정리 (`evictExcess`):** 해당 scheme 문서 닫힘 또는 탭 변경 발생 시 새 `put()` 호출 없이도 초과분을 즉시 축출합니다. 관계없는 scheme 문서의 닫힘은 정리를 유발하지 않습니다.
+  3. **지연 콜백 방어 및 멱등 dispose:** `dispose()` 호출 시 구독 목록을 1회씩 해제(`subs.pop()`)하고, `isDisposed` 플래그를 통해 dispose 이후 늦게 도착한 이벤트 콜백이 `onPrune`을 재호출하지 못하도록 차단합니다. 2회 이상 중복 `dispose()` 호출 시에도 추가 해제 동작 없이 안전하게 복귀합니다.
+  4. **언어 변경 중 보호 유지:** `setTextDocumentLanguage` 실행 도중 이전 언어 문서의 `onDidCloseTextDocument` 이벤트가 발생해도 `openOutputDocument`의 `protectTemp`가 유효하여 내용이 축출되지 않고 보존됩니다.
+- **호스트 모의 환경 회귀 검증 (`src/test/provider_lifecycle.test.ts`):**
+  - 실제 `DiffProvider` 및 `OutputProvider` 인스턴스를 생성하여 위의 모든 수명 및 보호 계약을 전수 검증합니다.
+
 

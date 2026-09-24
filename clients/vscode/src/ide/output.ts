@@ -7,6 +7,8 @@ import {
 } from '../core/output';
 import { Event } from '../core/protocol';
 
+import { ProviderLifecycle } from './provider_lifecycle';
+
 /**
  * Provides read-only content for virtual output documents.
  *
@@ -21,51 +23,19 @@ import { Event } from '../core/protocol';
 export class OutputProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
   static readonly scheme = 'magi-output';
   private readonly snapshots: OutputSnapshots;
-  private readonly subs: vscode.Disposable[] = [];
+  private readonly lifecycle: ProviderLifecycle;
 
   constructor(maxEntries: number = 100) {
+    this.lifecycle = new ProviderLifecycle({
+      scheme: OutputProvider.scheme,
+      onPrune: () => this.prune(),
+      supportsDiffTabs: false,
+    });
     this.snapshots = new OutputSnapshots(maxEntries, (key: string) => this.isOpen(key));
-
-    this.subs.push(
-      vscode.workspace.onDidCloseTextDocument((doc) => {
-        if (doc.uri.scheme === OutputProvider.scheme) {
-          this.prune();
-        }
-      })
-    );
-
-    try {
-      if (vscode.window.tabGroups) {
-        this.subs.push(
-          vscode.window.tabGroups.onDidChangeTabs(() => {
-            this.prune();
-          })
-        );
-      }
-    } catch {}
   }
 
-  private isOpen(key: string): boolean {
-    if (
-      vscode.workspace.textDocuments.some(
-        (doc) => doc.uri.scheme === OutputProvider.scheme && doc.uri.toString() === key
-      )
-    ) {
-      return true;
-    }
-    try {
-      if (vscode.window.tabGroups) {
-        for (const group of vscode.window.tabGroups.all) {
-          for (const tab of group.tabs) {
-            const input = tab.input;
-            if (input instanceof vscode.TabInputText) {
-              if (input.uri?.scheme === OutputProvider.scheme && input.uri.toString() === key) return true;
-            }
-          }
-        }
-      }
-    } catch {}
-    return false;
+  isOpen(key: string): boolean {
+    return this.lifecycle.isOpen(key);
   }
 
   provideTextDocumentContent(uri: vscode.Uri): string {
@@ -96,7 +66,7 @@ export class OutputProvider implements vscode.TextDocumentContentProvider, vscod
   }
 
   dispose(): void {
-    for (const s of this.subs) s.dispose();
+    this.lifecycle.dispose();
     this.snapshots.clear();
   }
 }

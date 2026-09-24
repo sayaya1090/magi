@@ -8,6 +8,8 @@ import {
   approvalDiffTitle,
 } from '../core/diff';
 
+import { ProviderLifecycle } from './provider_lifecycle';
+
 /**
  * Provides read-only content for virtual diff and patch documents.
  *
@@ -22,54 +24,19 @@ import {
 export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
   static readonly scheme = 'magi-diff';
   private readonly snapshots: ApprovalSnapshots;
-  private readonly subs: vscode.Disposable[] = [];
+  private readonly lifecycle: ProviderLifecycle;
 
   constructor(maxEntries: number = 100) {
+    this.lifecycle = new ProviderLifecycle({
+      scheme: DiffProvider.scheme,
+      onPrune: () => this.prune(),
+      supportsDiffTabs: true,
+    });
     this.snapshots = new ApprovalSnapshots(maxEntries, (key: string) => this.isOpen(key));
-
-    this.subs.push(
-      vscode.workspace.onDidCloseTextDocument((doc) => {
-        if (doc.uri.scheme === DiffProvider.scheme) {
-          this.prune();
-        }
-      })
-    );
-
-    try {
-      if (vscode.window.tabGroups) {
-        this.subs.push(
-          vscode.window.tabGroups.onDidChangeTabs(() => {
-            this.prune();
-          })
-        );
-      }
-    } catch {}
   }
 
-  private isOpen(key: string): boolean {
-    if (
-      vscode.workspace.textDocuments.some(
-        (doc) => doc.uri.scheme === DiffProvider.scheme && doc.uri.toString() === key
-      )
-    ) {
-      return true;
-    }
-    try {
-      if (vscode.window.tabGroups) {
-        for (const group of vscode.window.tabGroups.all) {
-          for (const tab of group.tabs) {
-            const input = tab.input;
-            if (input instanceof vscode.TabInputTextDiff) {
-              if (input.original?.scheme === DiffProvider.scheme && input.original.toString() === key) return true;
-              if (input.modified?.scheme === DiffProvider.scheme && input.modified.toString() === key) return true;
-            } else if (input instanceof vscode.TabInputText) {
-              if (input.uri?.scheme === DiffProvider.scheme && input.uri.toString() === key) return true;
-            }
-          }
-        }
-      }
-    } catch {}
-    return false;
+  isOpen(key: string): boolean {
+    return this.lifecycle.isOpen(key);
   }
 
   provideTextDocumentContent(uri: vscode.Uri): string {
@@ -100,7 +67,7 @@ export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.
   }
 
   dispose(): void {
-    for (const s of this.subs) s.dispose();
+    this.lifecycle.dispose();
     this.snapshots.clear();
   }
 }
