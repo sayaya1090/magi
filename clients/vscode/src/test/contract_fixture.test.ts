@@ -487,8 +487,8 @@ function runHostScenario(fixture: FixtureData): void {
       }
       case 'submit': {
         const attemptKey = step.attemptKey;
-        if (!attemptKey) {
-          assert.fail(`[${scenarioId}] Step ${stepNum}: submit requires attemptKey`);
+        if (!attemptKey || typeof attemptKey !== 'string') {
+          assert.fail(`[${scenarioId}] Step ${stepNum}: submit requires non-empty attemptKey`);
         }
         const callId = step.callId || currentCallId;
         const sub = state.submitReply(callId, say.value);
@@ -513,12 +513,15 @@ function runHostScenario(fixture: FixtureData): void {
       }
       case 'result': {
         const attemptKey = step.attemptKey;
-        if (!attemptKey) {
-          assert.fail(`[${scenarioId}] Step ${stepNum}: result requires attemptKey`);
+        if (!attemptKey || typeof attemptKey !== 'string') {
+          assert.fail(`[${scenarioId}] Step ${stepNum}: result requires non-empty attemptKey`);
         }
         const att = attemptMap.get(attemptKey);
         if (!att) {
           assert.fail(`[${scenarioId}] Step ${stepNum}: unknown attemptKey '${attemptKey}'`);
+        }
+        if (typeof step.ok !== 'boolean') {
+          assert.fail(`[${scenarioId}] Step ${stepNum}: result requires boolean 'ok'`);
         }
         const prevSay = say.value;
         const prevRequests = newRequests;
@@ -529,7 +532,7 @@ function runHostScenario(fixture: FixtureData): void {
           {
             callId: att.callId,
             attemptId: att.attemptId,
-            ok: step.ok ?? true,
+            ok: step.ok,
             error: step.error,
             companionKey,
             session: att.session,
@@ -682,6 +685,33 @@ test('§6.38 Host Runner: same_string_edit.json against WebviewInputAdapter', ()
 
 test('§6.38 Host Runner: disposed_callback.json against WebviewInputAdapter & ActionAdapter', () => {
   runHostScenario(loadFixture('disposed_callback.json'));
+});
+
+test('§6.38 Host Runner: rejects missing attemptKey on submit', () => {
+  const fixture = JSON.parse(JSON.stringify(loadFixture('disposed_callback.json'))) as FixtureData;
+  delete fixture.steps[2].attemptKey; // step 3 submit
+  assert.throws(
+    () => runHostScenario(fixture),
+    (err: Error) => err.message.includes('disposed_callback') && err.message.includes('Step 3') && err.message.includes('attemptKey')
+  );
+});
+
+test('§6.38 Host Runner: rejects unknown attemptKey on result', () => {
+  const fixture = JSON.parse(JSON.stringify(loadFixture('disposed_callback.json'))) as FixtureData;
+  fixture.steps[4].attemptKey = 'unknown_key_xyz'; // step 5 result
+  assert.throws(
+    () => runHostScenario(fixture),
+    (err: Error) => err.message.includes('disposed_callback') && err.message.includes('Step 5') && err.message.includes('unknown_key_xyz')
+  );
+});
+
+test('§6.38 Host Runner: rejects missing boolean ok on result', () => {
+  const fixture = JSON.parse(JSON.stringify(loadFixture('disposed_callback.json'))) as FixtureData;
+  delete fixture.steps[4].ok; // step 5 result
+  assert.throws(
+    () => runHostScenario(fixture),
+    (err: Error) => err.message.includes('disposed_callback') && err.message.includes('Step 5') && err.message.includes("boolean 'ok'")
+  );
 });
 
 test('§6.38 Directory: All 5 contract fixtures are present in test-fixtures directory', () => {

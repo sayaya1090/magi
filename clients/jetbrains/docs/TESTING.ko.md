@@ -35,7 +35,7 @@
   Go 와 같은가, 붙어 보고 만난 것을 어느 갈래로 가르는가, 문마다 무엇을 싣는가.
 - **파서**(`LookNotesTest` 4, `MarkdownTest` 5, `RowTextTest` 12) — 모델이 준 글자에서 줄번호를
   뽑고, 마크다운을 펴고, 행의 글자를 정한다.
-- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6, `ContractFixtureHostTest` 4) — 소켓 없이 「살았나·죽었나·나갔나」 판정, 공통 계약 fixture 5종 검증 및 실제 View 호스트 수명·복원 경로 연동.
+- **규칙 층**(`DaemonLifecycleTest` 11, `ContractFixtureTest` 6, `ContractFixtureHostTest` 7) — 소켓 없이 「살았나·죽었나·나갔나」 판정, 공통 계약 fixture 5종 검증 및 실제 View 호스트 수명·복원 경로 연동.
 
 `RowTextTest`는 UI 컴포넌트 내부에 사설 함수로 흩어져 있던 문자열 계산 로직 6종을 core 계층으로 분리하여
 IDE 인스턴스 기동 없이 순수 단위 테스트로 상시 검증할 수 있도록 개선한 테스트입니다.
@@ -1353,11 +1353,21 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 실제 `MagiToolWindow.View` 인스턴스를 생성하여 Swing 입력 이벤트, `restoreAnswerText` 복원 경로, `closing` 수명 가드 검증.
     - `same_string_edit`: A → B → A 실제 사용자 편집 후 `restoreAnswerText` 호출 시 `version == 3` 불변 및 후속 편집 시 `version == 4` 증가 실측.
     - `disposed_callback`: View 소유자 해제(`Disposer.dispose(view)`) 후 늦은 완료 콜백 및 선택 콜백 도달 시 `inputChanges`, `documentsOpened`, `newRequests`, `uiSideEffects` 0건 및 `canSubmit == false` 실측.
-    - `disposed callback after exchange started against actual finishAnswer EDT callback`: 실제 `comp.answer()` 호출 후 `Daemon.exchange` in-flight 중 View가 dispose된 후 도달한 늦은 결과가 `finishAnswer`의 EDT 콜백(`closing.get()` 가드)에 의해 차단되어 완료 상태가 무효화됨을 비동기 latch로 실측 (정상 생존 View 대조군 포함).
+    - `disposed callback after exchange started against actual finishAnswer EDT callback`:
+      - `Thread.sleep` 임의 대기를 완전 제거하고, `workFinishedLatch`, `workerThread.join(5000)`, `backgroundError` 전파, `UIUtil.dispatchAllInvocationEvents()`로 결정적 동기화 구현.
+      - 3개 독립 서브케이스 실측:
+        1. *생존 성공 대조군*: 요청의 `method="answer"`, `session`, `callId`, 본문 일치 단언 후, 응답 완료 시 `busy=false`, `done=true`, 복구 목록 비어있음 확인.
+        2. *생존 실패 대조군*: 데몬의 `Response(ok=false, error="remote refused")` 거절 시 `busy=false`, `done=false`, `recoveries` 내 `submission_failed` 초안 보존 및 UI 안내 라벨(`notice`) 표출 확인.
+        3. *종료 후 뒤늦은 콜백*: in-flight 도중 `Disposer.dispose` 실행 직후 기준 상태(입력 텍스트, 안내 라벨, 요청 수)를 캡처한 뒤 응답을 해제하여, 뒤늦은 `finishAnswer` EDT 콜백 도달 후에도 입력·안내·요청 수가 불변이며 `done=false`로 차단됨을 실측.
+      - `exchangeReleaseLatch.await` 반환값 검증, finally 블록에서 잔여 latch 해제 및 `isDisposed` 플래그 기반 안전한 View 정리(`runCatching` 예외 은폐 제거).
     - `selection callback invalidation against actual View lifecycle without prior submit`: submit 없는 최신 `inputEpoch`에서 획득한 선택 콜백도 View dispose 후 `closing.get()` 가드에 의해 `input.text` 및 carry 칩 변경이 차단됨을 실측 (정상 생존 View 대조군 포함).
+    - `attemptKey`/`ok` 엄격 유효성 검사 및 오류 폴백 제거:
+      - `submit`/`result` 단계에서 비어 있거나 미등록인 `attemptKey` 및 누락/non-boolean `ok`는 즉시 실패하도록 하고 `capturedCallback` 폴백 완전 제거.
+      - 음성 회귀 테스트 3종 추가: missing attemptKey on submit, unknown attemptKey on result, missing ok on result.
   - VS Code 실행기: `src/test/contract_fixture.test.ts`
     - 순수 모델 5종 검사(`runPureModelScenario`) 및 실제 호스트 어댑터 2종 검사(`runHostScenario`) 분리 검증.
     - `createWebviewInputAdapter` 및 `createSuggestController`와 연동하여 DOM/어댑터 수명 차단 검증.
+    - `attemptKey` 누락/공백 및 non-boolean `ok` 즉시 실패 처리 및 음성 회귀 테스트 3종 추가.
   - 실패 보고 계약: 단언 실패 시 반드시 `scenarioId`, `step`, `expected`, `actual`을 명시하여 보고하며 미지원 동작 묵인이나 동적 예상값 위조 금지.
 
 - **변이 실패(Negative Mutation) 검증**:
@@ -1372,12 +1382,16 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 - **전체 회귀 검증 결과 (2026-09-24)**:
   - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
-    - 결과: 종료 코드 0, 19개 task 전체 성공 (38초 소요).
-    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 88 통과 (총 88개 중), **합계 478 통과·5 건너뜀·0 실패 (총 483개 중)**.
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (37초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 91 통과 (총 91개 중), **합계 481 통과·5 건너뜀·0 실패 (총 486개 중)**.
   - VS Code Suite: `npm test --prefix clients/vscode`
-    - 결과: 종료 코드 0, **530 통과·7 건너뜀·0 실패** (총 537개 중, 4.6초 소요).
+    - 결과: 종료 코드 0, **533 통과·7 건너뜀·0 실패** (총 540개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
-    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.0초 소요)**.
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.3초 소요)**.
+  - Go idebridge Suite: `go test -v ./internal/adapter/idebridge/...`
+    - 결과: 종료 코드 0, 전수 통과.
+  - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
+    - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
 
 
 
