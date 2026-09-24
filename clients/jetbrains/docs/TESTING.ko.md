@@ -1393,6 +1393,61 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
     - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
 
+#### 9. JetBrains 테스트 fixture 분리 및 종료 실패 대조군 보강 (§6.39)
+- **책임과 단언 목록 및 제거 전후 계약 대응표**:
+  - `HeadlessIdeTest.kt`:
+    - 클래스 내부 6개 개별 테스트 메소드에 중복 선언되어 있던 `class PendingSend`를 클래스 최상위 수준의 단일 `private class PendingSend`로 추출하고 모든 중복 선언 제거.
+    - `test 컴포저 플레이스홀더와 접근 가능한 이름이 실제 View 액션과 상태 전이에 일치한다` 테스트 끝부분에 중복 호출되던 `checkCrossSessionAnswerFailureIsolation()` 호출 제거 (독립 테스트 `test 옛 답변 실패 결과가 도착해도 다른 세션의 잠금이 보존되고 원래 세션 복귀 후 답변 재시도가 가능하다`에서 단독 검증 유지).
+  - `PendingSend` vs `InFlightExchangeHarness` 역할 분리:
+    - `PendingSend`: 연결 생성 후 전송 전 큐잉/보류 단계 (`work` 호출 지연).
+    - `InFlightExchangeHarness`: 실제 전송 시작 후 데몬의 RPC 응답 지연 단계 (`work` 및 `exchange` 진입 후 데몬 응답 래치 보류).
+  - `ContractFixtureHostTest.kt`:
+    - 기존 복합 테스트 `test disposed callback after exchange started against actual finishAnswer EDT callback`을 공통 헬퍼 `setupAnswerModeView`, `InFlightExchangeHarness`, `AnswerModeFixture`로 구조화하고 4개의 독립 명명 테스트로 분리:
+      1. `test answer exchange survives and completes when view is alive` (생존 성공)
+      2. `test answer exchange survives and preserves recovery when remote fails` (생존 실패)
+      3. `test answer exchange late success is rejected without ui mutation after view disposed` (종료 성공)
+      4. `test answer exchange late failure is rejected without ui mutation or error report after view disposed` (종료 실패 대조군 — 신규 추가)
+
+- **각 독립 테스트의 실제 단언과 신규 종료 실패 대조군**:
+  - 신규 종료 실패 대조군 (`test answer exchange late failure is rejected without ui mutation or error report after view disposed`):
+    - 데몬 응답으로 식별 가능한 에러 문자열(`"remote refused on disposed view"`) 반환.
+    - View dispose 직후 캡처된 기준 스냅샷(입력 텍스트, notice 라벨 텍스트, notice 가시성, 누적 요청 수, 복구 초안 목록 크기) 대조.
+    - 뒤늦은 실패 콜백이 EDT에 도달해도 `closing.get() == true` 가드에 의해 `report()`를 포함한 실패 처리 경로가 실행되지 않음을 실측:
+      - `input.text` 불변
+      - `notice.text` 불변 및 에러 문자열 미포함
+      - `notice.isVisible == false` (실패 안내 라벨 미노출)
+      - `recoveries.size` 불변 (새 복구 초안 추가 차단)
+      - `capturedRequests.size` 불변 (새 요청 0건)
+      - `answers.done(answerKey) == false`
+  - 생존 성공/실패 및 종료 성공 단언의 엄격한 분리 및 유지:
+    - 생존 성공: `busy=false`, `done=true`, 복구 목록 0건, 요청 속성(method/session/callId/answer) 검증.
+    - 생존 실패: `busy=false`, `done=false`, `recoveries` 내 실패 초안 보존, `notice` 에러 보고 표출 검증.
+    - 종료 성공: dispose 직후 대비 입력·안내 라벨·요청 수 불변, `done=false` 검증.
+
+- **실패 정리와 fixture 유효성 유지**:
+  - `InFlightExchangeHarness.cleanup()`: `finally` 블록에서 `exchangeReleaseLatch.countDown()`을 호출하여 대기 중인 worker 스레드를 반드시 해제하고, join 상한(5000ms) 후에도 종료되지 않으면 즉시 `fail()` 처리.
+  - `setupAnswerModeView`: 초기화 및 사전 클릭 도중 예외가 발생하더라도 `harness.cleanup()` 및 `Disposer.dispose(view)`를 호출하여 자원 누수 원천 차단.
+  - VS Code `src/test/contract_fixture.test.ts`: `runHostScenario` 내 `try ... finally` 블록을 보완하여 정상 완료뿐 아니라 스텝 단언 실패 및 누락 attemptKey 예외 발생 시에도 `adapter.dispose(); suggestCtrl.dispose();` 보장.
+  - CI 워크플로 `internal/adapter/idebridge/rows_test.go`: `gofmt -l` 검사 통과를 위해 map 선언 정렬 공백 수정.
+
+- **실물 검증 여부**:
+  - 헤드리스 JVM 및 Node.js 런타임 상의 계약 실행기 전수 검증 완료.
+  - 실제 macOS 두벌식 IME 조작은 미검증으로 기록하며 VoiceOver는 검증 대상에서 제외.
+
+- **전체 회귀 검증 결과 (2026-09-24)**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (39초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 94 통과 (총 94개 중), **합계 484 통과·5 건너뜀·0 실패 (총 489개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **533 통과·7 건너뜀·0 실패** (총 540개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.1초 소요)**.
+  - Go idebridge Suite: `go test -v ./internal/adapter/idebridge/...`
+    - 결과: 종료 코드 0, 전수 통과.
+  - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
+    - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
+
+
 
 
 

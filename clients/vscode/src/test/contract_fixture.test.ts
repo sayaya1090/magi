@@ -411,8 +411,9 @@ function runHostScenario(fixture: FixtureData): void {
 
   const adapter = createWebviewInputAdapter(elements, actions, state, suggestCtrl);
 
-  // 대조군(Control): 정상 생존 상태에서 제안·멘션 및 선택 콜백이 실제 적용됨을 사전 검증
-  adapter.onContextChange(companionKey, 'ctrl-sess');
+  try {
+    // 대조군(Control): 정상 생존 상태에서 제안·멘션 및 선택 콜백이 실제 적용됨을 사전 검증
+    adapter.onContextChange(companionKey, 'ctrl-sess');
   say.value = 'Control Draft';
   state.onInputChange('Control Draft');
   const ctrlReqId = suggestCtrl.getReqId();
@@ -653,6 +654,10 @@ function runHostScenario(fixture: FixtureData): void {
         );
       }
     }
+  }
+  } finally {
+    adapter.dispose();
+    suggestCtrl.dispose();
   }
 }
 

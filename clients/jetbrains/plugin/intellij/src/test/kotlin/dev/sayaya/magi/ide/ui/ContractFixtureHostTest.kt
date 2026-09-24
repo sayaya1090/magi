@@ -593,335 +593,319 @@ class ContractFixtureHostTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test disposed callback after exchange started against actual finishAnswer EDT callback`() {
+    private inner class InFlightExchangeHarness(
+        private val responseSupplier: (Request) -> Response = { Response(ok = true) }
+    ) {
+        val exchangeStartedLatch = CountDownLatch(1)
+        val exchangeReleaseLatch = CountDownLatch(1)
+        val workFinishedLatch = CountDownLatch(1)
+        val workerThreadRef = AtomicReference<Thread>()
+        val backgroundError = AtomicReference<Throwable>()
+        val capturedRequests = mutableListOf<Request>()
+
+        val daemon: Daemon = object : Daemon {
+            override fun exchange(request: Request): Response {
+                capturedRequests.add(request)
+                exchangeStartedLatch.countDown()
+                val released = exchangeReleaseLatch.await(5, TimeUnit.SECONDS)
+                assertTrue("exchangeReleaseLatch must be released before timeout", released)
+                return responseSupplier(request)
+            }
+            override fun stream(request: Request, each: (Response) -> Boolean) {}
+            override fun close() {}
+        }
+
+        fun sendConnection(threadName: String = "in-flight-exchange-worker"): (String, (String) -> Unit, (Companion) -> Unit) -> Unit =
+            { sid, _, work ->
+                val t = kotlin.concurrent.thread(name = threadName) {
+                    try {
+                        work(Companion(daemon, sid))
+                    } catch (t: Throwable) {
+                        backgroundError.set(t)
+                    } finally {
+                        workFinishedLatch.countDown()
+                    }
+                }
+                workerThreadRef.set(t)
+            }
+
+        fun awaitStarted(timeoutSeconds: Long = 5) {
+            assertTrue("Exchange must be started within timeout", exchangeStartedLatch.await(timeoutSeconds, TimeUnit.SECONDS))
+        }
+
+        fun releaseAndAwaitWork(timeoutSeconds: Long = 5) {
+            if (exchangeReleaseLatch.count > 0) {
+                exchangeReleaseLatch.countDown()
+            }
+            assertTrue("Work must finish within timeout", workFinishedLatch.await(timeoutSeconds, TimeUnit.SECONDS))
+            val worker = workerThreadRef.get()
+            worker?.join(timeoutSeconds * 1000)
+            assertFalse("Worker thread must have terminated", worker?.isAlive == true)
+            backgroundError.get()?.let { throw it }
+            UIUtil.dispatchAllInvocationEvents()
+        }
+
+        fun cleanup() {
+            if (exchangeReleaseLatch.count > 0) {
+                exchangeReleaseLatch.countDown()
+            }
+            val worker = workerThreadRef.get()
+            if (worker != null && worker.isAlive) {
+                worker.join(5000)
+                if (worker.isAlive) {
+                    fail("Worker thread did not terminate within cleanup timeout")
+                }
+            }
+        }
+    }
+
+    private class AnswerModeFixture(
+        val view: MagiToolWindow.View,
+        val harness: InFlightExchangeHarness,
+        val answers: AnswerDrafts,
+        val input: JBTextArea,
+        val sendButton: JButton,
+        val notice: JLabel,
+        val closing: AtomicBoolean,
+        val answerKey: AnswerDrafts.Key,
+        val currentSession: String,
+        val callId: String,
+    )
+
+    private fun setupAnswerModeView(
+        currentSession: String = "s1",
+        callId: String = "q1",
+        answerText: String,
+        threadName: String,
+        responseSupplier: (Request) -> Response = { Response(ok = true) }
+    ): AnswerModeFixture {
+        val harness = InFlightExchangeHarness(responseSupplier)
+        var view: MagiToolWindow.View? = null
+        try {
+            val v = MagiToolWindow.View(
+                project,
+                sendSession = { currentSession },
+                sendConnection = harness.sendConnection(threadName)
+            )
+            view = v
+            UIUtil.dispatchAllInvocationEvents()
+            v.sink.caughtUp()
+            UIUtil.dispatchAllInvocationEvents()
+
+            val answers: AnswerDrafts = v.javaClass.getDeclaredField("answers").apply { isAccessible = true }.get(v) as AnswerDrafts
+            val input: JBTextArea = v.javaClass.getDeclaredField("input").apply { isAccessible = true }.get(v) as JBTextArea
+            val sendButton: JButton = v.javaClass.getDeclaredField("sendButton").apply { isAccessible = true }.get(v) as JButton
+            val notice: JLabel = v.javaClass.getDeclaredField("notice").apply { isAccessible = true }.get(v) as JLabel
+            val closing: AtomicBoolean = v.javaClass.getDeclaredField("closing").apply { isAccessible = true }.get(v) as AtomicBoolean
+
+            val w = Waiting(id = callId, kind = "question", what = "What file?", options = listOf("opt1", "opt2"))
+            val drawPromptMethod = v.javaClass.getDeclaredMethod("drawPrompt", Waiting::class.java, String::class.java).apply { isAccessible = true }
+            drawPromptMethod.invoke(v, w, currentSession)
+            UIUtil.dispatchAllInvocationEvents()
+
+            val buttons: JPanel = v.javaClass.getDeclaredField("buttons").apply { isAccessible = true }.get(v) as JPanel
+            val directBtn = buttons.components.filterIsInstance<JButton>().firstOrNull { it.text == MagiBundle.msg("chat.answer.direct") }
+            assertNotNull("Direct answer button must exist", directBtn)
+            directBtn!!.doClick()
+            UIUtil.dispatchAllInvocationEvents()
+
+            input.text = answerText
+            UIUtil.dispatchAllInvocationEvents()
+
+            sendButton.doClick(0)
+            UIUtil.dispatchAllInvocationEvents()
+
+            val answerKey = AnswerDrafts.Key(currentSession, callId)
+            harness.awaitStarted()
+            assertTrue("Answer key must be busy while exchange in-flight", answers.busy(answerKey))
+
+            return AnswerModeFixture(
+                view = v,
+                harness = harness,
+                answers = answers,
+                input = input,
+                sendButton = sendButton,
+                notice = notice,
+                closing = closing,
+                answerKey = answerKey,
+                currentSession = currentSession,
+                callId = callId
+            )
+        } catch (t: Throwable) {
+            harness.cleanup()
+            if (view != null) {
+                Disposer.dispose(view)
+            }
+            throw t
+        }
+    }
+
+    fun `test answer exchange survives and completes when view is alive`() {
         val currentSession = "s1"
         val callId = "q1"
+        val fixture = setupAnswerModeView(
+            currentSession = currentSession,
+            callId = callId,
+            answerText = "alive answer",
+            threadName = "alive-success-send-conn",
+            responseSupplier = { Response(ok = true) }
+        )
+        var isDisposed = false
+        try {
+            fixture.harness.releaseAndAwaitWork()
 
-        // 1. 정상 생존 View 대조군 (성공): exchange 도중 정상 생존 시 finishAnswer 가 성공적으로 상태를 완료함
-        run {
-            val exchangeStartedLatch = CountDownLatch(1)
-            val exchangeReleaseLatch = CountDownLatch(1)
-            val workFinishedLatch = CountDownLatch(1)
-            val workerThreadRef = AtomicReference<Thread>()
-            val backgroundError = AtomicReference<Throwable>()
-            val capturedRequests = mutableListOf<Request>()
-            var isDisposed = false
+            assertEquals(1, fixture.harness.capturedRequests.size)
+            val req = fixture.harness.capturedRequests.first()
+            assertEquals("answer", req.method)
+            assertEquals(currentSession, req.session)
+            assertEquals(callId, req.callId)
+            assertEquals("alive answer", req.answer)
 
-            val aliveDaemon = object : Daemon {
-                override fun exchange(request: Request): Response {
-                    capturedRequests.add(request)
-                    exchangeStartedLatch.countDown()
-                    val released = exchangeReleaseLatch.await(5, TimeUnit.SECONDS)
-                    assertTrue("exchangeReleaseLatch must be released before timeout", released)
-                    return Response(ok = true)
-                }
-                override fun stream(request: Request, each: (Response) -> Boolean) {}
-                override fun close() {}
-            }
-
-            val aliveView = MagiToolWindow.View(
-                project,
-                sendSession = { currentSession },
-                sendConnection = { sid, _, work ->
-                    val t = kotlin.concurrent.thread(name = "alive-success-send-conn") {
-                        try {
-                            work(Companion(aliveDaemon, sid))
-                        } catch (t: Throwable) {
-                            backgroundError.set(t)
-                        } finally {
-                            workFinishedLatch.countDown()
-                        }
-                    }
-                    workerThreadRef.set(t)
-                }
-            )
-
-            try {
-                UIUtil.dispatchAllInvocationEvents()
-                aliveView.sink.caughtUp()
-                UIUtil.dispatchAllInvocationEvents()
-
-                val answers: AnswerDrafts = aliveView.javaClass.getDeclaredField("answers").apply { isAccessible = true }.get(aliveView) as AnswerDrafts
-                val input: JBTextArea = aliveView.javaClass.getDeclaredField("input").apply { isAccessible = true }.get(aliveView) as JBTextArea
-                val sendButton: JButton = aliveView.javaClass.getDeclaredField("sendButton").apply { isAccessible = true }.get(aliveView) as JButton
-
-                // 프롬프트 및 답변 모드 진입
-                val w = Waiting(id = callId, kind = "question", what = "What file?", options = listOf("opt1", "opt2"))
-                val drawPromptMethod = aliveView.javaClass.getDeclaredMethod("drawPrompt", Waiting::class.java, String::class.java).apply { isAccessible = true }
-                drawPromptMethod.invoke(aliveView, w, currentSession)
-                UIUtil.dispatchAllInvocationEvents()
-
-                val buttons: JPanel = aliveView.javaClass.getDeclaredField("buttons").apply { isAccessible = true }.get(aliveView) as JPanel
-                val directBtn = buttons.components.filterIsInstance<JButton>().firstOrNull { it.text == MagiBundle.msg("chat.answer.direct") }
-                assertNotNull("Direct answer button must exist", directBtn)
-                directBtn!!.doClick()
-                UIUtil.dispatchAllInvocationEvents()
-
-                input.text = "alive answer"
-                UIUtil.dispatchAllInvocationEvents()
-
-                // 제출 실행 -> answers.begin()으로 busy=true 전환되고 exchange thread 구동
-                sendButton.doClick(0)
-                UIUtil.dispatchAllInvocationEvents()
-
-                val answerKey = AnswerDrafts.Key(currentSession, callId)
-                assertTrue("Exchange must be started", exchangeStartedLatch.await(5, TimeUnit.SECONDS))
-                assertTrue("Answer key must be busy while exchange in-flight", answers.busy(answerKey))
-
-                // 정상 생존 상태에서 exchange 응답 허용 및 작업 스레드 완료 대기
-                exchangeReleaseLatch.countDown()
-                assertTrue("Work must finish within timeout", workFinishedLatch.await(5, TimeUnit.SECONDS))
-                workerThreadRef.get()?.join(5000)
-                assertFalse("Worker thread must have terminated", workerThreadRef.get()?.isAlive == true)
-                backgroundError.get()?.let { throw it }
-                UIUtil.dispatchAllInvocationEvents()
-
-                // 요청 검증 (method, session, callId, answer)
-                assertEquals(1, capturedRequests.size)
-                val req = capturedRequests.first()
-                assertEquals("answer", req.method)
-                assertEquals(currentSession, req.session)
-                assertEquals(callId, req.callId)
-                assertEquals("alive answer", req.answer)
-
-                // 생존 성공 상태 검증 (busy=false, done=true)
-                assertFalse("Answer key must no longer be busy after successful completion", answers.busy(answerKey))
-                assertTrue("Answer key must be done after successful completion", answers.done(answerKey))
-                assertTrue("No recovery draft should remain for successfully answered question", answers.recoveries.none { it.key == answerKey })
-            } finally {
-                if (exchangeReleaseLatch.count > 0) exchangeReleaseLatch.countDown()
-                workerThreadRef.get()?.join(2000)
-                if (!isDisposed) {
-                    Disposer.dispose(aliveView)
-                    isDisposed = true
-                }
-            }
-        }
-
-        // 2. 정상 생존 View 대조군 (실패): 데몬 거절 시 finishAnswer 가 실패를 안내하고 복구 초안을 보존함
-        run {
-            val exchangeStartedLatch = CountDownLatch(1)
-            val exchangeReleaseLatch = CountDownLatch(1)
-            val workFinishedLatch = CountDownLatch(1)
-            val workerThreadRef = AtomicReference<Thread>()
-            val backgroundError = AtomicReference<Throwable>()
-            val capturedRequests = mutableListOf<Request>()
-            var isDisposed = false
-
-            val failDaemon = object : Daemon {
-                override fun exchange(request: Request): Response {
-                    capturedRequests.add(request)
-                    exchangeStartedLatch.countDown()
-                    val released = exchangeReleaseLatch.await(5, TimeUnit.SECONDS)
-                    assertTrue("exchangeReleaseLatch must be released before timeout", released)
-                    return Response(ok = false, error = "remote refused")
-                }
-                override fun stream(request: Request, each: (Response) -> Boolean) {}
-                override fun close() {}
-            }
-
-            val aliveView = MagiToolWindow.View(
-                project,
-                sendSession = { currentSession },
-                sendConnection = { sid, _, work ->
-                    val t = kotlin.concurrent.thread(name = "alive-fail-send-conn") {
-                        try {
-                            work(Companion(failDaemon, sid))
-                        } catch (t: Throwable) {
-                            backgroundError.set(t)
-                        } finally {
-                            workFinishedLatch.countDown()
-                        }
-                    }
-                    workerThreadRef.set(t)
-                }
-            )
-
-            try {
-                UIUtil.dispatchAllInvocationEvents()
-                aliveView.sink.caughtUp()
-                UIUtil.dispatchAllInvocationEvents()
-
-                val answers: AnswerDrafts = aliveView.javaClass.getDeclaredField("answers").apply { isAccessible = true }.get(aliveView) as AnswerDrafts
-                val input: JBTextArea = aliveView.javaClass.getDeclaredField("input").apply { isAccessible = true }.get(aliveView) as JBTextArea
-                val sendButton: JButton = aliveView.javaClass.getDeclaredField("sendButton").apply { isAccessible = true }.get(aliveView) as JButton
-                val notice: JLabel = aliveView.javaClass.getDeclaredField("notice").apply { isAccessible = true }.get(aliveView) as JLabel
-
-                // 프롬프트 및 답변 모드 진입
-                val w = Waiting(id = callId, kind = "question", what = "What file?", options = listOf("opt1", "opt2"))
-                val drawPromptMethod = aliveView.javaClass.getDeclaredMethod("drawPrompt", Waiting::class.java, String::class.java).apply { isAccessible = true }
-                drawPromptMethod.invoke(aliveView, w, currentSession)
-                UIUtil.dispatchAllInvocationEvents()
-
-                val buttons: JPanel = aliveView.javaClass.getDeclaredField("buttons").apply { isAccessible = true }.get(aliveView) as JPanel
-                val directBtn = buttons.components.filterIsInstance<JButton>().firstOrNull { it.text == MagiBundle.msg("chat.answer.direct") }
-                assertNotNull("Direct answer button must exist", directBtn)
-                directBtn!!.doClick()
-                UIUtil.dispatchAllInvocationEvents()
-
-                input.text = "failed answer"
-                UIUtil.dispatchAllInvocationEvents()
-
-                // 제출 실행 -> answers.begin()으로 busy=true 전환되고 exchange thread 구동
-                sendButton.doClick(0)
-                UIUtil.dispatchAllInvocationEvents()
-
-                val answerKey = AnswerDrafts.Key(currentSession, callId)
-                assertTrue("Exchange must be started", exchangeStartedLatch.await(5, TimeUnit.SECONDS))
-                assertTrue("Answer key must be busy while exchange in-flight", answers.busy(answerKey))
-
-                // 정상 생존 상태에서 exchange 실패 응답 허용 및 작업 스레드 완료 대기
-                exchangeReleaseLatch.countDown()
-                assertTrue("Work must finish within timeout", workFinishedLatch.await(5, TimeUnit.SECONDS))
-                workerThreadRef.get()?.join(5000)
-                assertFalse("Worker thread must have terminated", workerThreadRef.get()?.isAlive == true)
-                backgroundError.get()?.let { throw it }
-                UIUtil.dispatchAllInvocationEvents()
-
-                // 요청 검증 (method, session, callId, answer)
-                assertEquals(1, capturedRequests.size)
-                val req = capturedRequests.first()
-                assertEquals("answer", req.method)
-                assertEquals(currentSession, req.session)
-                assertEquals(callId, req.callId)
-                assertEquals("failed answer", req.answer)
-
-                // 생존 실패 상태 검증 (busy=false, done=false, 복구 초안 보존, 실패 안내 표시)
-                assertFalse("Answer key must no longer be busy after failure", answers.busy(answerKey))
-                assertFalse("Answer key must NOT be done after failure", answers.done(answerKey))
-
-                val failedRecs = answers.recoveries.filter { it.key == answerKey }
-                assertEquals("Failed draft must be saved in recoveries", 1, failedRecs.size)
-                assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, failedRecs.first().reason)
-                assertEquals("failed answer", failedRecs.first().text)
-
-                assertTrue("Notice should be visible on failure", notice.isVisible)
-                assertTrue("Notice text should report failure error", notice.text.contains("remote refused"))
-            } finally {
-                if (exchangeReleaseLatch.count > 0) exchangeReleaseLatch.countDown()
-                workerThreadRef.get()?.join(2000)
-                if (!isDisposed) {
-                    Disposer.dispose(aliveView)
-                    isDisposed = true
-                }
-            }
-        }
-
-        // 3. 실험군: exchange in-flight 상태에서 View dispose 시, 뒤늦은 finishAnswer EDT 콜백이 상태를 변경하지 않음
-        run {
-            val exchangeStartedLatch = CountDownLatch(1)
-            val exchangeReleaseLatch = CountDownLatch(1)
-            val workFinishedLatch = CountDownLatch(1)
-            val workerThreadRef = AtomicReference<Thread>()
-            val backgroundError = AtomicReference<Throwable>()
-            val capturedRequests = mutableListOf<Request>()
-            var isDisposed = false
-
-            val mockDaemon = object : Daemon {
-                override fun exchange(request: Request): Response {
-                    capturedRequests.add(request)
-                    exchangeStartedLatch.countDown()
-                    val released = exchangeReleaseLatch.await(5, TimeUnit.SECONDS)
-                    assertTrue("exchangeReleaseLatch must be released before timeout", released)
-                    return Response(ok = true)
-                }
-                override fun stream(request: Request, each: (Response) -> Boolean) {}
-                override fun close() {}
-            }
-
-            val disposedView = MagiToolWindow.View(
-                project,
-                sendSession = { currentSession },
-                sendConnection = { sid, _, work ->
-                    val t = kotlin.concurrent.thread(name = "disposed-send-conn") {
-                        try {
-                            work(Companion(mockDaemon, sid))
-                        } catch (t: Throwable) {
-                            backgroundError.set(t)
-                        } finally {
-                            workFinishedLatch.countDown()
-                        }
-                    }
-                    workerThreadRef.set(t)
-                }
-            )
-
-            try {
-                UIUtil.dispatchAllInvocationEvents()
-                disposedView.sink.caughtUp()
-                UIUtil.dispatchAllInvocationEvents()
-
-                val answers: AnswerDrafts = disposedView.javaClass.getDeclaredField("answers").apply { isAccessible = true }.get(disposedView) as AnswerDrafts
-                val input: JBTextArea = disposedView.javaClass.getDeclaredField("input").apply { isAccessible = true }.get(disposedView) as JBTextArea
-                val sendButton: JButton = disposedView.javaClass.getDeclaredField("sendButton").apply { isAccessible = true }.get(disposedView) as JButton
-                val notice: JLabel = disposedView.javaClass.getDeclaredField("notice").apply { isAccessible = true }.get(disposedView) as JLabel
-
-                // 프롬프트 및 답변 모드 진입
-                val w = Waiting(id = callId, kind = "question", what = "What file?", options = listOf("opt1", "opt2"))
-                val drawPromptMethod = disposedView.javaClass.getDeclaredMethod("drawPrompt", Waiting::class.java, String::class.java).apply { isAccessible = true }
-                drawPromptMethod.invoke(disposedView, w, currentSession)
-                UIUtil.dispatchAllInvocationEvents()
-
-                val buttons: JPanel = disposedView.javaClass.getDeclaredField("buttons").apply { isAccessible = true }.get(disposedView) as JPanel
-                val directBtn = buttons.components.filterIsInstance<JButton>().firstOrNull { it.text == MagiBundle.msg("chat.answer.direct") }
-                assertNotNull("Direct answer button must exist", directBtn)
-                directBtn!!.doClick()
-                UIUtil.dispatchAllInvocationEvents()
-
-                input.text = "disposed answer"
-                UIUtil.dispatchAllInvocationEvents()
-
-                // 제출 실행 -> answers.begin()으로 busy=true 전환되고 exchange thread 구동
-                sendButton.doClick(0)
-                UIUtil.dispatchAllInvocationEvents()
-
-                val answerKey = AnswerDrafts.Key(currentSession, callId)
-                assertTrue("Exchange must be started", exchangeStartedLatch.await(5, TimeUnit.SECONDS))
-                assertTrue("Answer key must be busy while exchange in-flight", answers.busy(answerKey))
-
-                // exchange가 진행 중인 시점에 실제 View 소유자 해제
-                Disposer.dispose(disposedView)
+            assertFalse("Answer key must no longer be busy after successful completion", fixture.answers.busy(fixture.answerKey))
+            assertTrue("Answer key must be done after successful completion", fixture.answers.done(fixture.answerKey))
+            assertTrue("No recovery draft should remain for successfully answered question", fixture.answers.recoveries.none { it.key == fixture.answerKey })
+        } finally {
+            fixture.harness.cleanup()
+            if (!isDisposed) {
+                Disposer.dispose(fixture.view)
                 isDisposed = true
-                UIUtil.dispatchAllInvocationEvents()
+            }
+        }
+    }
 
-                val closing = disposedView.javaClass.getDeclaredField("closing").apply { isAccessible = true }.get(disposedView) as AtomicBoolean
-                assertTrue("View closing must be true after dispose", closing.get())
+    fun `test answer exchange survives and preserves recovery when remote fails`() {
+        val currentSession = "s1"
+        val callId = "q1"
+        val fixture = setupAnswerModeView(
+            currentSession = currentSession,
+            callId = callId,
+            answerText = "failed answer",
+            threadName = "alive-fail-send-conn",
+            responseSupplier = { Response(ok = false, error = "remote refused") }
+        )
+        var isDisposed = false
+        try {
+            fixture.harness.releaseAndAwaitWork()
 
-                // dispose 직후 상태 기록 (기준점)
-                val textAfterDispose = input.text
-                val noticeAfterDispose = notice.text
-                val noticeVisibleAfterDispose = notice.isVisible
-                val requestsAfterDispose = capturedRequests.size
+            assertEquals(1, fixture.harness.capturedRequests.size)
+            val req = fixture.harness.capturedRequests.first()
+            assertEquals("answer", req.method)
+            assertEquals(currentSession, req.session)
+            assertEquals(callId, req.callId)
+            assertEquals("failed answer", req.answer)
 
-                // 이제 exchange 응답을 해제하여 finishAnswer가 EDT 콜백을 큐에 등록하고 반환할 때까지 결정적으로 대기
-                exchangeReleaseLatch.countDown()
-                assertTrue("Work must finish within timeout", workFinishedLatch.await(5, TimeUnit.SECONDS))
-                workerThreadRef.get()?.join(5000)
-                assertFalse("Worker thread must have terminated", workerThreadRef.get()?.isAlive == true)
-                backgroundError.get()?.let { throw it }
-                UIUtil.dispatchAllInvocationEvents()
+            assertFalse("Answer key must no longer be busy after failure", fixture.answers.busy(fixture.answerKey))
+            assertFalse("Answer key must NOT be done after failure", fixture.answers.done(fixture.answerKey))
 
-                // 요청 검증 (백그라운드에서 정상 전송되었음 확인)
-                assertEquals(1, capturedRequests.size)
-                val req = capturedRequests.first()
-                assertEquals("answer", req.method)
-                assertEquals(currentSession, req.session)
-                assertEquals(callId, req.callId)
-                assertEquals("disposed answer", req.answer)
+            val failedRecs = fixture.answers.recoveries.filter { it.key == fixture.answerKey }
+            assertEquals("Failed draft must be saved in recoveries", 1, failedRecs.size)
+            assertEquals(AnswerDrafts.REASON_SUBMISSION_FAILED, failedRecs.first().reason)
+            assertEquals("failed answer", failedRecs.first().text)
 
-                // 관측 상태 불변 검증: dispose 직후 상태 대비 입력·안내·새 요청이 변경되지 않아야 함
-                assertEquals("Input text must not change after late callback on disposed view", textAfterDispose, input.text)
-                assertEquals("Notice text must not change after late callback on disposed view", noticeAfterDispose, notice.text)
-                assertEquals("Notice visibility must not change after late callback on disposed view", noticeVisibleAfterDispose, notice.isVisible)
-                assertEquals("No new requests should be produced after dispose", requestsAfterDispose, capturedRequests.size)
-                assertFalse("Answer key must NOT be marked done because finishAnswer was aborted on disposed view", answers.done(answerKey))
-            } finally {
-                if (exchangeReleaseLatch.count > 0) exchangeReleaseLatch.countDown()
-                workerThreadRef.get()?.join(2000)
-                if (!isDisposed) {
-                    Disposer.dispose(disposedView)
-                    isDisposed = true
-                }
+            assertTrue("Notice should be visible on failure", fixture.notice.isVisible)
+            assertTrue("Notice text should report failure error", fixture.notice.text.contains("remote refused"))
+        } finally {
+            fixture.harness.cleanup()
+            if (!isDisposed) {
+                Disposer.dispose(fixture.view)
+                isDisposed = true
+            }
+        }
+    }
+
+    fun `test answer exchange late success is rejected without ui mutation after view disposed`() {
+        val currentSession = "s1"
+        val callId = "q1"
+        val fixture = setupAnswerModeView(
+            currentSession = currentSession,
+            callId = callId,
+            answerText = "disposed answer",
+            threadName = "disposed-success-send-conn",
+            responseSupplier = { Response(ok = true) }
+        )
+        var isDisposed = false
+        try {
+            Disposer.dispose(fixture.view)
+            isDisposed = true
+            UIUtil.dispatchAllInvocationEvents()
+
+            assertTrue("View closing must be true after dispose", fixture.closing.get())
+
+            val textAfterDispose = fixture.input.text
+            val noticeAfterDispose = fixture.notice.text
+            val noticeVisibleAfterDispose = fixture.notice.isVisible
+            val requestsAfterDispose = fixture.harness.capturedRequests.size
+
+            fixture.harness.releaseAndAwaitWork()
+
+            assertEquals(1, fixture.harness.capturedRequests.size)
+            val req = fixture.harness.capturedRequests.first()
+            assertEquals("answer", req.method)
+            assertEquals(currentSession, req.session)
+            assertEquals(callId, req.callId)
+            assertEquals("disposed answer", req.answer)
+
+            assertEquals("Input text must not change after late callback on disposed view", textAfterDispose, fixture.input.text)
+            assertEquals("Notice text must not change after late callback on disposed view", noticeAfterDispose, fixture.notice.text)
+            assertEquals("Notice visibility must not change after late callback on disposed view", noticeVisibleAfterDispose, fixture.notice.isVisible)
+            assertEquals("No new requests should be produced after dispose", requestsAfterDispose, fixture.harness.capturedRequests.size)
+            assertFalse("Answer key must NOT be marked done because finishAnswer was aborted on disposed view", fixture.answers.done(fixture.answerKey))
+        } finally {
+            fixture.harness.cleanup()
+            if (!isDisposed) {
+                Disposer.dispose(fixture.view)
+                isDisposed = true
+            }
+        }
+    }
+
+    fun `test answer exchange late failure is rejected without ui mutation or error report after view disposed`() {
+        val currentSession = "s1"
+        val callId = "q1"
+        val failureError = "remote refused on disposed view"
+        val fixture = setupAnswerModeView(
+            currentSession = currentSession,
+            callId = callId,
+            answerText = "disposed failure answer",
+            threadName = "disposed-fail-send-conn",
+            responseSupplier = { Response(ok = false, error = failureError) }
+        )
+        var isDisposed = false
+        try {
+            Disposer.dispose(fixture.view)
+            isDisposed = true
+            UIUtil.dispatchAllInvocationEvents()
+
+            assertTrue("View closing must be true after dispose", fixture.closing.get())
+
+            val textAfterDispose = fixture.input.text
+            val noticeAfterDispose = fixture.notice.text
+            val noticeVisibleAfterDispose = fixture.notice.isVisible
+            val requestsAfterDispose = fixture.harness.capturedRequests.size
+            val recoveriesAfterDispose = fixture.answers.recoveries.size
+
+            fixture.harness.releaseAndAwaitWork()
+
+            assertEquals(1, fixture.harness.capturedRequests.size)
+            val req = fixture.harness.capturedRequests.first()
+            assertEquals("answer", req.method)
+            assertEquals(currentSession, req.session)
+            assertEquals(callId, req.callId)
+            assertEquals("disposed failure answer", req.answer)
+
+            assertEquals("Input text must not change after late failure callback on disposed view", textAfterDispose, fixture.input.text)
+            assertEquals("Notice text must not change after late failure callback on disposed view", noticeAfterDispose, fixture.notice.text)
+            assertEquals("Notice visibility must not change after late failure callback on disposed view", noticeVisibleAfterDispose, fixture.notice.isVisible)
+            assertFalse("Notice must remain hidden after late failure callback on disposed view", fixture.notice.isVisible)
+            assertFalse("Notice text must not contain error after late failure on disposed view", fixture.notice.text.contains(failureError))
+            assertEquals("No new requests should be produced after dispose", requestsAfterDispose, fixture.harness.capturedRequests.size)
+            assertEquals("No new recovery draft should be added after late failure callback on disposed view", recoveriesAfterDispose, fixture.answers.recoveries.size)
+            assertFalse("Answer key must NOT be marked done after late failure callback on disposed view", fixture.answers.done(fixture.answerKey))
+        } finally {
+            fixture.harness.cleanup()
+            if (!isDisposed) {
+                Disposer.dispose(fixture.view)
+                isDisposed = true
             }
         }
     }

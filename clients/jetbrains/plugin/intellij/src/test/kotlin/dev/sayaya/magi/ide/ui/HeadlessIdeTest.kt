@@ -36,6 +36,36 @@ import javax.swing.text.StyleConstants
  */
 class HeadlessIdeTest : BasePlatformTestCase() {
 
+    private class PendingSend(
+        val id: Int,
+        val session: String,
+        val kind: String = "say",
+        private val errCb: (String) -> Unit = {},
+        private val work: (Companion) -> Unit,
+    ) {
+        var completed = false
+            private set
+        val requests = mutableListOf<Request>()
+
+        fun complete(ok: Boolean = true, error: String? = null, connectionError: Boolean = false) {
+            check(!completed) { "PendingSend #$id ($kind on $session) already completed" }
+            completed = true
+            if (connectionError) {
+                errCb(error ?: "failed")
+            } else {
+                work(Companion(object : Daemon {
+                    override fun exchange(request: Request): Response {
+                        requests.add(request)
+                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
+                    }
+                    override fun stream(request: Request, each: (Response) -> Boolean) {}
+                    override fun close() {}
+                }, session))
+            }
+            UIUtil.dispatchAllInvocationEvents()
+        }
+    }
+
     /**
      * 액션 넷이 **등록되어 있고 글자를 갖는다.** `plugin.xml` 의 id 와 번들의 열쇠가 갈리면
      * 여기서 운다 — 전에는 그 갈림이 「메뉴에 안 뜬다」로만 보였다.
@@ -654,36 +684,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      * 일반 전송 A 대기 중 B 편집·전송, 답변 대기 중 직접 입력 재진입, 답변 모드에서 연결 종료·재연결, 세션 전환을 실제 View 액션으로 검증한다.
      */
     fun `test 컴포저 플레이스홀더와 접근 가능한 이름이 실제 View 액션과 상태 전이에 일치한다`() {
-        class PendingSend(
-            val id: Int,
-            val session: String,
-            val kind: String,
-            private val errCb: (String) -> Unit,
-            private val work: (Companion) -> Unit,
-        ) {
-            var completed = false
-                private set
-            val requests = mutableListOf<Request>()
-
-            fun complete(ok: Boolean = true, error: String? = null, connectionError: Boolean = false) {
-                check(!completed) { "PendingSend #$id ($kind on $session) already completed" }
-                completed = true
-                if (connectionError) {
-                    errCb(error ?: "failed")
-                } else {
-                    work(Companion(object : Daemon {
-                        override fun exchange(request: Request): Response {
-                            requests.add(request)
-                            return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
-                        }
-                        override fun stream(request: Request, each: (Response) -> Boolean) {}
-                        override fun close() {}
-                    }, session))
-                }
-                UIUtil.dispatchAllInvocationEvents()
-            }
-        }
-
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         lateinit var view: MagiToolWindow.View
@@ -1046,9 +1046,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         } finally {
             Disposer.dispose(view)
         }
-
-        // 사례 2: 독립 새 View/시도에서 session1 옛 답변 재시도 실패 격리 검증 (§6.31 독립 사례 2)
-        checkCrossSessionAnswerFailureIsolation()
     }
 
     /**
@@ -1061,36 +1058,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
     }
 
     private fun checkCrossSessionAnswerFailureIsolation() {
-        class PendingSend(
-            val id: Int,
-            val session: String,
-            val kind: String,
-            private val errCb: (String) -> Unit,
-            private val work: (Companion) -> Unit,
-        ) {
-            var completed = false
-                private set
-            val requests = mutableListOf<Request>()
-
-            fun complete(ok: Boolean = true, error: String? = null, connectionError: Boolean = false) {
-                check(!completed) { "PendingSend #$id ($kind on $session) already completed" }
-                completed = true
-                if (connectionError) {
-                    errCb(error ?: "failed")
-                } else {
-                    work(Companion(object : Daemon {
-                        override fun exchange(request: Request): Response {
-                            requests.add(request)
-                            return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
-                        }
-                        override fun stream(request: Request, each: (Response) -> Boolean) {}
-                        override fun close() {}
-                    }, session))
-                }
-                UIUtil.dispatchAllInvocationEvents()
-            }
-        }
-
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         lateinit var view: MagiToolWindow.View
@@ -1281,31 +1248,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
     }
 
     fun `test 일반 모드에서 한글 IME 조합 확정 Enter는 전송하지 않고 후속 Enter에서 1회 전송된다`() {
-        class PendingSend(
-            val id: Int,
-            val session: String,
-            val kind: String,
-            private val errCb: (String) -> Unit,
-            private val work: (Companion) -> Unit,
-        ) {
-            var completed = false
-                private set
-            val requests = mutableListOf<Request>()
-
-            fun complete(ok: Boolean = true, error: String? = null) {
-                completed = true
-                work(Companion(object : Daemon {
-                    override fun exchange(request: Request): Response {
-                        requests.add(request)
-                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
-                    }
-                    override fun stream(request: Request, each: (Response) -> Boolean) {}
-                    override fun close() {}
-                }, session))
-                UIUtil.dispatchAllInvocationEvents()
-            }
-        }
-
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         val view = MagiToolWindow.View(
@@ -1388,31 +1330,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
     }
 
     fun `test 일반 모드에서 Enter 누른 상태에서 보내기 버튼 클릭 후에도 held Enter 보호가 유지된다`() {
-        class PendingSend(
-            val id: Int,
-            val session: String,
-            val kind: String,
-            private val errCb: (String) -> Unit,
-            private val work: (Companion) -> Unit,
-        ) {
-            var completed = false
-                private set
-            val requests = mutableListOf<Request>()
-
-            fun complete(ok: Boolean = true, error: String? = null) {
-                completed = true
-                work(Companion(object : Daemon {
-                    override fun exchange(request: Request): Response {
-                        requests.add(request)
-                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
-                    }
-                    override fun stream(request: Request, each: (Response) -> Boolean) {}
-                    override fun close() {}
-                }, session))
-                UIUtil.dispatchAllInvocationEvents()
-            }
-        }
-
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         val view = MagiToolWindow.View(
@@ -1476,31 +1393,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
     }
 
     fun `test 일반 모드에서 한글 IME 조합 확정 후 보내기 버튼 클릭은 즉시 1회 전송된다`() {
-        class PendingSend(
-            val id: Int,
-            val session: String,
-            val kind: String,
-            private val errCb: (String) -> Unit,
-            private val work: (Companion) -> Unit,
-        ) {
-            var completed = false
-                private set
-            val requests = mutableListOf<Request>()
-
-            fun complete(ok: Boolean = true, error: String? = null) {
-                completed = true
-                work(Companion(object : Daemon {
-                    override fun exchange(request: Request): Response {
-                        requests.add(request)
-                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
-                    }
-                    override fun stream(request: Request, each: (Response) -> Boolean) {}
-                    override fun close() {}
-                }, session))
-                UIUtil.dispatchAllInvocationEvents()
-            }
-        }
-
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         val view = MagiToolWindow.View(
@@ -1546,31 +1438,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
     }
 
     fun `test 일반 모드에서 Space 등 비-Enter 확정 후 Enter는 즉시 1회 전송된다`() {
-        class PendingSend(
-            val id: Int,
-            val session: String,
-            val kind: String,
-            private val errCb: (String) -> Unit,
-            private val work: (Companion) -> Unit,
-        ) {
-            var completed = false
-                private set
-            val requests = mutableListOf<Request>()
-
-            fun complete(ok: Boolean = true, error: String? = null) {
-                completed = true
-                work(Companion(object : Daemon {
-                    override fun exchange(request: Request): Response {
-                        requests.add(request)
-                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
-                    }
-                    override fun stream(request: Request, each: (Response) -> Boolean) {}
-                    override fun close() {}
-                }, session))
-                UIUtil.dispatchAllInvocationEvents()
-            }
-        }
-
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         val view = MagiToolWindow.View(
