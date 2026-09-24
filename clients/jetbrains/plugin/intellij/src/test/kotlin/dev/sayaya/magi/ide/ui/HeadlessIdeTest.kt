@@ -1355,6 +1355,20 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             assertTrue(pendingSends.isEmpty())
 
+            // Enter release 없는 상태에서 Shift press / release 및 일반 비-Enter 키 입력 발생
+            val shiftPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SHIFT, java.awt.event.KeyEvent.CHAR_UNDEFINED)
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(shiftPress) }
+            val shiftRelease = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SHIFT, java.awt.event.KeyEvent.CHAR_UNDEFINED)
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyReleased(shiftRelease) }
+
+            // 타이머 만료 재주입
+            timer?.actionListeners?.forEach { it.actionPerformed(ActionEvent(timer, 0, "")) }
+
+            // Shift 입력 후에도 Enter를 떼지 않은 반복 Enter는 여전히 전송 차단 (요청 0건)
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            assertTrue(pendingSends.isEmpty())
+
             // 5. Enter 키 릴리즈
             val enterRelease = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyReleased(enterRelease) }
@@ -1368,6 +1382,94 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             pending.complete(ok = true)
             val req = pending.requests.first { it.method == "submit" || it.method == "steer" }
             assertEquals("한", req.text)
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    fun `test 일반 모드에서 Enter 누른 상태에서 보내기 버튼 클릭 후에도 held Enter 보호가 유지된다`() {
+        class PendingSend(
+            val id: Int,
+            val session: String,
+            val kind: String,
+            private val errCb: (String) -> Unit,
+            private val work: (Companion) -> Unit,
+        ) {
+            var completed = false
+                private set
+            val requests = mutableListOf<Request>()
+
+            fun complete(ok: Boolean = true, error: String? = null) {
+                completed = true
+                work(Companion(object : Daemon {
+                    override fun exchange(request: Request): Response {
+                        requests.add(request)
+                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
+                    }
+                    override fun stream(request: Request, each: (Response) -> Boolean) {}
+                    override fun close() {}
+                }, session))
+                UIUtil.dispatchAllInvocationEvents()
+            }
+        }
+
+        val pendingSends = mutableListOf<PendingSend>()
+        var currentSession = "session1"
+        val view = MagiToolWindow.View(
+            project,
+            sendSession = { currentSession },
+            sendConnection = { sid, error, work ->
+                val handle = PendingSend(pendingSends.size + 1, sid, "say", error, work)
+                pendingSends.add(handle)
+            }
+        )
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            view.sink.caughtUp()
+            UIUtil.dispatchAllInvocationEvents()
+
+            @Suppress("UNCHECKED_CAST")
+            fun <T> field(name: String): T =
+                view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view) as T
+
+            val input: JBTextArea = field("input")
+            val sendButton: JButton = field("sendButton")
+            input.text = "한"
+
+            // 1. 조합 및 확정
+            val compText = java.text.AttributedString("한").iterator
+            val compEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+            input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(compEvent) }
+            val commitText = java.text.AttributedString("한").iterator
+            val commitEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+            input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(commitEvent) }
+
+            // 2. 확정 Enter 누름
+            val enterPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            assertTrue(pendingSends.isEmpty())
+
+            // 3. Enter를 누른 상태에서 마우스 보내기 버튼 클릭 -> 1회 전송
+            sendButton.doClick(0)
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(1, pendingSends.size)
+            pendingSends.first().complete(ok = true)
+
+            // 4. 버튼 클릭 후에도 Enter를 떼지 않은 상태이므로 반복 Enter는 차단되어야 함 (신규 요청 0건)
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            assertEquals(1, pendingSends.size)
+
+            // 5. Enter 릴리즈 후 별도 Enter는 전송 허용
+            val enterRelease = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyReleased(enterRelease) }
+            input.text = "새글"
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(2, pendingSends.size)
+            pendingSends.last().complete(ok = true)
         } finally {
             Disposer.dispose(view)
         }

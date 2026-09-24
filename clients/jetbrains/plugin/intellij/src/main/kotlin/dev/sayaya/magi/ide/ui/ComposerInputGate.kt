@@ -37,21 +37,34 @@ class ComposerInputGate(
     /**
      * 키 누름 이벤트 수신.
      * [isEnter]: Enter 키 여부 (KeyEvent.VK_ENTER)
+     *
+     * 규칙:
+     * - Enter 누름: enterPressed = true.
+     * - 비-Enter 누름:
+     *   - 만약 Enter가 이미 눌려 있는 상태(enterPressed == true)라면, Shift 등 보조 키나 다른 키가
+     *     함께 눌렸더라도 물리 Enter 키는 여전히 눌려 있으므로 enterPressed와 enterCommitted를 해제하지 않습니다.
+     *   - Enter가 눌려 있지 않은 상태(!enterPressed)에서 비-Enter 키가 눌린 경우에만
+     *     (예: Space로 음절이 확정된 경우) enterCommitted를 즉시 해제하고 타이머를 취소합니다.
      */
     fun onKeyPressed(isEnter: Boolean) {
         if (isDisposed) return
         if (isEnter) {
             enterPressed = true
         } else {
-            enterPressed = false
-            enterCommitted = false
-            onCancelTimer()
+            if (!enterPressed) {
+                enterCommitted = false
+                onCancelTimer()
+            }
         }
     }
 
     /**
      * 키 릴리즈 이벤트 수신.
      * [isEnter]: Enter 키 여부 (KeyEvent.VK_ENTER)
+     *
+     * 규칙:
+     * - Enter 릴리즈: 물리 Enter 키가 떼어졌으므로 enterPressed = false, enterCommitted = false, 타이머 취소.
+     * - 비-Enter 릴리즈: Enter 키의 물리 누름 상태와 무관하므로 enterPressed나 enterCommitted를 건드리지 않습니다.
      */
     fun onKeyReleased(isEnter: Boolean) {
         if (isDisposed) return
@@ -123,12 +136,17 @@ class ComposerInputGate(
     }
 
     /**
-     * 수동/명시적 전송(마우스 버튼 클릭 등) 시 키 게이트 확정 플래그 정리.
+     * 수동/명시적 전송(마우스 버튼 클릭 등) 시:
+     * 물리 Enter 키가 눌려 있지 않은 경우(!enterPressed)에만 잔류 확정 플래그를 정리합니다.
+     * Enter가 눌려 있는 상태(enterPressed == true)에서 마우스 버튼이 클릭되더라도
+     * 눌려 있는 Enter의 확정 보호는 불필요하게 해제되지 않습니다.
      */
     fun onExplicitAction() {
         if (isDisposed) return
-        enterCommitted = false
-        onCancelTimer()
+        if (!enterPressed) {
+            enterCommitted = false
+            onCancelTimer()
+        }
     }
 
     companion object {

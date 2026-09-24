@@ -246,7 +246,7 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.key("magi.send")
         assertTrue(h.pending.isEmpty()) // 확정 Enter 전송 차단
 
-        // 250ms 타이머 만료 콜백을 결정적으로 주입: 키가 여전히 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없음
+            // 250ms 타이머 만료 콜백을 결정적으로 주입: 키가 여전히 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없음
         val timer = h.field<javax.swing.Timer>("commitResetTimer")
         timer?.actionListeners?.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
 
@@ -254,6 +254,20 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
         h.key("magi.send")
         assertTrue(h.pending.isEmpty()) // 타이머 만료 후에도 키를 떼기 전 auto-repeat 전송은 차단 유지 (요청 0건)
+
+        // Enter release 없는 상태에서 Shift press / release 및 다른 비-Enter 키 입력 발생
+        val shiftPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SHIFT, java.awt.event.KeyEvent.CHAR_UNDEFINED)
+        h.input.keyListeners.forEach { it.keyPressed(shiftPress) }
+        val shiftRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SHIFT, java.awt.event.KeyEvent.CHAR_UNDEFINED)
+        h.input.keyListeners.forEach { it.keyReleased(shiftRelease) }
+
+        // 중간에 타이머 만료 콜백 재주입
+        timer?.actionListeners?.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
+
+        // Shift 등 다른 키 입력 후에도 Enter를 떼지 않은 반복 Enter는 요청 0건이어야 함
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertTrue(h.pending.isEmpty()) // 여전히 차단 유지 (요청 0건)
 
         // Enter 키를 뗌 (keyReleased)
         val enterRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
@@ -264,6 +278,41 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.key("magi.send")
         assertEquals(1, h.pending.size) // 정상 1회 전송
         h.finish(0, true)
+    }
+
+    fun testExplicitActionWhileEnterHeldPreservesHeldEnterProtection() = check { h ->
+        h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
+        val compText = java.text.AttributedString("한").iterator
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val commitText = java.text.AttributedString("한").iterator
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+
+        // Enter 키 누름 (확정 Enter)
+        val enterPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertTrue(h.pending.isEmpty()) // 확정 Enter 전송 차단
+
+        // Enter를 누른 상태에서 마우스로 보내기 버튼 클릭 (독립 액션) -> 1회 전송
+        h.field<JButton>("sendButton").doClick(0)
+        assertEquals(1, h.pending.size)
+        h.finish(0, true)
+
+        // 버튼 클릭 후에도 Enter를 떼지 않은 상태이므로 반복 Enter는 차단되어야 함 (신규 요청 0건, pending 크기 1 유지)
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertEquals(1, h.pending.size)
+
+        // Enter 키를 뗀 후 별도 Enter에서만 전송 허용 (신규 2번째 요청 발송)
+        val enterRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+        h.input.keyListeners.forEach { it.keyReleased(enterRelease) }
+        h.input.text = "새글"
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertEquals(2, h.pending.size)
+        h.finish(1, true)
     }
     fun testNonEnterCommitAllowsImmediateEnter() = check { h ->
         h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"

@@ -1284,40 +1284,53 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.2초 소요)**.
 
-#### 7. IME 입력 상태 분리와 타이머 만료 보완 (§6.37)
+#### 7. IME 입력 상태 분리와 타이머·보조키 만료 보완 (§6.37)
 - **배경 및 결함 원인 분석**:
-  - `AnswerModeTest`의 auto-repeat 검증 시 확정 Enter를 누른 상태에서 250ms 타이머 만료 콜백이 실행되면, 물리 키가 해제되지 않았음에도 `enterCommitted = false`로 초기화되어 후속 auto-repeat Enter에 의해 비의도적으로 메시지가 전송되던 결함 발견.
-  - "시간 경과가 물리 키 해제를 대신하지 않음": 키가 눌려 있는 상태(`enterPressed == true`)에서는 타이머 만료로 확정 보호를 풀지 않고, 키를 떼지 않은 상태(`!enterPressed`)에서만 잔류 플래그를 안전 정리하도록 계약 수정.
+  - `AnswerModeTest`의 auto-repeat 검증 시 확정 Enter를 누른 상태에서 250ms 타이머 만료 콜백이 실행되면, 물리 키가 해제되지 않았음에도 `enterCommitted = false`로 초기화되어 후속 auto-repeat Enter에 의해 비의도적으로 메시지가 전송되던 1차 결함 발견.
+  - 후속 정적/결정적 검증(`/tmp/MagiGateProbe.java`)에서 비-Enter 키 처리(`onKeyPressed(false)`)가 Enter 누름 상태와 무관하게 `enterPressed`와 `enterCommitted`를 무조건 해제하여, Enter 확정 후 키를 누른 채 Shift 등 보조 키나 다른 키를 누르고 뗐을 때 held Enter 보호가 조기에 풀리던 2차 결함 발견.
+  - "시간 경과가 물리 키 해제를 대신하지 않음" 및 "다른 키 입력이 추적 중인 Enter 누름을 해제하지 않음":
+    - 키가 눌려 있는 상태(`enterPressed == true`)에서는 타이머 만료, Shift 등 비-Enter 키 press/release, 마우스 버튼 클릭(`onExplicitAction`)이 발생하더라도 held Enter의 확정 보호를 풀지 않도록 계약 수정.
+    - 키가 눌려 있지 않은 상태(`!enterPressed`)에서만 비-Enter 키(예: Space 확정)나 타이머 만료, 명시적 버튼 조작이 잔류 확정 플래그를 안전하게 정리.
 
 - **작은 구조 분리 (`ComposerInputGate.kt`)**:
   - Swing, RPC, 초안 관리로부터 완전히 독립된 순수 입력 상태 게이트 `ComposerInputGate`를 분리.
-  - 입력: `onCompositionChanged`, `onKeyPressed`, `onKeyReleased`, `onTimerExpired`, `onFocusLost`, `dispose`.
+  - 입력: `onCompositionChanged`, `onKeyPressed`, `onKeyReleased`, `onTimerExpired`, `onFocusLost`, `dispose`, `onExplicitAction`.
   - 출력: `canSendOnEnter(): Boolean`, `canCancel(): Boolean`.
   - 뷰(`MagiToolWindow.kt`)는 AWT 이벤트 및 Swing Timer를 게이트와 연결하며, 마우스 버튼 클릭 등 명시적 액션은 `onExplicitAction()`을 호출하여 독립 경로로 즉각 실행.
   - 음절 조합 중 컴포저 취소 차단(`canCancel() == false`)으로 IME 자체 preedit 취소 우선권 보장.
 
 - **영구 회귀 테스트 보강 (`ComposerInputGateTest.kt`, `AnswerModeTest.kt`, `HeadlessIdeTest.kt`)**:
-  - `ComposerInputGateTest`: 순수 단위 테스트 9종 전수 통과
+  - `ComposerInputGateTest`: 순수 단위 테스트 11종 전수 통과
     - `testCommitEnterBlocksSend`: 확정 Enter 키 이벤트 및 동일 틱 전송 차단 검증.
     - `testAutoRepeatEnterDoesNotSendEvenAfterTimerExpired`: Enter를 누른 채 250ms 타이머가 만료되어도 auto-repeat Enter 전송 차단 유지 검증.
+    - `testHeldCommitEnterRemainsBlockedAfterModifierKeyPressAndRelease`: Enter 확정 후 누른 채 Shift press/release 및 타이머 만료가 발생해도 auto-repeat Enter 전송 차단 유지 검증 (프로브 재현 결함 영구 방지).
+    - `testExplicitActionWhileEnterHeldPreservesHeldEnterProtection`: Enter를 누른 채 마우스 버튼 클릭 후에도 held Enter 보호 유지 검증.
+    - `testExplicitActionWhenEnterNotHeldClearsProtection`: 키가 눌려 있지 않은 상태에서 버튼 클릭 시 보호 정리 검증.
     - `testSubsequentEnterSendsAfterKeyReleased`: 물리 키 릴리즈 후 별도 Enter에서만 정상 1회 전송 허용 검증.
-    - `testSafetyTimerClearsCommitProtectionWhenKeyNotPressed`: 키 미누름 상태(마우스 확정 등)에서 타이머 만료 시 잔류 보호 안전 정리 검증.
+    - `testSafetyTimerClearsCommitProtectionWhenKeyNotPressed`: 키가 눌려 있지 않은 상태에서 타이머 만료 시 잔류 보호 안전 정리 검증.
     - `testNonEnterCommitAllowsSubsequentEnterImmediately`: Space 등 비-Enter 확정 시 보호 즉시 해제 및 후속 Enter 즉시 전송 검증.
     - `testFocusLostClearsCommitProtection`: 포커스 상실 시 상태 안전 초기화 검증.
     - `testDisposeClearsProtectionAndIgnoresLateTimer`: 뷰 종료 후 안전 무효화 및 늦은 타이머 무시 검증.
     - `testComposingBlocksSendAndCancel`: 조합 중 전송 및 취소 차단 검증.
-    - `testExplicitActionClearsProtection`: 명시적 버튼 조작 시 보호 플래그 즉시 정리 검증.
-  - `AnswerModeTest.testAutoRepeatEnterDoesNotSendUntilKeyReleased`: 답변 모드에서 250ms 타이머 만료 콜백을 결정적으로 주입한 뒤 auto-repeat Enter가 차단(요청 0건)되고, 키 릴리즈 후 별도 Enter에서만 1회 전송됨을 검증.
-  - `HeadlessIdeTest.test 일반 모드에서 한글 IME 조합 확정 Enter는 전송하지 않고 후속 Enter에서 1회 전송된다`: 일반 모드에서도 동일하게 250ms 타이머 만료 콜백 주입 후 auto-repeat Enter가 차단(요청 0건)되고 후속 Enter에서 1회 전송됨을 검증.
+  - `AnswerModeTest`:
+    - `testAutoRepeatEnterDoesNotSendUntilKeyReleased`: 답변 모드에서 250ms 타이머 만료 콜백 주입 및 Shift press/release 발생 후에도 auto-repeat Enter 차단(요청 0건) 유지, 키 릴리즈 후 별도 Enter에서만 1회 전송 검증.
+    - `testExplicitActionWhileEnterHeldPreservesHeldEnterProtection`: Enter 누른 채 버튼 클릭(1회 전송) 후에도 반복 Enter 차단 유지 및 키 릴리즈 후 별도 Enter 1회 전송 검증.
+  - `HeadlessIdeTest`:
+    - `test 일반 모드에서 한글 IME 조합 확정 Enter는 전송하지 않고 후속 Enter에서 1회 전송된다`: 일반 모드에서 타이머 만료 콜백 주입 및 Shift 입력 후에도 auto-repeat 차단 유지(요청 0건) 및 키 릴리즈 후 후속 Enter 1회 전송 검증.
+    - `test 일반 모드에서 Enter 누른 상태에서 보내기 버튼 클릭 후에도 held Enter 보호가 유지된다`: 일반 모드 버튼 클릭 후 held Enter 차단 유지 및 릴리즈 후 후속 Enter 전송 검증.
+
+- **실물 검증 여부**:
+  - 가상 키/이벤트 주입 및 순수 상태 게이트 기반 결정적 회귀 검증 완료.
+  - 실제 macOS 두벌식 IME 실물 조작은 이번 작업에서 직접 재수행하지 않았으므로 미검증으로 기록하며 VoiceOver는 검증 대상에서 제외.
 
 - **전체 회귀 검증 결과 (2026-09-24)**:
   - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
-    - 결과: 종료 코드 0, 19개 task 전체 성공 (39초 소요).
-    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 80 통과 (총 80개 중), **합계 464 통과·5 건너뜀·0 실패 (총 469개 중)**.
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (35초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 84 통과 (총 84개 중), **합계 468 통과·5 건너뜀·0 실패 (총 473개 중)**.
   - VS Code Suite: `npm test --prefix clients/vscode`
     - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
-    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.8초 소요)**.
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.2초 소요)**.
 
 
 
