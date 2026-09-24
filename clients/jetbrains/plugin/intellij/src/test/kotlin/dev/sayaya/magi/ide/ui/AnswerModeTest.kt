@@ -173,6 +173,25 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.key("magi.send"); h.key("magi.cancelAnswer")
         assertTrue(h.pending.isEmpty()); assertTrue(h.field<JPanel>("answerBar").isVisible)
     }
+    fun testCommitEventDoesNotSubmitOnSameTickButSubmitsOnSubsequentEnter() = check { h ->
+        h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
+        val compText = java.text.AttributedString("한").iterator
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val commitText = java.text.AttributedString("한").iterator
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+        h.key("magi.send")
+        assertTrue(h.pending.isEmpty())
+        assertTrue(h.field<JPanel>("answerBar").isVisible)
+        assertEquals("한", h.input.text)
+        com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        h.key("magi.send")
+        assertEquals(1, h.pending.size)
+        h.finish(0, true)
+        assertEquals(1, h.seen.size)
+        assertEquals("한", h.seen.single().answer)
+    }
     fun testDisposeDoesNotReviveAnswerMode() = check { h ->
         h.question(); h.direct(); h.input.text = "B"; h.key("magi.send")
         Disposer.dispose(h.view); h.finish(0, false)

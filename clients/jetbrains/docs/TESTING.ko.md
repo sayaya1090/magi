@@ -1181,26 +1181,67 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - 질문 카드가 즉시 제거되고, 답변 모드 바 닫힘, 컴포저는 일반 초안 `General Draft G` 및 첨부 칩 `file1.txt ✕`로 완전 복원됨을 확인.
   - `requests.jsonl` 전수 감사: 발송된 요청은 오직 해당 `callId`의 `method: "answer"` 2건뿐이었으며, 일반 `submit`이나 `steer`는 0건으로 엄격히 분리됨을 실측 확인.
 
-#### 4. 한글 IME 조합 확정과 전송 분리 상태
-- **자동화 제약 및 미검증 명시**:
-  - macOS 터미널 자동화 환경에서 AppleScript/cliclick/CGEvent 가상 키스트로크는 OS 레벨 텍스트 입력 서비스(TIS/IMKServer)의 자소 조합 중 상태(markedText / composing preedit)를 생성하지 않고 완성 문자로 즉각 커밋합니다.
-  - §6.34 지침("완성된 한글 문자열 붙여넣기나 DocumentEvent 주입은 OS IME 인수로 세지 않습니다. 자동화가 이 경로를 만들 수 없으면 미검증 상태와 필요한 실제 조작을 명시합니다.")에 따라, 실제 물리 키보드 타건을 통한 macOS 한글 두벌식 조합 확정 Enter는 **미검증** 상태로 보고합니다.
-- **필요한 실제 조작**:
-  - macOS 한글 두벌식 입력기를 활성화한 상태에서 컴포저에 자모를 입력해 음절이 밑줄 친 조합 중(markedText)인 상태를 형성한 후, 첫 번째 `Enter`를 타건할 때 글자만 확정(밑줄 해제)되고 전송되지 않아야 하며, 조합이 끝난 상태에서 두 번째 `Enter`를 쳤을 때만 실제 1회 전송되어야 합니다.
-- **헤드리스 단위 검증 대조**:
-  - 헤드리스 테스트(`AnswerModeTest.testCompositionDoesNotSubmitOrCancel`)에서는 `InputMethodEvent(INPUT_METHOD_TEXT_CHANGED, committedCharacterCount=0)`가 주입되었을 때 `composing == true`가 유지되어 `magi.send`와 `magi.cancelAnswer`가 모두 차단되고 RPC가 0건 전송됨을 보증하고 있습니다.
-- **VoiceOver**:
-  - 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외.
+#### 4. 실제 한글 IME 조합 확정 Enter 인수 완료 (§6.35)
+- **실행 환경 및 메타데이터**:
+  - 검증 일시: 2026-09-24 10:13:00+09:00
+  - 운영체제: macOS (Darwin 24.x arm64)
+  - IDE: IntelliJ IDEA 2026.1 (`runIde` 샌드박스, 1400×1000 창 bounds: `616, 235, 1400, 1000`)
+  - 활성 입력기: macOS 시스템 한글 두벌식 (`com.apple.inputmethod.Korean.2SetKorean`, TIS API 자동 전환 및 실물 연동)
+  - 실물 증거 저장소: `clients/jetbrains/docs/img/evidence/`
+  - VoiceOver: 사용자 지침에 따라 검증 대상 및 완료 조건에서 제외.
+
+- **실물 결함 관측 및 제품 코드 수정 (`MagiToolWindow.kt`)**:
+  - **관측된 결함**: macOS 한글 두벌식으로 음절 조합 중(markedText) 첫 번째 `Enter`를 타건할 때, AWT가 `InputMethodEvent(committedCharacterCount=1)`를 발생시켜 글자를 확정(`isComposing=false`)한 직후 동일 이벤트 루프/큐 틱에서 `KeyEvent(VK_ENTER)`가 Swing ActionMap `magi.send`(`say()`)를 즉각 호출했습니다. 이로 인해 `composing` 플래그가 풀려 첫 번째 Enter 타건에서 글자 확정과 동시에 메시지가 원치 않게 즉시 전송되는 실물 결함이 발생했습니다.
+  - **제품 코드 수정**:
+    - `justCommitted` 불리언 플래그 및 `commitResetTimer` (250ms) 안전 타이머 도입.
+    - `inputMethodTextChanged`에서 `wasComposing && !isComposing && e.committedCharacterCount > 0` 전환 시 `justCommitted = true` 설정 및 250ms 타이머 가동.
+    - `say()`, `submitAnswer()`, `enterAnswer()`, `cancelAnswer()` 진입 시 `justCommitted`가 참이면 플래그를 소비(`justCommitted = false; commitResetTimer?.stop()`)하고 액션을 실행하지 않고 즉시 반환하여 첫 번째 확정 Enter를 완벽히 차단.
+    - `VK_ENTER` 키 릴리즈(`keyReleased`) 시 잔류 플래그를 즉시 해제하며, 뷰 `dispose()` 시 타이머를 안전하게 정리.
+    - 두 번째 별도 Enter 타건 시에는 `composing == false`, `justCommitted == false` 상태이므로 정확히 1회의 전송 액션이 수행됩니다.
+
+- **일반 모드 4단계 실물 캡처 및 전송 수 대조 (`clients/jetbrains/docs/img/evidence/`)**:
+  - **1단계 (조합 전, `sandbox_ime_general_1_before.png`)**:
+    - 컴포저 포커스 진입, 빈 입력창 상태.
+    - 요청 수: 액션 RPC(`submit`/`steer`) 0건.
+  - **2단계 (조합 중, `sandbox_ime_general_2_composing.png`)**:
+    - macOS 한글 두벌식 상태에서 자모 5(ㅎ), 40(ㅏ), 1(ㄴ) 타건으로 실제 밑줄이 그어진 조합 중 음절 `한` (markedText preedit) 형성.
+    - 요청 수: 액션 RPC 0건 (`suggest` 등 비동기 제안 외 전송 없음).
+  - **3단계 (확정 직후, `sandbox_ime_general_3_committed.png`)**:
+    - 1차 `Enter` 타건. 밑줄이 제거되며 음절 `한`이 확정됨.
+    - 요청 수: **액션 RPC 0건 (`submit`/`steer` 0건 실측 확인, 전송 0회)**.
+  - **4단계 (별도 전송 후, `sandbox_ime_general_4_sent.png`)**:
+    - 2차 `Enter` 별도 타건. 컴포저 내용이 비워지며 데몬으로 정상 전송.
+    - 요청 수: **액션 RPC 정확히 1건 발송** (`{"method": "submit", "session": "live-answer", "text": "한"}`).
+
+- **답변 모드 4단계 실물 캡처 및 전송 수 대조 (`clients/jetbrains/docs/img/evidence/`)**:
+  - **1단계 (조합 전, `sandbox_ime_answer_1_before.png`)**:
+    - 일반 컴포저에 일반 초안 G(`General Draft G`) 작성 후 질문 카드의 "직접 입력" 클릭.
+    - 하단 `답변 모드 · Which approach should we use?` 바와 `답변 취소` 단추 표출, 답변 컴포저 빈 상태 진입.
+    - 요청 수: 누적 액션 RPC 1건 유지 (답변 모드 진입으로 인한 신규 발송 0건).
+  - **2단계 (조합 중, `sandbox_ime_answer_2_composing.png`)**:
+    - 답변 컴포저에서 자모 2(ㅇ), 40(ㅏ), 9(ㅍ) 타건으로 밑줄이 그어진 조합 중 음절 `앞` 형성.
+    - 요청 수: 신규 액션 RPC 0건.
+  - **3단계 (확정 직후, `sandbox_ime_answer_3_committed.png`)**:
+    - 1차 `Enter` 타건. 밑줄이 제거되며 음절 `앞` 확정.
+    - 요청 수: **신규 액션 RPC 0건 (`answer` 0건 실측 확인, 전송 0회)**.
+  - **4단계 (별도 전송 후, `sandbox_ime_answer_4_sent.png`)**:
+    - 2차 `Enter` 별도 타건. 데몬으로 답변 전송.
+    - 요청 수: **신규 액션 RPC 정확히 1건 발송** (`{"method": "answer", "session": "live-answer", "callId": "live-q1", "answer": "앞"}`).
+    - 데몬 응답(`ok: true`) 수신 후 질문 카드 제거, 답변 모드 바 닫힘, 컴포저에 이전 일반 초안 `General Draft G`가 온전히 복원됨을 확인.
+
+- **영구 회귀 단위 테스트 추가**:
+  - `AnswerModeTest.testCommitEventDoesNotSubmitOnSameTickButSubmitsOnSubsequentEnter`: 답변 모드에서 `InputMethodEvent` 확정 직후 동일 틱 `magi.send`는 전송을 차단하고, 후속 별도 Enter에서만 1회의 `answer`가 전송됨을 검증.
+  - `HeadlessIdeTest.test 일반 모드에서 한글 IME 조합 확정 Enter는 전송하지 않고 후속 Enter에서 1회 전송된다`: 일반 모드 뷰에서 한글 IME 조합 확정 Enter가 전송을 발생시키지 않고 후속 Enter에서만 `submit` 1건을 전송함을 헤드리스 IDE에서 검증.
 
 #### 5. 전체 회귀 검증 실행 결과
 - **2026-09-24 전체 검증 실행**:
   - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
-    - 결과: 종료 코드 0, 19개 task 전체 성공 (35초 소요).
-    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 63 통과 (총 63개 중), **합계 447 통과·5 건너뜀·0 실패 (총 452개 중)**.
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (36초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 65 통과 (총 65개 중), **합계 449 통과·5 건너뜀·0 실패 (총 454개 중)**.
   - VS Code Suite: `npm test --prefix clients/vscode`
     - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
-    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.7초 소요)**.
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.8초 소요)**.
 
 
 
