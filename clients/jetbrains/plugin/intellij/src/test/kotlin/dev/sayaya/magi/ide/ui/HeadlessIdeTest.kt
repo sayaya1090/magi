@@ -1488,4 +1488,28 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             Disposer.dispose(view)
         }
     }
+
+    fun `test IdeHand show opens file descriptor and returns opened message`() {
+        val base = java.io.File(project.basePath!!).apply { mkdirs() }
+        val ioFile = java.io.File(base, "Opened.kt").apply { writeText("fun sample() = 42\n") }
+        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
+        assertNotNull(vf)
+        val hand = IdeHand(project)
+        val res = hand.show("Opened.kt", 1)
+        assertTrue(res.startsWith("opened ${vf!!.path} at line 1"))
+    }
+
+    fun `test IdeHand replace modifies document with single undo`() {
+        val base = java.io.File(project.basePath!!).apply { mkdirs() }
+        val ioFile = java.io.File(base, "Editable.kt").apply { writeText("val count = 1\n") }
+        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
+        assertNotNull(vf)
+        val hand = IdeHand(project)
+        val res = hand.replace("Editable.kt", "val count = 1", "val count = 2", false)
+        assertTrue(res.contains("replaced 1 occurrence(s)"))
+        val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf!!)
+        assertNotNull(doc)
+        assertEquals("val count = 2\n", doc!!.text)
+    }
 }
+

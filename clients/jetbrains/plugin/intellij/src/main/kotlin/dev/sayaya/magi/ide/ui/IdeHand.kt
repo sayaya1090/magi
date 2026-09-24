@@ -10,8 +10,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import dev.sayaya.magi.ide.usecase.Hand
 import java.nio.file.Paths
-import java.util.concurrent.Callable
-import java.util.concurrent.TimeUnit
 
 /**
  * IntelliJ 에디터 조작 및 검사 기능을 수행하는 IDE 측 핸드(Hand) 구현체.
@@ -20,10 +18,20 @@ import java.util.concurrent.TimeUnit
  * `WriteCommandAction` 컨텍스트 내에서 문서를 수정함으로써 단일 Undo 스택 등록, 로컬 히스토리 보존,
  * 인스펙션 자동 재수행, 열린 에디터 실시간 동기화를 보장한다 (§5 규칙).
  *
- * MCP 요청 스레드(HTTP)와 IntelliJ 쓰기 액션(EDT + Write Lock) 간의 스레드 동기화를 처리하며,
- * 모달 다이얼로그 등으로 인한 UI 스레드 교착 시 에이전트 무한 대기를 방지하기 위해 20초 타임아웃 경계를 둔다.
+ * MCP 요청 스레드(HTTP)와 IntelliJ 쓰기 액션(EDT + Write Lock) 간의 스레드 동기화는 [HandEdtCall]이 담당한다 (§6.44.3).
  */
-class IdeHand(private val project: Project) : Hand.Ide {
+class IdeHand internal constructor(
+    private val project: Project,
+    private val edtCall: HandEdtCall,
+) : Hand.Ide {
+    constructor(project: Project) : this(
+        project,
+        HandEdtCall(
+            enqueue = { ApplicationManager.getApplication().invokeLater(it) },
+            isEdt = { ApplicationManager.getApplication().isDispatchThread },
+            isDisposed = { project.isDisposed },
+        ),
+    )
 
     override fun show(path: String, line: Int?): String = onEdt {
         val f = find(path) ?: return@onEdt "no such file in this project: $path"
@@ -104,17 +112,7 @@ class IdeHand(private val project: Project) : Hand.Ide {
     }
 
     /**
-     * 작업을 EDT 스레드로 디스패치하고 최대 20초간 대기한다.
-     * UI 스레드가 모달 대화상자 등으로 차단된 경우 20초 후 타임아웃 예외를 반환하여 에이전트 블로킹을 해제한다.
+     * 작업을 EDT 스레드로 디스패치하고 결과를 대기한다 (§6.44.3).
      */
-    private fun onEdt(work: () -> String): String {
-        val task = java.util.concurrent.FutureTask(Callable { work() })
-        ApplicationManager.getApplication().invokeLater(task)
-        return try {
-            task.get(20, TimeUnit.SECONDS)
-        } catch (e: java.util.concurrent.TimeoutException) {
-            task.cancel(true)
-            "the IDE did not answer in 20s — something is holding its UI thread"
-        }
-    }
+    private fun onEdt(work: () -> String): String = edtCall.run(work)
 }

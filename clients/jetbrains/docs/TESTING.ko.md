@@ -237,6 +237,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | 클래스 | 무엇을 재나 |
 |---|---|
 | `HeadlessIdeTest` | 열일곱. **회의가 여는 자식 둘을 판이 갈라 부르는가**(말하는 자리와 받아적는 자리 — `origin` 하나로만 갈리고, 옮기지 않으면 회의마다 같은 모양 두 줄이 선다; 「와이어 낱말 그대로가 아니다」는 못 잰다 — 영어판 값이 실제로 그 낱말이다) · **모델에게 가는 지시도 IDE 언어를 따르는가**(번들 시험이 못 잡는다 — 그 문장은 일부러 번들 밖이다) · 액션 다섯의 등록 · 첨부 인텐션이 서는 조건(고른 것 없을 때/있을 때 **둘 다**) · 언어팩 없을 때의 글자 · 우클릭이 하위 메뉴 하나인가 · 그 안에서만 `magi: ` 접두를 벗기는가(툴바·Find Action 에서는 그대로) · 설명문 라벨이 판을 안 벌리는가(**최소 폭**을 잰다) · **드롭다운이 긴 항목을 받은 뒤에도 안 벌리는가**(같은 자리, 콤보 쪽) · **데몬이 준 긴 글이 판의 바닥을 올리지 않는가**(진짜 바닥이었다: 616 → 2295px) · 도구창 아이콘이 로드되는가 · 이 화면 스위치 넷의 기본값 · **데몬이 없어도 저장된 스위치가 화면에 서는가** · **스위치를 뒤집으면 「바뀜」이 되는가**(넷을 하나씩 따로 — 묶어서 뒤집으면 하나만 배선돼 있어도 통과한다) · **데몬을 띄우는 액션이 등록돼 있는가**(오래 없었고, 없다는 것이 「자동 기동이 막히면 사람이 할 일이 없다」였다) · **「못 붙었다」가 맨 위에 전폭으로 눈에 띄게 서는가** — 자리(gridy 0)·폭(gridwidth·weightx·fill)·색. 붙지 않았으면 아래 칸들이 보여 주는 값이 데몬의 값이 아니라, 이 화면에서 가장 먼저 읽혀야 하는 문장이다. 색과 글자는 **한 사건**이다(색만 남으면 화면이 지난 사실을 계속 주장한다) |
+| `HandEdtCallTest` | ★ **EDT 대기 종료를 성공으로 위장하지 않고 실패 처리하는 상태 머신 검증 (§6.44.3).** 타임아웃/인터럽트 발생 시 시작 전 작업(Queued)과 진행 중 작업(Running)을 명확히 구분하여 IDE_HAND_NOT_STARTED / IDE_HAND_RESULT_UNKNOWN 예외 발생, interrupt 플래그 복원, dispose 가드 및 Hand/HandServer isError=true 전파를 latch 기반으로 검증 |
 
 ## 여기서 안 재는 것
 
@@ -1573,4 +1574,34 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - TypeScript `handTools()` 및 HTTP `tools/list`가 동일 fixture와 완벽 일치함을 검증하고, 변이 4종 감지 검증.
   - `ContractFixtureTest.kt` / `contract_fixture.test.ts`:
     - 디렉터리 검사에서 비시나리오 카탈로그 파일(`ide_hand_catalogue.json`)을 분리하여 §6.38 시나리오 5종 계약과 공존 보장.
+
+---
+
+## 2026-09-25 JetBrains EDT 대기 종료 오류 전달 (§6.44.3)
+
+- **EDT 디스패치 수명 상태 머신 도입 (`HandEdtCall.kt`)**:
+  - 기존 `FutureTask.cancel(true)` 및 20초 타임아웃 시 성공 문자열 반환 정책 제거.
+  - 작업 수명을 `Queued` → `Running` → `Completed` 및 `AbandonedBeforeStart` 상태 머신으로 관리.
+  - 대기 스레드 타임아웃 / `InterruptedException` 발생 시:
+    - 작업 시작 전(`Queued`): `AbandonedBeforeStart` 전이 및 `IDE_HAND_NOT_STARTED: IDE task did not start before the deadline; no editor operation was run.` 예외 발생 (후속 runnable 실행 차단으로 work 실행 수 0회 보장).
+    - 작업 진행 중(`Running`): 에디터 스레드 인터럽트 없이 `IDE_HAND_RESULT_UNKNOWN: stopped waiting for the IDE; the operation may still complete. Inspect the editor buffer before retrying.` 예외 발생 (작업은 에디터 스레드에서 계속 진행되어 정확히 1회 실행 완료).
+  - 대기 스레드 인터럽트 시 `Thread.currentThread().interrupt()` 복원 및 에디터 스레드 무간섭 원칙 준수.
+  - 큐 등록 전 및 EDT 실행 직전 `isDisposed` 검사 및 거절.
+  - EDT 직접 호출 시 큐 대기 없이 동기 실행 (`isEdt` 경로).
+  - `IdeHand`의 `show`, `replace`, `problems`가 `HandEdtCall.run`을 통해 위 예외를 `Hand.call`에 전달하고, `HandServer`에서 `isError: true`로 직렬화.
+
+- **자동 회귀 검증 구축 (`HandEdtCallTest.kt`, `HeadlessIdeTest.kt`)**:
+  - `HandEdtCallTest`:
+    - 임의 sleep 없이 `CountDownLatch` 및 스레드 상태 기반 래치 제어로 6대 상태 전이 검증.
+    - 시작 전 timeout 후 runnable 지연 실행 시 work 0회 검증.
+    - 시작 후 timeout 뒤 work 해제 시 정확히 1회 완료 검증.
+    - 완료가 먼저 락 획득 시 실제 결과 반환 검증.
+    - 작업 예외(`IllegalArgumentException`) 전파 검증.
+    - 시작 전/시작 후 인터럽트 발생 시 인터럽트 플래그 복원 및 각각 `IDE_HAND_NOT_STARTED` / `IDE_HAND_RESULT_UNKNOWN` 발생 검증.
+    - enqueue 전/큐 대기 중 dispose 거절 검증.
+    - EDT 직접 실행 경로 검증.
+    - enqueue 거절(`RejectedExecutionException`) 시 `IDE_HAND_NOT_STARTED` 발생 검증.
+    - `Hand.call` 및 `HandServer` HTTP `tools/call`이 두 예외에 대해 `isError: true`로 올바르게 변환하는지 검증.
+  - `HeadlessIdeTest`:
+    - `IdeHand` 실제 인스턴스를 통한 `show` 파일 열기 디스크립터 및 `replace` 단일 Undo 문서 수정 실측 검증.
 
