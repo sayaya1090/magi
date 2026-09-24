@@ -210,6 +210,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `RowTextTest`·`SourceTextTest`(가십의 나이) | **초는 화면까지 가지 않는다.** 이 판은 나이를 그리긴 했는데 초를 날것으로 찍었다 — 정상 범위가 0~3600 이라 대부분이 「3540초 전 확인」이었다. ⚠ 이 칸이 둘인 이유가 **변이가 잡은 것**이다: `RowText.ago` 를 시험이 재는 것과 **창이 그것을 부르는 것**은 다른 사실이고, 창에서 호출을 떼도 core 시험은 전부 초록이었다(그 모듈에 시험 소스셋이 없다). 그래서 `ageSeconds` 를 읽는 **모든 줄**이 `RowText.ago(` 를 지나는지 소스에서 본다 |
 | `RowTextTest`·`SourceTextTest`(물음 카드) | **서 있는 물음이 언제 선 것인지 말한다.** `Waiting.since` 는 그 구조체에서 `omitempty` 가 없는 **유일한 칸**이라 늘 실려 오는데 안 읽고 있었다. 시각 자체를 재고(오늘/오늘 아님, 못 읽는 값에 「방금」 안 지어내기 — 시각은 `now` 에서 만들어 표준시간대에 안 걸린다), 그리는 자리는 소스를 글자로 읽어 잰다(그 모듈에 시험 소스셋이 없다). 목록은 와이어 선언에서 읽고 **`subject`·`ask` 같은 파생 속성을 따라간다** — 접는 자리가 칸을 떨어뜨려도 운다. 안 그리는 둘(`id`·`kind`)은 사유와 함께 적혀 있다 |
 | `HandServerTest`(선택 인자) | **설명이 안 말하는 선택 인자는 모델에게 없는 기능이다.** 스키마는 필수 인자를 강제하지만 선택 인자는 강제하지 않으니, 말해 주지 않으면 안 보인다. `apply_edit.replaceAll` 이 그랬다 — 이 판의 구현은 **여러 번 나오는 글자를 만나면 편집을 거절하고** 그때서야 그 이름을 대므로, 모델은 한 번 실패해야 배웠다. **실물 도구 목록의 스키마를 읽어** 판정하니 도구가 늘어도 따라오고, 인자를 하나도 못 읽으면 그것부터 운다. 짝은 VS Code `hand.test.ts` |
+| `HandServerTest`(공유 카탈로그 계약 fixture) | ★ **공유 카탈로그 fixture (`ide_hand_catalogue.json`)와 Hand tools(), HTTP tools/list의 완벽 일치 검증 (§6.44.2).** VS Code와 단일 원본 JSON을 공유하여 show, apply_edit, problems 3종 도구의 이름, inputSchema, required, readOnly 속성을 깊은 비교로 검증하고 누락·변형 시 즉시 실패함을 실측 |
 | `ConfigDirProbeTest` | 설정 디렉토리 해석 |
 | `LiveDaemonTest` | ⏸ 진짜 데몬에 붙어 핸드셰이크(청해야 돈다) |
 
@@ -1554,6 +1555,22 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 결과: 종료 코드 0, 7 passed (17.9초 소요, axe-core 접근성 감사 42회 전수 무결점).
   - Go idebridge Suite: `go test -v ./internal/adapter/idebridge/...`
     - 결과: 종료 코드 0, 전수 통과.
-  - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
-    - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
+---
+
+## 2026-09-25 공유 카탈로그 계약 검사 (§6.44.2)
+
+- **공유 JSON fixture 도입 (`clients/test-fixtures/ide_hand_catalogue.json`)**:
+  - JetBrains 플러그인과 VS Code 확장이 공유하는 단일 원본 카탈로그 fixture 구축.
+  - 3대 핵심 도구(`show`, `apply_edit`, `problems`)의 `name`, `readOnly`, `schema`(`type`, `properties`, `required`) 선언.
+  - 플랫폼별 가변 텍스트(설명문, 서버 이름)는 비교에서 제외하고, 속성 타입 및 `required` 집합 일치 검증.
+
+- **JetBrains & VS Code 양방향 정합성 검증 (`HandServerTest.kt`, `hand.test.ts`)**:
+  - `HandServerTest.kt`:
+    - `공유 카탈로그 fixture와 Hand tools가 일치한다`: 실제 Kotlin `Hand(FakeIde()).tools()`와 fixture 정규화 깊은 비교.
+    - `HTTP tools list가 공유 카탈로그 fixture의 schema와 readOnlyHint를 보존한다`: 실제 HTTP `tools/list` RPC 응답의 `annotations.readOnlyHint` 및 `inputSchema` 보존 검증.
+    - `카탈로그 비교는 누락 도구, 여분 속성, 잘못된 required, 뒤집힌 readOnly 시 실패한다`: 임시 변이 4종(누락 도구, 뒤집힌 readOnly, 잘못된 required, 여분 속성) 감지 및 실패 검증.
+  - `hand.test.ts`:
+    - TypeScript `handTools()` 및 HTTP `tools/list`가 동일 fixture와 완벽 일치함을 검증하고, 변이 4종 감지 검증.
+  - `ContractFixtureTest.kt` / `contract_fixture.test.ts`:
+    - 디렉터리 검사에서 비시나리오 카탈로그 파일(`ide_hand_catalogue.json`)을 분리하여 §6.38 시나리오 5종 계약과 공존 보장.
 

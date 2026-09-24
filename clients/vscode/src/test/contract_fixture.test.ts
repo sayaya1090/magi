@@ -730,7 +730,7 @@ test('§6.38 Directory: All 5 contract fixtures are present in test-fixtures dir
 
   const files = fs
     .readdirSync(FIXTURES_DIR)
-    .filter((f) => f.endsWith('.json'))
+    .filter((f) => f.endsWith('.json') && f !== 'ide_hand_catalogue.json')
     .sort();
 
   assert.deepEqual(files, expectedFixtures, 'Contract fixture directory must contain exactly the 5 contract files');

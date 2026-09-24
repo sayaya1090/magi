@@ -416,3 +416,90 @@ test('Windows path resolution handles drive absolute, relative, UNC, spaces, and
   assert.throws(() => resolvePath(workdir, 'C:\\work-other\\main.ts', win32), /is outside this workspace/);
 });
 
+const CATALOGUE_FIXTURE_PATH = path.resolve(__dirname, '../../../test-fixtures/ide_hand_catalogue.json');
+
+interface CatalogueTool {
+  name: string;
+  readOnly: boolean;
+  schema: {
+    type: string;
+    properties: Record<string, { type: string }>;
+    required?: string[];
+  };
+}
+
+function normalizeToolDefinitions(tools: { name: string; readOnly: boolean; schema: unknown }[]): CatalogueTool[] {
+  return [...tools]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((t) => {
+      const s = t.schema as { type: string; properties?: Record<string, { type: string }>; required?: string[] };
+      const normalizedSchema: CatalogueTool['schema'] = {
+        type: s.type,
+        properties: s.properties ? Object.fromEntries(Object.entries(s.properties).sort(([a], [b]) => a.localeCompare(b))) : {},
+      };
+      if (s.required) {
+        normalizedSchema.required = [...s.required].sort();
+      }
+      return {
+        name: t.name,
+        readOnly: Boolean(t.readOnly),
+        schema: normalizedSchema,
+      };
+    });
+}
+
+test('§6.44.2 Shared catalogue fixture ide_hand_catalogue.json matches handTools()', () => {
+  const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
+  const expected = JSON.parse(raw) as CatalogueTool[];
+  const actual = handTools();
+  assert.deepEqual(normalizeToolDefinitions(actual), normalizeToolDefinitions(expected));
+});
+
+test('§6.44.2 HTTP tools/list preserves inputSchema and annotations.readOnlyHint against catalogue fixture', async () => {
+  const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
+  const expected = JSON.parse(raw) as CatalogueTool[];
+  const hand = await Hand.start(new FakeIde());
+  try {
+    const list = (await rpc(hand, 'tools/list')).body.result as {
+      tools: { name: string; inputSchema: unknown; annotations?: { readOnlyHint?: boolean } }[];
+    };
+    const actual = list.tools.map((t) => ({
+      name: t.name,
+      readOnly: t.annotations?.readOnlyHint ?? false,
+      schema: t.inputSchema,
+    }));
+    assert.deepEqual(normalizeToolDefinitions(actual), normalizeToolDefinitions(expected));
+  } finally {
+    hand.close();
+  }
+});
+
+test('§6.44.2 Catalogue comparison fails on missing tool, extra property, wrong required, or inverted readOnly', () => {
+  const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
+  const expected = JSON.parse(raw) as CatalogueTool[];
+
+  // 1. Missing tool
+  const missing = expected.filter((t) => t.name !== 'show');
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(missing), normalizeToolDefinitions(expected)));
+
+  // 2. Inverted readOnly
+  const inverted = expected.map((t) => (t.name === 'apply_edit' ? { ...t, readOnly: true } : t));
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(inverted), normalizeToolDefinitions(expected)));
+
+  // 3. Wrong required
+  const wrongReq = expected.map((t) =>
+    t.name === 'apply_edit'
+      ? { ...t, schema: { ...t.schema, required: ['path', 'old'] } }
+      : t
+  );
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(wrongReq), normalizeToolDefinitions(expected)));
+
+  // 4. Extra property
+  const extraProp = expected.map((t) =>
+    t.name === 'show'
+      ? { ...t, schema: { ...t.schema, properties: { ...t.schema.properties, extra: { type: 'string' } } } }
+      : t
+  );
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(extraProp), normalizeToolDefinitions(expected)));
+});
+

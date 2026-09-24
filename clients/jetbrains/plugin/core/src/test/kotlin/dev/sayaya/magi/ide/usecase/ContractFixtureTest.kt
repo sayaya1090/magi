@@ -316,7 +316,7 @@ class ContractFixtureTest {
             "same_string_edit.json",
             "disposed_callback.json"
         )
-        val actualFiles = fixturesDir.listFiles { _, name -> name.endsWith(".json") }
+        val actualFiles = fixturesDir.listFiles { _, name -> name.endsWith(".json") && name != "ide_hand_catalogue.json" }
             ?.map { it.name }
             ?.toSet()
             ?: emptySet()

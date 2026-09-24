@@ -1,5 +1,6 @@
 package dev.sayaya.magi.ide.transport
 
+import dev.sayaya.magi.ide.model.Wire
 import dev.sayaya.magi.ide.usecase.Hand
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,8 +13,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import kotlinx.serialization.json.JsonArray
 import org.junit.jupiter.api.Test
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 
@@ -237,4 +240,88 @@ class HandServerTest {
         assertFalse(a.error, a.text)
         assertEquals(listOf("a.kt", "y!!", "y ?: z", "false"), ide.edit)
     }
+
+    data class CanonicalTool(
+        val name: String,
+        val readOnly: Boolean,
+        val type: String,
+        val properties: Map<String, String>,
+        val required: Set<String>,
+    )
+
+    private val catalogueFixtureFile: File by lazy {
+        val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .first { File(it, "clients/test-fixtures/ide_hand_catalogue.json").isFile }
+        File(root, "clients/test-fixtures/ide_hand_catalogue.json").canonicalFile
+    }
+
+    private fun normalizeTool(name: String, readOnly: Boolean, schema: JsonObject): CanonicalTool {
+        val type = schema["type"]?.jsonPrimitive?.content.orEmpty()
+        val propsObj = schema["properties"]?.jsonObject ?: buildJsonObject {}
+        val props = propsObj.entries.associate { (k, v) ->
+            k to (v.jsonObject["type"]?.jsonPrimitive?.content.orEmpty())
+        }
+        val req = schema["required"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet().orEmpty()
+        return CanonicalTool(name, readOnly, type, props, req)
+    }
+
+    private fun parseCatalogue(jsonString: String): List<CanonicalTool> {
+        val array = Wire.json.parseToJsonElement(jsonString).jsonArray
+        return array.map { el ->
+            val obj = el.jsonObject
+            val name = obj["name"]!!.jsonPrimitive.content
+            val ro = obj["readOnly"]!!.jsonPrimitive.content.toBoolean()
+            val schema = obj["schema"]!!.jsonObject
+            normalizeTool(name, ro, schema)
+        }.sortedBy { it.name }
+    }
+
+    @Test
+    fun `공유 카탈로그 fixture와 Hand tools가 일치한다`() {
+        val expected = parseCatalogue(catalogueFixtureFile.readText())
+        val actual = Hand(FakeIde()).tools().map { t ->
+            normalizeTool(t.name, t.readOnly, t.schema)
+        }.sortedBy { it.name }
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `HTTP tools list가 공유 카탈로그 fixture의 schema와 readOnlyHint를 보존한다`() {
+        val expected = parseCatalogue(catalogueFixtureFile.readText())
+        HandServer.start(Hand(FakeIde())).use { s ->
+            val tools = rpc(s, "tools/list")["result"]!!.jsonObject["tools"]!!.jsonArray
+            val actual = tools.map { el ->
+                val obj = el.jsonObject
+                val name = obj["name"]!!.jsonPrimitive.content
+                val ro = obj["annotations"]?.jsonObject?.get("readOnlyHint")?.jsonPrimitive?.content?.toBoolean() ?: false
+                val schema = obj["inputSchema"]!!.jsonObject
+                normalizeTool(name, ro, schema)
+            }.sortedBy { it.name }
+            assertEquals(expected, actual)
+        }
+    }
+
+    @Test
+    fun `카탈로그 비교는 누락 도구, 여분 속성, 잘못된 required, 뒤집힌 readOnly 시 실패한다`() {
+        val expected = parseCatalogue(catalogueFixtureFile.readText())
+
+        // 1. Missing tool
+        val missing = expected.filter { it.name != "show" }
+        assertNotEquals(expected, missing)
+
+        // 2. Inverted readOnly
+        val inverted = expected.map { if (it.name == "apply_edit") it.copy(readOnly = true) else it }
+        assertNotEquals(expected, inverted)
+
+        // 3. Wrong required
+        val wrongReq = expected.map { if (it.name == "apply_edit") it.copy(required = setOf("path", "old")) else it }
+        assertNotEquals(expected, wrongReq)
+
+        // 4. Extra property
+        val extraProp = expected.map {
+            if (it.name == "show") it.copy(properties = it.properties + ("extra" to "string")) else it
+        }
+        assertNotEquals(expected, extraProp)
+    }
 }
+

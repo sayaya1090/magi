@@ -1,0 +1,58 @@
+[
+  {
+    "name": "apply_edit",
+    "readOnly": false,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "old": {
+          "type": "string"
+        },
+        "new": {
+          "type": "string"
+        },
+        "replaceAll": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "old",
+        "new"
+      ]
+    }
+  },
+  {
+    "name": "problems",
+    "readOnly": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "show",
+    "readOnly": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  }
+]
