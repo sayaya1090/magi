@@ -188,7 +188,8 @@ class MagiToolWindow : ToolWindowFactory {
         private var waitingSession: String? = null
         private var inputEpoch = 0L
         private var composing = false
-        private var justCommitted = false
+        private var enterPressed = false
+        private var enterCommitted = false
         private var commitResetTimer: javax.swing.Timer? = null
         private val sendButton = JButton(MagiBundle.msg("chat.send")).apply { addActionListener { say() } }
         private val answerLabel = JBLabel()
@@ -673,10 +674,10 @@ class MagiToolWindow : ToolWindowFactory {
                     val isComposing = e.text?.let { it.endIndex - it.beginIndex > e.committedCharacterCount } ?: false
                     composing = isComposing
                     if (wasComposing && !isComposing && e.committedCharacterCount > 0) {
-                        justCommitted = true
+                        enterCommitted = true
                         commitResetTimer?.stop()
                         commitResetTimer = javax.swing.Timer(250) {
-                            justCommitted = false
+                            enterCommitted = false
                         }.apply {
                             isRepeats = false
                             start()
@@ -686,11 +687,28 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun caretPositionChanged(e: java.awt.event.InputMethodEvent) {}
             })
             input.addKeyListener(object : java.awt.event.KeyAdapter() {
-                override fun keyReleased(e: java.awt.event.KeyEvent) {
-                    if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && justCommitted) {
-                        justCommitted = false
+                override fun keyPressed(e: java.awt.event.KeyEvent) {
+                    if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER) {
+                        enterPressed = true
+                    } else {
+                        enterPressed = false
+                        enterCommitted = false
                         commitResetTimer?.stop()
                     }
+                }
+                override fun keyReleased(e: java.awt.event.KeyEvent) {
+                    if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER) {
+                        enterPressed = false
+                        enterCommitted = false
+                        commitResetTimer?.stop()
+                    }
+                }
+            })
+            input.addFocusListener(object : java.awt.event.FocusAdapter() {
+                override fun focusLost(e: java.awt.event.FocusEvent) {
+                    enterPressed = false
+                    enterCommitted = false
+                    commitResetTimer?.stop()
                 }
             })
             input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
@@ -706,7 +724,17 @@ class MagiToolWindow : ToolWindowFactory {
             input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
                 .put(javax.swing.KeyStroke.getKeyStroke("shift ENTER"), "insert-break")
             input.actionMap.put("magi.send", object : javax.swing.AbstractAction() {
-                override fun actionPerformed(e: java.awt.event.ActionEvent) = say()
+                override fun actionPerformed(e: java.awt.event.ActionEvent) {
+                    if (composing) return
+                    if (enterCommitted) {
+                        if (!enterPressed) {
+                            enterCommitted = false
+                            commitResetTimer?.stop()
+                        }
+                        return
+                    }
+                    say()
+                }
             })
 
             root.add(head, BorderLayout.NORTH)
@@ -783,6 +811,8 @@ class MagiToolWindow : ToolWindowFactory {
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
+            enterPressed = false
+            enterCommitted = false
             runCatching { commitResetTimer?.stop() }
             runCatching { following?.close() }
             following = null
@@ -1820,11 +1850,8 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun say() {
             if (composing) return
-            if (justCommitted) {
-                justCommitted = false
-                commitResetTimer?.stop()
-                return
-            }
+            enterCommitted = false
+            commitResetTimer?.stop()
             syncAnswerContext()
             if (answers.active != null) { submitAnswer(input.text); return }
             val text = input.text.trim()
@@ -2112,11 +2139,8 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun enterAnswer() {
             if (closing.get() || composing) return
-            if (justCommitted) {
-                justCommitted = false
-                commitResetTimer?.stop()
-                return
-            }
+            enterCommitted = false
+            commitResetTimer?.stop()
             syncAnswerContext()
             answers.enter(input.text)?.let { restoreAnswerText(it) }
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
@@ -2124,22 +2148,14 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun cancelAnswer() {
             if (composing) return
-            if (justCommitted) {
-                justCommitted = false
-                commitResetTimer?.stop()
-                return
-            }
+            enterCommitted = false
+            commitResetTimer?.stop()
             answers.cancel(input.text)?.let { restoreAnswerText(it) }
             invalidateComposer(); paintAnswerMode(); drawAnswerRecovery(); input.requestFocusInWindow()
         }
 
         private fun submitAnswer(text: String, expected: dev.sayaya.magi.ide.usecase.AnswerDrafts.Key? = answers.active) {
             if (closing.get() || project.isDisposed || composing) return
-            if (justCommitted) {
-                justCommitted = false
-                commitResetTimer?.stop()
-                return
-            }
             syncAnswerContext()
             if (expected == null || answers.question != expected) return
             val attempt = answers.begin(text) ?: return

@@ -192,6 +192,97 @@ class AnswerModeTest : BasePlatformTestCase() {
         assertEquals(1, h.seen.size)
         assertEquals("한", h.seen.single().answer)
     }
+    fun testCommitEventAllowsImmediateButtonClick() = check { h ->
+        h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
+        val compText = java.text.AttributedString("한").iterator
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val commitText = java.text.AttributedString("한").iterator
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+        h.field<JButton>("sendButton").doClick(0)
+        assertEquals(1, h.pending.size)
+        h.finish(0, true)
+        assertEquals(1, h.seen.size)
+        assertEquals("한", h.seen.single().answer)
+    }
+    fun testCommitEventAllowsImmediateDirectAndCancelButtons() = check { h ->
+        // 1. 일반 모드에서 한글 입력 후 확정 -> "직접 입력" 클릭 시 1회 클릭으로 답변 모드 진입 및 일반 초안 보존
+        h.input.text = "General Draft"; h.question()
+        val compText = java.text.AttributedString("한").iterator
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val commitText = java.text.AttributedString("한").iterator
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+        h.direct() // 1회 클릭으로 즉시 답변 모드 진입
+        assertTrue(h.field<JPanel>("answerBar").isVisible)
+        assertEquals("", h.input.text) // 답변 창은 비워짐
+
+        // 2. 답변 모드에서 한글 입력 후 확정 -> "답변 취소" 클릭 시 1회 클릭으로 취소 및 일반 초안 복원
+        h.input.text = "Answer Draft"
+        val compText2 = java.text.AttributedString("답").iterator
+        val compEvent2 = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText2, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent2) }
+        val commitText2 = java.text.AttributedString("답").iterator
+        val commitEvent2 = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText2, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent2) }
+        h.field<JButton>("answerCancel").doClick() // 1회 클릭으로 즉시 취소
+        assertFalse(h.field<JPanel>("answerBar").isVisible)
+        assertEquals("General Draft", h.input.text) // 원래 일반 초안 복원
+    }
+    fun testAutoRepeatEnterDoesNotSendUntilKeyReleased() = check { h ->
+        h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
+        val compText = java.text.AttributedString("한").iterator
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val commitText = java.text.AttributedString("한").iterator
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+
+        // Enter 키 누름 (확정 Enter)
+        val enterPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertTrue(h.pending.isEmpty()) // 확정 Enter 전송 차단
+
+        // 키를 떼지 않고 계속 누르고 있는 상태(auto-repeat) Enter 재발생
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertTrue(h.pending.isEmpty()) // 키를 떼기 전의 auto-repeat 전송 차단
+
+        // Enter 키를 뗌 (keyReleased)
+        val enterRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+        h.input.keyListeners.forEach { it.keyReleased(enterRelease) }
+
+        // 별도의 2차 Enter 타건
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertEquals(1, h.pending.size) // 정상 1회 전송
+        h.finish(0, true)
+    }
+    fun testNonEnterCommitAllowsImmediateEnter() = check { h ->
+        h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
+        val compText = java.text.AttributedString("한").iterator
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val commitText = java.text.AttributedString("한").iterator
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+
+        // Space 등 Enter가 아닌 키로 확정된 경우
+        val spacePress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SPACE, ' ')
+        h.input.keyListeners.forEach { it.keyPressed(spacePress) }
+        val spaceRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SPACE, ' ')
+        h.input.keyListeners.forEach { it.keyReleased(spaceRelease) }
+
+        // 이후 Enter 타건 시 차단되지 않고 즉시 1회 전송
+        val enterPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertEquals(1, h.pending.size)
+        h.finish(0, true)
+    }
     fun testDisposeDoesNotReviveAnswerMode() = check { h ->
         h.question(); h.direct(); h.input.text = "B"; h.key("magi.send")
         Disposer.dispose(h.view); h.finish(0, false)

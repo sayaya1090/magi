@@ -1243,6 +1243,48 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (17.8초 소요)**.
 
+#### 6. 한글 IME 확정 키 보호를 독립 사용자 조작과 분리 (§6.36)
+- **실행 환경 및 결함 원인 분석**:
+  - 이전 `c66c1e93` 커밋에서 `justCommitted` 가드를 공통 전송 함수(`say()`, `submitAnswer()`, `enterAnswer()`, `cancelAnswer()`)에 배치하여 조합 확정 후 250ms 동안 마우스 버튼 클릭(`sendButton.doClick(0)`, 직접 입력, 답변 취소)까지 무시되던 결함 발견.
+  - 마우스 클릭 및 버튼 조작은 키보드 액션과 독립된 사용자 의도이므로 키보드 조합 확정 Enter 차단은 오직 `input.actionMap["magi.send"]`에만 배치하고, 공통 전송 함수들에서는 임의 타이머 가드를 완전 제거.
+  - `enterPressed`, `enterCommitted`, `commitResetTimer` 플래그 관리 및 auto-repeat Enter 차단, `keyReleased` 후 후속 Enter 1회 전송 보장.
+  - Space 등 비-Enter 키로 조합이 확정된 경우 즉시 보호 해제 및 후속 Enter 즉시 전송.
+  - `focusLost` 및 `dispose` 시 보호 상태 및 타이머 정리.
+
+- **제품 코드 수정 내역 (`MagiToolWindow.kt`)**:
+  - `enterPressed`, `enterCommitted`, `commitResetTimer` (250ms) 도입 및 상태 전이 제어.
+  - `inputMethodTextChanged`: 음절 확정(`wasComposing && !isComposing && e.committedCharacterCount > 0`) 시 `enterCommitted = true` 설정 및 250ms 타이머 가동.
+  - `keyPressed`: `VK_ENTER` 타건 시 `enterPressed = true`; 비-Enter 키(Space 등) 타건 시 `enterPressed = false; enterCommitted = false; commitResetTimer?.stop()`.
+  - `keyReleased`: `VK_ENTER` 릴리즈 시 `enterPressed = false; enterCommitted = false; commitResetTimer?.stop()`.
+  - `focusLost`: 포커스 이탈 시 상태 및 타이머 안전 초기화.
+  - `input.actionMap["magi.send"]`:
+    `composing` 중 차단, `enterCommitted`가 참인 경우 Enter 키 릴리즈 없이 발생한 첫 확정 Enter 이벤트만 차단(`if (!enterPressed) enterCommitted = false`).
+  - 공통 함수(`say()`, `submitAnswer()`, `enterAnswer()`, `cancelAnswer()`)에서 `justCommitted` 가드를 완전 제거하여 마우스 버튼 클릭 및 프로그래밍 호출의 즉각성 보장.
+
+- **영구 회귀 단위 테스트 보강 (`AnswerModeTest.kt`, `HeadlessIdeTest.kt`)**:
+  - `AnswerModeTest.testCommitEventAllowsImmediateButtonClick`: 확정 직후 `sendButton.doClick(0)` 호출 시 지연 없이 즉시 1회 전송.
+  - `AnswerModeTest.testCommitEventAllowsDirectInputAndCancel`: 확정 직후 "직접 입력" 클릭 시 답변 모드 진입 및 초안 보존, 확정 직후 "답변 취소" 클릭 시 답변 모드 종료 및 복원.
+  - `AnswerModeTest.testEnterAutoRepeatDoesNotSubmitUntilRelease`: 확정 Enter 키가 눌려 있는 상태(auto-repeat) 동안 전송 차단, 릴리즈 후 별도 Enter에서만 1회 전송.
+  - `AnswerModeTest.testNonEnterCommitAllowsSubsequentEnterImmediately`: Space 등 비-Enter 키로 확정된 경우 후속 Enter가 즉시 1회 전송.
+  - `HeadlessIdeTest.test 일반 모드에서 한글 IME 조합 확정 직후 마우스 보내기 버튼 클릭 시 즉시 1회 전송된다`: 일반 모드 확정 후 `sendButton.doClick(0)` 즉시 1회 전송 검증.
+  - `HeadlessIdeTest.test 일반 모드에서 스페이스 등 비Enter로 조합 확정 후 엔터 타건 시 즉시 1회 전송된다`: 비-Enter 확정 후 Enter 1회 전송 검증.
+
+- **실물 샌드박스(`runIde`) 관측 및 증거 캡처 (`clients/jetbrains/docs/img/evidence/`)**:
+  - `sandbox_ime_general_btn_1_composing.png`: macOS 시스템 두벌식 상태에서 음절 `글` 조합 중.
+  - `sandbox_ime_general_btn_2_committed.png`: 1차 Enter 타건으로 `글` 확정 (신규 발송 0건 실측).
+  - `sandbox_ime_general_btn_3_sent.png`: 마우스로 '보내기' 버튼(`c:1911,1185`) 클릭 시 지연 없이 즉각 데몬으로 전송 완료 (정확히 1건 발송, `text: "글"`).
+  - 답변 모드 직접 입력 및 Enter 전송 실측 정상 확인.
+
+- **전체 회귀 검증 결과 (2026-09-24)**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (38초 소요).
+    - XML 실측: `core` 384 통과·5 건너뜀 (총 389개 중), `intellij` 71 통과 (총 71개 중), **합계 455 통과·5 건너뜀·0 실패 (총 460개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **522 통과·7 건너뜀·0 실패** (총 529개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.2초 소요)**.
+
+
 
 
 

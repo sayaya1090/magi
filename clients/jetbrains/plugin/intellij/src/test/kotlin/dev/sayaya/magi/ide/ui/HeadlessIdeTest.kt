@@ -1339,14 +1339,170 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(commitEvent) }
 
             // 3. 동일 틱 첫 Enter는 확정만 수행하고 전송하지 않음
+            val enterPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             assertTrue(pendingSends.isEmpty())
             assertEquals("한", input.text)
 
-            // 4. 이벤트 큐 디스패치 (invokeLater 후속 처리)
-            com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            // 4. 키를 떼지 않은 상태(auto-repeat) Enter 재발생 시에도 전송 차단
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            assertTrue(pendingSends.isEmpty())
 
-            // 5. 조합 종료 후 별도 Enter에서만 1회 전송
+            // 5. Enter 키 릴리즈
+            val enterRelease = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyReleased(enterRelease) }
+
+            // 6. 별도 후속 Enter에서만 1회 전송
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
+            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(1, pendingSends.size)
+            val pending = pendingSends.single()
+            pending.complete(ok = true)
+            val req = pending.requests.first { it.method == "submit" || it.method == "steer" }
+            assertEquals("한", req.text)
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    fun `test 일반 모드에서 한글 IME 조합 확정 후 보내기 버튼 클릭은 즉시 1회 전송된다`() {
+        class PendingSend(
+            val id: Int,
+            val session: String,
+            val kind: String,
+            private val errCb: (String) -> Unit,
+            private val work: (Companion) -> Unit,
+        ) {
+            var completed = false
+                private set
+            val requests = mutableListOf<Request>()
+
+            fun complete(ok: Boolean = true, error: String? = null) {
+                completed = true
+                work(Companion(object : Daemon {
+                    override fun exchange(request: Request): Response {
+                        requests.add(request)
+                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
+                    }
+                    override fun stream(request: Request, each: (Response) -> Boolean) {}
+                    override fun close() {}
+                }, session))
+                UIUtil.dispatchAllInvocationEvents()
+            }
+        }
+
+        val pendingSends = mutableListOf<PendingSend>()
+        var currentSession = "session1"
+        val view = MagiToolWindow.View(
+            project,
+            sendSession = { currentSession },
+            sendConnection = { sid, error, work ->
+                val handle = PendingSend(pendingSends.size + 1, sid, "say", error, work)
+                pendingSends.add(handle)
+            }
+        )
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            view.sink.caughtUp()
+            UIUtil.dispatchAllInvocationEvents()
+
+            @Suppress("UNCHECKED_CAST")
+            fun <T> field(name: String): T =
+                view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view) as T
+
+            val input: JBTextArea = field("input")
+            val sendButton: JButton = field("sendButton")
+            input.text = "한"
+
+            // 1. 조합 및 확정
+            val compText = java.text.AttributedString("한").iterator
+            val compEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+            input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(compEvent) }
+            val commitText = java.text.AttributedString("한").iterator
+            val commitEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+            input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(commitEvent) }
+
+            // 2. 확정 직후 보내기 버튼 클릭 -> 즉시 1회 전송
+            sendButton.doClick(0)
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(1, pendingSends.size)
+            val pending = pendingSends.single()
+            pending.complete(ok = true)
+            val req = pending.requests.first { it.method == "submit" || it.method == "steer" }
+            assertEquals("한", req.text)
+        } finally {
+            Disposer.dispose(view)
+        }
+    }
+
+    fun `test 일반 모드에서 Space 등 비-Enter 확정 후 Enter는 즉시 1회 전송된다`() {
+        class PendingSend(
+            val id: Int,
+            val session: String,
+            val kind: String,
+            private val errCb: (String) -> Unit,
+            private val work: (Companion) -> Unit,
+        ) {
+            var completed = false
+                private set
+            val requests = mutableListOf<Request>()
+
+            fun complete(ok: Boolean = true, error: String? = null) {
+                completed = true
+                work(Companion(object : Daemon {
+                    override fun exchange(request: Request): Response {
+                        requests.add(request)
+                        return if (ok) Response(ok = true) else Response(ok = false, error = error ?: "failed")
+                    }
+                    override fun stream(request: Request, each: (Response) -> Boolean) {}
+                    override fun close() {}
+                }, session))
+                UIUtil.dispatchAllInvocationEvents()
+            }
+        }
+
+        val pendingSends = mutableListOf<PendingSend>()
+        var currentSession = "session1"
+        val view = MagiToolWindow.View(
+            project,
+            sendSession = { currentSession },
+            sendConnection = { sid, error, work ->
+                val handle = PendingSend(pendingSends.size + 1, sid, "say", error, work)
+                pendingSends.add(handle)
+            }
+        )
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            view.sink.caughtUp()
+            UIUtil.dispatchAllInvocationEvents()
+
+            @Suppress("UNCHECKED_CAST")
+            fun <T> field(name: String): T =
+                view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view) as T
+
+            val input: JBTextArea = field("input")
+            input.text = "한"
+
+            // 1. 조합 및 확정
+            val compText = java.text.AttributedString("한").iterator
+            val compEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
+            input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(compEvent) }
+            val commitText = java.text.AttributedString("한").iterator
+            val commitEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
+            input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(commitEvent) }
+
+            // 2. Space 키 입력으로 확정
+            val spacePress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SPACE, ' ')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(spacePress) }
+            val spaceRelease = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SPACE, ' ')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyReleased(spaceRelease) }
+
+            // 3. 후속 Enter 타건 시 즉시 1회 전송
+            val enterPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
             UIUtil.dispatchAllInvocationEvents()
             assertEquals(1, pendingSends.size)
