@@ -1316,4 +1316,27 @@ node --test clients/vscode/out/test/*.property.test.js
 - **호스트 모의 환경 회귀 검증 (`src/test/provider_lifecycle.test.ts`):**
   - 실제 `DiffProvider` 및 `OutputProvider` 인스턴스를 생성하여 위의 모든 수명 및 보호 계약을 전수 검증합니다.
 
+---
+
+### §6.44.2 / §6.44.7 공유 IDE 도구 카탈로그 손실 없는 정합성 검증 및 변이 감지
+
+- **공유 JSON fixture (`clients/test-fixtures/ide_hand_catalogue.json`) 연동:**
+  - VS Code 확장과 JetBrains 플러그인이 공유하는 3대 도구(`show`, `apply_edit`, `problems`) 카탈로그 fixture를 깊은 비교(deep equal)로 검증합니다.
+  - 객체 키 순서만 무시하며, 전체 schema JSON(`type`, `properties`, `required`, 제약 속성 등)을 100% 손실 없이 보존합니다.
+  - `required` 배열만 집합/정렬 정규화하며, 다른 속성의 배열 순서나 값은 보존합니다.
+  - `readOnly` 및 HTTP `tools/list`의 `annotations.readOnlyHint`는 기본값 fallback 없이 실제 boolean 타입 존재를 엄격히 단언합니다.
+- **임시 변이 8종 감지 및 실패 검증 (`src/test/hand.test.ts`):**
+  1. 도구 누락 (`missing tool`)
+  2. `readOnly` 반전 (`inverted readOnly`)
+  3. 잘못된 `required` 목록 (`wrong required`)
+  4. 여분 속성 (`extra property`)
+  5. `schema.additionalProperties = false` 추가
+  6. `path.enum` 추가
+  7. `line.minimum` 추가
+  8. `apply_edit`의 `readOnly` / `readOnlyHint` 누락
+  - 각 변이가 정규화 비교기를 거쳐 확실히 실패함을 확인하여 스키마 제약 누락을 방지합니다.
+- **계약 fixture 격리 (`src/test/contract_fixture.test.ts`):**
+  - 디렉터리 기반 검사에서 비시나리오 카탈로그 파일(`ide_hand_catalogue.json`)을 분리하여 §6.38 시나리오 5종 계약과 상충 없이 공존함을 보장합니다.
+
+
 

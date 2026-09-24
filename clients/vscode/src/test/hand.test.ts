@@ -418,63 +418,71 @@ test('Windows path resolution handles drive absolute, relative, UNC, spaces, and
 
 const CATALOGUE_FIXTURE_PATH = path.resolve(__dirname, '../../../test-fixtures/ide_hand_catalogue.json');
 
+function normalizeSchema(schema: unknown, isRequiredArray = false): unknown {
+  if (Array.isArray(schema)) {
+    if (isRequiredArray) {
+      return [...schema].sort();
+    }
+    return schema.map((item) => normalizeSchema(item, false));
+  }
+  if (schema !== null && typeof schema === 'object') {
+    const sortedEntries = Object.entries(schema)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, normalizeSchema(v, k === 'required')]);
+    return Object.fromEntries(sortedEntries);
+  }
+  return schema;
+}
+
 interface CatalogueTool {
   name: string;
   readOnly: boolean;
-  schema: {
-    type: string;
-    properties: Record<string, { type: string }>;
-    required?: string[];
-  };
+  schema: unknown;
 }
 
-function normalizeToolDefinitions(tools: { name: string; readOnly: boolean; schema: unknown }[]): CatalogueTool[] {
+function normalizeToolDefinitions(tools: { name: string; readOnly: unknown; schema: unknown }[]): CatalogueTool[] {
   return [...tools]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((t) => {
-      const s = t.schema as { type: string; properties?: Record<string, { type: string }>; required?: string[] };
-      const normalizedSchema: CatalogueTool['schema'] = {
-        type: s.type,
-        properties: s.properties ? Object.fromEntries(Object.entries(s.properties).sort(([a], [b]) => a.localeCompare(b))) : {},
-      };
-      if (s.required) {
-        normalizedSchema.required = [...s.required].sort();
-      }
+      assert.equal(typeof t.readOnly, 'boolean', `tool ${t.name} must have boolean readOnly`);
       return {
         name: t.name,
-        readOnly: Boolean(t.readOnly),
-        schema: normalizedSchema,
+        readOnly: t.readOnly as boolean,
+        schema: normalizeSchema(t.schema),
       };
     });
 }
 
-test('§6.44.2 Shared catalogue fixture ide_hand_catalogue.json matches handTools()', () => {
+test('§6.44.2/§6.44.7 Shared catalogue fixture ide_hand_catalogue.json matches handTools() losslessly', () => {
   const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
   const expected = JSON.parse(raw) as CatalogueTool[];
   const actual = handTools();
   assert.deepEqual(normalizeToolDefinitions(actual), normalizeToolDefinitions(expected));
 });
 
-test('§6.44.2 HTTP tools/list preserves inputSchema and annotations.readOnlyHint against catalogue fixture', async () => {
+test('§6.44.2/§6.44.7 HTTP tools/list preserves inputSchema and annotations.readOnlyHint against catalogue fixture', async () => {
   const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
   const expected = JSON.parse(raw) as CatalogueTool[];
   const hand = await Hand.start(new FakeIde());
   try {
     const list = (await rpc(hand, 'tools/list')).body.result as {
-      tools: { name: string; inputSchema: unknown; annotations?: { readOnlyHint?: boolean } }[];
+      tools: { name: string; inputSchema: unknown; annotations?: { readOnlyHint?: unknown } }[];
     };
-    const actual = list.tools.map((t) => ({
-      name: t.name,
-      readOnly: t.annotations?.readOnlyHint ?? false,
-      schema: t.inputSchema,
-    }));
+    const actual = list.tools.map((t) => {
+      assert.ok(t.annotations && typeof t.annotations.readOnlyHint === 'boolean', `tool ${t.name} must declare boolean annotations.readOnlyHint`);
+      return {
+        name: t.name,
+        readOnly: t.annotations.readOnlyHint as boolean,
+        schema: t.inputSchema,
+      };
+    });
     assert.deepEqual(normalizeToolDefinitions(actual), normalizeToolDefinitions(expected));
   } finally {
     hand.close();
   }
 });
 
-test('§6.44.2 Catalogue comparison fails on missing tool, extra property, wrong required, or inverted readOnly', () => {
+test('§6.44.2/§6.44.7 Catalogue comparison fails on mutations (missing, extra prop, wrong req, inverted ro, additionalProps, enum, minimum, missing ro)', () => {
   const raw = fs.readFileSync(CATALOGUE_FIXTURE_PATH, 'utf-8');
   const expected = JSON.parse(raw) as CatalogueTool[];
 
@@ -489,17 +497,81 @@ test('§6.44.2 Catalogue comparison fails on missing tool, extra property, wrong
   // 3. Wrong required
   const wrongReq = expected.map((t) =>
     t.name === 'apply_edit'
-      ? { ...t, schema: { ...t.schema, required: ['path', 'old'] } }
+      ? { ...t, schema: { ...(t.schema as object), required: ['path', 'old'] } }
       : t
   );
   assert.throws(() => assert.deepEqual(normalizeToolDefinitions(wrongReq), normalizeToolDefinitions(expected)));
 
   // 4. Extra property
-  const extraProp = expected.map((t) =>
-    t.name === 'show'
-      ? { ...t, schema: { ...t.schema, properties: { ...t.schema.properties, extra: { type: 'string' } } } }
-      : t
-  );
+  const extraProp = expected.map((t) => {
+    if (t.name !== 'show') return t;
+    const s = t.schema as { properties: Record<string, unknown> };
+    return {
+      ...t,
+      schema: { ...s, properties: { ...s.properties, extra: { type: 'string' } } },
+    };
+  });
   assert.throws(() => assert.deepEqual(normalizeToolDefinitions(extraProp), normalizeToolDefinitions(expected)));
+
+  // 5. schema.additionalProperties = false 추가 (§6.44.7)
+  const extraAdditionalProps = expected.map((t) =>
+    t.name === 'show' ? { ...t, schema: { ...(t.schema as object), additionalProperties: false } } : t
+  );
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(extraAdditionalProps), normalizeToolDefinitions(expected)));
+
+  // 6. path.enum 추가 (§6.44.7)
+  const pathEnum = expected.map((t) => {
+    if (t.name !== 'show') return t;
+    const s = t.schema as { properties: Record<string, unknown> };
+    return {
+      ...t,
+      schema: {
+        ...s,
+        properties: {
+          ...s.properties,
+          path: { ...(s.properties.path as object), enum: ['a.ts', 'b.ts'] },
+        },
+      },
+    };
+  });
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(pathEnum), normalizeToolDefinitions(expected)));
+
+  // 7. line.minimum 추가 (§6.44.7)
+  const lineMinimum = expected.map((t) => {
+    if (t.name !== 'show') return t;
+    const s = t.schema as { properties: Record<string, unknown> };
+    return {
+      ...t,
+      schema: {
+        ...s,
+        properties: {
+          ...s.properties,
+          line: { ...(s.properties.line as object), minimum: 1 },
+        },
+      },
+    };
+  });
+  assert.throws(() => assert.deepEqual(normalizeToolDefinitions(lineMinimum), normalizeToolDefinitions(expected)));
+
+  // 8. apply_edit readOnlyHint 삭제 (§6.44.7)
+  const missingReadOnly = expected.map((t) =>
+    t.name === 'apply_edit' ? { ...t, readOnly: undefined as unknown as boolean } : t
+  );
+  assert.throws(() => normalizeToolDefinitions(missingReadOnly));
+
+  // HTTP annotations.readOnlyHint 누락 시 실패 검증
+  const httpMissingHint = expected.map((t) => {
+    if (t.name !== 'apply_edit') {
+      return { name: t.name, inputSchema: t.schema, annotations: { readOnlyHint: t.readOnly } };
+    }
+    return { name: t.name, inputSchema: t.schema, annotations: {} };
+  });
+  assert.throws(() => {
+    httpMissingHint.map((t) => {
+      assert.ok(t.annotations && typeof (t.annotations as any).readOnlyHint === 'boolean');
+      return { name: t.name, readOnly: (t.annotations as any).readOnlyHint, schema: t.inputSchema };
+    });
+  });
 });
+
 

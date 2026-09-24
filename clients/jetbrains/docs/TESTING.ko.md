@@ -1558,20 +1558,20 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 결과: 종료 코드 0, 전수 통과.
 ---
 
-## 2026-09-25 공유 카탈로그 계약 검사 (§6.44.2)
+## 2026-09-25 공유 카탈로그 계약 검사 (§6.44.2, §6.44.7)
 
 - **공유 JSON fixture 도입 (`clients/test-fixtures/ide_hand_catalogue.json`)**:
   - JetBrains 플러그인과 VS Code 확장이 공유하는 단일 원본 카탈로그 fixture 구축.
   - 3대 핵심 도구(`show`, `apply_edit`, `problems`)의 `name`, `readOnly`, `schema`(`type`, `properties`, `required`) 선언.
   - 플랫폼별 가변 텍스트(설명문, 서버 이름)는 비교에서 제외하고, 속성 타입 및 `required` 집합 일치 검증.
 
-- **JetBrains & VS Code 양방향 정합성 검증 (`HandServerTest.kt`, `hand.test.ts`)**:
+- **JetBrains & VS Code 손실 없는 양방향 정합성 검증 (`HandServerTest.kt`, `hand.test.ts`)**:
   - `HandServerTest.kt`:
-    - `공유 카탈로그 fixture와 Hand tools가 일치한다`: 실제 Kotlin `Hand(FakeIde()).tools()`와 fixture 정규화 깊은 비교.
-    - `HTTP tools list가 공유 카탈로그 fixture의 schema와 readOnlyHint를 보존한다`: 실제 HTTP `tools/list` RPC 응답의 `annotations.readOnlyHint` 및 `inputSchema` 보존 검증.
-    - `카탈로그 비교는 누락 도구, 여분 속성, 잘못된 required, 뒤집힌 readOnly 시 실패한다`: 임시 변이 4종(누락 도구, 뒤집힌 readOnly, 잘못된 required, 여분 속성) 감지 및 실패 검증.
+    - `공유 카탈로그 fixture와 Hand tools가 손실 없이 일치한다`: 전체 스키마 JSON 트리를 보존하며 객체 키 순서만 정렬하고, `required` 배열만 집합/정렬 정규화하여 깊은 비교 수행.
+    - `HTTP tools list가 공유 카탈로그 fixture의 schema와 readOnlyHint를 보존한다`: 실제 HTTP `tools/list` RPC 응답에서 `annotations.readOnlyHint`의 boolean 존재를 단언하고 기본값 fallback 없이 스키마 원형 보존 검증.
+    - `카탈로그 비교는 누락 도구, 여분 속성, 잘못된 required, 뒤집힌 readOnly 시 실패한다`: 임시 변이 8종(누락 도구, 뒤집힌 readOnly, 잘못된 required, 여분 속성, schema.additionalProperties=false, path.enum, line.minimum, readOnlyHint 삭제) 감지 및 실패 검증.
   - `hand.test.ts`:
-    - TypeScript `handTools()` 및 HTTP `tools/list`가 동일 fixture와 완벽 일치함을 검증하고, 변이 4종 감지 검증.
+    - TypeScript `handTools()` 및 HTTP `tools/list`가 동일 fixture와 완벽 일치함을 검증하고, 변이 8종 감지 검증.
   - `ContractFixtureTest.kt`, `contract_fixture.test.ts`:
     - 디렉터리 검사에서 비시나리오 카탈로그 파일(`ide_hand_catalogue.json`)을 분리하여 §6.38 시나리오 5종 계약과 공존 보장.
 

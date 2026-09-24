@@ -14,7 +14,11 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.net.HttpURLConnection
@@ -244,9 +248,7 @@ class HandServerTest {
     data class CanonicalTool(
         val name: String,
         val readOnly: Boolean,
-        val type: String,
-        val properties: Map<String, String>,
-        val required: Set<String>,
+        val schema: JsonObject,
     )
 
     private val catalogueFixtureFile: File by lazy {
@@ -255,14 +257,28 @@ class HandServerTest {
         File(root, "clients/test-fixtures/ide_hand_catalogue.json").canonicalFile
     }
 
-    private fun normalizeTool(name: String, readOnly: Boolean, schema: JsonObject): CanonicalTool {
-        val type = schema["type"]?.jsonPrimitive?.content.orEmpty()
-        val propsObj = schema["properties"]?.jsonObject ?: buildJsonObject {}
-        val props = propsObj.entries.associate { (k, v) ->
-            k to (v.jsonObject["type"]?.jsonPrimitive?.content.orEmpty())
+    private fun normalizeJsonElement(element: JsonElement, isRequired: Boolean = false): JsonElement {
+        return when (element) {
+            is JsonObject -> {
+                val sortedMap = element.toSortedMap().mapValues { (k, v) ->
+                    normalizeJsonElement(v, isRequired = (k == "required"))
+                }
+                JsonObject(sortedMap)
+            }
+            is JsonArray -> {
+                if (isRequired) {
+                    val sortedList = element.map { it.jsonPrimitive.content }.sorted().map { JsonPrimitive(it) }
+                    JsonArray(sortedList)
+                } else {
+                    JsonArray(element.map { normalizeJsonElement(it, false) })
+                }
+            }
+            else -> element
         }
-        val req = schema["required"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet().orEmpty()
-        return CanonicalTool(name, readOnly, type, props, req)
+    }
+
+    private fun normalizeTool(name: String, readOnly: Boolean, schema: JsonObject): CanonicalTool {
+        return CanonicalTool(name, readOnly, normalizeJsonElement(schema) as JsonObject)
     }
 
     private fun parseCatalogue(jsonString: String): List<CanonicalTool> {
@@ -270,14 +286,17 @@ class HandServerTest {
         return array.map { el ->
             val obj = el.jsonObject
             val name = obj["name"]!!.jsonPrimitive.content
-            val ro = obj["readOnly"]!!.jsonPrimitive.content.toBoolean()
+            val roElement = obj["readOnly"] ?: error("tool $name missing readOnly")
+            val roPrimitive = roElement.jsonPrimitive
+            check(roPrimitive.booleanOrNull != null) { "tool $name readOnly must be boolean, got: $roPrimitive" }
+            val ro = roPrimitive.boolean
             val schema = obj["schema"]!!.jsonObject
             normalizeTool(name, ro, schema)
         }.sortedBy { it.name }
     }
 
     @Test
-    fun `공유 카탈로그 fixture와 Hand tools가 일치한다`() {
+    fun `공유 카탈로그 fixture와 Hand tools가 손실 없이 일치한다`() {
         val expected = parseCatalogue(catalogueFixtureFile.readText())
         val actual = Hand(FakeIde()).tools().map { t ->
             normalizeTool(t.name, t.readOnly, t.schema)
@@ -293,7 +312,10 @@ class HandServerTest {
             val actual = tools.map { el ->
                 val obj = el.jsonObject
                 val name = obj["name"]!!.jsonPrimitive.content
-                val ro = obj["annotations"]?.jsonObject?.get("readOnlyHint")?.jsonPrimitive?.content?.toBoolean() ?: false
+                val annotations = obj["annotations"]?.jsonObject ?: error("tool $name missing annotations")
+                val hintElement = annotations["readOnlyHint"] ?: error("tool $name missing annotations.readOnlyHint")
+                check(hintElement.jsonPrimitive.booleanOrNull != null) { "tool $name readOnlyHint must be boolean, got: $hintElement" }
+                val ro = hintElement.jsonPrimitive.boolean
                 val schema = obj["inputSchema"]!!.jsonObject
                 normalizeTool(name, ro, schema)
             }.sortedBy { it.name }
@@ -314,14 +336,85 @@ class HandServerTest {
         assertNotEquals(expected, inverted)
 
         // 3. Wrong required
-        val wrongReq = expected.map { if (it.name == "apply_edit") it.copy(required = setOf("path", "old")) else it }
+        val wrongReq = expected.map {
+            if (it.name == "apply_edit") {
+                val s = it.schema.toMutableMap()
+                s["required"] = JsonArray(listOf(JsonPrimitive("path"), JsonPrimitive("old")))
+                it.copy(schema = normalizeJsonElement(JsonObject(s)) as JsonObject)
+            } else it
+        }
         assertNotEquals(expected, wrongReq)
 
         // 4. Extra property
         val extraProp = expected.map {
-            if (it.name == "show") it.copy(properties = it.properties + ("extra" to "string")) else it
+            if (it.name == "show") {
+                val props = it.schema["properties"]!!.jsonObject.toMutableMap()
+                props["extra"] = buildJsonObject { put("type", "string") }
+                val s = it.schema.toMutableMap()
+                s["properties"] = JsonObject(props)
+                it.copy(schema = normalizeJsonElement(JsonObject(s)) as JsonObject)
+            } else it
         }
         assertNotEquals(expected, extraProp)
+
+        // 5. schema.additionalProperties = false 추가 (§6.44.7)
+        val extraAdditionalProps = expected.map {
+            if (it.name == "show") {
+                val s = it.schema.toMutableMap()
+                s["additionalProperties"] = JsonPrimitive(false)
+                it.copy(schema = normalizeJsonElement(JsonObject(s)) as JsonObject)
+            } else it
+        }
+        assertNotEquals(expected, extraAdditionalProps)
+
+        // 6. path.enum 추가 (§6.44.7)
+        val pathEnum = expected.map {
+            if (it.name == "show") {
+                val props = it.schema["properties"]!!.jsonObject.toMutableMap()
+                val pathObj = props["path"]!!.jsonObject.toMutableMap()
+                pathObj["enum"] = JsonArray(listOf(JsonPrimitive("a.kt"), JsonPrimitive("b.kt")))
+                props["path"] = JsonObject(pathObj)
+                val s = it.schema.toMutableMap()
+                s["properties"] = JsonObject(props)
+                it.copy(schema = normalizeJsonElement(JsonObject(s)) as JsonObject)
+            } else it
+        }
+        assertNotEquals(expected, pathEnum)
+
+        // 7. line.minimum 추가 (§6.44.7)
+        val lineMinimum = expected.map {
+            if (it.name == "show") {
+                val props = it.schema["properties"]!!.jsonObject.toMutableMap()
+                val lineObj = props["line"]!!.jsonObject.toMutableMap()
+                lineObj["minimum"] = JsonPrimitive(1)
+                props["line"] = JsonObject(lineObj)
+                val s = it.schema.toMutableMap()
+                s["properties"] = JsonObject(props)
+                it.copy(schema = normalizeJsonElement(JsonObject(s)) as JsonObject)
+            } else it
+        }
+        assertNotEquals(expected, lineMinimum)
+
+        // 8. apply_edit readOnlyHint 삭제 (§6.44.7)
+        assertThrows(IllegalStateException::class.java) {
+            val toolObj = buildJsonObject {
+                put("name", "apply_edit")
+                put("annotations", buildJsonObject {}) // missing readOnlyHint
+            }
+            val annotations = toolObj["annotations"]?.jsonObject ?: error("missing")
+            val hint = annotations["readOnlyHint"] ?: error("tool apply_edit missing annotations.readOnlyHint")
+            check(hint.jsonPrimitive.booleanOrNull != null)
+            hint.jsonPrimitive.boolean
+        }
+        assertThrows(IllegalStateException::class.java) {
+            val toolObj = buildJsonObject {
+                put("name", "apply_edit")
+                // missing readOnly
+            }
+            val ro = toolObj["readOnly"] ?: error("tool apply_edit missing readOnly")
+            check(ro.jsonPrimitive.booleanOrNull != null)
+            ro.jsonPrimitive.boolean
+        }
     }
 }
 
