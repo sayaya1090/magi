@@ -186,7 +186,8 @@ class MagiToolWindow : ToolWindowFactory {
         private val answers = dev.sayaya.magi.ide.usecase.AnswerDrafts()
         private var waitingQuestion: Waiting? = null
         private var waitingSession: String? = null
-        private var inputEpoch = 0L
+        internal val suggestCoordinator = SuggestCoordinator()
+        val inputEpoch: Long get() = suggestCoordinator.epoch
         private var commitResetTimer: javax.swing.Timer? = null
         private val inputGate: ComposerInputGate = ComposerInputGate(
             onScheduleTimer = { delayMs -> scheduleCommitReset(delayMs) },
@@ -274,7 +275,7 @@ class MagiToolWindow : ToolWindowFactory {
         }
         /** 마지막으로 수신된 입력 자동완성 제안. Tab 키 입력 시 적용됩니다. */
         private var suggestion: String? = null
-        private val debounce = javax.swing.Timer(400) { askSuggestion() }.apply { isRepeats = false }
+        private val debounce = javax.swing.Timer(SuggestCoordinator.DEBOUNCE_DELAY_MS) { askSuggestion() }.apply { isRepeats = false }
 
         /**
          * 트랜스크립트 뷰 컴포넌트.
@@ -668,7 +669,7 @@ class MagiToolWindow : ToolWindowFactory {
                 private fun retract() {
                     sendDrafts.edited()
                     if (!restoringAnswerDraft) answers.edit(input.text)
-                    inputEpoch++
+                    suggestCoordinator.bumpEpoch()
                     dropSuggestion(); debounce.restart()
                     updateComposerHint()
                     // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
@@ -792,7 +793,7 @@ class MagiToolWindow : ToolWindowFactory {
             closing.set(true)
             sendDrafts.close()
             answers.close()
-            inputEpoch++
+            suggestCoordinator.dispose()
             // 메인 패널만 전역 레지스트리와 도구 어댑터를 해제합니다(리뷰 F1·F2):
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
@@ -1455,32 +1456,20 @@ class MagiToolWindow : ToolWindowFactory {
         private fun assist() = socket()?.let { s -> Assist({ DaemonClient.connect(s) }) }
 
         /** 입력 꼬리의 @토큰 — "@셰이" 의 "셰이". 없으면 null. 공백이 끊는다. */
-        private fun atToken(): String? {
-            val t = input.text
-            val at = t.lastIndexOf('@')
-            if (at < 0) return null
-            // 낱말 시작의 @ 만이다 — 아니면 "user@host" 를 치는 내내 팝업이 뜬다(리뷰).
-            if (at > 0 && !t[at - 1].isWhitespace()) return null
-            val tail = t.substring(at + 1)
-            if (tail.any { it.isWhitespace() } || tail.length < 2) return null
-            return tail
-        }
-
-        /** ESC 로 닫은 토큰 — 같은 토큰으로는 다시 안 띄운다(디바운스가 타이핑마다 도니까). */
-        @Volatile private var dismissedToken: String? = null
+        private fun atToken(): String? = SuggestCoordinator.extractAtToken(input.text)
 
         private fun askFiles(token: String) {
-            if (token == dismissedToken) return
-            val epoch = inputEpoch
             val scope = currentSendSession()
-            val deliver: (List<String>) -> Unit = { files ->
+            val ticket = suggestCoordinator.startMention(token, scope) ?: return
+            val deliver: (List<String>) -> Unit = deliver@ { files ->
+                val currentScope = currentSendSession()
+                if (closing.get() || !suggestCoordinator.canDeliverMention(ticket, currentScope)) return@deliver
                 val cut = files.take(20)
                 SwingUtilities.invokeLater {
-                    if (closing.get() || inputEpoch != epoch || currentSendSession() != scope || atToken() != token) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
+                    if (closing.get() || !suggestCoordinator.canPresentMention(ticket, currentSendSession(), atToken())) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
                     if (cut.isEmpty()) return@invokeLater
                     val chosen: (String) -> Unit = chosen@ { picked ->
-                        if (closing.get() || inputEpoch != epoch || currentSendSession() != scope) return@chosen
-                        dismissedToken = null
+                        if (closing.get() || !suggestCoordinator.acceptMentionChoice(ticket, currentSendSession())) return@chosen
                         // 토큰을 걷고 칩을 세운다 — 본문이 아니라 참조가 실린다(§4.2c).
                         val t = input.text
                         val at = t.lastIndexOf('@')
@@ -1504,7 +1493,9 @@ class MagiToolWindow : ToolWindowFactory {
                                 override fun onClosed(e: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
                                     // 고르지 않고 닫혔으면(ESC) 같은 토큰의 재팝업을 막는다 —
                                     // 다음 글자가 토큰을 바꾸면 자연히 풀린다.
-                                    if (!e.isOk && inputEpoch == epoch && currentSendSession() == scope) dismissedToken = token
+                                    if (!e.isOk) {
+                                        suggestCoordinator.dismissMention(ticket, currentSendSession())
+                                    }
                                 }
                             })
                             showUnderneathOf(input)
@@ -1520,12 +1511,7 @@ class MagiToolWindow : ToolWindowFactory {
                 val sock2 = socket() ?: return@executeOnPooledThread
                 // 토큰의 글롭 메타문자를 이스케이프한다(웹 globQuote 와 같은 넷) — 안 하면
                 // "@page[1" 이 패턴 오류로 조용히 무반응이다.
-                val safe = buildString {
-                    token.forEach { c ->
-                        if (c in "*?[]\\") append('\\')
-                        append(c)
-                    }
-                }
+                val safe = SuggestCoordinator.escapeGlob(token)
                 val files = runCatching {
                     // 세션은 안 실린다 — tool 문은 워크스페이스의 것, workdir 는 데몬이 박는다.
                     DaemonClient.connect(sock2).use { Companion(it, "").globFiles("**/*$safe*") }
@@ -1536,14 +1522,16 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun askSuggestion() {
             atToken()?.let { askFiles(it); return } // @멘션은 제안 스위치와 무관하다(파일 찾기다)
-            if (suggestRequest == null && !LocalPrefs.suggest(project)) return
+            val enabled = suggestRequest != null || LocalPrefs.suggest(project)
             val prefix = input.text
-            val epoch = inputEpoch
             val scope = currentSendSession()
-            val deliver: (String?) -> Unit = { said ->
+            val ticket = suggestCoordinator.startSuggestion(prefix, scope, enabled) ?: return
+            val deliver: (String?) -> Unit = deliver@ { said ->
+                val currentScope = currentSendSession()
+                if (closing.get() || !suggestCoordinator.canDeliverSuggestion(ticket, currentScope)) return@deliver
                 SwingUtilities.invokeLater {
                     // 그새 사람이 더 쳤으면 낡은 제안이다. 붙이지 않는다.
-                    if (closing.get() || inputEpoch != epoch || currentSendSession() != scope || input.text != prefix) return@invokeLater
+                    if (closing.get() || !suggestCoordinator.canPresentSuggestion(ticket, currentSendSession(), input.text)) return@invokeLater
                     suggestion = said?.takeIf { it.isNotBlank() }
                     // 보이는 것과 **Tab 이 붙이는 것**이 같아야 한다. 여긴 모델이 지은 글자라
                     // 코드가 섞여 오고, 안 거르면 `<T>` 같은 조각이 태그로 먹혀 사라진다 —
@@ -2094,7 +2082,7 @@ class MagiToolWindow : ToolWindowFactory {
             buttons.revalidate(); buttons.repaint()
         }
 
-        private fun invalidateComposer() { inputEpoch++; debounce.stop(); dropSuggestion() }
+        private fun invalidateComposer() { suggestCoordinator.bumpEpoch(); debounce.stop(); dropSuggestion() }
 
         private fun syncAnswerContext() {
             val q = waitingQuestion?.takeIf { it.ask is Ask.Choose && waitingSession == currentSendSession() }

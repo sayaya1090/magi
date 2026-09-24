@@ -1461,6 +1461,57 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
     - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
 
+---
+
+## 2026-09-24 JetBrains 자동완성·멘션 요청 조정 분리 (§6.42)
+
+- **책임 분리 및 가드 추출 (`SuggestCoordinator.kt`)**:
+  - `MagiToolWindow.View`의 `askFiles` 및 `askSuggestion`에서 요청 시작, 응답 수락, 팝업 선택 시점의 가드를 소형 조정 객체 `SuggestCoordinator`로 추출.
+  - View는 타이머(400ms 디바운스), 백그라운드 RPC 통신(`executeOnPooledThread`), EDT 디스패치(`SwingUtilities.invokeLater`), 팝업/힌트 표시를 전담.
+  - `SuggestCoordinator`는 요청 세대(`epoch`), 세션(`session`), 대상 토큰/본문(`token`/`prefix`), 종료 상태(`isDisposed`), 취소 토큰(`dismissedToken`)을 전담 관리.
+  - 400ms 지연(`SuggestCoordinator.DEBOUNCE_DELAY_MS`), 제안 비활성 설정(`LocalPrefs.suggest`), `inputEpoch` 세대 및 `dismissedToken` 계약 완전 보존.
+  - Kotlin Flow나 RxJS 등의 불필요한 의존성 없이 순수 Kotlin 객체로 구현.
+
+- **자동 회귀 검증 구축 (`SuggestCoordinatorTest.kt`, `SuggestCoordinatorViewTest.kt`)**:
+  - `SuggestCoordinatorTest`: 순수 단위 검증 10종
+    1. `test startMention returns valid ticket and respects dismissedToken and disposed`
+    2. `test startSuggestion returns valid ticket and respects enabled flag and disposed`
+    3. `test A request then B edit rejects delivery and EDT presentation`
+    4. `test text or token mismatch rejects EDT presentation even if epoch matches`
+    5. `test session switch rejects delivery presentation and choice acceptance`
+    6. `test dismissMention ignores stale epoch or session`
+    7. `test stale popup selection callback rejected without side effects`
+    8. `test valid candidate selection clears dismissedToken and accepts choice`
+    9. `test dispose rejects in-flight delivery presentation and selection`
+    10. `test extractAtToken parsing rules` 및 `test escapeGlob escapes all special glob meta characters`
+  - `SuggestCoordinatorViewTest`: 실제 View 헤드리스 통합 검증 9종
+    1. `test A request then B edit rejects mention delivery and does not invoke fileChooser`: A 요청 대기 중 B 입력/세대 증가 시 늦은 응답이 팝업을 열지 않음을 실측.
+    2. `test session switch rejects mention delivery and stale popup selection callback`: 세션 전환 후 도달한 선택 콜백이 입력을 변경하거나 첨부를 추가하지 않음을 실측.
+    3. `test mention target change rejects EDT presentation`: 멘션 대상 토큰 변경 시 팝업 억제 실측.
+    4. `test popup cancel dismisses token and blocks same token until token changes`: 팝업 취소 시 `dismissedToken`이 기록되어 동일 토큰 재요청이 차단되고 다른 토큰은 허용됨을 실측.
+    5. `test dispose rejects late response delivery`: View dispose 후 도달한 백그라운드 응답이 팝업을 열지 않음을 실측.
+    6. `test stale popup selection callback after dispose does not modify input or add attachment`: View dispose 후 구 팝업의 선택 콜백이 입력창/첨부를 일체 오염시키지 않음을 실측.
+    7. `test normal candidate selection applies file chip and trims input (control group)`: 정상 선택 시 `@토큰`이 잘리고 파일 칩이 1회 정확히 첨부되며 포커스가 요청되는 대조군 실측.
+    8. `test suggestion A request then B edit rejects hint label`: 제안 요청 A 대기 중 B 입력 시 힌트 표시 억제 실측.
+    9. `test suggestion normal acceptance displays hint label (control group)`: 정상 제안 수신 시 힌트가 가시화되는 대조군 실측.
+
+- **실물 검증 여부**:
+  - VoiceOver: 지침에 따라 검증 대상 및 완료 조건에서 제외.
+  - 실물 macOS 두벌식 IME 조작: 이번 작업에서는 실제 OS IME 직접 조작을 재수행하지 않았으므로 미검증으로 유지하며 헤드리스 결과로 대체하지 않습니다.
+
+- **전체 회귀 검증 결과 (2026-09-24)**:
+  - JetBrains Suite: `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`
+    - 결과: 종료 코드 0, 19개 task 전체 성공 (40초 소요).
+    - XML 실측: `core` 390 통과·5 건너뜀 (총 395개 중), `intellij` 121 통과 (총 121개 중, 20개 테스트 순증), **합계 511 통과·5 건너뜀·0 실패 (총 516개 중)**.
+  - VS Code Suite: `npm test --prefix clients/vscode`
+    - 결과: 종료 코드 0, **550 통과·7 건너뜀·0 실패** (총 557개 중, 4.6초 소요).
+  - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
+    - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.0초 소요)** (axe-core 접근성 감사 42회 무결점).
+  - Go idebridge Suite: `go test -v ./internal/adapter/idebridge/...`
+    - 결과: 종료 코드 0, 전수 통과 (`gofmt -l` 0건 클린).
+  - Reference Check: `python3 clients/jetbrains/tools/citecheck.py`
+    - 결과: 심볼 225개 · 인용문 12개 검사 → 못 찾은 것 0.
+
 
 
 
