@@ -436,6 +436,10 @@ func TestNonToolCallMethodsDoNotWrapUnconfirmedNotice(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
+		var uce *unconfirmedCallError
+		if errors.As(err, &uce) {
+			t.Errorf("Initialize failure should NOT be unconfirmedCallError: %v", err)
+		}
 		if strings.Contains(err.Error(), unconfirmedCallNotice) {
 			t.Errorf("Initialize failure should NOT contain unconfirmedCallNotice, got: %q", err.Error())
 		}
@@ -457,8 +461,180 @@ func TestNonToolCallMethodsDoNotWrapUnconfirmedNotice(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
+		var uce *unconfirmedCallError
+		if errors.As(err, &uce) {
+			t.Errorf("ListTools failure should NOT be unconfirmedCallError: %v", err)
+		}
 		if strings.Contains(err.Error(), unconfirmedCallNotice) {
 			t.Errorf("ListTools failure should NOT contain unconfirmedCallNotice, got: %q", err.Error())
 		}
 	})
+
+	t.Run("Non-tool call with result:null + error does not wrap unconfirmed notice", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req request
+			json.NewDecoder(r.Body).Decode(&req)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":null,"error":{"code":-32000,"message":"err"}}`, req.ID)))
+		}))
+		defer srv.Close()
+
+		client := newHTTPClient(srv.URL, nil, nil)
+		defer client.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		err := client.Initialize(ctx)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var uce *unconfirmedCallError
+		if errors.As(err, &uce) {
+			t.Errorf("Initialize with abnormal response should NOT be unconfirmedCallError: %v", err)
+		}
+		if strings.Contains(err.Error(), unconfirmedCallNotice) {
+			t.Errorf("Initialize failure should NOT contain unconfirmedCallNotice, got: %q", err.Error())
+		}
+	})
+}
+
+func TestHTTPTransportFieldPresenceAndAuthoritativeScenarios(t *testing.T) {
+	scenarios := []struct {
+		name          string
+		body          string // format string with %d for request ID
+		isSSE         bool
+		expectError   bool
+		isUnconfirmed bool
+		expectedMsg   string
+	}{
+		{
+			name:          "JSON: result:null + error -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"result":null,"error":{"code":-32000,"message":"x"}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "response must contain either result or error",
+		},
+		{
+			name:          "JSON: result:null alone -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"result":null}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "tools/call returned null result",
+		},
+		{
+			name:          "JSON: error:null alone -> unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":null}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "response error field is null",
+		},
+		{
+			name:          "JSON: valid result -> clean success",
+			body:          `{"jsonrpc":"2.0","id":%d,"result":{"content":[{"type":"text","text":"ok"}]}}`,
+			isSSE:         false,
+			expectError:   false,
+			isUnconfirmed: false,
+		},
+		{
+			name:          "JSON: valid error -> authoritative error, not unconfirmed",
+			body:          `{"jsonrpc":"2.0","id":%d,"error":{"code":-32601,"message":"tool not found"}}`,
+			isSSE:         false,
+			expectError:   true,
+			isUnconfirmed: false,
+			expectedMsg:   "tool not found",
+		},
+		{
+			name:          "SSE: result:null + error -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":null,\"error\":{\"code\":-32000,\"message\":\"x\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "response must contain either result or error",
+		},
+		{
+			name:          "SSE: result:null alone -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":null}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "tools/call returned null result",
+		},
+		{
+			name:          "SSE: error:null alone -> unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":null}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: true,
+			expectedMsg:   "response error field is null",
+		},
+		{
+			name:          "SSE: valid result -> clean success",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\n\n",
+			isSSE:         true,
+			expectError:   false,
+			isUnconfirmed: false,
+		},
+		{
+			name:          "SSE: valid error -> authoritative error, not unconfirmed",
+			body:          "id: 1\ndata: {\"jsonrpc\":\"2.0\",\"id\":%d,\"error\":{\"code\":-32601,\"message\":\"tool not found\"}}\n\n",
+			isSSE:         true,
+			expectError:   true,
+			isUnconfirmed: false,
+			expectedMsg:   "tool not found",
+		},
+	}
+
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req request
+				json.NewDecoder(r.Body).Decode(&req)
+				if sc.isSSE {
+					w.Header().Set("Content-Type", "text/event-stream")
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+				}
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprintf(w, sc.body, req.ID)
+			}))
+			defer srv.Close()
+
+			client := newHTTPClient(srv.URL, nil, nil)
+			defer client.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			res, err := client.CallTool(ctx, "test_tool", nil)
+			if sc.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil result: %+v", res)
+				}
+				var uce *unconfirmedCallError
+				isUce := errors.As(err, &uce)
+				if isUce != sc.isUnconfirmed {
+					t.Errorf("errors.As(unconfirmedCallError) = %v, expected %v (err: %v)", isUce, sc.isUnconfirmed, err)
+				}
+				hasNotice := strings.Contains(err.Error(), unconfirmedCallNotice)
+				if hasNotice != sc.isUnconfirmed {
+					t.Errorf("strings.Contains(unconfirmedCallNotice) = %v, expected %v (err: %v)", hasNotice, sc.isUnconfirmed, err)
+				}
+				if sc.expectedMsg != "" && !strings.Contains(err.Error(), sc.expectedMsg) {
+					t.Errorf("error %q does not contain expected substring %q", err.Error(), sc.expectedMsg)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if len(res.Content) != 1 || res.Content[0].Text != "ok" {
+					t.Errorf("unexpected content: %+v", res.Content)
+				}
+			}
+		})
+	}
 }

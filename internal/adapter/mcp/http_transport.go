@@ -144,6 +144,69 @@ func (t *httpTransport) wrapUnconfirmed(method string, err error) error {
 	return &unconfirmedCallError{cause: err}
 }
 
+// httpMessage represents a decoded JSON-RPC response in the HTTP transport (§6.44.6).
+// Result and Error are raw JSON so that field presence (including explicit null) can be distinguished
+// from field omission.
+type httpMessage struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      *int64          `json:"id,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   json.RawMessage `json:"error,omitempty"`
+}
+
+// validateHTTPResponse validates JSON-RPC response fields and extracts the result or error (§6.44.6).
+// It returns an *rpcError if the response contains an authoritative error object from the server,
+// which callers must NOT wrap in unconfirmedCallError.
+// If the response violates protocol constraints (e.g., ID mismatch, version mismatch, ambiguous result/error,
+// null result for tools/call, malformed error object), it returns a protocol error that is wrapped for tools/call.
+func validateHTTPResponse(msg *httpMessage, expectedID int64, method string, out any) error {
+	if msg.JSONRPC != jsonRPCVersion {
+		return fmt.Errorf("mcp: invalid jsonrpc version: %q", msg.JSONRPC)
+	}
+	if msg.ID == nil || *msg.ID != expectedID {
+		return fmt.Errorf("mcp: response id mismatch: expected %d, got %v", expectedID, msg.ID)
+	}
+
+	hasResult := len(msg.Result) > 0
+	hasError := len(msg.Error) > 0
+
+	if (hasResult && hasError) || (!hasResult && !hasError) {
+		return fmt.Errorf("mcp: response must contain either result or error")
+	}
+
+	if hasError {
+		if bytes.Equal(bytes.TrimSpace(msg.Error), []byte("null")) {
+			return fmt.Errorf("mcp: response error field is null")
+		}
+		var rpcErr rpcError
+		if err := json.Unmarshal(msg.Error, &rpcErr); err != nil {
+			return fmt.Errorf("mcp: bad error object: %w", err)
+		}
+		if rpcErr.Code == 0 && rpcErr.Message == "" {
+			return fmt.Errorf("mcp: incomplete error object")
+		}
+		return &rpcErr
+	}
+
+	// hasResult is true
+	if bytes.Equal(bytes.TrimSpace(msg.Result), []byte("null")) {
+		if method == "tools/call" {
+			return fmt.Errorf("mcp: tools/call returned null result")
+		}
+		if out != nil {
+			return json.Unmarshal(msg.Result, out)
+		}
+		return nil
+	}
+
+	if out != nil {
+		if err := json.Unmarshal(msg.Result, out); err != nil {
+			return fmt.Errorf("mcp: unmarshal result: %w", err)
+		}
+	}
+	return nil
+}
+
 func (t *httpTransport) call(ctx context.Context, method string, params any, out any) error {
 	t.mu.Lock()
 	if t.closed {
@@ -210,7 +273,7 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 	}
 
 	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-		err := t.readSSEStream(ctx, resp.Body, id, out)
+		err := t.readSSEStream(ctx, resp.Body, id, method, out)
 		if err == nil {
 			t.answered()
 			return nil
@@ -218,7 +281,7 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 		var rpcErr *rpcError
 		if errors.As(err, &rpcErr) {
 			t.answered()
-			return rpcErr
+			return fmt.Errorf("mcp: %s: %s", method, rpcErr.Message)
 		}
 		// A stream that broke halfway neither resets the streak nor adds to it: the headers came
 		// from somewhere, so it is not "nobody home", and the break may be ours (a cancelled turn
@@ -230,30 +293,18 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 	// carrying the server's own error, which is still the server talking. Resetting on the response
 	// headers (where this used to be) meant a helper that accepted every call and died mid-body was
 	// never dropped: each half-answer wiped the count of the ones before it.
-	var msg message
+	var msg httpMessage
 	if err := json.NewDecoder(resp.Body).Decode(&msg); err != nil {
 		return t.wrapUnconfirmed(method, err)
 	}
 	t.answered()
 
-	if msg.JSONRPC != jsonRPCVersion {
-		return t.wrapUnconfirmed(method, fmt.Errorf("mcp: invalid jsonrpc version: %q", msg.JSONRPC))
-	}
-	if msg.ID == nil || *msg.ID != id {
-		return t.wrapUnconfirmed(method, fmt.Errorf("mcp: response id mismatch: expected %d, got %v", id, msg.ID))
-	}
-	hasResult := len(msg.Result) > 0 && !bytes.Equal(msg.Result, []byte("null"))
-	hasError := msg.Error != nil
-	if (hasResult && hasError) || (!hasResult && !hasError) {
-		return t.wrapUnconfirmed(method, fmt.Errorf("mcp: response must contain either result or error"))
-	}
-	if hasError {
-		return fmt.Errorf("mcp: %s: %s", method, msg.Error.Message)
-	}
-	if out != nil && len(msg.Result) > 0 {
-		if err := json.Unmarshal(msg.Result, out); err != nil {
-			return t.wrapUnconfirmed(method, err)
+	if err := validateHTTPResponse(&msg, id, method, out); err != nil {
+		var rpcErr *rpcError
+		if errors.As(err, &rpcErr) {
+			return fmt.Errorf("mcp: %s: %s", method, rpcErr.Message)
 		}
+		return t.wrapUnconfirmed(method, err)
 	}
 	return nil
 }
@@ -261,7 +312,7 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 // readSSEStream processes Server-Sent Events until the message answering our
 // request id arrives. Cancellation is honored both via the request context
 // (which closes the body, unblocking the scanner) and an explicit ctx check.
-func (t *httpTransport) readSSEStream(ctx context.Context, r io.Reader, id int64, out any) error {
+func (t *httpTransport) readSSEStream(ctx context.Context, r io.Reader, id int64, method string, out any) error {
 	scanner := bufio.NewScanner(r)
 	// One SSE line has to hold a whole JSON-RPC message, and a message answering with a picture
 	// carries it base64'd — a third larger than the file. This used to be a flat 1MB while
@@ -287,26 +338,12 @@ func (t *httpTransport) readSSEStream(ctx context.Context, r io.Reader, id int64
 				t.lastEventID = eventID
 				t.mu.Unlock()
 			}
-			var msg message
+			var msg httpMessage
 			if err := json.Unmarshal([]byte(data), &msg); err != nil {
 				return fmt.Errorf("mcp: bad SSE event JSON: %w", err)
 			}
 			if msg.ID != nil && *msg.ID == id {
-				if msg.JSONRPC != jsonRPCVersion {
-					return fmt.Errorf("mcp: invalid jsonrpc version: %q", msg.JSONRPC)
-				}
-				hasResult := len(msg.Result) > 0 && !bytes.Equal(msg.Result, []byte("null"))
-				hasError := msg.Error != nil
-				if (hasResult && hasError) || (!hasResult && !hasError) {
-					return fmt.Errorf("mcp: response must contain either result or error")
-				}
-				if hasError {
-					return msg.Error
-				}
-				if out != nil && len(msg.Result) > 0 {
-					return json.Unmarshal(msg.Result, out)
-				}
-				return nil
+				return validateHTTPResponse(&msg, id, method, out)
 			}
 			// A server-initiated request/notification — not our response; skip.
 			data = ""
