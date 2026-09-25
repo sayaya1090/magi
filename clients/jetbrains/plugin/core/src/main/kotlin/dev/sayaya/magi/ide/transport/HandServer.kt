@@ -16,6 +16,9 @@ import kotlinx.serialization.json.put
 import java.io.Closeable
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * IDE 플랫폼 도구(Hand)를 데몬에 노출하는 루프백 HTTP MCP(Model Context Protocol) 서버.
@@ -27,58 +30,146 @@ import java.net.InetSocketAddress
  * 3. 코어 클라이언트가 호출하는 4개 메서드만 구현한다 (`internal/adapter/mcp/client.go`):
  *    `initialize`, `notifications/initialized`, `tools/list`, `tools/call`.
  */
-class HandServer private constructor(
+class HandServer internal constructor(
     private val http: HttpServer,
+    private val executor: ExecutorService,
     val token: String,
 ) : Closeable {
+
+    private val closed = AtomicBoolean(false)
+    private val admissionLock = Any()
 
     /** 데몬에게 줄 주소. 0 번 포트로 열고 **실제로 받은 포트**를 읽는다 — 짐작하지 않는다. */
     val url: String get() = "http://127.0.0.1:${http.address.port}/mcp"
 
-    override fun close() = http.stop(0)
+    override fun close() {
+        val shouldClean = synchronized(admissionLock) {
+            closed.compareAndSet(false, true)
+        }
+        if (!shouldClean) return
+        var primary: Throwable? = null
+        try {
+            http.stop(0)
+        } catch (t: Throwable) {
+            primary = t
+        }
+        try {
+            executor.shutdown()
+        } catch (t: Throwable) {
+            if (primary == null) {
+                primary = t
+            } else if (primary !== t) {
+                primary.addSuppressed(t)
+            }
+        }
+        if (primary != null) {
+            throw primary
+        }
+    }
 
     companion object {
         /** 코어 클라이언트가 말하는 개정. 다르면 그쪽이 거절할 수 있으므로 그대로 맞춘다. */
         private const val PROTOCOL = "2025-06-18"
 
-        fun start(hand: Hand): HandServer {
+        fun start(hand: Hand): HandServer = start(
+            hand = hand,
+            createHttp = { HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0) },
+            createExecutor = { Executors.newFixedThreadPool(2) },
+        )
+
+        internal fun start(
+            hand: Hand,
+            createHttp: () -> HttpServer = { HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0) },
+            createExecutor: () -> ExecutorService = { Executors.newFixedThreadPool(2) },
+        ): HandServer {
             val token = java.util.UUID.randomUUID().toString()
-            val http = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
-            val server = HandServer(http, token)
-            http.createContext("/mcp") { ex -> server.handle(hand, ex) }
-            http.executor = java.util.concurrent.Executors.newFixedThreadPool(2)
-            http.start()
-            return server
+            val http = createHttp()
+            var executor: ExecutorService? = null
+            try {
+                executor = createExecutor()
+                val server = HandServer(http, executor, token)
+                http.createContext("/mcp") { ex -> server.handle(hand, ex) }
+                http.executor = executor
+                http.start()
+                return server
+            } catch (t: Throwable) {
+                var cleanupEx: Throwable? = null
+                try {
+                    http.stop(0)
+                } catch (stopErr: Throwable) {
+                    cleanupEx = stopErr
+                }
+                if (executor != null) {
+                    try {
+                        executor.shutdown()
+                    } catch (shutdownErr: Throwable) {
+                        if (cleanupEx == null) {
+                            cleanupEx = shutdownErr
+                        } else if (cleanupEx !== shutdownErr) {
+                            cleanupEx.addSuppressed(shutdownErr)
+                        }
+                    }
+                }
+                if (cleanupEx != null && cleanupEx !== t) {
+                    t.addSuppressed(cleanupEx)
+                }
+                throw t
+            }
         }
     }
 
-    private fun handle(hand: Hand, ex: HttpExchange) {
+    private data class ResponseData(val code: Int, val body: String)
+
+    internal fun handle(hand: Hand, ex: HttpExchange) {
         try {
-            if (ex.requestMethod != "POST") return send(ex, 405, "")
-            // 보안 검증: 루프백 포트 접근 프로세스의 인증 헤더 확인
-            if (ex.requestHeaders.getFirst("X-Magi-Hand") != token) return send(ex, 403, "")
-            val body = ex.requestBody.readBytes().decodeToString()
-            val req = Wire.json.parseToJsonElement(body).jsonObject
-            val id = req["id"]
-            val answer = dispatch(hand, req["method"]?.jsonPrimitive?.content.orEmpty(), req["params"])
-            if (id == null || id is JsonNull) {
-                // 알림(Notification) 메시지는 응답 바디를 반환하지 않는다.
-                // HTTP 상태 코드 204 유지 배경:
-                // 과거 MCP 명세에 따라 202 Accepted를 반환했으나 초기 코어 클라이언트가 200/204만 허용하여 204로 조정한 이력이 있음.
-                // 현재는 코어(`http_transport.go`의 `notify`)가 200, 202, 204를 모두 정상 수용하므로 안정성이 검증된 204 응답을 유지한다.
-                return send(ex, 204, "")
+            if (closed.get()) return
+            val responseData: ResponseData? = try {
+                if (ex.requestMethod != "POST") {
+                    ResponseData(405, "")
+                } else if (ex.requestHeaders.getFirst("X-Magi-Hand") != token) {
+                    ResponseData(403, "")
+                } else {
+                    val body = ex.requestBody.readBytes().decodeToString()
+                    if (closed.get()) {
+                        null
+                    } else {
+                        val req = Wire.json.parseToJsonElement(body).jsonObject
+                        val id = req["id"]
+                        val permitted = synchronized(admissionLock) {
+                            !closed.get()
+                        }
+                        if (!permitted) {
+                            null
+                        } else {
+                            val answer = dispatch(hand, req["method"]?.jsonPrimitive?.content.orEmpty(), req["params"])
+                            if (id == null || id is JsonNull) {
+                                ResponseData(204, "")
+                            } else {
+                                val json = Wire.json.encodeToString(JsonElement.serializer(), buildJsonObject {
+                                    put("jsonrpc", "2.0")
+                                    put("id", id)
+                                    put("result", answer)
+                                })
+                                ResponseData(200, json)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                ResponseData(200, """{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":${
+                    Wire.json.encodeToString(kotlinx.serialization.serializer(), e.message ?: "internal error")
+                }}}""")
             }
-            send(ex, 200, Wire.json.encodeToString(JsonElement.serializer(), buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", id)
-                put("result", answer)
-            }))
-        } catch (e: Exception) {
-            // JSON-RPC 프로토콜 에러는 HTTP 레벨(500)이 아닌 200 OK 내의 JSON-RPC 에러 객체로 응답하여
-            // 클라이언트가 전송 계층 장애로 오인하지 않도록 처리한다.
-            send(ex, 200, """{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":${
-                Wire.json.encodeToString(kotlinx.serialization.serializer(), e.message ?: "internal error")
-            }}}""")
+
+            if (responseData != null) {
+                runCatching {
+                    send(ex, responseData.code, responseData.body)
+                }
+            }
+        } finally {
+            try {
+                ex.close()
+            } catch (_: Throwable) {}
         }
     }
 
@@ -123,6 +214,5 @@ class HandServer private constructor(
         ex.responseHeaders.add("Content-Type", "application/json")
         ex.sendResponseHeaders(code, if (bytes.isEmpty()) -1 else bytes.size.toLong())
         if (bytes.isNotEmpty()) ex.responseBody.use { it.write(bytes) }
-        ex.close()
     }
 }

@@ -1627,3 +1627,32 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `readOnly` 및 `readOnlyHint`에 대해 `true` / `false`는 정상 통과.
   - 문자열 `"true"` / `"false"`, 숫자 `0` / `1`, `JsonNull`, `null`, 미선언(누락), 객체(`{}`), 배열(`[]`) 변이 입력에 대해 전수 `IllegalStateException` 거절 검증.
 
+---
+
+## 2026-09-25 JetBrains HandServer 실행기 수명 및 종료 경계 검증 (§6.45)
+
+- **HttpServer 및 ExecutorService 소유권 통합 및 안전한 기동/종료 (`HandServer.kt`)**:
+  - `HandServer`가 `HttpServer`와 `ExecutorService`를 직접 소유하도록 구조 개편.
+  - 기동 factory 오버로드(`createHttp`, `createExecutor`)를 제공하여 자원 생성 단계별 예외 처리 보장:
+    - 실행기 생성, 컨텍스트 등록, 서버 시작 등 기동 중 어느 단계에서 실패하든 기할당된 `HttpServer.stop(0)` 및 `ExecutorService.shutdown()` 호출.
+    - 최초 예외를 원본 보존하여 던지고 정리 실패 예외는 `addSuppressed`로 연쇄 첨부.
+  - `close()` 수명 주기 및 비동기 안전성:
+    - `AtomicBoolean.compareAndSet(false, true)`로 첫 `close()` 호출만 정리를 수행하고 후속 호출은 0회 추가 실행 (멱등성 보장).
+    - `http.stop(0)` 후 성공/실패 무관하게 `executor.shutdown()` 호출 (stop 예외 발생 시 shutdown 예외를 suppressed로 첨부).
+    - View가 EDT에서 close할 수 있으므로 제품 `close()`에는 `awaitTermination`/join 블로킹을 배제하고 즉시 복귀.
+    - `shutdownNow()`나 강제 interrupt를 사용하지 않고 진행 중 작업의 자연스러운 종료 및 큐 작업 접수 중단 원칙 준수.
+
+- **종료 후 도구 실행 차단 및 응답 계층 분리 (`HandServer.handle`)**:
+  - 짧은 `admissionLock`을 도입하여 핸들러 진입 및 dispatch 직전에 `closed` 상태를 원자적 확인.
+  - `close()`가 먼저 락을 획득한 경우 `hand.call` 실행을 0회로 원천 차단하고 `finally`에서 `exchange.close()` 보장.
+  - 파싱/dispatch 예외를 JSON-RPC 에러 응답 객체로 변환하는 영역과 실제 HTTP 응답 전송(`send`) 영역을 명확히 분리.
+  - 응답 전송 실패(`IOException`) 발생 시 같은 exchange에 에러 응답을 재전송하지 않고 안전하게 종료.
+
+- **수명 주기 자동화 검증 (`HandServerLifecycleTest.kt`, `HandServerLifecycleTest`)**:
+  - `1 실제 executor를 보관하여 tools list 실행 후 종료와 awaitTermination을 확인한다`: 실제 loopback 요청 처리 후 `close()` 시 `isShutdown` 및 5초 내 `awaitTermination` 완료, 종료 후 신규 HTTP 연결 거부 실측.
+  - `2 생성 중 executor 생성, context 등록, start 실패 시 각각 정리 횟수와 suppressed를 확인한다`: 3대 실패 단계별 `stop(0)`/`shutdown()` 호출 횟수 및 suppressed 예외 체이닝 전수 검증.
+  - `3 정상 및 동시 중복 close에서 stop과 shutdown이 각 1회이며 실패 시에도 2회째 close는 실행하지 않는다`: 순차/`CyclicBarrier` 동시 호출 및 정리 실패 시 멱등 1회 실행 검증.
+  - `4 실행 중인 작업이 있어도 close는 지연 없이 복귀하고 worker는 interrupt되지 않는다`: 블로킹 작업 중 `server.close()`가 블록 해제 전에 즉시 복귀하며 작업 스레드가 인터럽트되지 않음을 검증.
+  - `5 닫힌 서버와 읽기 도중 닫힌 서버는 도구 실행을 차단하고 이미 시작된 작업은 완료를 허용한다`: 닫힌 후 요청 및 바디 읽기 중 close 발생 시 `hand.call` 0회 차단, 이미 시작된 작업의 1회 완료 보장 검증.
+  - `6 응답 전송 예외 시 재전송 시도 없이 exchange가 닫히며 인증과 메서드 계약이 유지된다`: 헤더/바디 전송 실패 시 1회 전송 시도 후 `exchange.close()` 보장, 인증(403)·메서드(405)·알림(204)·도구목록(200)·도구호출(200) 계약 유지 검증.
+
