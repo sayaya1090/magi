@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -261,4 +263,20 @@ func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir strin
 			Detail: fmt.Sprintf("embedded → %d doctor probe(s)", n)})
 	}
 	return host.DoctorProbes(), report
+}
+
+// runDoctorCmd runs all environment, backend, and plugin diagnostic checks and prints the report to stdout.
+func runDoctorCmd(plat *platform.OS, wd string, cfg config.Config, llm *openai.Client, pluginsDir, modelID, baseURLVal string) int {
+	probes, loadReport := loadDoctorProbes(cfg, plat, wd, pluginsDir, llm)
+	extra := append(loadReport, runPluginDoctorProbes(context.Background(), probes)...)
+	checks := doctorChecks(context.Background(), doctorDeps{
+		ListModels: llm.ListModels,
+		LookPath:   exec.LookPath,
+		Model:      modelID,
+		BaseURL:    baseURLVal,
+		Council:    cfg.Council,
+		Profiles:   cfg.LLM.Profiles,
+		GOOS:       defaultDoctorGOOS(),
+	}, extra...)
+	return printDoctor(os.Stdout, checks)
 }

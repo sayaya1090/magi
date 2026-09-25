@@ -12,8 +12,6 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/idebridge"
 	"io"
 	"os"
-	"os/exec"
-	"os/signal"
 	"os/user"
 	"path/filepath"
 	"regexp"
@@ -22,7 +20,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -393,29 +390,14 @@ func run() int {
 		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
 		stopDaemon  = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
 		mcpTo       = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion: its name, or words from its role. Reach another machine's with ssh")
-		// Who is on the other end of that pipe. Given by the magi that started this process, never
-		// by a model: it is the name the receiving companion sees on anything said through the ear,
-		// and a name that came out of an argument a model wrote would be a companion able to sign
-		// somebody else's messages. Without it the ear is not offered at all.
-		mcpAs = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
-		// The cluster's whole transport, and its whole join.
-		//
-		// --members is ONE exchange: a member list on stdin is folded in, and what this machine
-		// knows comes back on stdout. Symmetric on purpose — joining and refreshing are the same
-		// act, so there is one thing to get right instead of two that drift apart.
+		mcpAs       = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
 		showMembers = flag.Bool("members", false,
 			"print the companions this machine knows about, as JSON; a member list on stdin is merged in first")
 		joinCluster = flag.String("join-cluster", "",
 			"trade member lists with a companion's machine over ssh and join its cluster. Not --join, which reads one workspace's shared settings as a proposal")
-		// The wide pipe for your own machines. Run over ssh by another magi, not by a person: it
-		// carries the daemon's own protocol and nothing else — the whole of it, which is why a key
-		// that is somebody else's gets the narrowed --fleet-door below instead.
 		relaySock = flag.String("relay", "",
 			"pipe stdin and stdout to a daemon socket here, so a magi on another machine can speak "+
 				"the daemon protocol to it; run over ssh, not by hand")
-		// The narrow way in, for a key that is somebody else's. See door.go: the relay above
-		// carries the whole protocol and any socket path, which is right for your own machines and
-		// wrong for anybody else's key.
 		fleetDoorMode = flag.Bool("fleet-door", false,
 			"serve one narrow crossing from another machine: four methods, and only companions "+
 				"this account published; meant as an ssh forced command, not run by hand")
@@ -490,18 +472,16 @@ func run() int {
 		return 2
 	}
 
-	// Update commands exit before the theme probe and any LLM/TUI setup: they are
-	// batch operations that shouldn't pay for terminal detection or model probing.
-	if *doUpdate || *doUpdateCore || *doUpdatePlugins || *pluginInstall != "" {
-		return runUpdateCmd(updateOpts{
-			core:    *doUpdate || *doUpdateCore,
-			plugins: *doUpdate || *doUpdatePlugins,
-			install: *pluginInstall,
-			pin:     *pluginPin,
-			extra:   *pluginsDir,
-		})
-	}
+	pSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "p" {
+			pSet = true
+		}
+	})
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 
+	// Update commands and version exit before the theme probe and any LLM/TUI setup.
 	if *showVersion {
 		fmt.Println(version.String())
 		// Rule 3 of releaseAPIBaseEnv: "where would an update come from" must have an answer a person
@@ -513,15 +493,16 @@ func run() int {
 		announceUpdateSchedule(os.Stdout)
 		return 0
 	}
-	// `-p` given at all (even empty) means headless: an explicit empty prompt should
-	// error clearly, not fall through to the TUI (which then crashes with no TTY when
-	// stdin/stdout is a pipe).
-	pSet := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "p" {
-			pSet = true
-		}
-	})
+	if *doUpdate || *doUpdateCore || *doUpdatePlugins || *pluginInstall != "" {
+		return runUpdateCmd(updateOpts{
+			core:    *doUpdate || *doUpdateCore,
+			plugins: *doUpdate || *doUpdatePlugins,
+			install: *pluginInstall,
+			pin:     *pluginPin,
+			extra:   *pluginsDir,
+		})
+	}
+
 	// A daemon has no UI either, so it takes the headless side of every mode decision below —
 	// permission defaults, the startup update check, the TTY-only boot hooks. Without this it fell
 	// through to the interactive branch and died on /dev/tty, which is how it was found.
@@ -534,9 +515,8 @@ func run() int {
 	// up asking — and why the first fix, which keyed on `*daemonMode` alone, was still too narrow:
 	// `--version`, `--doctor` and `-p` all resolved the theme too, and all of them are things a
 	// launcher runs.
-	drawsTUI := !headless && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
-	isDark := resolveTheme(*theme, drawsTUI, func() bool {
-		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	isDark := resolveTheme(*theme, !headless, func() bool {
+		return term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()) && lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	})
 
 	// Permission defaults differ by mode: headless acts autonomously, the
@@ -562,31 +542,14 @@ func run() int {
 
 	plat := platform.New()
 
-	// Identity and admission, before anything else reads the world: these are one file each and
-	// the answer to "who am I" must not depend on a store, a model or a daemon being reachable.
-	if *whoami || *admitFP != "" || *refuseFP != "" || *fleetListen != "" ||
-		*inviteFor != "" || *joinAddr != "" {
-		return runFleetCmd(fleetOpts{
-			whoami: *whoami, admit: *admitFP, refuse: *refuseFP, as: *admitAs, at: *admitAt,
-			listen: *fleetListen, invite: *inviteFor, join: *joinAddr,
-			token: *joinToken, pin: *joinPin,
-			configDir: plat.ConfigDir(), out: os.Stdout, errOut: os.Stderr,
-		})
-	}
-	// The policy, from a terminal. Here for the same reason the identity commands are: this is the
-	// way in when the console itself will not let somebody in.
-	if *listAccessF || *grantWho != "" || *revokeWho != "" {
-		return runAccessCmd(accessOpts{
-			list: *listAccessF, grant: *grantWho, revoke: *revokeWho,
-			role: *grantRole, scope: *grantScope,
-			configDir: plat.ConfigDir(), out: os.Stdout,
-		})
-	}
-
-	// Trust is answered here, before anything reads the workspace's file: the whole point of the
-	// command is to change what the NEXT run takes from it.
-	if *doTrust || *doUntrust {
-		return runTrustCmd(plat.ConfigDir(), wd, *doUntrust, os.Stdout)
+	// Identity, access policy, and trust commands: handled before config or store is opened.
+	if code, handled := runEarlyAdminCmd(plat, wd, earlyAdminOpts{
+		whoami: *whoami, admitFP: *admitFP, refuseFP: *refuseFP, admitAs: *admitAs, admitAt: *admitAt,
+		fleetListen: *fleetListen, inviteFor: *inviteFor, joinAddr: *joinAddr, joinToken: *joinToken, joinPin: *joinPin,
+		listAccessF: *listAccessF, grantWho: *grantWho, revokeWho: *revokeWho, grantRole: *grantRole, grantScope: *grantScope,
+		doTrust: *doTrust, doUntrust: *doUntrust,
+	}); handled {
+		return code
 	}
 
 	// On first run, drop a commented default config.toml so users have a
@@ -607,8 +570,6 @@ func run() int {
 		return 1
 	}
 
-	explicit := map[string]bool{}
-	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	backend := resolveBackend(explicit, backendFlags{model: *model, baseURL: *baseURL, apiKey: *apiKey},
 		cfg, os.Getenv)
 	modelID, baseURLVal, apiKeyVal := backend.model, backend.baseURL, backend.apiKey
@@ -617,107 +578,18 @@ func run() int {
 	llm := openai.New(baseURLVal, apiKeyVal, llmOpts...) // concrete client: doctor/probe/header calls need it
 
 	if *doctor {
-		// Plugin-contributed probes: load plugins far enough to collect their
-		// checks (no startup handlers → no interactive auth during a diagnostic).
-		// The load report (which sources were scanned, what loaded, what failed)
-		// joins the checks so a missing plugin is diagnosable from the output.
-		probes, loadReport := loadDoctorProbes(cfg, plat, wd, *pluginsDir, llm)
-		extra := append(loadReport, runPluginDoctorProbes(context.Background(), probes)...)
-		checks := doctorChecks(context.Background(), doctorDeps{
-			ListModels: llm.ListModels,
-			LookPath:   exec.LookPath,
-			Model:      modelID,
-			BaseURL:    baseURLVal,
-			Council:    cfg.Council,
-			Profiles:   cfg.LLM.Profiles,
-			GOOS:       defaultDoctorGOOS(),
-		}, extra...)
-		return printDoctor(os.Stdout, checks)
+		return runDoctorCmd(plat, wd, cfg, llm, *pluginsDir, modelID, baseURLVal)
 	}
 
 	// --agents answers the question a directory of sockets cannot: which tree each daemon drives,
 	// whether anyone is home, and what it is doing. A reading-only App over the same store — no LLM
 	// and no tools, because listing must never be able to start a turn.
-	if *joinTo != "" {
-		return joinTeam(os.Stdout, plat.ConfigDir(), wd, *joinTo)
-	}
-	// Serving one companion's knowledge to whoever ran this process.
-	//
-	// Not a daemon and not a port: the caller is an MCP client that started this as a subprocess,
-	// so reaching a companion's notes needs the right to run a program as somebody who can read
-	// their files — the permission that already governs those files. Crossing a machine is ssh's
-	// job, which an operator already knows how to reason about, and it is why there is no listener
-	// here to secure.
-	// One exchange, and the whole of the cluster's transport.
-	//
-	// Anything on stdin is folded in; what this machine knows comes back on stdout. Symmetric, so
-	// joining and refreshing are the same call — and so the far side of an ssh needs nothing but a
-	// magi binary and the shell access somebody already granted.
-	if *showMembers {
-		return exchangeMembers(os.Stdin, os.Stdout, os.Stderr, plat.ConfigDir())
-	}
-	if *joinCluster != "" {
-		return joinTheCluster(os.Stdout, os.Stderr, plat.ConfigDir(), *joinCluster)
-	}
-	// A byte pipe to one daemon, and nothing more. Before anything that reads config or a store:
-	// this deliberately knows nothing except the socket it was given, so there is nothing for a
-	// wrong account or an empty container filesystem to make it get wrong.
-	if *relaySock != "" {
-		return relayHere(os.Stdin, os.Stdout, os.Stderr, *relaySock)
-	}
-	// Same place in the order and for the same reason, with one difference: the door reads which
-	// companion is wanted rather than being told in argv, because under a forced command argv is
-	// this machine's and not the caller's.
-	if *fleetDoorMode {
-		return fleetDoor(os.Stdin, os.Stdout, os.Stderr, plat.ConfigDir())
-	}
-
-	if *mcpTo != "" {
-		return serveMCP(*mcpTo, *mcpAs, store, plat, wd, cfg, *baseURL, *apiKey)
-	}
-
-	// Stopping a companion, which is the same act as stopping the daemon that IS the companion.
-	//
-	// One call, not two. Removing the published record while its daemon kept running would leave a
-	// companion doing work — including scheduled work — that nothing on any screen could account
-	// for. So this asks the daemon to go, and the record, the socket and the schedule go with it.
-	if *stopDaemon {
-		sock := daemon.SocketPath(plat.ConfigDir(), wd)
-		cl, derr := daemon.Dial(sock)
-		if derr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", derr)
-			return 1
-		}
-		defer cl.Close()
-		if err := cl.Shutdown(); err != nil {
-			fmt.Fprintln(os.Stderr, "magi: stopping the daemon:", err)
-			return 1
-		}
-		fmt.Fprintf(os.Stderr, "magi: asked the daemon at %s to stop\n", sock)
-		return 0
-	}
-
-	if *listAgents {
-		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))
-		if lerr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", lerr)
-			return 1
-		}
-		printAgents(os.Stdout, list, plat.ConfigDir())
-		return 0
-	}
-
-	if *listModels {
-		ids, err := llm.ListModels(context.Background())
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "magi: list models:", err)
-			return 1
-		}
-		for _, id := range ids {
-			fmt.Println(id)
-		}
-		return 0
+	if code, handled := runEarlyUtilityCmd(plat, wd, cfg, store, llm, baseURLVal, apiKeyVal, earlyUtilityOpts{
+		joinTo: *joinTo, showMembers: *showMembers, joinCluster: *joinCluster,
+		relaySock: *relaySock, fleetDoorMode: *fleetDoorMode, mcpTo: *mcpTo, mcpAs: *mcpAs,
+		stopDaemon: *stopDaemon, listAgents: *listAgents, listModels: *listModels,
+	}); handled {
+		return code
 	}
 
 	// Model metadata registry. It's populated with the configured model's real
@@ -1160,26 +1032,7 @@ func run() int {
 	// calls that touch its run over the socket. Everything else this process answers itself, from
 	// the same store.
 	if *attachMode {
-		cl, derr := daemon.Dial(sockPath)
-		if derr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", derr)
-			return 1
-		}
-		defer cl.Close()
-		joined, derr := daemon.PublishedSession(sockPath)
-		if derr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", derr)
-			return 1
-		}
-		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
-		// No KillBackgroundProcesses here, and no CloseLSPPool: those belong to the process that
-		// STARTED them. Detaching a viewer must not reap the daemon's work.
-		if err := tui.Run(ctx, attached{App: a, c: &clientBox{c: cl}, sock: sockPath, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
-			session.SessionID(joined), modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
-			fmt.Fprintln(os.Stderr, "magi: attach:", err)
-			return 1
-		}
-		return 0
+		return runAttachMode(ctx, a, host, sockPath, modelID, wd, isDark, cfg, plat)
 	}
 
 	// A restarted daemon reopens the conversation it was on, not a fresh one. The predecessor left
@@ -1234,301 +1087,24 @@ func run() int {
 	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
-		// An update this daemon may still be on trial for, settled BEFORE anything is published or
-		// bound — a rollback here costs nothing, and after the socket is up it costs a client.
-		//
-		// CLIENT_LIFECYCLE §9.3: a candidate is confirmed only once it has come up AND stayed up, so
-		// the generation the update restarted into keeps the build it replaced for StableWindow. A
-		// SECOND start on the same candidate is the failure this exists to catch — the first one did
-		// not last that long, so the previous build goes back on disk and the candidate is refused.
-		daemonExe, _ := os.Executable()
-		// The candidate this process is on trial for, empty when it is not. Read where readiness is
-		// declared, further down — see the note there.
-		watching := ""
-		if daemonExe != "" {
-			// First, a replacement nobody got to record — a process or machine that died between
-			// writing the backup and writing the journal. The binary at that path is then either
-			// the original or a build that never finished its pre-flight, and putting the backup
-			// back is right either way (update.Salvage).
-			if put, serr := update.Salvage(daemonExe); serr != nil {
-				fmt.Fprintln(os.Stderr, "magi: an interrupted update could not be undone:", serr)
-			} else if put != "" {
-				fmt.Fprintf(os.Stderr, "magi: an update was interrupted before it was recorded — "+
-					"the previous build is back at %s. Restarting onto it.\n", put)
-				restartOnExit = true
-				return 0
-			}
-			rec, rerr := update.Resume(daemonExe, version.Version)
-			switch {
-			case rerr != nil:
-				// Not fatal: an unsettled journal is a worse update story, not a reason to refuse
-				// to serve. Said out loud because silence here is how a stuck transaction survives.
-				fmt.Fprintln(os.Stderr, "magi: the update journal could not be settled:", rerr)
-			case rec.RolledBack:
-				fmt.Fprintf(os.Stderr, "magi: %s came up but did not stay up — %s is back on disk. "+
-					"Restarting onto it; it will not be taken again on its own (`magi -update` retries it).\n",
-					rec.To, rec.From)
-				// The FILE is the previous build now; this process is still the image of the one
-				// that fell over, so the only way onto the restored build is to re-exec.
-				restartOnExit = true
-				return 0
-			case rec.Watching:
-				// A deliberate stop inside the window is not a build falling over. Without this,
-				// stopping a daemon a minute after an update would undo it on the next start.
-				defer func() { _ = update.LeftCleanly(daemonExe) }()
-				// ⚠ **The clock does NOT start here.** This is before the socket is bound and before
-				// the record is published — a build that never manages to serve would still sit out
-				// its sixty seconds and be confirmed, which is the opposite of what the window is
-				// for (review R11). It starts below, once this daemon is actually listening.
-				watching = rec.To
-			}
-		}
-		// Join the owning lineage BEFORE publishing: the record is written once, right below, and
-		// the owner id has to be in it. A client reads the record to learn whether the daemon it
-		// found is the one it owns, and a field filled in afterwards would be absent exactly
-		// during the window that client is looking.
-		if *clientOwned {
-			daemon.AdoptOwner()
-		}
-		howMany, whatOf := countCan(store, wd)
-		unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
-			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role,
-				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Can: howMany, Does: whatOf})
-		if perr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", perr)
-			return 1
-		}
-		defer unpublish()
-		// Ctrl-C stops it the way a service stops: cancel, let the run unwind, drop the socket.
-		dctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		fmt.Fprintf(os.Stderr, "magi: daemon on %s (session %s) — attach with `magi --attach` in this directory\n",
-			sockPath, sid)
-		// The stable window, started from READINESS rather than from process start: the socket is
-		// bound and the record is published, so what this measures is a daemon that came up and
-		// stayed up rather than one that merely got this far (review R11).
-		if watching != "" {
-			go func(candidate string) {
-				select {
-				case <-dctx.Done():
-				case <-time.After(update.StableWindow):
-					if cerr := update.Confirm(daemonExe, candidate); cerr != nil {
-						fmt.Fprintln(os.Stderr, "magi: could not confirm the update:", cerr)
-					}
-				}
-			}(watching)
-		}
-		// Scheduled work starts here and nowhere else.
-		//
-		// This is the only call to RunCron in the tree, and the placement is the feature: three
-		// terminals open in one repo would otherwise be three companions all running the nightly
-		// audit, against the same files, at the same second. An interactive session reads the same
-		// jobs so its editor can show them, and fires none of them.
-		//
-		// On dctx, so Ctrl-C stops the schedule with everything else. Its own goroutine because
-		// RunCron blocks until then, and Serve is what this process is here to do.
-		// Re-read from disk rather than closing over the config loaded at startup: the schedule
-		// tool writes config.toml and then calls ReloadCron, and a closure over a snapshot would
-		// hand the scheduler the jobs as they were when the daemon booted.
-		loadJobs := func() map[string]config.CronJob {
-			g, lerr := config.Load(plat.ConfigDir())
-			if lerr != nil {
-				return nil
-			}
-			if proj, perr := config.Load(filepath.Join(wd, ".magi")); perr == nil {
-				// Trust is re-read here too: a workspace taken off the list should stop scheduling
-				// at the next reload rather than at the next restart.
-				g, _ = mergeProjectConfigSaying(g, proj, config.Trusted(plat.ConfigDir(), wd))
-			}
-			return g.Cron
-		}
-		// Its own cancel, tripped after Serve returns. dctx alone would not do it: a shutdown asked
-		// for over the socket ends Serve without cancelling anything, and the schedule would go on
-		// firing until the process happened to exit. "Stopping a companion stops its unattended
-		// work" is the whole point of the socket call, so it is made to happen here rather than
-		// left to process teardown.
-		cronCtx, stopCron := context.WithCancel(dctx)
-		defer stopCron()
-		go a.RunCron(cronCtx, wd, loadJobs, func(line string) {
-			fmt.Fprintln(os.Stderr, "magi:", line)
+		return runDaemonMode(daemonModeParams{
+			ctx:           ctx,
+			a:             a,
+			plat:          plat,
+			cfg:           cfg,
+			wd:            wd,
+			sockPath:      sockPath,
+			sid:           sid,
+			bound:         bound,
+			daemonMode:    *daemonMode,
+			clientOwned:   *clientOwned,
+			noUpdateCheck: *noUpdateCheck,
+			store:         store,
 		})
-		// Staying in the cluster, on the same lifetime as the schedule and for the same reasons: a
-		// companion that has been stopped should not go on reaching out to other machines, and an
-		// interactive magi should never reach out at all.
-		//
-		// Started after Publish, which matters — a round sends what this machine knows about
-		// itself, and before publishing that does not include this daemon.
-		go gossipCluster(cronCtx, plat.ConfigDir(), sshTrade, func(line string) {
-			fmt.Fprintln(os.Stderr, "magi: cluster:", line)
-		})
-		serving := bound
-		bound = nil // Serve owns the socket from here, including releasing the claim
-		// ⚠ **The owner's pipe, and the only thing in this tree that carries lifetime authority.**
-		//
-		// The client that started this daemon holds the write end of its stdin and hands it to
-		// nobody. When that process goes — closed, crashed, its extension host killed — the
-		// operating system closes the last write end and this read sees EOF. Nothing else produces
-		// that: a pipe cannot be guessed, copied out of a file, or read off another process's
-		// environment, which is why the ids beside it (owner, instance) are tracking only.
-		//
-		// Stop() rather than a new ending, so an owner going away unwinds down the SAME path as
-		// the `shutdown` door — one spelling of "this daemon is stopping", including the flag that
-		// records it as asked for rather than as a signal.
-		//
-		// Nothing else reads stdin in this mode: resolvePrompt touches it only for `-p -`, which a
-		// daemon does not take. A daemon started WITHOUT this flag never gets here, so every
-		// non-owned lifetime is exactly what it was.
-		if *clientOwned {
-			go func() {
-				// Every ending of this read means the same thing — the owner is no longer holding
-				// the other end — so the daemon stops either way. The error is still named: a pipe
-				// that FAILED and one that closed are different events to whoever reads the log
-				// afterwards, and a daemon that stopped for an I/O fault with nothing said about it
-				// looks exactly like a window that was closed.
-				if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
-					fmt.Fprintln(os.Stderr, "magi: the owner's pipe failed:", err)
-				}
-				serving.StopBecause("the owner closed its pipe")
-			}()
-		}
-		// The daemon's self-update loop: on a schedule it picks up a new release, commits it with
-		// rollback, and restarts onto it once idle. --daemon only, so a headless bench never reaches
-		// it; and only when [update] auto is on and the operator has not opted out. Same lifetime as
-		// the schedule and gossip — a stopped companion stops reaching out, including for updates.
-		if cfg.Update.AutoOn() && !*noUpdateCheck {
-			// The loop refuses a dev build and an unknown exe path itself (and says so once); the
-			// error is deliberately not fatal — a daemon that cannot self-update still serves.
-			exe := daemonExe
-			// running() is true while any session has a turn in flight — App.Running returns the
-			// running session and a bool; only the bool matters here — OR a meeting round is being
-			// composed, which the run states deliberately do not cover (MeetingActive).
-			busy := func() bool { return busyNow(a) }
-			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, sockPath, busy, a.HoldForUpdate, serving.Restart)
-		}
-		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
-		// closed over rather than taken from the request: a method that let a caller name the
-		// directory would be a way to run commands anywhere on this machine from a page.
-		taking := handover{work: a, at: newWhere(sid), workdir: wd, configDir: plat.ConfigDir(),
-			receipts: daemon.NewReceipts(), mine: newSideSessions(), rooms: newSideSessions(),
-			minutes: newSideSessions(),
-			// What it is carrying goes into this companion's own published record, which is where
-			// every roster reads it from — including one on another machine, a gossip round later.
-			queued: newWaiting(func(n int, handling bool) {
-				if aerr := daemon.Announce(sockPath, n, handling); aerr != nil {
-					fmt.Fprintln(os.Stderr, "magi:", aerr)
-				}
-			}),
-			// Kept beside the socket and outliving the process, unlike the record above: the week
-			// after a companion was killed is when somebody asks whether it was overloaded.
-			note: func(full bool, ahead int) {
-				if nerr := daemon.NoteLoad(sockPath, cfg.Companion.Name, full, ahead); nerr != nil {
-					fmt.Fprintln(os.Stderr, "magi:", nerr)
-				}
-			}}
-		// Older than the window is history, and history that outlives its relevance gets read as
-		// current. Once at startup is often enough for a file that grows by a line per request.
-		if perr := daemon.PruneLoad(sockPath, time.Now().Add(-daemon.LoadKept)); perr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", perr)
-		}
-		// Starting queued work as the workspace frees up, on the same lifetime as the schedule and
-		// the gossip: a companion that has been stopped should not pick up somebody's next piece.
-		go taking.run(cronCtx)
-		// What this companion is doing, into its own record, so it can travel.
-		//
-		// Only this process can say it: a console works the state of the companions in its own
-		// directory out from a dial, and nothing dials the ones on other machines — which is why a
-		// roster used to show them as "elsewhere", a place, in the column about what things are
-		// doing. Gossip already carries a sighting every round; this is what rides along with it,
-		// the way a node's application state rides Cassandra's.
-		//
-		// Polled rather than hooked into the turn: "working" is App.Running and "waiting" is the
-		// engine's pending ask, both cheap to read and both changing under a dozen code paths that
-		// would each have to remember to say so. NoteState writes only when the answer changed, so
-		// a companion sitting idle rewrites nothing and wakes no reader.
-		go func() {
-			tick := time.NewTicker(3 * time.Second)
-			defer tick.Stop()
-			for {
-				select {
-				case <-cronCtx.Done():
-					return
-				case <-tick.C:
-					if serr := daemon.NoteState(sockPath, companionState(a, sid)); serr != nil {
-						fmt.Fprintln(os.Stderr, "magi:", serr)
-					}
-				}
-			}
-		}()
-		serveErr := serving.Serve(dctx, daemonEngine{
-			App: a, workdir: wd, handover: taking, configDir: plat.ConfigDir(),
-			republish: func(to session.SessionID) error { return daemon.Moved(sockPath, to) },
-			card: func() mcpserve.Card {
-				return mcpserve.Card{
-					Name: nameOr(cfg.Companion.Name, wd), Role: cfg.Companion.Role,
-					Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Workdir: wd,
-					Skills: a.Skills(wd), Reach: reachableServers(wd),
-				}
-			}})
-		stopCron() // whichever way Serve ended, the schedule ends with it
-		if serveErr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", serveErr)
-			return 1
-		}
-		// Say that it stopped, and why.
-		//
-		// A clean shutdown is not an error, so nothing here printed anything — and the log of a
-		// daemon that has died is then identical to the log of one still serving. Measured while
-		// chasing exactly that: a daemon that stopped three times in one session left three
-		// startup lines and no ending, so the last thing its file said was that it was listening.
-		// Whoever reads it next is reading a sentence that stopped being true hours ago.
-		fmt.Fprintf(os.Stderr, "magi: daemon on %s stopped — %s\n", sockPath, serving.Ending())
-		// Relaunch onto the new binary rather than exit, when a client asked the daemon to restart
-		// (a self-update). main() does the re-exec after this function returns, so the deferred
-		// unpublish/socket release above run first — see restartOnExit. The CURRENT conversation
-		// (taking.at follows Resume) rides along so the successor reopens it instead of minting an
-		// empty one.
-		restartOnExit = serving.Restarting()
-		if restartOnExit {
-			restartSession = string(taking.at.now())
-		}
-		// Its own background commands and language servers are this process's to reap, unlike an
-		// attached viewer's.
-		builtin.KillBackgroundProcesses()
-		builtin.CloseLSPPool()
-		return 0
 	}
 
 	if !headless {
-		// Startup update check — interactive TTY only (bench/headless/pipe never
-		// reach here or fail the isTTY gate), so a benchmark run makes no network
-		// call and gets no surprise install. A required (minor/major) update
-		// installs and exits; a patch bump only prints a banner and continues.
-		if shouldCheckUpdates(headless, term.IsTerminal(os.Stdout.Fd()), *noUpdateCheck) {
-			exe, _ := os.Executable()
-			if maybeUpdateOnStartup(ctx, plat.ConfigDir(), version.Version, exe, os.Stdout) {
-				return 0
-			}
-		}
-		// Boot-time composition seam: forks append Go logic (bundled-plugin refresh,
-		// periodic update loop, …) that runs once the interactive session is committed
-		// to launching. No-op unless something registered a hook in init().
-		for _, h := range onInteractiveStart {
-			h(ctx, plat.ConfigDir())
-		}
-		// Apply config color-theme overrides (merged over the NERV/MAGI defaults).
-		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
-		// Hot-reload plugins while the session is live.
-		_ = host.Watch(ctx)
-		// Interactive sessions clean up their background commands on exit so a dev
-		// server the agent started doesn't leak past the TUI. Headless (-p) runs
-		// deliberately skip this — a launched server must survive for post-run steps.
-		defer builtin.KillBackgroundProcesses()
-		defer builtin.CloseLSPPool() // twin of the above: reap warm language servers on exit
-		if err := tui.Run(ctx, a, host, sid, modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
-			fmt.Fprintln(os.Stderr, "magi: tui:", err)
-			return 1
-		}
-		return 0
+		return runInteractiveMode(ctx, a, host, sid, modelID, wd, isDark, cfg, plat, *noUpdateCheck)
 	}
 
 	// One-shot headless run: stream fact events to stdout, errors to stderr.

@@ -3,12 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
+	"github.com/sayaya1090/magi/internal/adapter/tui"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -651,4 +656,28 @@ func daemonLostEvent(sid session.SessionID) event.Event {
 		SessionID: sid, Type: event.TypeError, Data: d,
 		Actor: event.Actor{Kind: event.ActorSystem, ID: "attach"},
 	}
+}
+
+// runAttachMode connects an interactive terminal UI to a daemon running in this workspace.
+func runAttachMode(ctx context.Context, a *app.App, host *pluginlua.Host, sockPath, modelID, wd string, isDark bool, cfg config.Config, plat port.Platform) int {
+	cl, derr := daemon.Dial(sockPath)
+	if derr != nil {
+		fmt.Fprintln(os.Stderr, "magi:", derr)
+		return 1
+	}
+	defer cl.Close()
+	joined, derr := daemon.PublishedSession(sockPath)
+	if derr != nil {
+		fmt.Fprintln(os.Stderr, "magi:", derr)
+		return 1
+	}
+	tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
+	// No KillBackgroundProcesses here, and no CloseLSPPool: those belong to the process that
+	// STARTED them. Detaching a viewer must not reap the daemon's work.
+	if err := tui.Run(ctx, attached{App: a, c: &clientBox{c: cl}, sock: sockPath, seen: &jobsSeen{sid: session.SessionID(joined)}}, host,
+		session.SessionID(joined), modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
+		fmt.Fprintln(os.Stderr, "magi: attach:", err)
+		return 1
+	}
+	return 0
 }
