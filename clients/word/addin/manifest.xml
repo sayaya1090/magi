@@ -39,7 +39,7 @@
   <Version>0.1.0.0</Version>
   <ProviderName>magi</ProviderName>
   <DefaultLocale>ko-KR</DefaultLocale>
-  <DisplayName DefaultValue="Magi(AI Assistant)" />
+  <DisplayName DefaultValue="MAGI(AI Assistant)" />
   <Description DefaultValue="열려 있는 문서를 읽고, 사용자가 지시한 편집을 수행하며, 변경 사항을 안내합니다." />
   <!--
     아이콘 주소의 /v N/ 칸은 **캐시 깨기**다. Office 는 애드인 자원을 주소의 해시로 캐시한다

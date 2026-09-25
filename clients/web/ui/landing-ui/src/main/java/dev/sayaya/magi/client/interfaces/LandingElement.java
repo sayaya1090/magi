@@ -56,7 +56,7 @@ public class LandingElement {
     private HTMLElement bar(Tongue t) {
         HTMLElement bar = el("header");
         bar.id = "top";
-        HTMLElement brand = link("#hero", "magi");
+        HTMLElement brand = link("#hero", "MAGI");
         brand.className = "brand";
         bar.append(brand);
         HTMLElement doors = el("nav");
@@ -102,7 +102,7 @@ public class LandingElement {
         HTMLElement sec = section("hero");
         sec.append(kicker(word("hero.eyebrow")));
         HTMLElement name = el("h1");
-        name.textContent = "magi";
+        name.textContent = "MAGI";
         sec.append(name);
         sec.append(para("tagline", word("hero.tagline")));
         sec.append(para("lede", word("hero.lede")));

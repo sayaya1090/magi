@@ -21,7 +21,7 @@ internal class LandingPageTest : GwtTestSpec({
                 page.locator("#page > #top").count() shouldBe 1
                 page.locator("#top .doors a").count() shouldBe 6
                 page.locator("main > section").count() shouldBe 8
-                page.locator("#hero h1").textContent() shouldBe "magi"
+                page.locator("#hero h1").textContent() shouldBe "MAGI"
             }
             Then("카운슬은 셋이고, 저마다 제 색의 클래스를 입는다") {
                 page.locator("#council .member").count() shouldBe 3

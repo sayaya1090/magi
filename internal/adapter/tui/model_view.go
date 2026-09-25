@@ -32,17 +32,17 @@ func (m Model) View() tea.View {
 		// Council detail view: a clickable breadcrumb back to the transcript.
 		c := m.councilColor(m.councilDetail.Member)
 		headLine = styleClickable.Render("‹ back") + styleHeader.Render("   ") +
-			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
+			styleBrand.Render("✦ MAGI") + styleHeader.Render(" › ") +
 			lipgloss.NewStyle().Foreground(c).Bold(true).Render("⚖ "+m.councilDetail.Member+" verdict")
 	} else if vp := m.viewedPane(); m.zoom && vp != nil {
 		// Zoom view: the header is a clickable breadcrumb back to the overview.
 		p := vp
 		c := m.paneColorOf(p)
 		headLine = styleClickable.Render("‹ back") + styleHeader.Render("   ") +
-			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
+			styleBrand.Render("✦ MAGI") + styleHeader.Render(" › ") +
 			lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(max(20, m.width-24))) + "  " + m.paneStatus(p)
 	} else {
-		headLine = styleBrand.Render("✦ magi") +
+		headLine = styleBrand.Render("✦ MAGI") +
 			styleHeader.Render("   model "+m.model+"   ") +
 			permChip(m.app.Permission())
 		if m.plannerMode != "" {

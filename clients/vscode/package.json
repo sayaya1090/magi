@@ -1,10 +1,11 @@
 {
   "name": "magi",
-  "displayName": "magi",
+  "displayName": "MAGI",
   "description": "Talk to the magi companion that runs in this workspace.",
   "version": "0.2.0",
   "publisher": "sayaya1090",
   "license": "Apache-2.0",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/sayaya1090/magi"
@@ -25,14 +26,14 @@
       "panel": [
         {
           "id": "magi",
-          "title": "magi",
-          "icon": "$(hubot)"
+          "title": "MAGI",
+          "icon": "media/icon.svg"
         }
       ],
       "secondarySidebar": [
         {
           "id": "magi-side",
-          "title": "magi",
+          "title": "MAGI",
           "icon": "$(pulse)"
         }
       ]
@@ -196,7 +197,7 @@
     "submenus": [
       {
         "id": "magi.editorMenu",
-        "label": "magi"
+        "label": "MAGI"
       }
     ],
     "menus": {
@@ -368,7 +369,7 @@
       ]
     },
     "configuration": {
-      "title": "magi",
+      "title": "MAGI",
       "properties": {
         "magi.openConversation": {
           "type": "string",

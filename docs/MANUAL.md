@@ -1,4 +1,4 @@
-# magi — User Manual
+# MAGI — User Manual
 
 [English](MANUAL.md) · [한국어](MANUAL.ko.md) · [↑ Docs](README.md)
 

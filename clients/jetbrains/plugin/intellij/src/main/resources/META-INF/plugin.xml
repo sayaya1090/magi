@@ -5,7 +5,7 @@
 -->
 <idea-plugin url="https://github.com/sayaya1090/magi/tree/main/clients/jetbrains">
     <id>dev.sayaya.magi.ide</id>
-    <name>magi</name>
+    <name>MAGI</name>
     <vendor email="codemate.team@gmail.com" url="https://github.com/sayaya1090/magi">sayaya</vendor>
 
     <!--

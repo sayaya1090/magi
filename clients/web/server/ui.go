@@ -76,7 +76,7 @@ func consolePage(tree fs.FS) string {
 // everything this console fetches still answers, so a demo emitter or a peer console pointed at
 // this process works exactly as before.
 const noConsole = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>magi console — not in this build</title>
+<html lang="en"><head><meta charset="utf-8"><title>MAGI console — not in this build</title>
 <style>
   :root { color-scheme: dark light }
   body { font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 3rem auto; max-width: 44rem; padding: 0 1.5rem }

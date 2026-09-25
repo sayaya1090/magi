@@ -792,9 +792,9 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - 제품 웹뷰의 Content Security Policy(`default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};`)를 완화하지 않고, Playwright의 CDP 세션 기반 스크립트 실행 파이프라인을 통해 엄격한 보안 경계를 유지한 채 감사를 수행합니다.
 
 2. **접근성 마크업 및 명도 대비 기본 개선 (`src/web/chat_html.ts`):**
-   - **문서 구조 및 언어 속성 (`document-title`, `html-has-lang`):** `<html lang="ko">` 속성을 명시하고 `<head>` 내에 `<title>Magi Chat</title>`을 추가하여 문서 기본 식별성을 확보했습니다.
+   - **문서 구조 및 언어 속성 (`document-title`, `html-has-lang`):** `<html lang="ko">` 속성을 명시하고 `<head>` 내에 `<title>MAGI Chat</title>`을 추가하여 문서 기본 식별성을 확보했습니다.
    - **단일 메인 랜드마크 (`landmark-one-main`):** 스크롤 본문 컨테이너를 `<div id="scroll">`에서 `<main id="scroll">`로 전환하여 페이지 내 유일한 main 랜드마크를 구성했습니다.
-   - **레벨 1 헤딩 (`page-has-heading-one`):** `.sr-only` 유틸리티 CSS 클래스를 정의하고 `<main id="scroll">`의 첫 자식으로 `<h1 class="sr-only">Magi Chat</h1>`을 배치하여 시각적 디자인 변경 없이 스크린리더를 위한 최상위 헤딩을 제공했습니다.
+   - **레벨 1 헤딩 (`page-has-heading-one`):** `.sr-only` 유틸리티 CSS 클래스를 정의하고 `<main id="scroll">`의 첫 자식으로 `<h1 class="sr-only">MAGI Chat</h1>`을 배치하여 시각적 디자인 변경 없이 스크린리더를 위한 최상위 헤딩을 제공했습니다.
    - **모든 컨텐츠의 랜드마크 수용 (`region`):**
      - 상단 툴바: `<header id="topbar" aria-label="도구 모음">`
      - 정보 카드: `<aside id="info" aria-label="컴패니언 정보" hidden></aside>`

@@ -16,8 +16,8 @@ var Sprite = ""
 
 // Manifest is what a phone reads when somebody adds this console to their home screen.
 const Manifest = `{
-  "name": "magi",
-  "short_name": "magi",
+  "name": "MAGI",
+  "short_name": "MAGI",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

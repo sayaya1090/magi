@@ -99,7 +99,7 @@ func TestCellWidthDecorWide(t *testing.T) {
 	}{
 		{"ascii", 0},
 		{"‹ back", 1},   // one guillemet
-		{"✦ magi ⚖", 2}, // brand + council
+		{"✦ MAGI ⚖", 2}, // brand + council
 		{"‹›✦✻⚖⇅", 6},   // all six
 		{"·—→", 0},      // ambiguous set is NOT in decorWide (handled separately)
 	}

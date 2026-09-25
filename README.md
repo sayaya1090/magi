@@ -1,6 +1,6 @@
 <div align="center">
 
-# magi
+# MAGI
 
 ### A persistent coding agent that never drops work when you close the window or switch tools
 
