@@ -1744,5 +1744,29 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     7. 빈 new 삭제: `error = false`, 해당 문자열 제거 확인.
     8. 실제 loopback `HandServer` 연동 및 EDT 펌프 비동기 호출을 통해 old 미발견 시 `result.isError = true` 전달 실측 확인.
 
+---
 
+## 6.48 JetBrains 편집 호스트 검증 보완 (2026-09-25)
 
+- **비텍스트 거절의 조건 없는 검사 (`HeadlessIdeTest.kt`)**:
+  - `binary.bin` 파일의 조건부 `if` 건너뜀 구조를 제거하고 플랫폼이 공식 바이너리로 인식하는 PNG 확장자 fixture(`binary.png`) 도입.
+  - `binVf.fileType.isBinary == true` 및 `FileDocumentManager.getDocument(binVf) == null` 조건을 무조건적으로 단언.
+  - `Hand(IdeHand(project)).call("apply_edit", ...)` 실행 시 `error == true` 및 `not a text file` 사유 전달을 검증.
+  - 도구 호출 전후 바이너리 파일 바이트(`binFile.readBytes()`)가 100% 동일하게 보존됨을 실측 단언.
+  - 생성된 디스크 및 가상 파일은 테스트 외곽 `finally`에서 예외 발생 여부와 무관하게 안전 정리.
+
+- **HTTP 대기와 자원 정리에 기한 부여 및 타임아웃 실패 검증 (`HeadlessIdeTest.kt`)**:
+  - `CompletableFuture.supplyAsync` 공용 풀 및 무제한 `while (!future.isDone)` 루프 제거.
+  - 테스트 소유 `Executors.newSingleThreadExecutor()` 및 전용 HTTP 교환 헬퍼 `executeHttpExchange` 구축.
+  - `connectTimeout` / `readTimeout`을 5초로 명시 설정하고 worker `finally`에서 `disconnect()` 보장.
+  - 외곽 EDT 펌프에 10초 기한(`deadlineNanos`)을 부여하여 기한 초과 시 명시적 실패 처리 (`fail`).
+  - `connection`을 `AtomicReference`에 보관하여 테스트 외곽 `finally`에서도 `server.close()`, `conn.disconnect()`, `future.cancel(true)`, `executor.shutdownNow()`, `executor.awaitTermination(5, SECONDS)`를 독립 try-catch로 전수 실행 보장.
+  - 실패 경로 검증: 래치로 응답을 보류하는 무응답 로컬 HTTP 엔드포인트를 띄우고 주입된 짧은 타임아웃(400ms)으로 `executeHttpExchange` 호출 시 `IOException`으로 안전하게 실패하고 executor가 정상 종료됨을 실측 검증 (`test IdeHand HTTP 대기 helper는 무응답 endpoint에서 타임아웃으로 실패하고 자원을 정리한다`).
+
+- **실제 Undo/Redo 왕복 검증 (`HeadlessIdeTest.kt`)**:
+  - `test IdeHand replace modifies document with single undo`: 단순 치환 후 문서 내용 검사에서 실제 IntelliJ 에디터 Undo/Redo 수명 검증으로 고도화.
+  - `FileEditorManager.getInstance(project).openFile(vf, true)`로 실제 `FileEditor` 인스턴스를 획득.
+  - `IdeHand.replace` 호출 후 `UndoManager.getInstance(project).isUndoAvailable(editor)`가 `true`임을 확인.
+  - EDT에서 `undoManager.undo(editor)`를 호출하여 단 1회의 Undo로 치환 전 전문이 정확히 복원됨을 검증.
+  - 이어서 `undoManager.isRedoAvailable(editor)`가 `true`임을 확인하고 `undoManager.redo(editor)`를 호출하여 단 1회의 Redo로 치환 후 전문이 정확히 복원됨을 검증.
+  - 독립 fixture(`UndoTarget.kt`)를 사용하여 타 테스트의 Undo 스택과 격리하고 `finally`에서 `closeFile` 및 파일 정리 완료.

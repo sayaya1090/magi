@@ -1510,20 +1510,42 @@ class HeadlessIdeTest : BasePlatformTestCase() {
 
     fun `test IdeHand replace modifies document with single undo`() {
         val base = java.io.File(project.basePath!!).apply { mkdirs() }
-        val ioFile = java.io.File(base, "Editable.kt").apply { writeText("val count = 1\n") }
+        val ioFile = java.io.File(base, "UndoTarget.kt").apply { writeText("val initial = 10\n") }
         val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
         assertNotNull(vf)
-        val hand = IdeHand(project)
-        val res = hand.replace("Editable.kt", "val count = 1", "val count = 2", false)
-        assertTrue(res.contains("replaced 1 occurrence(s)"))
-        val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf!!)
-        assertNotNull(doc)
-        assertEquals("val count = 2\n", doc!!.text)
+        val fileEditorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+        val editors = fileEditorManager.openFile(vf!!, true)
+        assertTrue("FileEditor must be opened", editors.isNotEmpty())
+        val editor = editors[0]
+        val undoManager = com.intellij.openapi.command.undo.UndoManager.getInstance(project)
+        try {
+            val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf)
+            assertNotNull(doc)
+            assertEquals("val initial = 10\n", doc!!.text)
+
+            val hand = IdeHand(project)
+            val res = hand.replace("UndoTarget.kt", "val initial = 10", "val updated = 20", false)
+            assertTrue(res.contains("replaced 1 occurrence(s)"))
+            assertEquals("val updated = 20\n", doc.text)
+
+            assertTrue("undo must be available after replace", undoManager.isUndoAvailable(editor))
+            undoManager.undo(editor)
+            assertEquals("치환 전 전문이 한 번의 Undo로 복원되어야 한다", "val initial = 10\n", doc.text)
+
+            assertTrue("redo must be available after undo", undoManager.isRedoAvailable(editor))
+            undoManager.redo(editor)
+            assertEquals("치환 후 전문이 한 번의 Redo로 복원되어야 한다", "val updated = 20\n", doc.text)
+        } finally {
+            fileEditorManager.closeFile(vf)
+            ioFile.delete()
+        }
     }
 
     fun `test IdeHand apply_edit 거절 시 도구 오류와 원본 문서 보존 및 loopback HTTP isError 전달`() {
         val base = java.io.File(project.basePath!!).apply { mkdirs() }
         val ioFile = java.io.File(base, "EditTarget.kt").apply { writeText("original alpha beta alpha\n") }
+        val binBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val binFile = java.io.File(base, "binary.png").apply { writeBytes(binBytes) }
         val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
         assertNotNull(vf)
         val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf!!)
@@ -1531,106 +1553,106 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         val initialStamp = doc!!.modificationStamp
         val hand = Hand(IdeHand(project))
 
-        // 1. old 미발견: error=true, 원래 거절 사유, Document.text와 modificationStamp 보존
-        val resMissing = hand.call("apply_edit", buildJsonObject {
-            put("path", "EditTarget.kt")
-            put("old", "gamma_missing")
-            put("new", "replacement")
-        })
-        assertTrue(resMissing.error)
-        assertTrue(resMissing.text.contains("that text is not in"))
-        assertEquals("original alpha beta alpha\n", doc.text)
-        assertEquals(initialStamp, doc.modificationStamp)
+        var server: HandServer? = null
+        val connRef = java.util.concurrent.atomic.AtomicReference<java.net.HttpURLConnection?>()
+        val futureRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Pair<Int, String>>?>()
+        val executorRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ExecutorService?>()
 
-        // 2. 다중 일치 + all=false: error=true, 다중 발견 안내, Document.text와 modificationStamp 보존
-        val resMulti = hand.call("apply_edit", buildJsonObject {
-            put("path", "EditTarget.kt")
-            put("old", "alpha")
-            put("new", "replacement")
-            put("replaceAll", "false")
-        })
-        assertTrue(resMulti.error)
-        assertTrue(resMulti.text.contains("appears 2 times"))
-        assertTrue(resMulti.text.contains("narrow it, or pass replaceAll"))
-        assertEquals("original alpha beta alpha\n", doc.text)
-        assertEquals(initialStamp, doc.modificationStamp)
-
-        // 3. 없는 파일: error=true, fake 성공 문자열 없음
-        val resNoFile = hand.call("apply_edit", buildJsonObject {
-            put("path", "NoSuchFile.kt")
-            put("old", "alpha")
-            put("new", "beta")
-        })
-        assertTrue(resNoFile.error)
-        assertTrue(resNoFile.text.contains("no such file in this project"))
-
-        // 4. 비텍스트 문서: binary 파일 생성 및 getDocument=null 시 error=true 검증
-        val binFile = java.io.File(base, "binary.bin").apply { writeBytes(byteArrayOf(0, 1, 2, -1, -2)) }
-        val binVf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(binFile)
-        if (binVf != null) {
-            val binDoc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(binVf)
-            if (binDoc == null) {
-                val resBin = hand.call("apply_edit", buildJsonObject {
-                    put("path", "binary.bin")
-                    put("old", "anything")
-                    put("new", "other")
-                })
-                assertTrue(resBin.error)
-                assertTrue(resBin.text.contains("not a text file"))
-            }
-        }
-
-        // 5. 정상 단일 치환: error=false, 문서 변경 및 Undo 스택 등록 확인
-        val resSingle = hand.call("apply_edit", buildJsonObject {
-            put("path", "EditTarget.kt")
-            put("old", "beta")
-            put("new", "BETA")
-        })
-        assertFalse(resSingle.error)
-        assertTrue(resSingle.text.contains("replaced 1 occurrence(s)"))
-        assertEquals("original alpha BETA alpha\n", doc.text)
-        assertTrue(doc.modificationStamp > initialStamp)
-
-        // 6. all=true 다중 치환 성공
-        val resAll = hand.call("apply_edit", buildJsonObject {
-            put("path", "EditTarget.kt")
-            put("old", "alpha")
-            put("new", "OMEGA")
-            put("replaceAll", "true")
-        })
-        assertFalse(resAll.error)
-        assertTrue(resAll.text.contains("replaced 2 occurrence(s)"))
-        assertEquals("original OMEGA BETA OMEGA\n", doc.text)
-
-        // 7. 빈 new 삭제 성공
-        val resDel = hand.call("apply_edit", buildJsonObject {
-            put("path", "EditTarget.kt")
-            put("old", " BETA")
-            put("new", "")
-        })
-        assertFalse(resDel.error)
-        assertEquals("original OMEGA OMEGA\n", doc.text)
-
-        // 8. 실제 loopback HandServer 연동 및 old 미발견 시 result.isError=true 확인
-        val server = HandServer.start(hand)
         try {
+            // 1. old 미발견: error=true, 원래 거절 사유, Document.text와 modificationStamp 보존
+            val resMissing = hand.call("apply_edit", buildJsonObject {
+                put("path", "EditTarget.kt")
+                put("old", "gamma_missing")
+                put("new", "replacement")
+            })
+            assertTrue(resMissing.error)
+            assertTrue(resMissing.text.contains("that text is not in"))
+            assertEquals("original alpha beta alpha\n", doc.text)
+            assertEquals(initialStamp, doc.modificationStamp)
+
+            // 2. 다중 일치 + all=false: error=true, 다중 발견 안내, Document.text와 modificationStamp 보존
+            val resMulti = hand.call("apply_edit", buildJsonObject {
+                put("path", "EditTarget.kt")
+                put("old", "alpha")
+                put("new", "replacement")
+                put("replaceAll", "false")
+            })
+            assertTrue(resMulti.error)
+            assertTrue(resMulti.text.contains("appears 2 times"))
+            assertTrue(resMulti.text.contains("narrow it, or pass replaceAll"))
+            assertEquals("original alpha beta alpha\n", doc.text)
+            assertEquals(initialStamp, doc.modificationStamp)
+
+            // 3. 없는 파일: error=true, fake 성공 문자열 없음
+            val resNoFile = hand.call("apply_edit", buildJsonObject {
+                put("path", "NoSuchFile.kt")
+                put("old", "alpha")
+                put("new", "beta")
+            })
+            assertTrue(resNoFile.error)
+            assertTrue(resNoFile.text.contains("no such file in this project"))
+
+            // 4. 비텍스트 문서: PNG 파일 생성 및 fileType.isBinary=true, getDocument=null, error=true, 바이트 보존 단언
+            val binVf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(binFile)
+            assertNotNull("binary.png virtual file must exist", binVf)
+            assertTrue("fileType.isBinary must be true for PNG", binVf!!.fileType.isBinary)
+            val binDoc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(binVf)
+            assertNull("FileDocumentManager.getDocument must be null for binary file", binDoc)
+
+            val resBin = hand.call("apply_edit", buildJsonObject {
+                put("path", "binary.png")
+                put("old", "anything")
+                put("new", "other")
+            })
+            assertTrue(resBin.error)
+            assertTrue(resBin.text.contains("not a text file"))
+            assertTrue(resBin.text.contains("binary.png"))
+            assertTrue("binary file bytes must remain untouched", binFile.readBytes().contentEquals(binBytes))
+
+            // 5. 정상 단일 치환: error=false, 문서 변경 및 Undo 스택 등록 확인
+            val resSingle = hand.call("apply_edit", buildJsonObject {
+                put("path", "EditTarget.kt")
+                put("old", "beta")
+                put("new", "BETA")
+            })
+            assertFalse(resSingle.error)
+            assertTrue(resSingle.text.contains("replaced 1 occurrence(s)"))
+            assertEquals("original alpha BETA alpha\n", doc.text)
+            assertTrue(doc.modificationStamp > initialStamp)
+
+            // 6. all=true 다중 치환 성공
+            val resAll = hand.call("apply_edit", buildJsonObject {
+                put("path", "EditTarget.kt")
+                put("old", "alpha")
+                put("new", "OMEGA")
+                put("replaceAll", "true")
+            })
+            assertFalse(resAll.error)
+            assertTrue(resAll.text.contains("replaced 2 occurrence(s)"))
+            assertEquals("original OMEGA BETA OMEGA\n", doc.text)
+
+            // 7. 빈 new 삭제 성공
+            val resDel = hand.call("apply_edit", buildJsonObject {
+                put("path", "EditTarget.kt")
+                put("old", " BETA")
+                put("new", "")
+            })
+            assertFalse(resDel.error)
+            assertEquals("original OMEGA OMEGA\n", doc.text)
+
+            // 8. 실제 loopback HandServer 연동 및 old 미발견 시 result.isError=true 확인
+            server = HandServer.start(hand)
             val postBody = """{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"apply_edit","arguments":{"path":"EditTarget.kt","old":"never_there","new":"xyz"}}}"""
-            val future = java.util.concurrent.CompletableFuture.supplyAsync {
-                val c = java.net.URI(server.url).toURL().openConnection() as java.net.HttpURLConnection
-                c.requestMethod = "POST"
-                c.doOutput = true
-                c.setRequestProperty("Content-Type", "application/json")
-                c.setRequestProperty("X-Magi-Hand", server.token)
-                c.outputStream.use { it.write(postBody.toByteArray()) }
-                val code = c.responseCode
-                val text = (if (code < 400) c.inputStream else c.errorStream)?.readBytes()?.decodeToString().orEmpty()
-                code to text
-            }
-            while (!future.isDone) {
-                com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
-                Thread.sleep(10)
-            }
-            val (code, body) = future.get()
+            val (code, body) = executeHttpExchange(
+                targetUrl = server.url,
+                token = server.token,
+                postBody = postBody,
+                timeoutMs = 5000,
+                deadlineNanos = java.util.concurrent.TimeUnit.SECONDS.toNanos(10),
+                outConn = connRef,
+                outFuture = futureRef,
+                outExecutor = executorRef,
+            )
             assertEquals(200, code)
             val json = Wire.json.parseToJsonElement(body).jsonObject
             val resObj = json["result"]?.jsonObject
@@ -1640,9 +1662,114 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             assertTrue(contentArr != null && contentArr.isNotEmpty())
             assertTrue(contentArr!![0].jsonObject["text"]?.jsonPrimitive?.content?.contains("that text is not in") == true)
         } finally {
-            server.close()
-            ioFile.delete()
-            binFile.delete()
+            try { server?.close() } catch (_: Throwable) {}
+            try { connRef.get()?.disconnect() } catch (_: Throwable) {}
+            try { futureRef.get()?.cancel(true) } catch (_: Throwable) {}
+            try { executorRef.get()?.shutdownNow() } catch (_: Throwable) {}
+            try { executorRef.get()?.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+            try { ioFile.delete() } catch (_: Throwable) {}
+            try { binFile.delete() } catch (_: Throwable) {}
+        }
+    }
+
+    fun `test IdeHand HTTP 대기 helper는 무응답 endpoint에서 타임아웃으로 실패하고 자원을 정리한다`() {
+        val hangLatch = java.util.concurrent.CountDownLatch(1)
+        val silentServer = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        silentServer.createContext("/hang") { _ ->
+            hangLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        }
+        silentServer.start()
+
+        val connRef = java.util.concurrent.atomic.AtomicReference<java.net.HttpURLConnection?>()
+        val futureRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Pair<Int, String>>?>()
+        val executorRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ExecutorService?>()
+
+        try {
+            var failedWithTimeout = false
+            try {
+                executeHttpExchange(
+                    targetUrl = "http://127.0.0.1:${silentServer.address.port}/hang",
+                    token = null,
+                    postBody = "{}",
+                    timeoutMs = 400,
+                    deadlineNanos = java.util.concurrent.TimeUnit.SECONDS.toNanos(3),
+                    outConn = connRef,
+                    outFuture = futureRef,
+                    outExecutor = executorRef,
+                )
+            } catch (e: java.io.IOException) {
+                failedWithTimeout = true
+            }
+            assertTrue("무응답 endpoint 호출 시 IOException(타임아웃)으로 실패해야 한다", failedWithTimeout)
+            val exec = executorRef.get()
+            assertNotNull(exec)
+            assertTrue("helper 종료 후 executor는 shutdown 상태여야 한다", exec!!.isShutdown)
+        } finally {
+            try { hangLatch.countDown() } catch (_: Throwable) {}
+            try { silentServer.stop(0) } catch (_: Throwable) {}
+            try { connRef.get()?.disconnect() } catch (_: Throwable) {}
+            try { futureRef.get()?.cancel(true) } catch (_: Throwable) {}
+            try { executorRef.get()?.shutdownNow() } catch (_: Throwable) {}
+            try { executorRef.get()?.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+        }
+    }
+
+    private fun executeHttpExchange(
+        targetUrl: String,
+        token: String?,
+        postBody: String,
+        timeoutMs: Int = 5000,
+        deadlineNanos: Long = java.util.concurrent.TimeUnit.SECONDS.toNanos(10),
+        outConn: java.util.concurrent.atomic.AtomicReference<java.net.HttpURLConnection?>? = null,
+        outFuture: java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Pair<Int, String>>?>? = null,
+        outExecutor: java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ExecutorService?>? = null,
+    ): Pair<Int, String> {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        outExecutor?.set(executor)
+        val connRef = java.util.concurrent.atomic.AtomicReference<java.net.HttpURLConnection?>()
+        var future: java.util.concurrent.Future<Pair<Int, String>>? = null
+        try {
+            future = executor.submit(java.util.concurrent.Callable {
+                val c = java.net.URI(targetUrl).toURL().openConnection() as java.net.HttpURLConnection
+                connRef.set(c)
+                outConn?.set(c)
+                c.connectTimeout = timeoutMs
+                c.readTimeout = timeoutMs
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.setRequestProperty("Content-Type", "application/json")
+                if (token != null) {
+                    c.setRequestProperty("X-Magi-Hand", token)
+                }
+                try {
+                    c.outputStream.use { it.write(postBody.toByteArray()) }
+                    val code = c.responseCode
+                    val text = (if (code < 400) c.inputStream else c.errorStream)?.readBytes()?.decodeToString().orEmpty()
+                    code to text
+                } finally {
+                    try { c.disconnect() } catch (_: Throwable) {}
+                }
+            })
+            outFuture?.set(future)
+
+            val deadline = System.nanoTime() + deadlineNanos
+            while (!future.isDone) {
+                if (System.nanoTime() > deadline) {
+                    fail("HTTP exchange did not finish within deadline")
+                }
+                com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+                Thread.sleep(10)
+            }
+            try {
+                return future.get()
+            } catch (e: java.util.concurrent.ExecutionException) {
+                throw (e.cause ?: e)
+            }
+        } finally {
+            try { connRef.get()?.disconnect() } catch (_: Throwable) {}
+            try { future?.cancel(true) } catch (_: Throwable) {}
+            executor.shutdownNow()
+            try { executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
         }
     }
 }
