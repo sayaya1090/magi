@@ -1281,7 +1281,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ---
 
-### §6.40 VS Code 불변 스냅샷 공통 저장소 추출 (`ImmutableSnapshotStore`)
+### 6.40 VS Code 불변 스냅샷 공통 저장소 추출 (`ImmutableSnapshotStore`)
 
 - **추출 모듈:**
   - `src/core/snapshot.ts`에 VS Code 및 DOM API 의존성이 전혀 없는 순수 TypeScript 클래스 `ImmutableSnapshotStore<T = string>`를 구축했습니다.
@@ -1301,7 +1301,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ---
 
-### §6.41 VS Code 문서 Provider 수명 헬퍼 추출 (`ProviderLifecycle`)
+### 6.41 VS Code 문서 Provider 수명 헬퍼 추출 (`ProviderLifecycle`)
 
 - **추출 모듈:**
   - `src/ide/provider_lifecycle.ts`에 가상 문서 프로바이더의 탭/문서 감시, 닫힘 이벤트 구독 및 해제를 담당하는 `ProviderLifecycle` 헬퍼를 구축했습니다.
@@ -1319,7 +1319,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ---
 
-### §6.44.2 / §6.44.7 공유 IDE 도구 카탈로그 손실 없는 정합성 검증 및 변이 감지
+### 6.44.2 / 6.44.7 공유 IDE 도구 카탈로그 손실 없는 정합성 검증 및 변이 감지
 
 - **공유 JSON fixture (`clients/test-fixtures/ide_hand_catalogue.json`) 연동:**
   - VS Code 확장과 JetBrains 플러그인이 공유하는 3대 도구(`show`, `apply_edit`, `problems`) 카탈로그 fixture를 깊은 비교(deep equal)로 검증합니다.
@@ -1341,7 +1341,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ---
 
-### §6.44.10 JetBrains/VS Code boolean JSON 타입 검사 및 HTTP 도구 파싱 공통화
+### 6.44.10 JetBrains/VS Code boolean JSON 타입 검사 및 HTTP 도구 파싱 공통화
 
 - **HTTP 도구 목록 파싱 공통화 (`parseHttpTools`)**:
   - `src/test/hand.test.ts`에 `parseHttpTools(rawTools: unknown[]): { name: string; readOnly: boolean; schema: unknown }[]`를 추출.
@@ -1355,7 +1355,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ---
 
-### §6.47 VS Code apply_edit 거절의 도구 오류 전달 및 호스트 연동 검증
+### 6.47 VS Code apply_edit 거절의 도구 오류 전달 및 호스트 연동 검증
 
 - **거절 사유 보존 및 도구 오류(`isError: true`) 변환 (`src/ide/hand.ts`)**:
   - `EditorHand.replace`에서 기존 성공 문자열로 반환하던 거절 사유들을 `Error` 예외로 발생시켜 상위 `callHand` catch 경로로 전달:

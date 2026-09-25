@@ -1558,7 +1558,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 결과: 종료 코드 0, 전수 통과.
 ---
 
-## 2026-09-25 공유 카탈로그 계약 검사 (§6.44.2, §6.44.7)
+## 6.44.2 공유 카탈로그 계약 검사 (§6.44.7)
 
 - **공유 JSON fixture 도입 (`clients/test-fixtures/ide_hand_catalogue.json`)**:
   - JetBrains 플러그인과 VS Code 확장이 공유하는 단일 원본 카탈로그 fixture 구축.
@@ -1577,7 +1577,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 ---
 
-## 2026-09-25 JetBrains EDT 대기 종료 오류 전달 (§6.44.3)
+## 6.44.3 JetBrains EDT 대기 종료 오류 전달
 
 - **EDT 디스패치 수명 상태 머신 도입 (`HandEdtCall.kt`)**:
   - 기존 `FutureTask.cancel(true)` 및 20초 타임아웃 시 성공 문자열 반환 정책 제거.
@@ -1607,7 +1607,41 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 ---
 
-## 2026-09-25 JetBrains boolean JSON 타입 검사 및 HTTP 도구 파싱 공통화 (§6.44.10)
+## 6.44.4 tools/call 응답 유실 시 결과 미확인 안내 및 JSON-RPC 정합성 검증
+
+- **도구 호출 응답 유실 시 결과 미확인 안내 (`internal/adapter/mcp/http_transport.go`의 `unconfirmedCallError`)**:
+  - HTTP 요청 전송 후 응답 수신 실패(타임아웃, 네트워크 단절, EOF) 시 쓰기 작업의 임의 재시도를 방지하기 위해 `unconfirmedCallError`(`MCP_RESULT_UNKNOWN`) 안내 반환.
+  - "MCP_RESULT_UNKNOWN: no complete tool response was received; the operation may have run. Do not automatically retry a write; inspect the target application before retrying." 경고 문구를 전달하여 대상 환경을 먼저 점검하도록 강제.
+  - 요청 디스패치 전 실패(컨텍스트 취소 등)는 원래 오류를 그대로 보존.
+  - `internal/adapter/mcp/http_unconfirmed_test.go`를 통해 다양한 전송 실패 시나리오에서 결과 미확인 오류 포장 동작 회귀 검증.
+
+---
+
+## 6.44.6 HTTP JSON-RPC 응답 필드 존재 및 값 검증 분리
+
+- **필드 존재 여부(presence)와 값(value) 분리 검증 (`internal/adapter/mcp/http_transport.go`의 `httpMessage`, `validateHTTPResponse`)**:
+  - `httpMessage`의 `Result` 및 `Error`를 `json.RawMessage`로 디코딩하여 필드 누락과 명시적 `null`을 엄격히 구분.
+  - `jsonrpc` 버전이 `"2.0"`이 아니거나 요청 ID와 응답 ID가 불일치하는 경우 프로토콜 위반으로 거절.
+  - `result`와 `error`가 둘 다 존재하거나 둘 다 생략된 비정상 응답 거절.
+  - `tools/call` 응답에서 `result` 필드가 명시적 `null`인 경우 유효하지 않은 응답으로 거절하고 `unconfirmedCallError`로 처리.
+  - `validateHTTPResponse` 단일 헬퍼를 통해 응답 정합성을 검증하고, 유효한 서버 에러는 `*rpcError`로 추출하여 미확인 안내로 감싸지 않고 확정 반환.
+
+---
+
+## 6.44.9 완전한 JSON-RPC 오류 객체 정밀 검증
+
+- **JSON-RPC 2.0 오류 객체 엄격 검증 (`internal/adapter/mcp/http_transport.go`의 `parseHTTPRPCError`)**:
+  - 서버의 `error` 필드가 올바른 JSON-RPC 2.0 error object 규격을 준수하는지 정밀 검증:
+    1. null이나 원시값, 배열이 아닌 유효한 JSON 객체.
+    2. `code` 필드가 반드시 존재하고, null이 아니며, 유효한 정수(integer)일 것 (부동소수점, 문자열 거절).
+    3. `message` 필드가 반드시 존재하고, null이 아니며, 문자열(string)일 것.
+    4. 정상 `code: 0`, `message: ""`는 유효한 오류 객체로 허용.
+    5. `data` 등 추가 확장 필드 보존 허용.
+  - `code` 또는 `message`가 누락되거나 null, 잘못된 타입인 불완전한 error 객체는 확정 오류로 인정하지 않고 프로토콜 위반으로 거절하여 `tools/call` 호출 시 미확인 에러로 감싸 안전하게 처리.
+
+---
+
+## 6.44.10 JetBrains boolean JSON 타입 검사 및 HTTP 도구 파싱 공통화
 
 - **엄격한 JSON boolean 타입 단언 헬퍼 구축 (`requireBoolean`)**:
   - `HandServerTest.kt`에서 기존 `booleanOrNull != null` 판정이 문자열 `"false"`나 `"true"`에 대해서도 `booleanOrNull`이 동작하여 문자열 인코딩 회귀를 포착하지 못하던 문제 해결.
@@ -1629,7 +1663,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 ---
 
-## 2026-09-25 JetBrains HandServer 실행기 수명 및 종료 경계 검증 (§6.45)
+## 6.45 JetBrains HandServer 실행기 수명 및 종료 경계 검증
 
 - **HttpServer 및 ExecutorService 소유권 통합 및 안전한 기동/종료 (`HandServer.kt`)**:
   - `HandServer`가 `HttpServer`와 `ExecutorService`를 직접 소유하도록 구조 개편.
@@ -1658,7 +1692,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 ---
 
-## 2026-09-25 JetBrains 오류 응답 요청 ID 보존 (§6.46)
+## 6.46 JetBrains 오류 응답 요청 ID 보존
 
 - **오류 응답 요청 ID 보존 및 지원 ID 타입 정밀 검증 (`HandServer.kt`)**:
   - 기존 동작 결함: 파싱 성공 후 요청 ID가 존재하더라도 `catch (e: Exception)` 블록에서 항상 `id: null`을 직렬화하여 반환. 데몬 `validateHTTPResponse`는 요청 ID 불일치를 미확인 결과(`MCP_RESULT_UNKNOWN`)로 처리하여 온전한 서버 오류 응답도 확인하지 못하던 문제 해결.
@@ -1688,7 +1722,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 ---
 
-## 2026-09-25 JetBrains apply_edit 거절의 도구 오류 전달 및 호스트 연동 검증 (§6.47)
+## 6.47 JetBrains apply_edit 거절의 도구 오류 전달 및 호스트 연동 검증
 
 - **거절 사유 보존 및 도구 오류(`isError: true`) 변환 (`IdeHand.kt`)**:
   - `IdeHand.replace`에서 기존 성공 문자열로 반환하던 거절 사유들을 `IllegalStateException` 예외로 발생시켜 `HandEdtCall` 및 상위 `Hand.call` catch 경로로 전달:
