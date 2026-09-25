@@ -7,11 +7,14 @@ import dev.sayaya.magi.ide.usecase.Hand
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.io.Closeable
 import java.net.InetAddress
@@ -123,6 +126,7 @@ class HandServer internal constructor(
     internal fun handle(hand: Hand, ex: HttpExchange) {
         try {
             if (closed.get()) return
+            var responseId: JsonElement = JsonNull
             val responseData: ResponseData? = try {
                 if (ex.requestMethod != "POST") {
                     ResponseData(405, "")
@@ -134,7 +138,21 @@ class HandServer internal constructor(
                         null
                     } else {
                         val req = Wire.json.parseToJsonElement(body).jsonObject
-                        val id = req["id"]
+                        val rawId = req["id"]
+                        if (rawId == null || rawId is JsonNull) {
+                            responseId = JsonNull
+                        } else if (rawId is JsonPrimitive) {
+                            if (rawId.isString) {
+                                responseId = rawId
+                            } else if (rawId.booleanOrNull == null && rawId.longOrNull != null) {
+                                responseId = rawId
+                            } else {
+                                throw IllegalArgumentException("unsupported id: $rawId")
+                            }
+                        } else {
+                            throw IllegalArgumentException("unsupported id: $rawId")
+                        }
+
                         val permitted = synchronized(admissionLock) {
                             !closed.get()
                         }
@@ -142,12 +160,12 @@ class HandServer internal constructor(
                             null
                         } else {
                             val answer = dispatch(hand, req["method"]?.jsonPrimitive?.content.orEmpty(), req["params"])
-                            if (id == null || id is JsonNull) {
+                            if (responseId is JsonNull) {
                                 ResponseData(204, "")
                             } else {
                                 val json = Wire.json.encodeToString(JsonElement.serializer(), buildJsonObject {
                                     put("jsonrpc", "2.0")
-                                    put("id", id)
+                                    put("id", responseId)
                                     put("result", answer)
                                 })
                                 ResponseData(200, json)
@@ -156,9 +174,15 @@ class HandServer internal constructor(
                     }
                 }
             } catch (e: Exception) {
-                ResponseData(200, """{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":${
-                    Wire.json.encodeToString(kotlinx.serialization.serializer(), e.message ?: "internal error")
-                }}}""")
+                val json = Wire.json.encodeToString(JsonElement.serializer(), buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", responseId)
+                    put("error", buildJsonObject {
+                        put("code", -32603)
+                        put("message", e.message ?: "internal error")
+                    })
+                })
+                ResponseData(200, json)
             }
 
             if (responseData != null) {

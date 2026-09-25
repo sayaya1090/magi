@@ -14,12 +14,15 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import org.junit.jupiter.api.Test
 import java.io.File
 import java.net.HttpURLConnection
@@ -38,15 +41,16 @@ import java.net.URI
 class HandServerTest {
 
     private class FakeIde : Hand.Ide {
+        var callCount = 0
         var shown: Pair<String, Int?>? = null
         var edit: List<String>? = null
-        override fun show(path: String, line: Int?): String { shown = path to line; return "opened $path" }
+        override fun show(path: String, line: Int?): String { callCount++; shown = path to line; return "opened $path" }
         override fun replace(path: String, old: String, new: String, all: Boolean): String {
-            edit = listOf(path, old, new, all.toString()); return "replaced in $path"
+            callCount++; edit = listOf(path, old, new, all.toString()); return "replaced in $path"
         }
         var askedFor: String? = null
         var asked = false
-        override fun problems(path: String?): String { askedFor = path; asked = true; return "no errors" }
+        override fun problems(path: String?): String { callCount++; askedFor = path; asked = true; return "no errors" }
     }
 
     private fun post(s: HandServer, body: String, token: String? = null): Pair<Int, String> {
@@ -499,5 +503,128 @@ class HandServerTest {
             assertEquals(validBool, parsedCat.first().readOnly)
         }
     }
+
+    /**
+     * §6.46: 오류 응답 시 요청 ID를 보존하고 미등록 method 및 잘못된 params 예외 시 FakeIde를 호출하지 않는다.
+     */
+    @Test
+    fun `오류 응답 시 요청 ID를 보존하고 미등록 method 및 잘못된 params 예외 시 FakeIde를 호출하지 않는다`() {
+        val ide = FakeIde()
+        HandServer.start(Hand(ide)).use { s ->
+            // 1. 미등록 method + 숫자 id=37: HTTP 200, 응답 id=37, error.code=-32603, error.message 존재, result 없음
+            val (code1, body1) = post(s, """{"jsonrpc":"2.0","id":37,"method":"unknown_method","params":{}}""")
+            assertEquals(200, code1)
+            val json1 = Wire.json.parseToJsonElement(body1).jsonObject
+            assertEquals(37L, json1["id"]?.jsonPrimitive?.longOrNull)
+            assertFalse(json1["id"]!!.jsonPrimitive.isString)
+            assertNotNull(json1["error"])
+            assertEquals(-32603, json1["error"]!!.jsonObject["code"]?.jsonPrimitive?.intOrNull)
+            assertTrue(json1["error"]!!.jsonObject["message"]?.jsonPrimitive?.content?.isNotEmpty() == true)
+            assertNull(json1["result"])
+            assertEquals(0, ide.callCount)
+
+            // 2. tools/call의 params를 배열로 보내 파싱 이후 예외 발생: 응답 id를 보존하고 error 반환, FakeIde 호출 수 0
+            val (code2, body2) = post(s, """{"jsonrpc":"2.0","id":99,"method":"tools/call","params":["not_an_object"]}""")
+            assertEquals(200, code2)
+            val json2 = Wire.json.parseToJsonElement(body2).jsonObject
+            assertEquals(99L, json2["id"]?.jsonPrimitive?.longOrNull)
+            assertNotNull(json2["error"])
+            assertEquals(-32603, json2["error"]!!.jsonObject["code"]?.jsonPrimitive?.intOrNull)
+            assertNull(json2["result"])
+            assertEquals(0, ide.callCount)
+        }
+    }
+
+    /**
+     * §6.46: 문자열 ID(따옴표, 역슬래시, 한글 포함), 빈 문자열, 0, 음수 ID는 원래 JSON 값과 타입을 보존한다.
+     */
+    @Test
+    fun `문자열, 0, 음수 ID는 원래 JSON 값과 타입을 보존한다`() {
+        val ide = FakeIde()
+        HandServer.start(Hand(ide)).use { s ->
+            // 문자열 ID (따옴표, 역슬래시, 한글 포함)
+            val rawStrId = "\"complex-\\\"id\\\"-\\\\-\\uac00\\ub098\""
+            val (code1, body1) = post(s, """{"jsonrpc":"2.0","id":$rawStrId,"method":"tools/list"}""")
+            assertEquals(200, code1)
+            val json1 = Wire.json.parseToJsonElement(body1).jsonObject
+            assertTrue(json1["id"]!!.jsonPrimitive.isString)
+            assertEquals("complex-\"id\"-\\-\uac00\ub098", json1["id"]!!.jsonPrimitive.content)
+
+            // 문자열 "37"은 숫자 37로 변환되지 않고 문자열 타입 유지 (성공 경로)
+            val (codeStrSucc, bodyStrSucc) = post(s, """{"jsonrpc":"2.0","id":"37","method":"tools/list"}""")
+            assertEquals(200, codeStrSucc)
+            val jsonStrSucc = Wire.json.parseToJsonElement(bodyStrSucc).jsonObject
+            assertTrue(jsonStrSucc["id"]!!.jsonPrimitive.isString)
+            assertEquals("37", jsonStrSucc["id"]!!.jsonPrimitive.content)
+
+            // 문자열 "37"은 오류 응답에서도 문자열 타입 유지
+            val (codeStrErr, bodyStrErr) = post(s, """{"jsonrpc":"2.0","id":"37","method":"unknown"}""")
+            assertEquals(200, codeStrErr)
+            val jsonStrErr = Wire.json.parseToJsonElement(bodyStrErr).jsonObject
+            assertTrue(jsonStrErr["id"]!!.jsonPrimitive.isString)
+            assertEquals("37", jsonStrErr["id"]!!.jsonPrimitive.content)
+
+            // 빈 문자열 ID
+            val (codeEmpty, bodyEmpty) = post(s, """{"jsonrpc":"2.0","id":"","method":"unknown"}""")
+            assertEquals(200, codeEmpty)
+            val jsonEmpty = Wire.json.parseToJsonElement(bodyEmpty).jsonObject
+            assertTrue(jsonEmpty["id"]!!.jsonPrimitive.isString)
+            assertEquals("", jsonEmpty["id"]!!.jsonPrimitive.content)
+
+            // 숫자 0 ID
+            val (codeZero, bodyZero) = post(s, """{"jsonrpc":"2.0","id":0,"method":"unknown"}""")
+            assertEquals(200, codeZero)
+            val jsonZero = Wire.json.parseToJsonElement(bodyZero).jsonObject
+            assertFalse(jsonZero["id"]!!.jsonPrimitive.isString)
+            assertEquals(0L, jsonZero["id"]!!.jsonPrimitive.longOrNull)
+
+            // 음수 ID
+            val (codeNeg, bodyNeg) = post(s, """{"jsonrpc":"2.0","id":-42,"method":"unknown"}""")
+            assertEquals(200, codeNeg)
+            val jsonNeg = Wire.json.parseToJsonElement(bodyNeg).jsonObject
+            assertFalse(jsonNeg["id"]!!.jsonPrimitive.isString)
+            assertEquals(-42L, jsonNeg["id"]!!.jsonPrimitive.longOrNull)
+        }
+    }
+
+    /**
+     * §6.46: 잘린 JSON, 최상위 배열, 지원하지 않는 ID 타입은 error 응답의 id가 null이며 FakeIde 호출은 0회다.
+     */
+    @Test
+    fun `잘린 JSON, 최상위 배열, 지원하지 않는 ID 타입은 error 응답의 id가 null이며 FakeIde 호출은 0회다`() {
+        val ide = FakeIde()
+        HandServer.start(Hand(ide)).use { s ->
+            // 1. 잘린 JSON
+            val (c1, b1) = post(s, """{"jsonrpc":"2.0","id":12,"method":""")
+            assertEquals(200, c1)
+            val j1 = Wire.json.parseToJsonElement(b1).jsonObject
+            assertTrue(j1["id"] is JsonNull)
+            assertNotNull(j1["error"])
+
+            // 2. 최상위 배열
+            val (c2, b2) = post(s, """[{"jsonrpc":"2.0","id":12,"method":"tools/list"}]""")
+            assertEquals(200, c2)
+            val j2 = Wire.json.parseToJsonElement(b2).jsonObject
+            assertTrue(j2["id"] is JsonNull)
+            assertNotNull(j2["error"])
+
+            // 3. 지원하지 않는 ID: boolean, float, object, array
+            for (unsupported in listOf("true", "false", "12.34", "{}", "[]")) {
+                val (c, b) = post(s, """{"jsonrpc":"2.0","id":$unsupported,"method":"tools/list"}""")
+                assertEquals(200, c)
+                val j = Wire.json.parseToJsonElement(b).jsonObject
+                assertTrue(j["id"] is JsonNull, "지원하지 않는 id $unsupported 는 id:null 로 응답해야 함: $b")
+                assertNotNull(j["error"])
+                assertEquals(-32603, j["error"]!!.jsonObject["code"]?.jsonPrimitive?.intOrNull)
+            }
+
+            // FakeIde 호출 0회 확인
+            assertEquals(0, ide.callCount)
+            assertNull(ide.shown)
+            assertNull(ide.edit)
+            assertFalse(ide.asked)
+        }
+    }
 }
+
 

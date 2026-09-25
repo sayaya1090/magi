@@ -1656,3 +1656,34 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `5 닫힌 서버와 읽기 도중 닫힌 서버는 도구 실행을 차단하고 이미 시작된 작업은 완료를 허용한다`: 닫힌 후 요청 및 바디 읽기 중 close 발생 시 `hand.call` 0회 차단, 이미 시작된 작업의 1회 완료 보장 검증.
   - `6 응답 전송 예외 시 재전송 시도 없이 exchange가 닫히며 인증과 메서드 계약이 유지된다`: 헤더/바디 전송 실패 시 1회 전송 시도 후 `exchange.close()` 보장, 인증(403)·메서드(405)·알림(204)·도구목록(200)·도구호출(200) 계약 유지 검증.
 
+---
+
+## 2026-09-25 JetBrains 오류 응답 요청 ID 보존 (§6.46)
+
+- **오류 응답 요청 ID 보존 및 지원 ID 타입 정밀 검증 (`HandServer.kt`)**:
+  - 기존 동작 결함: 파싱 성공 후 요청 ID가 존재하더라도 `catch (e: Exception)` 블록에서 항상 `id: null`을 직렬화하여 반환. 데몬 `validateHTTPResponse`는 요청 ID 불일치를 미확인 결과(`MCP_RESULT_UNKNOWN`)로 처리하여 온전한 서버 오류 응답도 확인하지 못하던 문제 해결.
+  - 파싱/디스패치 외부 스코프에 `responseId: JsonElement = JsonNull` 도입.
+  - JSON-RPC 요청 파싱 직후 method/params 접근 전에 요청 `id` 유효성 검증:
+    - 문자열 `JsonPrimitive` 또는 비문자열 정수 `JsonPrimitive`(`booleanOrNull == null && longOrNull != null`): 원본 JSON 요소 그대로 `responseId`에 보존.
+    - 문자열 "37"을 숫자 37로 변환하거나 trim하지 않고 문자열 타입/내용 보존.
+    - 0, 음수 정수(-42), 빈 문자열("") 식별자 보존.
+    - `null` 또는 누락: `responseId = JsonNull` 유지 (기존 알림/notification 처리 계약).
+    - 객체(`{}`), 배열(`[]`), boolean(`true`/`false`), 소수(12.34) ID: `responseId`에 저장하지 않고 `IllegalArgumentException`을 발생시켜 오류 경로(`-32603`)로 안전하게 분기하며 오류 응답의 `id`는 `null` 유지.
+  - 정상 응답 및 오류 응답 모두 `responseId`를 사용하여 직렬화.
+  - 오류 응답 생성 시 `buildJsonObject`와 serializer를 사용하여 특수문자(따옴표, 역슬래시), 한글/유니코드가 포함된 문자열 ID의 이스케이프 안전성 보장.
+  - 잘린 JSON 및 최상위 배열 등 객체 파싱 실패 시 `id: null` 유지.
+  - 오류 발생 시 `FakeIde` 등 에디터 작업 0회 호출 보장.
+
+- **자동 회귀 검증 (`HandServerTest.kt`, `HandServerTest`)**:
+  - `오류 응답 시 요청 ID를 보존하고 미등록 method 및 잘못된 params 예외 시 FakeIde를 호출하지 않는다`:
+    - 미등록 method + 숫자 id=37: HTTP 200, 응답 id=37, error.code=-32603, error.message 존재, result 없음, FakeIde 호출 0회 검증.
+    - `tools/call`에 잘못된 params(배열) 전달: HTTP 200, 응답 id=99 보존, error.code=-32603, FakeIde 호출 0회 검증.
+  - `문자열, 0, 음수 ID는 원래 JSON 값과 타입을 보존한다`:
+    - 따옴표, 역슬래시, 한글이 포함된 복합 문자열 ID 보존 검증.
+    - 문자열 "37"이 숫자로 변환되지 않고 성공/오류 응답 모두에서 문자열 타입 유지 검증.
+    - 빈 문자열 ID(""), 숫자 0 ID, 음수 ID(-42)의 타입 및 값 보존 검증.
+  - `잘린 JSON, 최상위 배열, 지원하지 않는 ID 타입은 error 응답의 id가 null이며 FakeIde 호출은 0회다`:
+    - 잘린 JSON 및 최상위 배열 입력에 대해 `id: null` 에러 응답 및 FakeIde 호출 0회 검증.
+    - boolean(`true`, `false`), 소수(`12.34`), 객체(`{}`), 배열(`[]`) ID에 대해 `id: null` 에러 응답 및 FakeIde 호출 0회 검증.
+
+
