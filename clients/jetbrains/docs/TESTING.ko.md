@@ -1769,4 +1769,4 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `IdeHand.replace` 호출 후 `UndoManager.getInstance(project).isUndoAvailable(editor)`가 `true`임을 확인.
   - EDT에서 `undoManager.undo(editor)`를 호출하여 단 1회의 Undo로 치환 전 전문이 정확히 복원됨을 검증.
   - 이어서 `undoManager.isRedoAvailable(editor)`가 `true`임을 확인하고 `undoManager.redo(editor)`를 호출하여 단 1회의 Redo로 치환 후 전문이 정확히 복원됨을 검증.
-  - 독립 fixture(`UndoTarget.kt`)를 사용하여 타 테스트의 Undo 스택과 격리하고 `finally`에서 `closeFile` 및 파일 정리 완료.
+  - 독립 fixture(임시 UndoTarget 파일)를 사용하여 타 테스트의 Undo 스택과 격리하고 `finally`에서 `closeFile` 및 파일 정리 완료.
