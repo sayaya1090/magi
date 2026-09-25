@@ -1770,3 +1770,25 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - EDT에서 `undoManager.undo(editor)`를 호출하여 단 1회의 Undo로 치환 전 전문이 정확히 복원됨을 검증.
   - 이어서 `undoManager.isRedoAvailable(editor)`가 `true`임을 확인하고 `undoManager.redo(editor)`를 호출하여 단 1회의 Redo로 치환 후 전문이 정확히 복원됨을 검증.
   - 독립 fixture(임시 UndoTarget 파일)를 사용하여 타 테스트의 Undo 스택과 격리하고 `finally`에서 `closeFile` 및 파일 정리 완료.
+
+---
+
+## 6.49 JetBrains show 실패의 도구 오류 전달 및 호스트 연동 검증 (2026-09-25)
+
+- **show 실패 사유 보존 및 도구 오류(`isError: true`) 변환 (`IdeHand.kt`)**:
+  - `IdeHand.show`에서 기존 문자열로 반환하던 파일 부재 분기를 `throw IllegalStateException("no such file in this project: $path")` 예외로 전환.
+  - 생성자 의존성으로 내부 함수 `openTextEditor: (OpenFileDescriptor) -> Editor?`를 주입받도록 구성(기본값: `FileEditorManager.getInstance(project).openTextEditor(d, true)`).
+  - `openTextEditor`의 반환값이 `null`인 경우 `throw IllegalStateException("could not open a text editor for ${f.path}")` 예외 발생.
+  - 텍스트 에디터가 정상적으로 반환된 경우에만 기존 opened 성공 문구(`"opened ${f.path}" + (line?.let { " at line $it" } ?: "")`) 반환.
+  - 공개 `Hand.Ide`/String 계약 및 도구 카탈로그 스키마를 불변 유지하고, `HandEdtCall` 및 상위 `Hand.call`의 기존 catch 경로를 통해 JSON-RPC 정상 응답 내 `{ result: { content: [...], isError: true } }`로 전달.
+
+- **호스트 환경 및 루프백 HTTP 연동 검증 (`HeadlessIdeTest.kt`, `HeadlessIdeTest`)**:
+  - 실제 IntelliJ 프로젝트 파일 및 에디터 매니저 기반 `IdeHand` 인스턴스 검증 (`test IdeHand show 실패는 도구 오류 전달 및 열린 에디터와 caret 위치를 검증한다`):
+    1. 없는 경로: `Hand(IdeHand(project)).call("show", ...)` 호출 시 `error == true`, `no such file in this project` 사유 전달, `opened ` 성공 문구 부재 단언.
+    2. 닫힌 텍스트 fixture(임시 ShowTarget 파일): 호출 전 `FileEditorManager.isFileOpen`이 `false`임을 단언하고, `show` 성공 후 `error == false`, `opened ` 문구 반환, `isFileOpen`이 `true`로 전환됨을 확인. 열린 `TextEditor`의 `caretModel.logicalPosition.line`이 요청한 1-based 줄 번호와 일치하는 0-based 오프셋에 정확히 위치함을 검증.
+    3. `openTextEditor == null` 분기:
+       - 기본 구현(default opener) 실측: IntelliJ의 `TestEditorManagerImpl`(헤드리스 테스트 러너) 환경에서 바이너리 파일(임시 binary_show.png 파일)에 대해 `openTextEditor` 호출 시 `null`을 안전하게 반환하지 않고 내부 플랫폼 `NullPointerException`이 발생하는 플랫폼 거동 실측 확인.
+       - 결정적 null 반환 검증: `IdeHand`에 `openTextEditor = { null }`을 주입하여 `Hand(nullHand).call("show", ...)` 호출 시 주입된 함수가 정확히 1회 호출되고, 전달된 `OpenFileDescriptor`의 파일 및 줄 번호가 일치하며, `error == true` 및 `could not open a text editor` 사유가 전달됨을 완결 검증.
+    4. 실제 loopback `HandServer` 연동: 실제 `IdeHand`를 바인딩한 루프백 서버에 없는 파일 `show`를 POST 호출하여 HTTP 200, 요청 ID(99) 보존, `result.isError == true`, 오류 문구 정상 전달을 §6.48의 기한 있는 `executeHttpExchange` 헬퍼를 통해 검증.
+  - fixture와 열린 에디터는 준비 시작부터 외곽 `finally`에서 `closeFile` 및 파일 삭제를 독립 try-catch로 안전하게 정리하도록 보완.
+

@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.ui
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
@@ -23,6 +24,9 @@ import java.nio.file.Paths
 class IdeHand internal constructor(
     private val project: Project,
     private val edtCall: HandEdtCall,
+    internal val openTextEditor: (OpenFileDescriptor) -> Editor? = { d ->
+        FileEditorManager.getInstance(project).openTextEditor(d, true)
+    },
 ) : Hand.Ide {
     constructor(project: Project) : this(
         project,
@@ -33,11 +37,24 @@ class IdeHand internal constructor(
         ),
     )
 
+    internal constructor(
+        project: Project,
+        openTextEditor: (OpenFileDescriptor) -> Editor?,
+    ) : this(
+        project,
+        HandEdtCall(
+            enqueue = { ApplicationManager.getApplication().invokeLater(it) },
+            isEdt = { ApplicationManager.getApplication().isDispatchThread },
+            isDisposed = { project.isDisposed },
+        ),
+        openTextEditor,
+    )
+
     override fun show(path: String, line: Int?): String = onEdt {
-        val f = find(path) ?: return@onEdt "no such file in this project: $path"
+        val f = find(path) ?: throw IllegalStateException("no such file in this project: $path")
         // 1-based 라인 번호를 IntelliJ의 0-based 에디터 오프셋으로 변환
         val d = OpenFileDescriptor(project, f, ((line ?: 1) - 1).coerceAtLeast(0), 0)
-        FileEditorManager.getInstance(project).openTextEditor(d, true)
+        openTextEditor(d) ?: throw IllegalStateException("could not open a text editor for ${f.path}")
         "opened ${f.path}" + (line?.let { " at line $it" } ?: "")
     }
 

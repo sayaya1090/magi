@@ -1498,27 +1498,139 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test IdeHand show opens file descriptor and returns opened message`() {
+    fun `test IdeHand show 실패는 도구 오류 전달 및 열린 에디터와 caret 위치를 검증한다`() {
         val base = java.io.File(project.basePath!!).apply { mkdirs() }
-        val ioFile = java.io.File(base, "Opened.kt").apply { writeText("fun sample() = 42\n") }
-        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
-        assertNotNull(vf)
-        val hand = IdeHand(project)
-        val res = hand.show("Opened.kt", 1)
-        assertTrue(res.startsWith("opened ${vf!!.path} at line 1"))
+        val textFile = java.io.File(base, "ShowTarget.kt")
+        val binBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val binFile = java.io.File(base, "binary_show.png")
+        val fem = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+        var textVf: com.intellij.openapi.vfs.VirtualFile? = null
+        var binVf: com.intellij.openapi.vfs.VirtualFile? = null
+        var server: HandServer? = null
+        val connRef = java.util.concurrent.atomic.AtomicReference<java.net.HttpURLConnection?>()
+        val futureRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Pair<Int, String>>?>()
+        val executorRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ExecutorService?>()
+
+        try {
+            // 1. 없는 경로: error=true, 사유에 "no such file in this project" 포함, "opened " 성공 문구 부재
+            val defaultHand = Hand(IdeHand(project))
+            val resMissing = defaultHand.call("show", buildJsonObject {
+                put("path", "NoSuchFile.kt")
+                put("line", 2)
+            })
+            assertTrue(resMissing.error)
+            assertTrue(resMissing.text.contains("no such file in this project: NoSuchFile.kt"))
+            assertFalse(resMissing.text.contains("opened "))
+
+            // 2. 닫힌 텍스트 fixture: 파일 생성 후 호출 전 닫힘 단언, show 호출 성공 후 FileEditorManager 열림 및 caret 라인 확인
+            textFile.writeText("first line\nsecond line\nthird line\nfourth line\n")
+            textVf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(textFile)
+            assertNotNull(textVf)
+            assertFalse("show 호출 전에는 파일이 닫혀 있어야 한다", fem.isFileOpen(textVf!!))
+
+            val resShow = defaultHand.call("show", buildJsonObject {
+                put("path", "ShowTarget.kt")
+                put("line", 3)
+            })
+            assertFalse("정상 텍스트 파일 show는 error=false여야 한다", resShow.error)
+            assertTrue("opened 성공 문구를 반환해야 한다", resShow.text.startsWith("opened ${textVf.path} at line 3"))
+            assertTrue("show 성공 후 FileEditorManager에 파일이 열려 있어야 한다", fem.isFileOpen(textVf))
+            val editors = fem.getEditors(textVf)
+            assertTrue("에디터가 열려 있어야 한다", editors.isNotEmpty())
+            val textEditor = editors.filterIsInstance<com.intellij.openapi.fileEditor.TextEditor>().firstOrNull()
+            assertNotNull("TextEditor 인스턴스가 존재해야 한다", textEditor)
+            assertEquals("3번째 줄(1-based) 요청 시 caret 줄 위치는 2(0-based)여야 한다", 2, textEditor!!.editor.caretModel.logicalPosition.line)
+
+            // 에디터 정리 후 닫힌 상태 확인
+            fem.closeFile(textVf)
+            assertFalse(fem.isFileOpen(textVf))
+
+            // 3. openTextEditor=null 분기 검증:
+            // 3a. 기본 구현(default opener)에서 binary PNG fixture 실측:
+            //     - IntelliJ의 TestEditorManagerImpl(헤드리스 테스트 러너)은 binary 파일에 대해
+            //       null을 안전하게 반환하지 않고 doOpenTextEditor에서 NullPointerException을 발생시킨다.
+            binFile.writeBytes(binBytes)
+            binVf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(binFile)
+            assertNotNull(binVf)
+            val defaultOpenerResult = runCatching {
+                fem.openTextEditor(com.intellij.openapi.fileEditor.OpenFileDescriptor(project, binVf!!), true)
+            }
+            assertTrue(
+                "플랫폼 default opener는 binary 파일에 대해 null을 반환하거나 플랫폼 NPE 예외를 발생시킨다",
+                defaultOpenerResult.isFailure || defaultOpenerResult.getOrNull() == null,
+            )
+
+            // 3b. 주입된 openTextEditor=null 의존성으로 결정적 null 분기 검증: 호출 1회, descriptor 대상 일치, error=true
+            var invokedCount = 0
+            var capturedDescriptor: com.intellij.openapi.fileEditor.OpenFileDescriptor? = null
+            val nullHand = IdeHand(project, openTextEditor = { d ->
+                invokedCount++
+                capturedDescriptor = d
+                null
+            })
+            val resInjected = Hand(nullHand).call("show", buildJsonObject {
+                put("path", "ShowTarget.kt")
+                put("line", 2)
+            })
+            assertTrue(resInjected.error)
+            assertTrue(resInjected.text.contains("could not open a text editor for ${textVf.path}"))
+            assertFalse(resInjected.text.contains("opened "))
+            assertEquals("openTextEditor는 정확히 1회 호출되어야 한다", 1, invokedCount)
+            assertNotNull("OpenFileDescriptor가 전달되어야 한다", capturedDescriptor)
+            val d = capturedDescriptor!!
+            assertEquals(textVf, d.file)
+            assertEquals("1-based line 2는 0-based offset 1이어야 한다", 1, d.line)
+
+            // 4. 실제 loopback HandServer 연동 및 없는 경로 show 호출 시 HTTP 200, result.isError=true, ID 보존 확인
+            server = HandServer.start(defaultHand)
+            val postBody = """{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"show","arguments":{"path":"NoSuchFile.kt","line":5}}}"""
+            val (code, body) = executeHttpExchange(
+                targetUrl = server.url,
+                token = server.token,
+                postBody = postBody,
+                timeoutMs = 5000,
+                deadlineNanos = java.util.concurrent.TimeUnit.SECONDS.toNanos(10),
+                outConn = connRef,
+                outFuture = futureRef,
+                outExecutor = executorRef,
+            )
+            assertEquals(200, code)
+            val json = Wire.json.parseToJsonElement(body).jsonObject
+            assertEquals(99, json["id"]?.jsonPrimitive?.content?.toIntOrNull())
+            val resObj = json["result"]?.jsonObject
+            assertNotNull(resObj)
+            assertEquals(true, resObj!!["isError"]?.jsonPrimitive?.booleanOrNull)
+            val contentArr = resObj["content"]?.jsonArray
+            assertTrue(contentArr != null && contentArr.isNotEmpty())
+            val errText = contentArr!![0].jsonObject["text"]?.jsonPrimitive?.content
+            assertTrue(errText?.contains("no such file in this project: NoSuchFile.kt") == true)
+            assertFalse(errText?.contains("opened ") == true)
+        } finally {
+            try { server?.close() } catch (_: Throwable) {}
+            try { connRef.get()?.disconnect() } catch (_: Throwable) {}
+            try { futureRef.get()?.cancel(true) } catch (_: Throwable) {}
+            try { executorRef.get()?.shutdownNow() } catch (_: Throwable) {}
+            try { executorRef.get()?.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+            try { textVf?.let { fem.closeFile(it) } } catch (_: Throwable) {}
+            try { binVf?.let { fem.closeFile(it) } } catch (_: Throwable) {}
+            try { textFile.delete() } catch (_: Throwable) {}
+            try { binFile.delete() } catch (_: Throwable) {}
+        }
     }
 
     fun `test IdeHand replace modifies document with single undo`() {
         val base = java.io.File(project.basePath!!).apply { mkdirs() }
-        val ioFile = java.io.File(base, "UndoTarget.kt").apply { writeText("val initial = 10\n") }
-        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
-        assertNotNull(vf)
+        val ioFile = java.io.File(base, "UndoTarget.kt")
         val fileEditorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
-        val editors = fileEditorManager.openFile(vf!!, true)
-        assertTrue("FileEditor must be opened", editors.isNotEmpty())
-        val editor = editors[0]
-        val undoManager = com.intellij.openapi.command.undo.UndoManager.getInstance(project)
+        var vf: com.intellij.openapi.vfs.VirtualFile? = null
         try {
+            ioFile.writeText("val initial = 10\n")
+            vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
+            assertNotNull(vf)
+            val editors = fileEditorManager.openFile(vf!!, true)
+            assertTrue("FileEditor must be opened", editors.isNotEmpty())
+            val editor = editors[0]
+            val undoManager = com.intellij.openapi.command.undo.UndoManager.getInstance(project)
             val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf)
             assertNotNull(doc)
             assertEquals("val initial = 10\n", doc!!.text)
@@ -1536,29 +1648,31 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             undoManager.redo(editor)
             assertEquals("치환 후 전문이 한 번의 Redo로 복원되어야 한다", "val updated = 20\n", doc.text)
         } finally {
-            fileEditorManager.closeFile(vf)
-            ioFile.delete()
+            try { vf?.let { fileEditorManager.closeFile(it) } } catch (_: Throwable) {}
+            try { ioFile.delete() } catch (_: Throwable) {}
         }
     }
 
     fun `test IdeHand apply_edit 거절 시 도구 오류와 원본 문서 보존 및 loopback HTTP isError 전달`() {
         val base = java.io.File(project.basePath!!).apply { mkdirs() }
-        val ioFile = java.io.File(base, "EditTarget.kt").apply { writeText("original alpha beta alpha\n") }
+        val ioFile = java.io.File(base, "EditTarget.kt")
         val binBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
-        val binFile = java.io.File(base, "binary.png").apply { writeBytes(binBytes) }
-        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
-        assertNotNull(vf)
-        val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf!!)
-        assertNotNull(doc)
-        val initialStamp = doc!!.modificationStamp
-        val hand = Hand(IdeHand(project))
-
+        val binFile = java.io.File(base, "binary.png")
         var server: HandServer? = null
         val connRef = java.util.concurrent.atomic.AtomicReference<java.net.HttpURLConnection?>()
         val futureRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Pair<Int, String>>?>()
         val executorRef = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ExecutorService?>()
 
         try {
+            ioFile.writeText("original alpha beta alpha\n")
+            binFile.writeBytes(binBytes)
+            val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
+            assertNotNull(vf)
+            val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf!!)
+            assertNotNull(doc)
+            val initialStamp = doc!!.modificationStamp
+            val hand = Hand(IdeHand(project))
+
             // 1. old 미발견: error=true, 원래 거절 사유, Document.text와 modificationStamp 보존
             val resMissing = hand.call("apply_edit", buildJsonObject {
                 put("path", "EditTarget.kt")
