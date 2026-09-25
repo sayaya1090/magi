@@ -96,14 +96,14 @@ export class EditorHand implements Ide, vscode.Disposable {
     const doc = await vscode.workspace.openTextDocument(uri);
     const body = doc.getText();
     const hits = body.split(old).length - 1;
-    if (hits === 0) return `that text is not in ${uri.fsPath}`;
+    if (hits === 0) throw new Error(`that text is not in ${uri.fsPath}`);
     if (hits > 1 && !all) {
-      return `that text appears ${hits} times in ${uri.fsPath} — narrow it, or pass replaceAll`;
+      throw new Error(`that text appears ${hits} times in ${uri.fsPath} — narrow it, or pass replaceAll`);
     }
     const edit = new vscode.WorkspaceEdit();
     const next = replaceText(body, old, text, all);
     edit.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(body.length)), next);
-    if (!(await vscode.workspace.applyEdit(edit))) return `the editor refused the edit to ${uri.fsPath}`;
+    if (!(await vscode.workspace.applyEdit(edit))) throw new Error(`the editor refused the edit to ${uri.fsPath}`);
     return `replaced ${all ? hits : 1} occurrence(s) in ${uri.fsPath} — in the editor, so undo and ` +
       'the language server see it';
   }

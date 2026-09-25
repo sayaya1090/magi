@@ -129,6 +129,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `contract_fixture.test.ts` (공통 계약 fixture 실행) | ★ **공통 계약 fixture 5종의 단일 원본 직접 읽기 및 실행 검증 (§6.38).** `clients/test-fixtures/`의 5개 핵심 계약 fixture(`late_failure`, `cross_session_result`, `delete_recovery`, `same_string_edit`, `disposed_callback`)를 JetBrains와 복제본 없이 공유하여 실행합니다. 각 시나리오의 단계별 실행과 상태 단언, 실패 시 시나리오 ID·단계·기대값·실제값 보고 계약을 검증합니다 |
 | `snapshot.test.ts` (불변 스냅샷 공통 저장소) | **불변 스냅샷 공통 저장소(`ImmutableSnapshotStore`)의 불변성, 삽입 순서(FIFO) 축출, 임시 보호 및 탭 수명 검증 (§6.40).** 동일 키 재저장 시 최초 내용 불변성 및 false 반환, get() 접근에도 순서가 바뀌지 않는 엄격한 삽입 순서(FIFO) 축출, 중첩 임시 보호(`protectTemp`)의 참조 카운팅 및 멱등 해제, 모든 항목 고정 시 일시적 용량 초과 허용, diff 두 면 동시 생성 중 보호, 열기 실패 시 finally 블록을 통한 안전 해제, 탭 종료 시 새 put 없는 즉각 정리(`evictExcess`), 빈 문자열 문서 유효성 및 ApprovalSnapshots/OutputSnapshots 상속 동등성을 검증합니다 |
 | `provider_lifecycle.test.ts` (가상 문서 프로바이더 수명 및 탭 보호) | **가상 문서 프로바이더 수명 헬퍼(`ProviderLifecycle`)와 DiffProvider/OutputProvider 연결 검증 (§6.41).** 일반 문서 및 일반 탭 보호, DiffProvider의 TabInputTextDiff original/modified 양면 개별 보호, OutputProvider의 TabInputText 한정 보호(경로 차이 보존), 이종 scheme 비보호 격리, 문서·탭 종료 이벤트 시 추가 put 없는 즉각 정리(`evictExcess`), 관계없는 scheme 이벤트 무시, 언어 변경 중 close 이벤트 발생 시에도 임시 보호 유지 및 변경된 TextDocument 표시, 열기 실패 시 finally 블록을 통한 안전 해제, 빈 문자열과 만료 자료 오류 구분, 2회 중복 dispose 시 리스너 1회 해제 및 지연 콜백 무동작을 검증합니다 |
+| `hand_provider.test.ts` (호스트 에디터 핸드 연동 및 apply_edit 거절 오류 전달) | **에디터 도구 핸드(`EditorHand`) 호스트 연동 및 apply_edit 거절 시 도구 오류(`isError: true`) 전달 검증 (§6.47).** old 미발견·다중 일치 시 에디터 API 호출 없이 거절 사유 보존 및 도구 오류 변환, `applyEdit` 거절 시 에디터 거절 문구 보존 및 `isError: true` 전달, 정상 단일/다중 치환 및 빈 new·공백 old·달러 기호 리터럴 보존, 실제 loopback `Hand.start` HTTP 호출을 통한 JSON-RPC 정상 응답 내 `result.isError` 전달을 전수 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -1351,6 +1352,28 @@ node --test clients/vscode/out/test/*.property.test.js
   - `normalizeToolDefinitions`(`readOnly`) 및 `parseHttpTools`(`readOnlyHint`) 양쪽 모두:
     - boolean `true` / `false`: 정상 통과 (`assert.doesNotThrow`).
     - 문자열 `"true"` / `"false"`, 숫자 `0` / `1`, `null`, `undefined`(누락) 변이에 대해 전수 거절(`assert.throws`) 검증.
+
+---
+
+### §6.47 VS Code apply_edit 거절의 도구 오류 전달 및 호스트 연동 검증
+
+- **거절 사유 보존 및 도구 오류(`isError: true`) 변환 (`src/ide/hand.ts`)**:
+  - `EditorHand.replace`에서 기존 성공 문자열로 반환하던 거절 사유들을 `Error` 예외로 발생시켜 상위 `callHand` catch 경로로 전달:
+    - `hits === 0`: `throw new Error(\`that text is not in ${uri.fsPath}\`)`
+    - `hits > 1 && !all`: `throw new Error(\`that text appears ${hits} times in ${uri.fsPath} — narrow it, or pass replaceAll\`)`
+    - `!(await vscode.workspace.applyEdit(edit))`: `throw new Error(\`the editor refused the edit to ${uri.fsPath}\`)`
+  - 기존 거절 문구 원문을 100% 보존하며, `callHand`가 `{ text: e.message, error: true }`로 감싸고 `mcpserver.ts`가 정상 HTTP 200 JSON-RPC 응답 내 `{ result: { content: [...], isError: true } }`로 직렬화.
+  - 전송 실패(`openTextDocument` 등)도 기존대로 오류로 전파.
+
+- **호스트 환경 연동 및 루프백 HTTP 전수 검증 (`src/test/hand_provider.test.ts`)**:
+  - 모의 VS Code 호스트 환경을 구성하고 실제 `EditorHand` 인스턴스를 생성하여 검증:
+    1. 본문 "abc"에 old="missing": `error = true`, 사유 유지, `workspace.applyEdit` 호출 0회, 문서 보존.
+    2. 본문 "x x"에 old="x", all=false: `error = true`, 다중 발견 안내, `workspace.applyEdit` 호출 0회, 문서 보존.
+    3. 단일 일치 + `applyEdit = false`: `error = true`, 기존 editor refused 문구, API 호출 정확히 1회, 성공 문구 없음.
+    4. 단일 일치 및 `all = true` 다중 일치 성공: `error` 미설정/false, `WorkspaceEdit` 내용 일치, 빈 new 삭제, 공백 old 허용, 달러 기호(`$&`, `$$`, `$1`) 리터럴 치환 보존.
+    5. `openTextDocument` 거절: 기존 예외 메시지가 `error = true`로 전달됨.
+    6. 실제 `Hand.start(EditorHand)` 루프백 HTTP `tools/call` RPC 검증: old 미발견 시 `result.isError = true` 및 사유 전달, 성공 치환 시 `result.isError = false` 및 문서 갱신 확인.
+
 
 
 
