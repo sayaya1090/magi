@@ -17,21 +17,16 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/sayaya1090/magi/internal/webassets"
 	"io"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"path"
 	"strings"
 	"sync"
 	"syscall"
@@ -1027,226 +1022,9 @@ func notRunning(in daemon.Info, err error) error {
 }
 
 // routes is every path this server answers, in one place.
-//
-// Wrapped where the table is built, not where the server is started: a guard applied at the call
-// site is one a later route can be added beside, and a test that calls the wrapper directly passes
-// either way — measured, by removing the wrapping and watching the check stay green.
-//
-// A list rather than a run of mux.HandleFunc calls because the page links to some of these, and a
-// test checks that everything the page references is a path this binary serves — which is the real
-// meaning of "self-contained", and cannot be checked against a list that exists only as statements.
-func (s *server) routes() map[string]http.HandlerFunc {
-	out := map[string]http.HandlerFunc{}
-	for path, h := range s.handlers() {
-		// Three wrappers, and the order is the argument. Audit outermost, because a cross-site
-		// POST that never reaches a handler is the line in that record somebody would actually
-		// want. Then the cross-site guard, which is about the BROWSER and applies to everybody
-		// including the operator. Then may-do, which is about the person — asked last, so a
-		// forged cross-site request is turned away before anybody's permissions are consulted.
-		out[path] = s.audited(sameSiteOnly(s.claiming(s.mayDo(path, h))))
-	}
-	return out
-}
 
-// handlers is the table itself. routes() is what anything outside gets, and it is the wrapped one.
-func (s *server) handlers() map[string]http.HandlerFunc {
-	return map[string]http.HandlerFunc{
-		"/":                     s.page,
-		"/fleet":                s.fleet,
-		"/events":               s.events,
-		"/submit":               s.submit,
-		"/interrupt":            s.interrupt,
-		"/resume":               s.resume,
-		"/shell":                s.shell,
-		"/cron":                 s.cron,
-		"/search":               s.search,
-		"/answer":               s.answer,
-		"/manifest.webmanifest": s.manifest,
-		"/icon.svg":             s.icon,
-		"/icon-maskable.svg":    s.iconMaskable,
-		"/font/":                s.font,
-		// The page's own two subtrees. Missing, `import '/vendor/material.js'` answered 404, which
-		// fails the whole ES module — so on a real console NOTHING ran: no components, no script, no
-		// language beyond the seed inlined above. The demo hid it for as long as it existed, because
-		// a static export writes these files to disk beside the page.
-		"/vendor/": s.asset,
-		"/i18n/":   s.asset,
-		// The console itself: every compiled module, every stylesheet. See uiAsset for the cache
-		// contract, which is GWT's.
-		"/ui/":           s.uiAsset,
-		"/skills":        s.skills,
-		"/wiki":          s.wiki,
-		"/forget":        s.forgetSkill,
-		"/report-format": s.reportFormat,
-		"/remember":      s.remember,
-		"/context":       s.context,
-		"/dispatch":      s.dispatch,
-		"/mcp":           s.mcp,
-		"/handoffs":      s.handoffs,
-		"/subagents":     s.subagents,
-		"/jobs":          s.jobs,
-		"/tools":         s.tools,
-		"/model":         s.models,
-		"/loop":          s.loop,
-		"/transcript":    s.transcript,
-		"/council":       s.council,
-		"/plan":          s.plan,
-		"/compact":       s.compact,
-		"/permission":    s.permission,
-		"/console":       s.console,
-		"/me":            s.me,
-		"/access":        s.access,
-		"/files":         s.files,
-		"/file":          s.file,
-		"/find":          s.find,
-		"/save":          s.save,
-		"/git":           s.git,
-		"/look":          s.look,
-		"/complete":      s.complete,
-		"/open-file":     s.openFile,
-		"/suggest":       s.suggest,
-		"/autocomplete":  s.autocomplete,
-		"/profiles":      s.profilesList,
-		"/providers":     s.providers,
-		"/update":        s.update,
-		"/git-do":        s.gitDo,
-		"/git-msg":       s.gitMsg,
-		"/git-pr":        s.gitPR,
-		"/pr":            s.prFacts,
-		"/pr-msg":        s.prMsg,
-		"/diff":          s.diff,
-		"/file-do":       s.fileDo,
-		"/history":       s.history,
-		"/meet":          s.meet,
-		"/meet-say":      s.meetSay,
-		"/meet-close":    s.meetClose,
-		"/meet-open":     s.meetOpen,
-		"/meet-hand":     s.meetHand,
-		"/push":          s.push,
-		"/sw.js":         s.serviceWorker,
-	}
-}
 
-//go:embed fonts/*.woff2
-var fontFS embed.FS
 
-//go:embed vendor/*.js i18n/*.json
-var assetFS embed.FS
-
-// asset serves the vendored javascript and the language packs.
-//
-// Both are in the binary for the same reason the typeface is: a page that fetched them from
-// somewhere else would depend on that machine being up, tell it when you look at your agents, and
-// behave differently on a laptop with no route out. See vendor/README.md for how the bundle is
-// built — once, by hand, from a pinned version, with its hash written down.
-func (s *server) asset(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimPrefix(r.URL.Path, "/")
-	b, err := assetFS.ReadFile(name)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	switch {
-	case strings.HasSuffix(name, ".js"):
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	case strings.HasSuffix(name, ".json"):
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	}
-	// Cached and REVALIDATED, which are not the same thing. These were served immutable for a day
-	// on the reasoning that they change with a release — and the consequence is that they change
-	// with a release and nobody sees it: an upgraded console served its new pack to a browser that
-	// went on using yesterday's for up to a day, so a label added in the same build rendered as its
-	// own dotted key. Observed twice while working on this page, both times read as a bug in the
-	// page rather than as a stale file.
-	//
-	// no-cache is "ask first", not "do not store". The browser keeps the bytes and gets a 304 back
-	// on every check, which costs a round trip with no body and is always right.
-	sum := sha256.Sum256(b)
-	etag := "\"" + hex.EncodeToString(sum[:8]) + "\""
-	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "no-cache")
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-	if _, err := w.Write(b); err != nil {
-		log.Printf("magi-web: serving %s: %v", name, err)
-	}
-}
-
-// font serves the display face the page sets its headlines in.
-//
-// Embedded and served from here rather than fetched from a font CDN. A viewer that reached out for
-// its typeface would make this page's appearance depend on a machine that is not yours, tell that
-// machine when you look at your agents, and fall back to something else entirely on a laptop with
-// no route out — and this binary exists to hold everything it serves. See fonts/README.md for how
-// the files were built, and fonts/OFL.txt for the licence that travels with them.
-func (s *server) font(w http.ResponseWriter, r *http.Request) {
-	name := path.Base(r.URL.Path)
-	b, err := fontFS.ReadFile("fonts/" + name)
-	if err != nil || !strings.HasSuffix(name, ".woff2") {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "font/woff2")
-	// The bytes are baked into the binary, so they cannot change without the binary changing —
-	// and a page that re-fetches its typeface every poll is a page that flashes.
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	if _, err := w.Write(b); err != nil {
-		log.Printf("magi-web: writing %s: %v", name, err)
-	}
-}
-
-// manifest makes the page installable: added to a phone's home screen it opens without the browser
-// chrome, which is the difference between "a website about my agents" and something you reach for.
-//
-// Served rather than inlined as a data: URI because iOS ignores a manifest it cannot fetch, and it
-// is small enough that a route costs less than the explanation of the workaround would.
-// webassets.Manifest and webassets.Icon are package-level so the static demo can write the same bytes this
-// server answers with. They were consts inside their handlers, and the demo shipped without either
-// — found by a check that walks every path the page references.
-
-// webassets.IconMaskable is the same three councillors with the plate back under them.
-//
-// A maskable icon is not a picture with rounded corners applied — the platform crops it to
-// whatever shape it likes, circle on one launcher and squircle on the next, and a transparent one
-// is cropped to nothing with the launcher filling the rest in a colour this file did not choose.
-// So this one keeps the ground, and it is the only place that needs it.
-
-func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/manifest+json")
-	// display:standalone and a theme colour that matches the page's BACKGROUND — the masthead sits
-	// on it directly now, so a surface colour here would draw a band the page does not have. start_url is the fleet: the phone is where you check on things.
-	if _, err := io.WriteString(w, webassets.Manifest); err != nil {
-		log.Printf("magi-web: writing the manifest: %v", err)
-	}
-}
-
-// icon is the mark: the three councillors, in their own hues, on nothing.
-//
-// SVG so there is one file for every size, and drawn here rather than shipped as a PNG because a
-// binary asset in a source tree is a thing nobody can review. The maskable safe zone is the middle
-// 80%, so nothing meaningful goes near the edge.
-//
-// No ground under it. This is the favicon, and a tab strip is whatever colour the browser and its
-// theme make it — a dark brown square there is a sticker on the tab rather than a mark in it. The
-// same file is the notification icon, where a launcher tints what it is given and a plate is a
-// plate. Where a ground IS required, there is a second file that has one; see webassets.IconMaskable.
-func (s *server) icon(w http.ResponseWriter, r *http.Request) {
-	s.svg(w, webassets.Icon)
-}
-
-// iconMaskable is the same mark for a home screen, which crops it.
-func (s *server) iconMaskable(w http.ResponseWriter, r *http.Request) {
-	s.svg(w, webassets.IconMaskable)
-}
-
-func (s *server) svg(w http.ResponseWriter, body string) {
-	w.Header().Set("Content-Type", "image/svg+xml")
-	if _, err := io.WriteString(w, body); err != nil {
-		log.Printf("magi-web: writing an icon: %v", err)
-	}
-}
 
 // fleet is the dashboard's data: every daemon this config directory knows about.
 //
