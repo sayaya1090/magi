@@ -149,6 +149,17 @@ func tomlSetLine(text, section, key, value string) string {
 	return body + "[" + section + "]\n" + key + " = " + value + "\n"
 }
 
+// councilDeclaration 는 카운슬이 붙은 컴패니언에만 쓰는 읽기 도구 설명의 마무리 문장. 카운슬이 있으면
+// 그 도구가 목록에서 살아 있으니 「끝에 선언하게」라고 적고, 없으면 빈 문자열을 둔다(§7).
+// xl / ppt / word 판의 declare 안내가 이 하나를 공유했다 — 글자는 한 곳, 문장은 한 곳.
+func councilDeclaration(hasCouncil bool) string {
+	if !hasCouncil {
+		return ""
+	}
+	return " A turn that called any tool must end by declaring it finished with " +
+		"council{complete:true}, even a read-only one: otherwise the turn lands UNVERIFIED."
+}
+
 // councilSwitched 는 옛 이름 — 시험이 부른다.
 func councilSwitched(text string, on bool) string {
 	if on {

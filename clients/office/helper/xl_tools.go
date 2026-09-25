@@ -13,11 +13,7 @@ func withRange(rest ...property) []property {
 // xlCatalogue 는 도구 목록. hasCouncil 은 읽기 도구 설명의 마무리 안내만 바꾼다(파워포인트 판과 같은
 // 이유: magi 의 MCP 클라이언트는 핸드셰이크의 instructions 를 버려서 설명문이 유일한 자리다).
 func xlCatalogue(hasCouncil bool) []tool {
-	declare := ""
-	if hasCouncil {
-		declare = " A turn that called any tool must end by declaring it finished with " +
-			"council{complete:true}, even a read-only one: otherwise the turn lands UNVERIFIED."
-	}
+	declare := councilDeclaration(hasCouncil)
 	return []tool{
 		// ── 읽기 ────────────────────────────────────────────────────────────────────
 		{

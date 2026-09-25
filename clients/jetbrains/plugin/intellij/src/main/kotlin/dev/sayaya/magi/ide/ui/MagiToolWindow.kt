@@ -1089,7 +1089,12 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun rowPanel(r: Row): JBPanel<JBPanel<*>> {
             val p = JBPanel<JBPanel<*>>(BorderLayout(0, 2))
-            p.border = if (r.pending) Look.pendingRow() else Look.row()
+            p.border = when {
+                r.who == Who.Tool && r.pending -> Look.pendingToolRow()
+                r.who == Who.Tool -> Look.toolRow()
+                r.pending -> Look.pendingRow()
+                else -> Look.row()
+            }
             p.isOpaque = false
             // 개별 말풍선 텍스트 복사 버튼:
             // 시각적 스타일(발화자, 실행 상태 등)은 `RowText.plain`을 통해 표준 텍스트 서식으로 직렬화하여 클립보드에 전달합니다.
@@ -1101,7 +1106,9 @@ class MagiToolWindow : ToolWindowFactory {
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }
-            p.add(actions, BorderLayout.EAST)
+            if (r.who != Who.Tool) {
+                p.add(actions, BorderLayout.EAST)
+            }
             when (r.who) {
                 Who.User, Who.Agent -> {
                     val marks = buildList {
@@ -1165,7 +1172,7 @@ class MagiToolWindow : ToolWindowFactory {
                             // 아무 일이 없다(`RowText.foldable`).
                             canFold -> RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄"
                             else -> RowText.oneLine(r.args.orEmpty(), 100)
-                        }, RowText.clock(r.at)),
+                        }, RowText.clock(r.at), actions),
                         BorderLayout.NORTH)
                     if (open) {
                         // 펼침 상태: 도구 호출 인자 및 실행 결과 원문을 모노스페이스 폰트로 표시합니다.

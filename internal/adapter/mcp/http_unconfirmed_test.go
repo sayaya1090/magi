@@ -801,9 +801,9 @@ func TestHTTPTransportFieldPresenceAndAuthoritativeScenarios(t *testing.T) {
 
 func TestParseHTTPRPCErrorDirectUnit(t *testing.T) {
 	tests := []struct {
-		name        string
-		raw         string
-		expectError bool
+		name         string
+		raw          string
+		expectError  bool
 		expectedCode int
 		expectedMsg  string
 	}{

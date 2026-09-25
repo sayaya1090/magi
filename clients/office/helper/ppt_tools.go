@@ -44,11 +44,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 	//
 	// 고침은 더 나은 문장이 아니라 **참이 아닐 때 안 적는 것**이고, 아는 것은 데몬뿐이라
 	// 거기서 받아 온다(`daemon.Status.Council`). 없으면 이 자리는 빈 문자열이다.
-	declare := ""
-	if hasCouncil {
-		declare = " A turn that called any tool must end by declaring it finished with " +
-			"council{complete:true}, even a read-only one: otherwise the turn lands UNVERIFIED."
-	}
+	declare := councilDeclaration(hasCouncil)
 
 	return []tool{
 		{

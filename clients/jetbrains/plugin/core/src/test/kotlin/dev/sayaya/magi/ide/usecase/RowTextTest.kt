@@ -241,6 +241,23 @@ class RowTextTest {
     }
 
     @Test
+    fun `생각 행의 접힘 열쇠는 스트리밍으로 글자가 늘어나도 유지된다`() {
+        // 모델이 추론을 스트리밍하는 동안 글자가 계속 이어진다.
+        // 열쇠가 매 토큰마다 바뀌면 사용자가 접은 상태가 즉시 풀리므로, 생각 행은 식별자 기반으로 안정적이어야 한다.
+        val draft1 = row(msgId = "m1", who = Who.Thinking, text = "생각 중")
+        val draft2 = row(msgId = "m1", who = Who.Thinking, text = "생각 중 더 긴 생각")
+        val done = row(msgId = "m1", who = Who.Thinking, text = "생각 중 더 긴 생각 끝")
+        val k1 = RowText.foldKey(draft1)
+        val k2 = RowText.foldKey(draft2)
+        val k3 = RowText.foldKey(done)
+        assertEquals(k1, k2, "스트리밍 중 토큰이 추가되어도 생각 행의 접힘 열쇠는 같아야 한다")
+        assertEquals(k1, k3, "스트리밍이 완료되어도 생각 행의 접힘 열쇠는 같아야 한다")
+
+        val m2 = row(msgId = "m2", who = Who.Thinking, text = "생각 중")
+        assertNotEquals(k1, RowText.foldKey(m2), "메시지 ID가 다르면 접힘 열쇠도 달라야 한다")
+    }
+
+    @Test
     fun `리치 열쇠는 msgId 를 쓰고 없으면 시각으로 떨어진다`() {
         assertEquals("m1", RowText.richKey(row(msgId = "m1", at = "t")))
         assertEquals("t", RowText.richKey(row(msgId = "", at = "t")))
@@ -338,10 +355,8 @@ class RowTextTest {
      * 화면은 접힘을 이 열쇠로 기억한다. 그러므로 **같은 내용이 같은 열쇠를 내는 것**이 「다시 그려도
      * 사람이 고른 접힘이 유지된다」의 전부다.
      *
-     * ⚠ 그리고 **본문이 바뀌면 열쇠도 바뀐다** — 흐르는 중인 생각은 조각마다 다른 행으로 읽히므로
-     * 사람이 접어 둔 것이 펼쳐진다. 그것이 이 열쇠에 본문이 든 대가이고, 문서가 「별도 기록」이라고 적은
-     * 자리가 바로 여기다. 고치려면 열쇠에서 본문을 빼야 하는데, 그러면 같은 메시지의 서로 다른 행이 한
-     * 열쇠를 나눠 쓴다.
+     * 생각(Thinking) 행은 스트리밍 중 본문이 계속 자라므로, 본문 해시를 열쇠에 포함하면 스트리밍 도중 사용자가 접어 둔
+     * 상태가 다음 토큰에 즉시 풀리는 결함이 발생한다. 따라서 생각 행은 메시지 식별자 기반의 안정적인 열쇠를 사용한다.
      */
     @Test
     fun `같은 내용은 같은 접힘 열쇠를 낸다`() {
@@ -349,7 +364,10 @@ class RowTextTest {
         val again = Row(Who.Thinking, "여러 줄\n생각", msgId = "m1")
         assertEquals(RowText.foldKey(a), RowText.foldKey(again), "같은 행을 다시 그렸는데 열쇠가 달라진다 — 접어 둔 것이 펼쳐진다")
         val grown = Row(Who.Thinking, "여러 줄\n생각\n더", msgId = "m1")
-        assertNotEquals(RowText.foldKey(a), RowText.foldKey(grown), "본문이 자랐는데 열쇠가 같다 — 그러면 다른 내용이 한 상태를 나눠 쓴다")
+        assertEquals(RowText.foldKey(a), RowText.foldKey(grown), "본문이 스트리밍으로 자라도 같은 생각 행이면 접힘 열쇠가 유지되어야 한다")
+        // 다른 메시지의 생각 행은 서로 다른 열쇠여야 한다.
+        val otherMsg = Row(Who.Thinking, "여러 줄\n생각", msgId = "m2")
+        assertNotEquals(RowText.foldKey(a), RowText.foldKey(otherMsg), "메시지가 다른데 열쇠가 같다")
         // 같은 메시지의 다른 종류는 서로 다른 열쇠여야 한다(생각과 답이 한 상태를 나눠 쓰면 안 된다).
         assertNotEquals(
             RowText.foldKey(Row(Who.Thinking, "같은 글", msgId = "m1")),

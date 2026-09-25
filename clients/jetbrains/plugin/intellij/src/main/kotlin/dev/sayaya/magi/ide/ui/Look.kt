@@ -147,6 +147,7 @@ internal object Look {
             border = JBUI.Borders.empty(2, 6, 0, 0)
             alignmentY = 0f
             cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            putClientProperty("magi.action", true)
             addMouseListener(object : java.awt.event.MouseAdapter() {
                 override fun mouseClicked(e: java.awt.event.MouseEvent) = onClick()
             })
@@ -468,9 +469,17 @@ internal object Look {
     /** 트랜스크립트 행 기본 여백 (상하 8px, 좌우 12px). */
     fun row(): javax.swing.border.Border = JBUI.Borders.empty(8, 12)
 
+    /** 도구 호출 행 컴팩트 여백 (상하 2px, 좌우 12px). */
+    fun toolRow(): javax.swing.border.Border = JBUI.Borders.empty(2, 12)
+
     /** 답변 대기 중인 트랜스크립트 행 테두리. 좌측에 [pending] 인디케이터를 포함한다. */
     fun pendingRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
         BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10, 6, 12),
+    )
+
+    /** 답변 대기 중인 도구 호출 행 테두리. */
+    fun pendingToolRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
+        BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(2, 10, 2, 12),
     )
 
     /** 메시지 발신 헤더 컴포넌트 (발신자명, 마크/배지 목록, 타임스탬프). */
@@ -488,8 +497,8 @@ internal object Look {
             if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
         }
 
-    /** 도구 호출 헤더 컴포넌트 (도구명, 실행 상태 글리프, 인자 요약, 타임스탬프). */
-    fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String): JComponent =
+    /** 도구 호출 헤더 컴포넌트 (도구명, 실행 상태 글리프, 인자 요약, 타임스탬프, 우측 액션). */
+    fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String, actions: JComponent? = null): JComponent =
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             isOpaque = false
@@ -502,6 +511,10 @@ internal object Look {
             }
             add(javax.swing.Box.createHorizontalGlue())
             if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
+            if (actions != null) {
+                add(javax.swing.Box.createHorizontalStrut(4))
+                add(actions)
+            }
         }
 
     /**

@@ -232,7 +232,13 @@ object RowText {
     fun foldsOnKey(focusOwner: Any?, rowPanel: Any?): Boolean =
         focusOwner != null && rowPanel != null && focusOwner === rowPanel
 
-    fun foldKey(r: Row): String = "${r.msgId}:${r.who}:${r.callId}:${r.text.hashCode()}"
+    fun foldKey(r: Row): String = when (r.who) {
+        Who.Thinking -> {
+            val id = r.msgId.ifBlank { r.callId.ifBlank { r.at.orEmpty() } }
+            if (id.isNotBlank()) "${r.who}:$id" else "${r.who}:${r.text.hashCode()}"
+        }
+        else -> "${r.msgId}:${r.who}:${r.callId}:${r.text.hashCode()}"
+    }
 
     /**
      * 리치 렌더 패널을 붙들어 두는 열쇠. `msgId` 가 없으면 시각으로 — 둘 다 없으면 빈 글자라

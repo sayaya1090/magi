@@ -10,11 +10,7 @@ func withFromTo(rest ...property) []property {
 }
 
 func wordCatalogue(hasCouncil bool) []tool {
-	declare := ""
-	if hasCouncil {
-		declare = " A turn that called any tool must end by declaring it finished with " +
-			"council{complete:true}, even a read-only one: otherwise the turn lands UNVERIFIED."
-	}
+	declare := councilDeclaration(hasCouncil)
 	return []tool{
 		{
 			Name: "list_paragraphs",
