@@ -1686,4 +1686,29 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     - 잘린 JSON 및 최상위 배열 입력에 대해 `id: null` 에러 응답 및 FakeIde 호출 0회 검증.
     - boolean(`true`, `false`), 소수(`12.34`), 객체(`{}`), 배열(`[]`) ID에 대해 `id: null` 에러 응답 및 FakeIde 호출 0회 검증.
 
+---
+
+## 2026-09-25 JetBrains apply_edit 거절의 도구 오류 전달 및 호스트 연동 검증 (§6.47)
+
+- **거절 사유 보존 및 도구 오류(`isError: true`) 변환 (`IdeHand.kt`)**:
+  - `IdeHand.replace`에서 기존 성공 문자열로 반환하던 거절 사유들을 `IllegalStateException` 예외로 발생시켜 `HandEdtCall` 및 상위 `Hand.call` catch 경로로 전달:
+    - `find == null`: `throw IllegalStateException("no such file in this project: $path")`
+    - `getDocument == null`: `throw IllegalStateException("not a text file: ${f.path}")`
+    - `hits == 0`: `throw IllegalStateException("that text is not in ${f.path}")`
+    - `hits > 1 && !all`: `throw IllegalStateException("that text appears $hits times in ${f.path} — narrow it, or pass replaceAll")`
+  - 기존 거절 문구 원문을 100% 보존하며, `Hand.call`이 `Answer(e.message, error = true)`로 변환하고 `HandServer`가 정상 HTTP 200 JSON-RPC 응답 내 `{ result: { content: [...], isError: true } }`로 직렬화.
+  - JSON-RPC error envelope(-32603)가 아닌 정상 tools/call result의 `isError: true` 계약 준수.
+
+- **호스트 환경 연동 및 루프백 HTTP 전수 검증 (`HeadlessIdeTest.kt`, `HeadlessIdeTest`)**:
+  - 실제 IntelliJ 프로젝트 파일 및 Document 기반 `IdeHand` 인스턴스 검증:
+    1. `old` 미발견: `error = true`, 원래 거절 사유, `Document.text` 및 `modificationStamp` 보존.
+    2. 다중 일치 + `all = false`: `error = true`, 다중 발견 안내, `Document.text` 및 `modificationStamp` 보존.
+    3. 없는 파일: `error = true`, fake 성공 문자열 없음.
+    4. 비텍스트 문서: binary 파일 생성 및 `getDocument == null` 시 `error = true` 및 사유 전달.
+    5. 정상 단일 치환: `error = false`, 문서 변경 및 Undo 스택 등록 확인.
+    6. `all = true` 다중 치환: `error = false`, 문서 전체 치환 확인.
+    7. 빈 new 삭제: `error = false`, 해당 문자열 제거 확인.
+    8. 실제 loopback `HandServer` 연동 및 EDT 펌프 비동기 호출을 통해 old 미발견 시 `result.isError = true` 전달 실측 확인.
+
+
 

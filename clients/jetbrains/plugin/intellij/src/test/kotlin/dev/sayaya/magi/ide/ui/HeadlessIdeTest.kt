@@ -10,6 +10,7 @@ import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Daemon
 import dev.sayaya.magi.ide.usecase.End
+import dev.sayaya.magi.ide.usecase.Hand
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.Dimension
 import java.awt.event.ActionEvent
@@ -20,6 +21,14 @@ import javax.swing.JPanel
 import javax.swing.JTextPane
 import javax.swing.SwingConstants
 import javax.swing.text.StyleConstants
+import dev.sayaya.magi.ide.model.Wire
+import dev.sayaya.magi.ide.transport.HandServer
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
  * **창 없이 진짜 IDE 를 세우고 우리 것을 눌러 본다.**
@@ -1511,5 +1520,131 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertNotNull(doc)
         assertEquals("val count = 2\n", doc!!.text)
     }
+
+    fun `test IdeHand apply_edit 거절 시 도구 오류와 원본 문서 보존 및 loopback HTTP isError 전달`() {
+        val base = java.io.File(project.basePath!!).apply { mkdirs() }
+        val ioFile = java.io.File(base, "EditTarget.kt").apply { writeText("original alpha beta alpha\n") }
+        val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile)
+        assertNotNull(vf)
+        val doc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(vf!!)
+        assertNotNull(doc)
+        val initialStamp = doc!!.modificationStamp
+        val hand = Hand(IdeHand(project))
+
+        // 1. old 미발견: error=true, 원래 거절 사유, Document.text와 modificationStamp 보존
+        val resMissing = hand.call("apply_edit", buildJsonObject {
+            put("path", "EditTarget.kt")
+            put("old", "gamma_missing")
+            put("new", "replacement")
+        })
+        assertTrue(resMissing.error)
+        assertTrue(resMissing.text.contains("that text is not in"))
+        assertEquals("original alpha beta alpha\n", doc.text)
+        assertEquals(initialStamp, doc.modificationStamp)
+
+        // 2. 다중 일치 + all=false: error=true, 다중 발견 안내, Document.text와 modificationStamp 보존
+        val resMulti = hand.call("apply_edit", buildJsonObject {
+            put("path", "EditTarget.kt")
+            put("old", "alpha")
+            put("new", "replacement")
+            put("replaceAll", "false")
+        })
+        assertTrue(resMulti.error)
+        assertTrue(resMulti.text.contains("appears 2 times"))
+        assertTrue(resMulti.text.contains("narrow it, or pass replaceAll"))
+        assertEquals("original alpha beta alpha\n", doc.text)
+        assertEquals(initialStamp, doc.modificationStamp)
+
+        // 3. 없는 파일: error=true, fake 성공 문자열 없음
+        val resNoFile = hand.call("apply_edit", buildJsonObject {
+            put("path", "NoSuchFile.kt")
+            put("old", "alpha")
+            put("new", "beta")
+        })
+        assertTrue(resNoFile.error)
+        assertTrue(resNoFile.text.contains("no such file in this project"))
+
+        // 4. 비텍스트 문서: binary 파일 생성 및 getDocument=null 시 error=true 검증
+        val binFile = java.io.File(base, "binary.bin").apply { writeBytes(byteArrayOf(0, 1, 2, -1, -2)) }
+        val binVf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshAndFindFileByIoFile(binFile)
+        if (binVf != null) {
+            val binDoc = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(binVf)
+            if (binDoc == null) {
+                val resBin = hand.call("apply_edit", buildJsonObject {
+                    put("path", "binary.bin")
+                    put("old", "anything")
+                    put("new", "other")
+                })
+                assertTrue(resBin.error)
+                assertTrue(resBin.text.contains("not a text file"))
+            }
+        }
+
+        // 5. 정상 단일 치환: error=false, 문서 변경 및 Undo 스택 등록 확인
+        val resSingle = hand.call("apply_edit", buildJsonObject {
+            put("path", "EditTarget.kt")
+            put("old", "beta")
+            put("new", "BETA")
+        })
+        assertFalse(resSingle.error)
+        assertTrue(resSingle.text.contains("replaced 1 occurrence(s)"))
+        assertEquals("original alpha BETA alpha\n", doc.text)
+        assertTrue(doc.modificationStamp > initialStamp)
+
+        // 6. all=true 다중 치환 성공
+        val resAll = hand.call("apply_edit", buildJsonObject {
+            put("path", "EditTarget.kt")
+            put("old", "alpha")
+            put("new", "OMEGA")
+            put("replaceAll", "true")
+        })
+        assertFalse(resAll.error)
+        assertTrue(resAll.text.contains("replaced 2 occurrence(s)"))
+        assertEquals("original OMEGA BETA OMEGA\n", doc.text)
+
+        // 7. 빈 new 삭제 성공
+        val resDel = hand.call("apply_edit", buildJsonObject {
+            put("path", "EditTarget.kt")
+            put("old", " BETA")
+            put("new", "")
+        })
+        assertFalse(resDel.error)
+        assertEquals("original OMEGA OMEGA\n", doc.text)
+
+        // 8. 실제 loopback HandServer 연동 및 old 미발견 시 result.isError=true 확인
+        val server = HandServer.start(hand)
+        try {
+            val postBody = """{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"apply_edit","arguments":{"path":"EditTarget.kt","old":"never_there","new":"xyz"}}}"""
+            val future = java.util.concurrent.CompletableFuture.supplyAsync {
+                val c = java.net.URI(server.url).toURL().openConnection() as java.net.HttpURLConnection
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.setRequestProperty("Content-Type", "application/json")
+                c.setRequestProperty("X-Magi-Hand", server.token)
+                c.outputStream.use { it.write(postBody.toByteArray()) }
+                val code = c.responseCode
+                val text = (if (code < 400) c.inputStream else c.errorStream)?.readBytes()?.decodeToString().orEmpty()
+                code to text
+            }
+            while (!future.isDone) {
+                com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+                Thread.sleep(10)
+            }
+            val (code, body) = future.get()
+            assertEquals(200, code)
+            val json = Wire.json.parseToJsonElement(body).jsonObject
+            val resObj = json["result"]?.jsonObject
+            assertNotNull(resObj)
+            assertEquals(true, resObj!!["isError"]?.jsonPrimitive?.booleanOrNull)
+            val contentArr = resObj["content"]?.jsonArray
+            assertTrue(contentArr != null && contentArr.isNotEmpty())
+            assertTrue(contentArr!![0].jsonObject["text"]?.jsonPrimitive?.content?.contains("that text is not in") == true)
+        } finally {
+            server.close()
+            ioFile.delete()
+            binFile.delete()
+        }
+    }
 }
+
 

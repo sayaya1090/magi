@@ -42,14 +42,14 @@ class IdeHand internal constructor(
     }
 
     override fun replace(path: String, old: String, new: String, all: Boolean): String = onEdt {
-        val f = find(path) ?: return@onEdt "no such file in this project: $path"
+        val f = find(path) ?: throw IllegalStateException("no such file in this project: $path")
         val docs = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance()
-        val doc = docs.getDocument(f) ?: return@onEdt "not a text file: ${f.path}"
+        val doc = docs.getDocument(f) ?: throw IllegalStateException("not a text file: ${f.path}")
         val text = doc.text
         val hits = text.split(old).size - 1
         // 문자열 미발견과 다중 발견을 분리하여 에이전트에게 명확한 교정 가이드를 제공
-        if (hits == 0) return@onEdt "that text is not in ${f.path}"
-        if (hits > 1 && !all) return@onEdt "that text appears $hits times in ${f.path} — narrow it, or pass replaceAll"
+        if (hits == 0) throw IllegalStateException("that text is not in ${f.path}")
+        if (hits > 1 && !all) throw IllegalStateException("that text appears $hits times in ${f.path} — narrow it, or pass replaceAll")
         WriteCommandAction.runWriteCommandAction(project, "magi: apply edit", null, {
             doc.setText(if (all) text.replace(old, new) else text.replaceFirst(old, new))
             PsiDocumentManager.getInstance(project).commitDocument(doc)
