@@ -9,6 +9,7 @@ import dev.sayaya.magi.ide.model.FileRef
 
 class SuggestCoordinatorViewTest : BasePlatformTestCase() {
 
+    @Suppress("UNCHECKED_CAST")
     private fun <T> field(target: Any, name: String): T =
         target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target) as T
 
@@ -273,7 +274,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
 
             assertFalse("fileChooser must not be invoked after view disposal", fileChooserInvoked)
         } finally {
-            if (!Disposer.isDisposed(view)) Disposer.dispose(view)
+            runCatching { Disposer.dispose(view) }
         }
     }
 
@@ -306,7 +307,7 @@ class SuggestCoordinatorViewTest : BasePlatformTestCase() {
             val refs: Collection<*> = field(view, "refs")
             assertTrue("No attachment must be added on disposed view", refs.isEmpty())
         } finally {
-            if (!Disposer.isDisposed(view)) Disposer.dispose(view)
+            runCatching { Disposer.dispose(view) }
         }
     }
 

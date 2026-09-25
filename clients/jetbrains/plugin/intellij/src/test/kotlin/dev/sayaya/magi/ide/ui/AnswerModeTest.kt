@@ -248,7 +248,7 @@ class AnswerModeTest : BasePlatformTestCase() {
 
             // 250ms 타이머 만료 콜백을 결정적으로 주입: 키가 여전히 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없음
         val timer = h.field<javax.swing.Timer>("commitResetTimer")
-        timer?.actionListeners?.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
+        timer.actionListeners.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
 
         // 키를 떼지 않고 계속 누르고 있는 상태(auto-repeat) Enter 재발생
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
@@ -262,7 +262,7 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.input.keyListeners.forEach { it.keyReleased(shiftRelease) }
 
         // 중간에 타이머 만료 콜백 재주입
-        timer?.actionListeners?.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
+        timer.actionListeners.forEach { it.actionPerformed(java.awt.event.ActionEvent(timer, 0, "")) }
 
         // Shift 등 다른 키 입력 후에도 Enter를 떼지 않은 반복 Enter는 요청 0건이어야 함
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }

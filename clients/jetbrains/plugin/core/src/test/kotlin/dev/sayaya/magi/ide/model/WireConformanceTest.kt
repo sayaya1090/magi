@@ -115,9 +115,10 @@ class WireConformanceTest {
             for (line in src.readLines()) {
                 val m = open.find(line)
                 if (m != null) {
-                    name = m.groupValues[1]
+                    val n = m.groupValues[1]
+                    name = n
                     renameNext = null
-                    val props = out.getOrPut(name!!) { mutableSetOf() }
+                    val props = out.getOrPut(n) { mutableSetOf() }
                     // 한 줄에 다 적힌 클래스는 여는 줄이 곧 닫는 줄이라 아래의 `startsWith(")")` 를
                     // 영영 못 만나고, 그대로 두면 **다음 클래스의 필드를 통째로 삼킨다**.
                     if (line.count { it == '(' } == line.count { it == ')' }) {
@@ -233,7 +234,7 @@ class WireConformanceTest {
             if (!f.isFile) continue
             var name: String? = null
             for (line in f.readLines()) {
-                open.find(line)?.let { name = it.groupValues[1]; out.getOrPut(name!!) { mutableMapOf() } }
+                open.find(line)?.let { val n = it.groupValues[1]; name = n; out.getOrPut(n) { mutableMapOf() } }
                 if (name == null) continue
                 if (line == "}") { name = null; continue }
                 field.find(line)?.let { out[name]!![it.groupValues[2]] = it.groupValues[1].removePrefix("*") }
@@ -250,7 +251,7 @@ class WireConformanceTest {
         for (src in wireFiles()) {
             var name: String? = null
             for (line in src.readLines()) {
-                open.find(line)?.let { name = it.groupValues[1]; out.getOrPut(name!!) { mutableMapOf() } }
+                open.find(line)?.let { val n = it.groupValues[1]; name = n; out.getOrPut(n) { mutableMapOf() } }
                 if (name == null) continue
                 if (line.startsWith(")")) { name = null; continue }
                 prop.find(line)?.let { out[name]!![it.groupValues[1]] = it.groupValues[2] }

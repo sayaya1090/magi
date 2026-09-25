@@ -126,7 +126,7 @@ internal object RichAnswer {
     private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>): () -> Unit {
         // JBCefJSQuery 생성 (리뷰 F7: setHtml 직후 쿼리를 등록하여 CEF 바이트코드 레벨의 조용한 무응답 방어)
         val browser = panel as? com.intellij.ui.jcef.JBCefBrowser ?: return {}
-        val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser) }.getOrNull() ?: return {}
+        val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase) }.getOrNull() ?: return {}
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
         query.addHandler { said ->

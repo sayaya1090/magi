@@ -538,9 +538,10 @@ class RowsTest {
         assertEquals("any veto continues", opened.rule)
         assertEquals(2, r.councilRound, "라운드는 세션의 사실로도 선다")
         // 멤버가 **무엇을 보고** 판단했는지 — 코어가 실어 보낸 순서대로.
-        assertTrue(opened.evidence!!.startsWith("task: add the idempotency key"),
-            "증거는 코어가 준 차례를 지킨다: ${opened.evidence}")
-        assertTrue(opened.evidence!!.contains("report: done, tests pass"))
+        val ev = opened.evidence!!
+        assertTrue(ev.startsWith("task: add the idempotency key"),
+            "증거는 코어가 준 차례를 지킨다: $ev")
+        assertTrue(ev.contains("report: done, tests pass"))
     }
 
     @Test

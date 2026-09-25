@@ -179,8 +179,9 @@ class AnswerTransitionCoordinatorTest {
         // 6. Submit success
         val submitSuccess = coordinator.submit("validAnswer", AnswerDrafts.Key("s1", "q1"))
         assertNotNull(submitSuccess.attempt)
-        assertEquals("validAnswer", submitSuccess.attempt!!.text)
-        assertEquals(AnswerDrafts.Key("s1", "q1"), submitSuccess.attempt!!.key)
+        val attemptSuccess = submitSuccess.attempt!!
+        assertEquals("validAnswer", attemptSuccess.text)
+        assertEquals(AnswerDrafts.Key("s1", "q1"), attemptSuccess.key)
         assertNull(drafts.active) // leaveAfterSubmit called
         assertEquals(
             listOf(
@@ -246,8 +247,9 @@ class AnswerTransitionCoordinatorTest {
         // Now B can be submitted
         val submitB = coordinator.submit("B", AnswerDrafts.Key("s1", "q1"))
         assertNotNull(submitB.attempt)
-        assertEquals("B", submitB.attempt!!.text)
-        assertEquals(4L, submitB.attempt!!.version) // increments to 4 on begin
+        val attemptB = submitB.attempt!!
+        assertEquals("B", attemptB.text)
+        assertEquals(4L, attemptB.version) // increments to 4 on begin
     }
 
     @Test

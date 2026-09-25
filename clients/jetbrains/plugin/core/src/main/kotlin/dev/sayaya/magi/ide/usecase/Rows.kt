@@ -6,6 +6,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+private val prettyJson = kotlinx.serialization.json.Json { prettyPrint = true }
+
 /**
  * 전사 셰이퍼 — 이벤트 스트림을 사람이 읽는 행으로.
  *
@@ -478,7 +480,7 @@ class Rows {
                     ok = !isError || advisory, note = advisory,
                     outputText = raw?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.let {
                         if (it is JsonPrimitive && it.isString) it.content
-                        else kotlinx.serialization.json.Json { prettyPrint = true }.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), it)
+                        else prettyJson.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), it)
                     },
                     outputSeq = e.seq.takeIf { it > 0 },
                     outputJson = raw != null && !(raw is JsonPrimitive && raw.isString),

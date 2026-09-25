@@ -228,7 +228,7 @@ class OutputEditorTest : BasePlatformTestCase() {
             assertEquals("  full\nsource\n", FileDocumentManager.getInstance().getDocument(first)!!.text)
         } finally {
             manager.openFiles.forEach { manager.closeFile(it) }
-            if (!Disposer.isDisposed(view)) Disposer.dispose(view)
+            runCatching { Disposer.dispose(view) }
         }
     }
 
@@ -254,8 +254,9 @@ class OutputEditorTest : BasePlatformTestCase() {
             val btn = toolDiff(viewNormal, row)
             btn.doClick()
             assertNotNull(presented)
-            assertEquals(MagiBundle.msg("chat.diff.title.edit", "Foo.kt"), presented!!.title)
-            val texts = presented!!.contents.map { (it as com.intellij.diff.contents.DocumentContent).document.text }
+            val req = presented!!
+            assertEquals(MagiBundle.msg("chat.diff.title.edit", "Foo.kt"), req.title)
+            val texts = req.contents.map { (it as com.intellij.diff.contents.DocumentContent).document.text }
             assertEquals(listOf("before text", "after text"), texts)
         } finally { Disposer.dispose(viewNormal) }
 
@@ -372,8 +373,8 @@ class OutputEditorTest : BasePlatformTestCase() {
             } finally { Disposer.dispose(view4) }
         } finally {
             manager.openFiles.forEach { manager.closeFile(it) }
-            if (!Disposer.isDisposed(view2)) Disposer.dispose(view2)
-            if (!Disposer.isDisposed(view3)) Disposer.dispose(view3)
+            runCatching { Disposer.dispose(view2) }
+            runCatching { Disposer.dispose(view3) }
         }
     }
 }
