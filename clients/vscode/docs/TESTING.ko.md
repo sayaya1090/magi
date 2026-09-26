@@ -1424,3 +1424,12 @@ node --test clients/vscode/out/test/*.property.test.js
 - **새 시험**: `stream.test.ts` 「a stream connection that fails is said」(소스 가드 — 주변 `openStream` 가드와 같은 방식).
 - **변이 검증**: 안내 한 줄 삭제 → 새 시험 실패. 원복 후 초록.
 - **실측**: `npm test` 562 pass / 0 fail.
+
+---
+
+### 6.53 아무도 안 쓰는 export 둘 걷기
+
+- **무엇이 바뀌었나**: 저장소 전체(시험·도구 포함)에서 선언 말고는 이름이 안 나오는 export 둘을 지웠습니다.
+  - `core/complete.ts` 의 `whyCodeNoCompletion()`: 「쓸 사람이 있을지 모른다」며 9248f00a 에 같이 들어왔고 끝내 부르는 곳이 없었습니다.
+  - `core/webview_protocol.ts` 의 `AskSchema`: 실제로 쓰이는 것은 `NullableAskSchema` 입니다.
+- **실측**: `npm test` 562 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.

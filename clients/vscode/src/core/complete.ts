@@ -108,9 +108,6 @@ export function noteCompletion(text: string, reason: string | undefined, error?:
 
 export function whyNoCompletion(): string { return lastRefused || sayWhyEmpty(lastEmpty); }
 
-/** The raw code, for a caller that wants to branch on it rather than read it. */
-export function whyCodeNoCompletion(): string { return lastEmpty; }
-
 /**
  * The reason as a sentence, because `reason` is an ENUM and not prose.
  *

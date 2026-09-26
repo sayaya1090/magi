@@ -215,8 +215,6 @@ export function isAsk(val: unknown): val is Ask {
   return true;
 }
 
-export const AskSchema = v.custom<Ask>(isAsk);
-
 export const NullableAskSchema = v.pipe(
   v.unknown(),
   v.transform((val) => (val === undefined || val === null ? null : val)),
