@@ -305,6 +305,7 @@ class PlanToolWindow : ToolWindowFactory {
                 val caps = comp.about().caps.orEmpty()
                 capsRead = true
                 canEditCron = caps.contains("cron-set")
+                canRemoveCron = caps.contains("cron-remove")
                 canAskContext = caps.contains("context")
             }
             // 완료된 서브에이전트 목록 조회 (하위 호환성: 해당 엔드포인트를 미지원하는 구버전 데몬에서는 실행 중인 작업만 표시).
@@ -471,6 +472,20 @@ class PlanToolWindow : ToolWindowFactory {
                         addMouseListener(object : java.awt.event.MouseAdapter() {
                             override fun mouseClicked(e: java.awt.event.MouseEvent) =
                                 editCron(project, null, workspace, { tell(it) }, { poll() })
+                        })
+                    })
+                }
+                // 손으로 고친 예약 파일을 다시 읽는다. 목록 문이 있는 데몬에만 선다 — 이 문은
+                // 능력 광고 없이 답하므로(VS Code 의 같은 명령과 같은 판단) 목록이 읽혔다는 것이 근거다.
+                if (crons != null) {
+                    cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.reload")).apply {
+                        foreground = Look.accent
+                        toolTipText = MagiBundle.msg("plan.schedule.reload.tip")
+                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                        border = JBUI.Borders.empty(2, 0)
+                        addMouseListener(object : java.awt.event.MouseAdapter() {
+                            override fun mouseClicked(e: java.awt.event.MouseEvent) =
+                                reloadCron(workspace, { tell(it) }, { poll() })
                         })
                     })
                 }
@@ -682,7 +697,14 @@ class PlanToolWindow : ToolWindowFactory {
      * 읽는 방식으로는 「낡은 빌드」와 「거부하는 엔진」을 못 가르는데, 화면은 그 둘에 다른 말을
      * 해야 한다(이 트리의 문 원칙 첫째).
      */
+    private companion object {
+        /** 편집 판을 「삭제」로 닫았다는 표시. 확인과 호출은 판이 닫힌 뒤에 한다. */
+        const val REMOVE_EXIT = com.intellij.openapi.ui.DialogWrapper.NEXT_USER_EXIT_CODE
+    }
+
     private var canEditCron = false
+    /** 이 데몬이 `cron-remove` 를 답하나. 편집 판의 「삭제」는 이것이 참일 때만 선다. */
+    private var canRemoveCron = false
     private var capsRead = false
     /** 이 데몬이 `context` 문을 답하나. 광고 없는 문은 두드리지 않는다. */
     private var canAskContext = false
@@ -746,6 +768,13 @@ class PlanToolWindow : ToolWindowFactory {
                         foreground = Look.faint
                     })
                     .panel
+            // 지우기는 **있는 잡에만, 문이 있을 때만** 선다. 누르면 판을 닫고 아래에서 한 번 더
+            // 묻는다 — 되돌릴 수 없는 일을 단추 하나로 끝내지 않는다.
+            override fun createLeftSideActions(): Array<javax.swing.Action> =
+                if (job == null || !canRemoveCron) emptyArray()
+                else arrayOf(object : DialogWrapperAction(MagiBundle.msg("plan.schedule.remove")) {
+                    override fun doAction(e: java.awt.event.ActionEvent?) = close(REMOVE_EXIT)
+                })
             override fun getPreferredFocusedComponent(): javax.swing.JComponent =
                 when {
                     job == null -> name
@@ -757,7 +786,12 @@ class PlanToolWindow : ToolWindowFactory {
         dlg.asks.addActionListener { dlg.sync() }
         dlg.doesRun.addActionListener { dlg.sync() }
         dlg.sync()
-        if (!dlg.showAndGet()) return
+        dlg.show()
+        if (dlg.exitCode == REMOVE_EXIT && job != null) {
+            if (removeAsked(project, job.name)) removeCron(job.name, ws, note, after)
+            return
+        }
+        if (dlg.exitCode != com.intellij.openapi.ui.DialogWrapper.OK_EXIT_CODE) return
         val n = dlg.name.text.trim()
         val sch = dlg.schedule.text.trim()
         val e = dev.sayaya.magi.ide.usecase.Schedules.edit(
@@ -768,6 +802,32 @@ class PlanToolWindow : ToolWindowFactory {
             val r = c.setCron(n, sch, e.prompt, flag, e.command, e.timeout)
             if (!r.ok) note(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
             else SwingUtilities.invokeLater { after() }
+        }
+    }
+
+    /** 되돌릴 수 없으니 한 번 더 묻는다. 시험이 대화상자 없이 이 갈림을 넘을 수 있게 따로 둔다. */
+    internal var removeAsked: (Project, String) -> Boolean = { project, name ->
+        com.intellij.openapi.ui.Messages.showYesNoDialog(
+            project, MagiBundle.msg("plan.schedule.remove.confirm", name),
+            MagiBundle.msg("plan.schedule.remove.title"), com.intellij.openapi.ui.Messages.getWarningIcon(),
+        ) == com.intellij.openapi.ui.Messages.YES
+    }
+
+    /** 예약 하나를 지우고, 됐으면 그렇게 말하고 목록을 새로 읽는다. */
+    internal fun removeCron(name: String, ws: Workspace, note: (String) -> Unit, after: () -> Unit) {
+        ws.onDaemon({ note(MagiBundle.msg("common.failed", it)) }) { c ->
+            val r = c.removeCron(name)
+            if (!r.ok) note(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+            else { note(MagiBundle.msg("plan.schedule.removed", name)); SwingUtilities.invokeLater { after() } }
+        }
+    }
+
+    /** 예약 파일을 다시 읽게 하고, 결과를 말한 뒤 목록을 새로 읽는다. */
+    internal fun reloadCron(ws: Workspace, note: (String) -> Unit, after: () -> Unit) {
+        ws.onDaemon({ note(MagiBundle.msg("common.failed", it)) }) { c ->
+            val r = c.reloadCron()
+            if (!r.ok) note(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+            else { note(MagiBundle.msg("plan.schedule.reloaded")); SwingUtilities.invokeLater { after() } }
         }
     }
 

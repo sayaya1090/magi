@@ -120,6 +120,21 @@ class CompanionTest {
     }
 
     @Test
+    fun `예약 지우기와 다시 읽기는 코어의 문 이름으로 나간다`() {
+        val fake = FakeDaemon(listOf("""{"ok":true}""", """{"ok":true}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            assertTrue(comp.removeCron("nightly").ok)
+            assertTrue(comp.reloadCron().ok)
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"cron-remove"""") && fake.seen[0].contains(""""name":"nightly""""),
+            "지울 잡의 이름이 문에 실려야 한다: ${fake.seen[0]}")
+        assertTrue(fake.seen[1].contains(""""method":"reload-cron""""), fake.seen[1])
+    }
+
+    @Test
     fun `예약과 잡 죽이기 — 고장 행과 이미-없음이 어휘에 있다`() {
         val fake = FakeDaemon(listOf(
             """{"ok":true,"cron":[{"name":"broken","problem":"bad schedule"},{"name":"nightly","schedule":"0 3 * * *","enabled":true,"next":"2026-08-30T03:00:00Z"}]}""",

@@ -710,6 +710,28 @@ class SourceTextTest {
     }
 
     /**
+     * **예약 지우기·다시 읽기가 계획 창에 선다** — VS Code 는 명령으로 주던 것을 이 창은 감싸개만
+     * 들고 있었다(`Companion.removeCron`·`reloadCron` 을 부르는 화면이 없었다).
+     *
+     * 세 가지를 붙든다: 「삭제」는 데몬이 `cron-remove` 를 광고할 때만 서고(없는 문을 두드려 거부를
+     * 읽지 않는다), 지우기 전에 한 번 더 묻고(되돌릴 수 없다), 「다시 읽기」는 목록 문이 답했을 때만
+     * 선다(목록이 없는 데몬에 파일을 다시 읽으라고 하지 않는다).
+     */
+    @Test
+    fun `예약은 계획 창에서 지우고 다시 읽을 수 있다`() {
+        val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
+        assertTrue("canRemoveCron = caps.contains(\"cron-remove\")" in panel, "「삭제」가 문 광고에 안 묶였다")
+        val left = panel.substringAfter("override fun createLeftSideActions()").substringBefore("override fun")
+        assertTrue("!canRemoveCron" in left && "job == null" in left, "「삭제」가 새 잡이나 문 없는 데몬에도 선다: $left")
+        val after = panel.substringAfter("dlg.exitCode == REMOVE_EXIT").substringBefore("dlg.exitCode != ")
+        assertTrue(after.indexOf("removeAsked(") in 0 until after.indexOf("removeCron("),
+            "지우기 전에 묻지 않는다: $after")
+        val reload = panel.substringAfter("plan.schedule.reload\")").let { panel.substringBefore("MagiBundle.msg(\"plan.schedule.reload\")").takeLast(400) }
+        assertTrue("if (crons != null)" in reload, "「다시 읽기」가 목록 문이 없는 데몬에도 선다")
+        assertTrue("c.removeCron(name)" in panel && "c.reloadCron()" in panel, "감싸개를 부르는 화면이 없다")
+    }
+
+    /**
      * **실패한 서브에이전트가 성공한 것과 다르게 그려진다.**
      *
      * 등록부는 「도는 것 **또는 방금 끝난 것**」을 든다(`internal/app/subagent_jobs.go` 의 그 주석)

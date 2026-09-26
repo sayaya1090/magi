@@ -1835,3 +1835,17 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `DaemonLifecycleTest` 의 「붙거나 띄우거나」·「백오프」 절 9건을 지웠습니다(§6.51 에서 붙인 2건 포함). 판정 4건과 `DaemonProcess` 3건은 남습니다.
   - README 의 「백오프·지터를 `DaemonLifecycleTest` 로 검증」을 고쳐, 제품 백오프는 `Launches` 와 `LaunchesTest` 가 맡는다고 적었습니다.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 401 중 5 건너뜀·나머지 통과(`DaemonLifecycleTest` 7), 헤드리스 IntelliJ 151 통과.
+
+---
+
+## 6.54 계획 창에서 예약 지우기·다시 읽기 (2026-09-26)
+
+- **무엇이 바뀌었나 (`PlanToolWindow`)**: VS Code 는 예약 지우기·다시 읽기를 명령으로 제공했는데, JetBrains 는 `Companion.removeCron`·`reloadCron` 감싸개만 있고 부르는 화면이 없었습니다(§6.52).
+  - 기존 잡을 여는 편집 판 왼쪽에 **삭제** 단추를 둡니다. 데몬이 `cron-remove` 를 광고할 때만 섭니다. 누르면 판을 닫고 한 번 더 묻습니다(`removeAsked`, 되돌릴 수 없으므로). 지우면 「…을(를) 삭제했습니다」를 알리고 목록을 새로 읽습니다.
+  - 예약 목록 아래 **↻ 예약 파일 다시 읽기** 링크를 둡니다. 목록 문이 답했을 때만 섭니다. `reload-cron` 은 능력 광고 없이 답하는 문이라 VS Code 와 같은 판단입니다. 결과를 알리고 목록을 새로 읽습니다.
+  - 번들 문구 7개를 영·한 두 벌에 더했습니다. 매뉴얼의 예약 줄에 두 기능을 적었습니다.
+- **새 시험**:
+  - `CompanionTest` 의 `예약 지우기와 다시 읽기는 코어의 문 이름으로 나간다`: 가짜 데몬으로, `cron-remove` 에 이름이 실리고 `reload-cron` 이 나가는지 봅니다.
+  - `SourceTextTest` 의 `예약은 계획 창에서 지우고 다시 읽을 수 있다`: 삭제가 광고에 묶이고, 새 잡에는 안 서고, 지우기 전에 묻고, 다시 읽기가 목록 문이 있을 때만 서는지 봅니다. 이 창의 다른 가드와 같은 소스 읽기 방식입니다 — 계획 창을 헤드리스로 세우는 시험은 아직 없습니다.
+- **변이 검증**: (1) 삭제를 광고 없이 세움, (2) 확인 없이 지움, (3) 다시 읽기를 조건 없이 세움 → 각각 실패. 원복 후 초록.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 403 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과. 실물 IDE 에서 단추를 눌러 보지는 않았습니다.
