@@ -146,31 +146,11 @@ func Apply(newBin []byte, target string) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(target)
-	tmp, err := os.CreateTemp(dir, ".magi-update-*")
+	tmpName, err := stageExecutable(filepath.Dir(target), ".magi-update-*", newBin)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(newBin); err != nil {
-		tmp.Close()
-		return err
-	}
-	// fsync before the rename: on filesystems with delayed allocation the rename can be
-	// metadata-durable while the data is not, and a power cut then leaves a truncated binary at a
-	// path everything treats as successfully installed.
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, 0o755); err != nil {
-		return err
-	}
 
 	if runtime.GOOS == "windows" {
 		old := target + ".old"

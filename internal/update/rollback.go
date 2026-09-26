@@ -93,32 +93,49 @@ func KeepPrevious(path string) (restore func() error, discard func(), err error)
 	return restore, discard, nil
 }
 
-// writeBinary writes an executable atomically: temp file in the same directory, fsync, chmod, rename
-// over dest. The fsync matters — rename is metadata-durable before the data is on some filesystems,
-// and a power cut after an unsynced "successful" install would leave a truncated binary at dest.
+// writeBinary writes an executable atomically: staged beside dest (see stageExecutable), then
+// renamed over it.
 func writeBinary(dest string, b []byte) error {
-	dir := filepath.Dir(dest)
-	tmp, err := os.CreateTemp(dir, ".magi-bin-*")
+	name, err := stageExecutable(filepath.Dir(dest), ".magi-bin-*", b)
 	if err != nil {
 		return err
 	}
-	name := tmp.Name()
 	defer os.Remove(name)
+	return os.Rename(name, dest)
+}
+
+// stageExecutable writes b to a new executable temp file in dir and returns its name, for the caller
+// to rename into place — and to remove if it never gets that far. Same directory, because a rename
+// is only atomic within a filesystem. The fsync matters: rename is metadata-durable before the data
+// is on some filesystems, and a power cut after an unsynced "successful" install would leave a
+// truncated binary at a path everything treats as installed.
+//
+// Apply and writeBinary each carried this sequence; they differ only in what happens after it.
+func stageExecutable(dir, pattern string, b []byte) (string, error) {
+	tmp, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	name := tmp.Name()
 	if _, err := tmp.Write(b); err != nil {
 		tmp.Close()
-		return err
+		os.Remove(name)
+		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return err
+		os.Remove(name)
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		os.Remove(name)
+		return "", err
 	}
 	if err := os.Chmod(name, 0o755); err != nil {
-		return err
+		os.Remove(name)
+		return "", err
 	}
-	return os.Rename(name, dest)
+	return name, nil
 }
 
 // commitMu serializes Commit. Two updates can genuinely race in one daemon — the auto loop and a
