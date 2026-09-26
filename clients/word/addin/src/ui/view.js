@@ -1227,6 +1227,22 @@ export class View {
     }
   }
 
+  /**
+   * 제안 도구를 부른다 — 제 손으로 먼저, 손이 **버전을 이유로** 거절하면 헬퍼로.
+   *
+   * ⚠ 2021 의 창(WordApi 1.3)은 제안이 사는 자리(settings, 1.4)를 못 읽는다. 그래서 이 화면은 제안 칸을 늘 비워 뒀고, 모델이
+   * 붙인 제안은 사람 눈에 영영 안 떴다. 헬퍼는 Windows 에서 같은 일을 COM 으로 한다(word_com.go) — 그 길로 돌아간다. 다른
+   * 까닭의 거절(없는 제안 따위)은 그대로 올린다: 그것을 헬퍼에 다시 물으면 같은 답을 두 번 듣는다.
+   */
+  async #suggestionRun(op, args) {
+    try {
+      return await this.hand.run(op, args);
+    } catch (e) {
+      if (!this.helperTool || !/이 필요한데 이 호스트에는 없습니다/.test(String(e?.message ?? e))) throw e;
+      return this.helperTool(op, args);
+    }
+  }
+
   /** 손을 나중에 받는다 — 손은 덱이 정해진 뒤에 서고, 화면은 그보다 먼저 뜬다. */
   useHand(hand) {
     this.hand = hand;
@@ -1242,7 +1258,7 @@ export class View {
   async loadFixes() {
     if (!this.hand) return;
     try {
-      const out = await this.hand.run('read_suggestions', {});
+      const out = await this.#suggestionRun('read_suggestions', {});
       // 「무엇을 합니다」 줄과 누를 수 있는지는 제안의 글이 아니라 **달린 손**에서 뽑는다 — 진짜 손은 글만 주고,
       // 워드 실물에서 그 줄이 빈 회색 띠로 섰다(2026-09-06 §5.2).
       this.fixes = (out?.result?.suggestions ?? []).map((r) => { const l = fixLabel(r.fix); return { ...r, does: r.does ?? l.text, appliable: r.appliable ?? l.can }; });
@@ -1318,7 +1334,7 @@ export class View {
       else if (args.from == null && args.paragraph == null) { args.from = row.paragraph; if (args.to == null) args.to = row.paragraph; }
     }
     const done = await this.hand.run(row.fix.tool, args);
-    await this.hand.run('drop_suggestion', { key });
+    await this.#suggestionRun('drop_suggestion', { key });
     this.note((done?.changed ?? []).join(' ') || '적용했습니다');
     await this.loadFixes();
   }
@@ -1327,7 +1343,7 @@ export class View {
   async dropFix(key) {
     const row = this.fixes.find((f) => f.key === key);
     if (!row) { this.note('그 제안을 못 찾았습니다'); return; }
-    await this.hand.run('drop_suggestion', { key });
+    await this.#suggestionRun('drop_suggestion', { key });
     this.note('제안을 뗐습니다 — 문서는 안 고쳤습니다');
     await this.loadFixes();
   }

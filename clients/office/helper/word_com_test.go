@@ -25,6 +25,13 @@ type fakeWordDoc struct {
 	sections   int
 	pageSetups []wordPageSetup
 	styleCalls []string
+
+	shapes     []wordShape
+	lastMso    int
+	tables     int
+	tableEdits []wordTableEdit
+	fieldCalls []wordFieldWhere
+	vars       map[string]string
 }
 
 func (f *fakeWordDoc) Paragraphs() (int, error) { return f.paras, nil }
@@ -135,7 +142,7 @@ func TestWordComFallbackTakesOnlyVersionRefusalsOfToolsItKnows(t *testing.T) {
 	_, opened := withFakeWordDoc(t, 3)
 	hand := &wordRefusingHand{doc: "wd-doc-1"}
 	ctx := context.Background()
-	if _, handled, _ := wordComFallback(ctx, hand, "", "insert_shape", map[string]any{}, "insert_shape 은 WordApiDesktop 1.2 이 필요한데 이 호스트에는 없습니다"); handled {
+	if _, handled, _ := wordComFallback(ctx, hand, "", "insert_paragraphs", map[string]any{}, "insert_paragraphs 은 WordApi 1.4 이 필요한데 이 호스트에는 없습니다"); handled {
 		t.Error("아직 이 길이 모르는 도구를 대신했다")
 	}
 	if _, handled, _ := wordComFallback(ctx, hand, "", "add_comment", map[string]any{"from": 1, "comment": "x"}, "문서에 9번 문단이 없습니다 — 문단 3개"); handled {

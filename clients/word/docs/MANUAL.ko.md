@@ -23,7 +23,7 @@ Word 작업창(애드인)  ←https→  magi office(헬퍼, /word)  ←unix sock
 
 PowerPoint와 달리 별도의 **COM 어댑터가 필요하지 않습니다.** Word 2019, 2021, Microsoft 365는 모두 `WordApi 1.3` 이상을 지원하므로 웹 작업창 애드인이 직접 문서를 수정합니다. 2016 이하 버전에서는 작업창이 뜨더라도 편집이 제한되며 안내 문구가 표시됩니다(§3.1). 메모·책갈피·변경 추적(`WordApi 1.4`), 각주·스타일 서식(`WordApi 1.5`), 변경 검토(`WordApi 1.6`), 쪽 설정(`WordApiDesktop 1.1`) API는 Microsoft 365 및 Word 2024에서만 작업창에 있습니다.
 
-**Windows 의 2019·2021 에서는 헬퍼가 COM 으로 대신합니다.** 작업창이 버전을 이유로 거절하면 헬퍼가 떠 있는 Word 를 COM 으로 잡아 같은 일을 합니다 — 메모 넷(`add_comment`·`read_comments`·`reply_comment`·`resolve_comment`), 책갈피 둘, 각주 셋(`insert_footnote`·`read_footnotes`·`delete_footnote`), 변경 추적 셋(`set_track_changes`·`read_tracked_changes`·`review_changes`), `set_page_setup`, `set_style_format`. 답에 `"via": "com"` 이 실려 어느 길로 됐는지 숨기지 않습니다. 같은 문서인지는 작업창이 문서에 새긴 사용자 지정 속성 `MAGI.DOC` 로 가립니다 — 이름이나 「열린 문서가 하나」로 고르지 않습니다. 이 길이 없는 것: 「내 것만 추적(TrackMineOnly)」(2021 객체 모델에 없음), 제안 셋(작업창 화면이 제 손으로 읽는 것이라 COM 으로 적어도 2021 창이 못 보여 줌). macOS 의 2019·2021 에서는 COM 이 없어 지금처럼 미지원 오류를 돌려줍니다.
+**Windows 의 2019·2021 에서는 헬퍼가 COM 으로 대신합니다.** 작업창이 버전을 이유로 거절하면 헬퍼가 떠 있는 Word 를 COM 으로 잡아 같은 일을 합니다 — 작업창이 거절하던 스물세 도구 전부: 메모 넷(`add_comment`·`read_comments`·`reply_comment`·`resolve_comment`), 책갈피 둘, 각주 셋(`insert_footnote`·`read_footnotes`·`delete_footnote`), 변경 추적 셋(`set_track_changes`·`read_tracked_changes`·`review_changes`), `set_page_setup`, `set_style_format`, 도형 넷(`list_shapes`·`insert_shape`·`format_shape`·`delete_shape`), `insert_field`, `edit_table` 의 병합, 제안 셋(`suggest`·`read_suggestions`·`drop_suggestion`). 제안은 문서 변수에 같은 열쇠로 적히고, 작업창 화면은 제 손이 거절하면 헬퍼를 거쳐 읽고 뗍니다 — 그래서 2021 에서도 제안 카드가 뜨고 「적용」이 됩니다. `render_page` 는 그림 도구(pdftoppm)가 없으면 Word 가 제 손으로 그린 쪽 그림(EMF)을 씁니다. 답에 `"via": "com"` 이 실려 어느 길로 됐는지 숨기지 않습니다. 같은 문서인지는 작업창이 문서에 새긴 사용자 지정 속성 `MAGI.DOC` 로 가립니다 — 이름이나 「열린 문서가 하나」로 고르지 않습니다. 이 길이 없는 것은 「내 것만 추적(TrackMineOnly)」 하나입니다(2021 객체 모델에 없음 — 이유를 대고 거절). macOS 의 2019·2021 에서는 COM 이 없어 지금처럼 미지원 오류를 돌려줍니다.
 
 ---
 
@@ -177,7 +177,7 @@ Word.js API에는 문단에 부여되는 불변 고유 ID가 없습니다. `list
 ### 6.3 아직 안 되는 것
 
 - **페이지 이미지 렌더링** — Word.js 자체에는 페이지 이미지 렌더링 API가 없으며, `render_page` 도구가 PDF(`getFileAsync`)를 추출하여 헬퍼에서 이미지로 변환합니다. 실행 환경에 poppler `pdftoppm` 유틸리티가 설치되지 않은 경우 macOS에서는 1페이지만 변환되고 Windows에서는 변환이 거절됩니다(설치 가이드 안내 반환). 일반적인 시각 서식 및 구조 확인은 `read_html` 도구를 기본 권장합니다.
-- **도형 조작 제약** — `WordApiDesktop 1.2` 요구 사항으로 인해 Microsoft 365 데스크톱 버전에서만 지원되며, 2019 및 2021 버전에서는 미지원 오류를 반환합니다. 그룹 및 캔버스 형태는 지원하지 않습니다.
+- **도형 조작 제약** — 작업창에서는 `WordApiDesktop 1.2` 요구 사항으로 인해 Microsoft 365 데스크톱 버전에서만 지원됩니다. Windows 의 2019·2021 에서는 헬퍼가 COM 으로 대신하고(§1), macOS 의 그 판에서는 미지원 오류를 반환합니다. 좌표는 쪽의 왼쪽 위에서 잰 pt 입니다. 그룹 및 캔버스 형태는 지원하지 않습니다.
 - **문서 저장** — Office.js API 제약으로 인해 사용자가 직접 수동 저장해야 합니다.
 
 ---

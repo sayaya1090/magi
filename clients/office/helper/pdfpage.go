@@ -2,6 +2,7 @@ package office
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -59,8 +60,12 @@ func RenderPDFPage(pdf []byte, page, maxWidth int) ([]byte, error) {
 		}
 		return os.ReadFile(out)
 	}
-	return nil, fmt.Errorf("이 머신에는 PDF 를 그림으로 만드는 도구가 없습니다 — poppler 의 pdftoppm 을 깔면 됩니다(Windows: choco install poppler / Mac: brew install poppler). 그 전엔 read_html 이 눈입니다")
+	return nil, errNoPDFRenderer
 }
+
+// errNoPDFRenderer 는 「그릴 도구가 없다」 — 쪽이 없다거나 그리다 죽은 것과 갈라야, Windows 의 Word 가 제 손으로 그리는 길
+// (word_render_windows.go)이 이 경우에만 탄다.
+var errNoPDFRenderer = errors.New("이 머신에는 PDF 를 그림으로 만드는 도구가 없습니다 — poppler 의 pdftoppm 을 깔면 됩니다(Windows: choco install poppler / Mac: brew install poppler). 그 전엔 read_html 이 눈입니다")
 
 var pdfPageRe = regexp.MustCompile(`/Type\s*/Page[^s]`)
 

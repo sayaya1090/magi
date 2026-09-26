@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -349,6 +350,16 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 			return errorResult(fmt.Sprintf("이 문서는 %d쪽입니다 — %d쪽은 없습니다", total, page))
 		}
 		png, rerr := RenderPDFPage(raw, page, width)
+		// 그릴 도구가 없는 Windows 에서는 Word 가 제 손으로 그린 쪽 그림을 쓴다(word_render_windows.go) — 쪽이 없다거나
+		// 그리다 죽은 것은 그대로 간다.
+		if errors.Is(rerr, errNoPDFRenderer) && s.App.Key == "word" && wordComOnThisOS {
+			if alt, aerr := renderWordPage(res.Document, page, width); aerr == nil {
+				png, rerr = alt, nil
+				res.Result["via"] = wordComVia
+			} else {
+				rerr = fmt.Errorf("%v — Word 로 직접 그리는 길도 막혔습니다: %v", errNoPDFRenderer, aerr)
+			}
+		}
 		if rerr != nil {
 			return errorResult(rerr.Error())
 		}

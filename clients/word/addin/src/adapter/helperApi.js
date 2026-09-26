@@ -50,6 +50,24 @@ export class HelperApi {
     return res.json();
   }
 
+  /**
+   * 헬퍼의 도구 하나를 부른다 — 모델이 쓰는 그 MCP 문으로. 답은 손(hand.run)과 같은 모양 `{ result, changed }` 로 준다.
+   *
+   * 이 길이 있는 까닭: 2021 의 창은 제안(settings, WordApi 1.4)을 제 손으로 못 읽는데, 헬퍼는 Windows 에서 같은 일을 COM 으로
+   * 한다(word_com.go). 화면이 제 손만 믿으면 모델이 붙인 제안이 사람 눈에 영영 안 뜬다 — 그래서 손이 버전을 이유로 거절할 때만
+   * 여기로 돌아간다(View.#suggestionRun).
+   */
+  async tool(name, args = {}) {
+    const out = await this.#send('/mcp', { body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } });
+    if (out?.error) throw new Error(out.error.message ?? JSON.stringify(out.error));
+    const res = out?.result ?? {};
+    const text = (res.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
+    if (res.isError) throw new Error(text || `${name} 을 헬퍼가 거절했습니다`);
+    let parsed = {};
+    try { parsed = JSON.parse(text); } catch { parsed = { text }; }
+    return { result: parsed, changed: parsed.changed ?? [] };
+  }
+
   companions() { return this.#send('/api/companions', { method: 'GET' }); }
   documents() { return this.#send('/api/documents', { method: 'GET' }); }
   status() { return this.#send('/api/status', { method: 'GET' }); }

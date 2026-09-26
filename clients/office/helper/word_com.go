@@ -129,8 +129,25 @@ type wordDoc interface {
 	// StyleFormat 은 builtin 이 0 이 아니면 그 내장 스타일을, 아니면 현지 이름 local 인 스타일을 고친다.
 	StyleFormat(local string, builtin int, create bool, f wordStyleFormat) (name string, affected int, created bool, err error)
 
+	// 셋째 묶음(word_com_more.go) — 도형·표·필드.
+	Shapes() ([]wordShape, error)
+	AddShape(para int, s wordShapeSpec) (id int, name string, err error)
+	EditShape(id int, name string, e wordShapeEdit) (gotID int, gotName string, err error)
+	DeleteShape(id int, name string) (gotID int, gotName string, err error)
+	Tables() (int, error)
+	EditTable(n int, e wordTableEdit) (rows, cols int, done []string, err error)
+	InsertFields(w wordFieldWhere, pieces []wordFieldPiece, align string) (count int, err error)
+
+	// 제안이 사는 문서 변수 — prefix 로 시작하는 것만.
+	Variables(prefix string) (map[string]string, error)
+	SetVariable(name, value string) error
+	DeleteVariable(name string) (existed bool, err error)
+
 	Close()
 }
+
+// renderWordPage 는 Word 가 그린 쪽 그림 — 시험은 바꿔 끼운다(word_render_windows.go).
+var renderWordPage = renderWordPageOS
 
 // openWordDoc 은 MAGI.DOC 가 id 인 문서를 잡는다 — 플랫폼이 정하고, 시험은 가짜로 바꿔 끼운다.
 var openWordDoc = openWordDocOS
@@ -145,9 +162,13 @@ var wordComTools = map[string]bool{
 	"insert_footnote": true, "read_footnotes": true, "delete_footnote": true,
 	"set_track_changes": true, "read_tracked_changes": true, "review_changes": true,
 	"set_page_setup": true, "set_style_format": true,
-	// 제안(suggest·read_suggestions·drop_suggestion)은 일부러 뺐다: 작업창 화면이 제 손(Office.js)으로 직접 읽어 「적용」
-	// 단추로 보여 주는 것이라, COM 으로 문서에 적어 두어도 2021 의 창은 못 읽는다. 모델은 「붙였습니다」라 하고 사람은 아무것도
-	// 못 보는 일이 된다 — 거절이 정직하다.
+	"list_shapes": true, "insert_shape": true, "format_shape": true, "delete_shape": true,
+	"insert_field": true,
+	// edit_table 은 병합(1.4)이 섞인 호출만 창이 거절한다 — 그때는 호출 전체(병합·열 추가·삭제)를 이 길이 한다.
+	"edit_table": true,
+	// 제안: 창 화면은 제안을 제 손으로 읽어 「적용」 단추로 보여 준다 — 2021 의 손이 그것을 못 하므로, 손이 버전으로 거절하면
+	// 화면이 헬퍼로 돌아와 이 길로 읽고 뗀다(View.#suggestionRun). 그 길이 없으면 모델은 「붙였다」 하고 사람은 못 보는 일이 된다.
+	"suggest": true, "read_suggestions": true, "drop_suggestion": true,
 }
 
 // wordComVia 는 답에 실려 「창이 아니라 COM 으로 했다」를 알린다. 결과는 같지만 **길이 다르다는 사실은 숨기지 않는다** —
@@ -570,6 +591,9 @@ func wordComRun(d wordDoc, name string, args map[string]any) (map[string]any, []
 		}
 		return map[string]any{"style": name, "builtin": b, "affected": affected, "created": created},
 			[]string{fmt.Sprintf("스타일 「%s」: %s — 문단 %d개에 걸립니다", name, strings.Join(words, ", "), affected)}, nil
+	}
+	if res, changed, ok, err := wordComRunMore(d, name, args); ok {
+		return res, changed, err
 	}
 	return nil, nil, fmt.Errorf("COM 길이 모르는 도구입니다")
 }

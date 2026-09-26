@@ -111,6 +111,8 @@ async function boot() {
   if (api) view.tellCaps = (caps) => { void api.caps(caps).catch(() => {}); };
   // 도구의 그림을 여는 길. 헬퍼가 데몬의 images 디렉토리에서 내준다 — 가짜 갈래엔 없다.
   if (api) view.loadImage = (path) => api.image(path);
+  // 제 손이 버전을 이유로 거절한 제안 도구를 헬퍼로 돌려 부르는 길(2021 — 헬퍼가 COM 으로 한다). 가짜 갈래엔 없다.
+  if (api) view.helperTool = (name, args) => api.tool(name, args);
   // 하던 일을 세우는 길. **문이 있을 때만 손잡이를 보인다**(`View.renderBusy`).
   if (api) {
     view.canStop = true;
