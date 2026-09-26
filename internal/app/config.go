@@ -87,29 +87,6 @@ func (s AgentSpec) allows(tool string) bool {
 	return false
 }
 
-// Config holds run-time policy for the agent loop and orchestration (D7).
-// TurnObserver receives top-level conversation milestones, for observer-style
-// integrations (the Lua plugin host forwards these as user_message /
-// turn_finished events). Both calls happen on the conversation path, so
-// implementations must return immediately (enqueue and go).
-//
-// TurnFinished carries the turn's STRUCTURAL outcome so observers never have to
-// guess success from phrasing (the host already knows):
-//
-//	verified   — the council itself voted done (evidence-backed completion)
-//	unverified — the turn landed but the council never read it (the agent never declared)
-//	ungated    — the turn used tools and no consensus gate ran on it at all
-//	guard      — reserved: an error event coded loop_guard or stall_guard. NOTHING EMITS
-//	             those codes today, so this outcome cannot currently occur — the guards
-//	             speak and the turn continues. Kept in the contract rather than removed,
-//	             so an observer that already handles it keeps working if a producer
-//	             returns, but do not write code that waits for it.
-//	error      — the turn ended on an error event
-//	done       — plain finish with no council verdict either way (e.g. conversational turn)
-//
-// Reason carries the unverified reason / guard code / error message ("" otherwise).
-// SkillsLoaded lists skills the agent loaded (the skill tool) during the turn, so
-// an observer can meter which skills actually get used and with what outcome.
 // TurnOutcome is the closed set of structural endings a turn can have. Named and enumerated
 // rather than written as loose strings at the one switch that produces them, because the loose
 // version drifted: `ungated` shipped and reached FORTY PERCENT of observed turns (measured over
@@ -159,6 +136,28 @@ type TurnObservation struct {
 	UserLabel string
 }
 
+// TurnObserver receives top-level conversation milestones, for observer-style
+// integrations (the Lua plugin host forwards these as user_message /
+// turn_finished events). Both calls happen on the conversation path, so
+// implementations must return immediately (enqueue and go).
+//
+// TurnFinished carries the turn's STRUCTURAL outcome so observers never have to
+// guess success from phrasing (the host already knows):
+//
+//	verified   — the council itself voted done (evidence-backed completion)
+//	unverified — the turn landed but the council never read it (the agent never declared)
+//	ungated    — the turn used tools and no consensus gate ran on it at all
+//	guard      — reserved: an error event coded loop_guard or stall_guard. NOTHING EMITS
+//	             those codes today, so this outcome cannot currently occur — the guards
+//	             speak and the turn continues. Kept in the contract rather than removed,
+//	             so an observer that already handles it keeps working if a producer
+//	             returns, but do not write code that waits for it.
+//	error      — the turn ended on an error event
+//	done       — plain finish with no council verdict either way (e.g. conversational turn)
+//
+// Reason carries the unverified reason / guard code / error message ("" otherwise).
+// SkillsLoaded lists skills the agent loaded (the skill tool) during the turn, so
+// an observer can meter which skills actually get used and with what outcome.
 type TurnObserver interface {
 	UserMessage(sessionID, text string)
 	TurnFinished(sessionID string, o TurnObservation)
@@ -178,6 +177,7 @@ func DefaultDangerTools() map[string]bool {
 	}
 }
 
+// Config holds run-time policy for the agent loop and orchestration (D7).
 type Config struct {
 	Model      session.ModelRef
 	System     string

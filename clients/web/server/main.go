@@ -770,8 +770,6 @@ func writeJSON(w http.ResponseWriter, what string, v any) {
 	}
 }
 
-// session is the companion a request names, or a 404 saying why not.
-//
 // errNotYours is target() refusing because the caller MAY NOT act on that companion, as opposed to
 // there being no such companion. Two different answers, and neither was being given: the eleven
 // routes that write a status for a target() failure answered 404 in seven of them and 400 in four,
@@ -801,6 +799,9 @@ func (s *server) targetOr(w http.ResponseWriter, r *http.Request) (daemon.Info, 
 	return in, true
 }
 
+// session is the companion a request names, or the refusal saying why not — 404 when there is no
+// such companion, 403 when there is and the caller may not act on it (targetStatus).
+//
 // The pair is always the same: resolve the target, answer with the resolver's own words when
 // there is none, and carry on with its session id. Returning the id rather than the record is what
 // the callers actually wanted — five of them reached straight for .Session — and it keeps the

@@ -641,22 +641,6 @@ type ToolRegistry interface {
 	List() []Tool
 }
 
-// ToolServers attaches and detaches tool servers while the daemon runs.
-//
-// The set of tools a companion has is otherwise fixed at startup: config names the servers and the
-// daemon keeps them for its life. That is right for servers an operator installed, and wrong for a
-// tool server that IS an application the person is using — an editor plugin, a slide add-in — which
-// starts and stops on its own clock and cannot be in a file the daemon read hours ago.
-//
-// It takes a URL and never a command line. The safety argument for this door is that it spawns
-// nothing (the config section it stands beside is refused to plugins precisely because those name
-// "a command line this machine will spawn"), and an argument that lives in the signature cannot be
-// lost later to convenience: a caller that needs to start a process needs a different door, not one
-// more field here.
-//
-// Runtime only. Nothing is written to config — a server that existed this afternoon must not leave
-// a line the daemon tries to dial every morning, and writing beside a section plugins are refused
-// would be a side door next to a locked one.
 // Owned is a tool that belongs to one conversation. A tool that does not implement it belongs to
 // the whole daemon, which is every builtin and every server declared in config.
 //
@@ -679,6 +663,22 @@ func VisibleToSession(t Tool, session string) bool {
 	return true
 }
 
+// ToolServers attaches and detaches tool servers while the daemon runs.
+//
+// The set of tools a companion has is otherwise fixed at startup: config names the servers and the
+// daemon keeps them for its life. That is right for servers an operator installed, and wrong for a
+// tool server that IS an application the person is using — an editor plugin, a slide add-in — which
+// starts and stops on its own clock and cannot be in a file the daemon read hours ago.
+//
+// It takes a URL and never a command line. The safety argument for this door is that it spawns
+// nothing (the config section it stands beside is refused to plugins precisely because those name
+// "a command line this machine will spawn"), and an argument that lives in the signature cannot be
+// lost later to convenience: a caller that needs to start a process needs a different door, not one
+// more field here.
+//
+// Runtime only. Nothing is written to config — a server that existed this afternoon must not leave
+// a line the daemon tries to dial every morning, and writing beside a section plugins are refused
+// would be a side door next to a locked one.
 type ToolServers interface {
 	// Attach connects to an HTTP MCP server, registers its tools under name, and returns the tool
 	// names that were registered — evidence rather than an ack, so the caller can say what it got.

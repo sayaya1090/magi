@@ -182,11 +182,11 @@ func TestWhatARowLoses(t *testing.T) {
 	}
 }
 
-// mk builds one event the way the daemon writes it.
 // mkBase is where the synthetic clock starts. A fixed instant, so these tests say the same thing on
 // every machine and every day.
 var mkBase = time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)
 
+// mk builds one event the way the daemon writes it.
 func mk(seq int64, typ string, data map[string]any, actor map[string]any) event.Event {
 	b, err := json.Marshal(data)
 	if err != nil {

@@ -425,9 +425,6 @@ func (p *plugin) bridgeServe(L *lua.LState) int {
 	return 1
 }
 
-// callServeHandler invokes a magi.serve handler under the plugin lock (the Lua
-// state is not concurrency-safe) and maps its return to an HTTP response. ok=false
-// on any error so the HTTP layer can reply 500.
 // servePull is a streaming response body: the handler returned `body = function() … end`, and the
 // host pulls it one chunk at a time. Each pull takes the plugin lock only for the call itself, so
 // a slow stream does not hold the whole plugin — a second request (another conversation, on the
@@ -521,6 +518,9 @@ func (p *plugin) callServeAbort(pull *servePull) {
 	}
 }
 
+// callServeHandler invokes a magi.serve handler under the plugin lock (the Lua
+// state is not concurrency-safe) and maps its return to an HTTP response. ok=false
+// on any error so the HTTP layer can reply 500.
 func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byte) (status int, respBody string, headers map[string]string, pull *servePull, ok bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

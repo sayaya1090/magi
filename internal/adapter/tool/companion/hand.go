@@ -166,23 +166,6 @@ func fillable(form string) bool {
 	return len(strings.Fields(form)) > 1
 }
 
-// withForm puts the form after the request, in the asker's words, and tells the receiver what to
-// do with it.
-//
-// # A form and not a sentence about being finished
-//
-// "Done when the tokens are named" is something the asker checks afterwards, against prose, by
-// reading carefully. A form is checked by looking: the headings are either filled or they are not.
-// And it changes what a gap looks like — a part that could not be done comes back AS that part,
-// said so, instead of as a paragraph explaining why the whole thing is hard. Observed: a companion
-// asked for tokens spent a round trip answering "there are no files here, point me at them", where
-// the same gap under a heading would have named itself and left the rest of the answer standing.
-//
-// # Carried in the text, deliberately
-//
-// It has to reach a companion on another machine, where the only things that cross are a label and
-// a request. Folding it into the request means both paths carry it by construction — there is no
-// version of magi that takes the work and drops the form.
 // asked is one request as it goes out: what they were asked, the form the answer must take, and
 // the two composed into the words that actually cross. Kept apart because the quote-back beside
 // their answer shows them separately — the check is "does this fill that", and a single blob makes
@@ -212,6 +195,23 @@ func (a asked) text() string {
 	return withForm(out, a.Form)
 }
 
+// withForm puts the form after the request, in the asker's words, and tells the receiver what to
+// do with it.
+//
+// # A form and not a sentence about being finished
+//
+// "Done when the tokens are named" is something the asker checks afterwards, against prose, by
+// reading carefully. A form is checked by looking: the headings are either filled or they are not.
+// And it changes what a gap looks like — a part that could not be done comes back AS that part,
+// said so, instead of as a paragraph explaining why the whole thing is hard. Observed: a companion
+// asked for tokens spent a round trip answering "there are no files here, point me at them", where
+// the same gap under a heading would have named itself and left the rest of the answer standing.
+//
+// # Carried in the text, deliberately
+//
+// It has to reach a companion on another machine, where the only things that cross are a label and
+// a request. Folding it into the request means both paths carry it by construction — there is no
+// version of magi that takes the work and drops the form.
 func withForm(request, form string) string {
 	if strings.TrimSpace(form) == "" {
 		return request

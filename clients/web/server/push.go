@@ -472,12 +472,6 @@ func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 	}
 }
 
-// mayHear is the subscriptions of people who may read every companion a payload names.
-//
-// A notification is a read performed while nobody is asking, so it is checked as one — the same
-// Allows the routes use, not a scope test of its own. Two consequences worth stating: a person
-// whose role lost `read` stops being buzzed without anybody remembering to unsubscribe them, and a
-// subscription with no name attached hears nothing once the console has people in it.
 // hearPair is one name a notification carries, with the peer qualifier its scope check runs
 // under — a remote asker checks under its host, the local receiver under "".
 type hearPair struct{ name, peer string }
@@ -487,6 +481,12 @@ func splitPair(label string) hearPair {
 	return hearPair{name: name, peer: host}
 }
 
+// mayHear is the subscriptions of people who may read every companion a payload names.
+//
+// A notification is a read performed while nobody is asking, so it is checked as one — the same
+// Allows the routes use, not a scope test of its own. Two consequences worth stating: a person
+// whose role lost `read` stops being buzzed without anybody remembering to unsubscribe them, and a
+// subscription with no name attached hears nothing once the console has people in it.
 func (p *pushState) mayHear(policy auth.Policy, peer string, names ...string) []webpush.Subscription {
 	pairs := make([]hearPair, 0, len(names))
 	for _, name := range names {

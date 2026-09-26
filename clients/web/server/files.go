@@ -35,7 +35,6 @@ import (
 // console that quietly did it itself would be doing the agent's work without the agent's log,
 // its approval policy, or its account of why.
 
-// files answers what is in one directory of the workspace: name and whether it is a directory.
 // treeDirCap bounds one request. A tree with more open directories than this is not a tree
 // somebody is reading; the cap keeps a crafted or runaway request from turning one HTTP call into
 // an unbounded walk of the workspace.

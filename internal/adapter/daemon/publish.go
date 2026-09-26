@@ -257,7 +257,6 @@ type Info struct {
 // SessionFile is where a daemon records what it is driving.
 func SessionFile(socketPath string) string { return socketPath + ".session" }
 
-// Publish records the daemon and returns a function that removes the record.
 // recordMu serialises read-modify-write on a daemon's own record.
 //
 // Three writers reach it from three goroutines of the same process: the queue's depth (Announce,
@@ -295,6 +294,7 @@ func writeRecord(socketPath string, in Info) error {
 	return nil
 }
 
+// Publish records the daemon and returns a function that removes the record.
 func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	// Host(), not os.Hostname(): one spelling of this machine's name enters the system here and
 	// nothing downstream has to normalise. A record written with the raw name and a member built

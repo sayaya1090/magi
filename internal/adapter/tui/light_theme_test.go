@@ -8,9 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// bgSet matches an SGR run that sets a background: 48;2;r;g;b (truecolor) or 49 (reset to
-// default). Reading the escapes is the only way to ask this question — the rendered text looks
-// identical either way, and the defect is what the terminal paints behind it.
 // styledPart is one SGR run and the text it paints.
 type styledPart struct{ sgr, text string }
 
@@ -29,6 +26,9 @@ func splitStyled(row string) []styledPart {
 	return out
 }
 
+// bgSet matches an SGR run that sets a background: 48;2;r;g;b (truecolor) or 49 (reset to
+// default). Reading the escapes is the only way to ask this question — the rendered text looks
+// identical either way, and the defect is what the terminal paints behind it.
 var bgSet = regexp.MustCompile(`\x1b\[[0-9;]*?(?:48;2;\d+;\d+;\d+|48;5;\d+|\b49\b)[0-9;]*m`)
 
 // The palette's rows sit inside a box filled with the surface colour, and every segment of a row

@@ -167,21 +167,6 @@ func printDoctor(w io.Writer, checks []doctorCheck) int {
 //coverage:ignore returns the constant this binary was compiled for
 func defaultDoctorGOOS() string { return runtime.GOOS }
 
-// loadDoctorProbes builds a throwaway plugin host that loads every plugin far
-// enough to collect its -doctor probes, but deliberately does NOT fire the
-// startup lifecycle — so a diagnostic run never triggers a plugin's interactive
-// auth or network flow. Probes register at plugin load time (top-level chunk)
-// and are self-contained by contract (they read a persistent store), so load is
-// all that's needed. The host and its plugins are abandoned when -doctor returns
-// and the process exits. Optional registries left nil (ContextReg/ModelReg/
-// UserReg/Prompter) are guarded by the bridge, so a plugin calling them at load
-// time simply fails to load and drops out of the report — it cannot hang -doctor.
-//
-// ConfigPath/DataDir point at the real store on purpose: a probe checks live
-// state (e.g. store_get on a cached auth token), which needs genuine read access.
-// That also gives a load-time write (set_config_key/store_set) reach to the real
-// store — but such a plugin does strictly more at its normal startup, which this
-// path skips, so -doctor is never the wider surface.
 // doctorSink discards what a plugin registers through the OPTIONAL registries so
 // a plugin that touches them at load time (register_context_provider, set_model,
 // set_user_label) still LOADS in the -doctor host exactly as it does in a normal
@@ -213,6 +198,21 @@ func doctorMCP(sink mcp.ToolSink, plat *platform.OS) *mcp.Manager {
 	return m
 }
 
+// loadDoctorProbes builds a throwaway plugin host that loads every plugin far
+// enough to collect its -doctor probes, but deliberately does NOT fire the
+// startup lifecycle — so a diagnostic run never triggers a plugin's interactive
+// auth or network flow. Probes register at plugin load time (top-level chunk)
+// and are self-contained by contract (they read a persistent store), so load is
+// all that's needed. The host and its plugins are abandoned when -doctor returns
+// and the process exits. Optional registries left nil (ContextReg/ModelReg/
+// UserReg/Prompter) are guarded by the bridge, so a plugin calling them at load
+// time simply fails to load and drops out of the report — it cannot hang -doctor.
+//
+// ConfigPath/DataDir point at the real store on purpose: a probe checks live
+// state (e.g. store_get on a cached auth token), which needs genuine read access.
+// That also gives a load-time write (set_config_key/store_set) reach to the real
+// store — but such a plugin does strictly more at its normal startup, which this
+// path skips, so -doctor is never the wider surface.
 func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir string, llm *openai.Client) ([]port.DoctorProbe, []doctorCheck) {
 	reg := builtin.Default()
 	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{

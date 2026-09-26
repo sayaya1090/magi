@@ -1026,8 +1026,6 @@ func (m *Model) pluginCmdMatches(v string) []cmdInfo {
 	return out
 }
 
-// paletteMatches returns the commands matching the in-progress slash input
-// (open only while typing "/foo" with no space yet).
 // slashAliases map an alias to its canonical command. Hidden from the bare "/"
 // list (canonicals only) but surfaced when their own prefix is typed (e.g. "/m"
 // → /model), carrying the canonical's description.
@@ -1037,6 +1035,8 @@ var slashAliases = map[string]string{
 	"/exit":   "/quit",
 }
 
+// paletteMatches returns the commands matching the in-progress slash input
+// (open only while typing "/foo" with no space yet).
 func (m *Model) paletteMatches() []cmdInfo {
 	v := strings.TrimSpace(m.ta.Value())
 	if !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \t") {

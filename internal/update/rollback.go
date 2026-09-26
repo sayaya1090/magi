@@ -121,12 +121,6 @@ func writeBinary(dest string, b []byte) error {
 	return os.Rename(name, dest)
 }
 
-// Commit applies newBin over target, then verifies the result actually runs; if it does not, it
-// restores the binary that was there before and returns the error. The on-disk binary is therefore
-// only ever left as one that has PASSED the pre-flight — a bad build never becomes the one the daemon
-// would restart into. On success the previous copy is KEPT and a journal entry records the pending
-// transaction, so the caller may restart and confirm only once the new build has stayed up (see
-// journal.go: Resume, StableWindow, Confirm). This is the rollback the self-update relies on.
 // commitMu serializes Commit. Two updates can genuinely race in one daemon — the auto loop and a
 // console button press, or two console tabs — and unserialized they fight over the one .prev file:
 // one's discard deletes the other's rollback source mid-rollback, and one's KeepPrevious can save the
@@ -134,6 +128,12 @@ func writeBinary(dest string, b []byte) error {
 // ever self-updates one binary; the second caller waits the seconds the first takes.
 var commitMu sync.Mutex
 
+// Commit applies newBin over target, then verifies the result actually runs; if it does not, it
+// restores the binary that was there before and returns the error. The on-disk binary is therefore
+// only ever left as one that has PASSED the pre-flight — a bad build never becomes the one the daemon
+// would restart into. On success the previous copy is KEPT and a journal entry records the pending
+// transaction, so the caller may restart and confirm only once the new build has stayed up (see
+// journal.go: Resume, StableWindow, Confirm). This is the rollback the self-update relies on.
 func Commit(newBin []byte, target string, v Versions) error {
 	commitMu.Lock()
 	defer commitMu.Unlock()

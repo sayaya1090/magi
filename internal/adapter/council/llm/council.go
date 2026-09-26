@@ -36,10 +36,6 @@ func New(resolve func(provider string) port.LLMProvider, defaultModel string) *C
 	return &Council{resolve: resolve, model: defaultModel}
 }
 
-// Deliberate polls every member concurrently and tallies the verdicts. A member
-// that errors or returns an unparseable reply abstains (excluded from the
-// denominator) rather than blocking the gate forever; if every member abstains,
-// the pure tally resolves to Continue (the safe default).
 // memberDeadline bounds one member's vote.
 //
 // Generous, because a council member is a model reading a turn's whole evidence and the cost of
@@ -68,6 +64,10 @@ func firstTokenAllowance() time.Duration {
 	return 300 * time.Second
 }
 
+// Deliberate polls every member concurrently and tallies the verdicts. A member
+// that errors or returns an unparseable reply abstains (excluded from the
+// denominator) rather than blocking the gate forever; if every member abstains,
+// the pure tally resolves to Continue (the safe default).
 func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
 	members := req.Members
 	if len(members) == 0 {

@@ -228,8 +228,6 @@ const shellCaptureCap = 256 << 10
 // against in a repository that has no commits yet.
 const emptyTreeRef = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-// CreateSession opens a session and returns its id. The session.created fact is written when
-// the session first has something in it — see sessionState.born.
 // promptMark is how many user prompts a session's log held at a moment — or nothing, when the log
 // could not be read.
 //
@@ -255,6 +253,8 @@ func steersSince(mark promptMark, np []userPrompt) []userPrompt {
 	return np[mark.n:]
 }
 
+// CreateSession opens a session and returns its id. The session.created fact is written when
+// the session first has something in it — see sessionState.born.
 func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error) {
 	sid := session.SessionID("s_" + newID())
 	model := c.Model

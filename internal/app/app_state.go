@@ -12,13 +12,6 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// sessionState holds all per-session state for one session, consolidating what used to
-// be ~18 separate map[session.SessionID]X fields on App. One entry is created lazily on
-// first access (state/stateLocked) and lives for the process lifetime — a nil/zero field
-// is the "absent" signal (e.g. cancel==nil means no in-flight run), matching the old
-// "key absent" semantics. All fields are guarded by App.mu; child sessions get their own
-// entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
-// the rest live for the whole session.
 // bornFact is a session.created that has not been written yet: the actor that opened the session
 // and the data it carried, kept together so the flush is one append with the original authorship.
 type bornFact struct {
@@ -30,6 +23,13 @@ type bornFact struct {
 	at time.Time
 }
 
+// sessionState holds all per-session state for one session, consolidating what used to
+// be ~18 separate map[session.SessionID]X fields on App. One entry is created lazily on
+// first access (state/stateLocked) and lives for the process lifetime — a nil/zero field
+// is the "absent" signal (e.g. cancel==nil means no in-flight run), matching the old
+// "key absent" semantics. All fields are guarded by App.mu; child sessions get their own
+// entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
+// the rest live for the whole session.
 type sessionState struct {
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running

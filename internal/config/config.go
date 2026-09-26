@@ -14,7 +14,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config is the on-disk configuration (config.toml).
 // CompanionConfig declares this workspace's place in a team.
 //
 // Name is how another companion addresses it and Role is one line saying what it is for. Both are
@@ -43,6 +42,7 @@ type CompanionConfig struct {
 	MCPPeers bool `toml:"mcp_peers"`
 }
 
+// Config is the on-disk configuration (config.toml).
 type Config struct {
 	Model   string `toml:"model"`
 	BaseURL string `toml:"base_url"`

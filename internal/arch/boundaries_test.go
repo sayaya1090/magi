@@ -61,7 +61,6 @@ func goFiles(t *testing.T) []string {
 	return out
 }
 
-// imports returns the module-internal imports of one file, repo-relative.
 // importSamples pins what importRe must and must not find, as literal file text.
 //
 // Every rule in this package is read off this one regex, and a regex that stops matching reports
@@ -105,6 +104,7 @@ func checkImportScanner(t *testing.T) {
 	})
 }
 
+// imports returns the module-internal imports of one file, repo-relative.
 func imports(t *testing.T, rel string) []string {
 	t.Helper()
 	checkImportScanner(t)

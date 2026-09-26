@@ -75,7 +75,6 @@ func waitEvent(ch <-chan event.Event, sid session.SessionID, id int) tea.Cmd {
 	}
 }
 
-// permReq is a pending permission request shown as a modal.
 // questReq is a pending ask_user question shown as a selection modal.
 type questReq struct {
 	callID   string
@@ -96,6 +95,7 @@ type questReq struct {
 	index, total int
 }
 
+// permReq is a pending permission request shown as a modal.
 type permReq struct {
 	sid    session.SessionID // session that raised it — the MAIN turn or a SUBAGENT child (routes the reply)
 	callID string
@@ -105,7 +105,6 @@ type permReq struct {
 	sel    int    // focused button index into permButtons (Tab/click navigation)
 }
 
-// Model is the Bubble Tea model for the interactive TUI.
 // CommandSource supplies plugin-contributed slash commands (e.g. /login) to the
 // TUI palette and dispatch. Satisfied by *pluginlua.Host; nil when no plugin
 // host is wired, in which case the TUI has no plugin commands.
@@ -117,6 +116,7 @@ type CommandSource interface {
 	TakeUIEffects() []string
 }
 
+// Model is the Bubble Tea model for the interactive TUI.
 type Model struct {
 	ctx context.Context
 	// app is the ENGINE, reached only through the interface next door. See engine.go for why the

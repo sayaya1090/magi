@@ -110,18 +110,6 @@ func (c *Client) Watch(receipt string, each func(Handover) bool) error {
 	return c.sc.Err()
 }
 
-// Transcript reads a conversation out of a companion: everything the log holds after since, then
-// everything that happens next, one event per call to each. Returning false from each stops
-// listening.
-//
-// This connection is given over to it, exactly as Watch's is — the mutex every other call takes for
-// one exchange is held for as long as the caller keeps reading, so a reader opens a connection of
-// its own. A clean end is not an error.
-//
-// since 0 (or any negative) is everything. restart is called, before the first event, when the
-// daemon would not honour the cursor and is sending the whole conversation instead: a caller that
-// is appending to something must throw that away first, or it stitches the beginning of the session
-// onto the end of what it is already showing. nil is fine for a caller that asked for everything.
 // historyIdle bounds silence on a one-shot transcript read.
 //
 // Not the whole read: every frame resets it, so a long conversation streams for as long as it takes.
@@ -245,6 +233,19 @@ type Tail struct {
 }
 
 // Transcript reads the stream with the two callbacks that predate Tail.
+//
+// It reads a conversation out of a companion: everything the log holds after since, then
+// everything that happens next, one event per call to each. Returning false from each stops
+// listening.
+//
+// This connection is given over to it, exactly as Watch's is — the mutex every other call takes for
+// one exchange is held for as long as the caller keeps reading, so a reader opens a connection of
+// its own. A clean end is not an error.
+//
+// since 0 (or any negative) is everything. restart is called, before the first event, when the
+// daemon would not honour the cursor and is sending the whole conversation instead: a caller that
+// is appending to something must throw that away first, or it stitches the beginning of the session
+// onto the end of what it is already showing. nil is fine for a caller that asked for everything.
 func (c *Client) Transcript(sid string, since int64, restart func(why string), each func(event.Event) bool) error {
 	return c.Follow(sid, since, Tail{Each: each, Restart: restart})
 }

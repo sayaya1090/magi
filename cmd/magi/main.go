@@ -201,8 +201,6 @@ func runCoreUpdate() int {
 	return 0
 }
 
-// main is the process entry point: it calls run and exits with its status.
-//
 // restartOnExit is set by run() when the daemon was asked to relaunch (daemon.Restart) rather than
 // stop. Read here, AFTER run() has returned and all its deferred cleanup — unpublishing the record,
 // releasing the socket and lock — has executed, so the re-exec starts with nothing left to hand over.
@@ -223,6 +221,7 @@ var restartSession string
 // so it never outlives the one relaunch it describes.
 const restartSessionEnv = "MAGI_RESTART_SESSION"
 
+// main is the process entry point: it calls run and exits with its status.
 func main() {
 	// `magi office`: 파워포인트·엑셀·워드 애드인의 헬퍼를 한 프로세스·한 인증서·한 포트로 띄운다
 	// (clients/office/helper). 데몬과 한 바이너리라 받을 파일이 하나고, 헬퍼가 띄우는 데몬은 자기
@@ -2433,13 +2432,6 @@ func sanitizeTeam(name string) string {
 	return out
 }
 
-// daemonEngine is the App as the socket sees it: everything it already does, plus the two things
-// that only make sense for the process that IS the daemon.
-//
-// RunShellHere is the reason it exists. App.RunShell takes a directory, which is right for a
-// terminal running beside its own files and wrong over a socket — the caller is somewhere else, and
-// the answer it wants is what the command does in this workspace, as this user, beside the files
-// the agent is editing.
 // busyNow is the one answer to "is this companion in the middle of something" — asked by the
 // auto-update loop before it restarts, and by the `update` door before it does. Two spellings would
 // let the scheduled update and the pressed button disagree about what is worth waiting for.
@@ -2450,6 +2442,13 @@ func busyNow(a *app.App) bool {
 	return a.MeetingActive()
 }
 
+// daemonEngine is the App as the socket sees it: everything it already does, plus the two things
+// that only make sense for the process that IS the daemon.
+//
+// RunShellHere is the reason it exists. App.RunShell takes a directory, which is right for a
+// terminal running beside its own files and wrong over a socket — the caller is somewhere else, and
+// the answer it wants is what the command does in this workspace, as this user, beside the files
+// the agent is editing.
 type daemonEngine struct {
 	*app.App
 	workdir string

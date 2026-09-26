@@ -319,13 +319,13 @@ func dropResurfacedOrigins(evs []event.Event) []event.Event {
 	return out
 }
 
-// recallHint is the line appended to a compaction summary telling the model the shed
-// detail is recoverable and which topics to ask for. Empty when nothing was sharded.
 // briefHeader tops every fold's brief as the model reads it. A brief says what was done; an agent
 // that read "B6 holds 58150" in one and used the number after somebody had edited B6 was acting on
 // a state that no longer existed. The header says so in the one place the agent cannot miss.
 const briefHeader = "[Earlier conversation, folded into the brief below. It records what was asked, decided and done — not what is true now. Re-read a file or document before relying on its state.]"
 
+// recallHint is the line appended to a compaction summary telling the model the shed
+// detail is recoverable and which topics to ask for. Empty when nothing was sharded.
 func recallHint(topics []string) string {
 	if len(topics) == 0 {
 		return ""

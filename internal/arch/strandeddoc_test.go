@@ -18,38 +18,76 @@ import (
 // StripTrailingCommas) and then fifty more times across the tree by the scan below.
 //
 // The shape it looks for is narrow on purpose: a function's doc whose first word is the name of
-// ANOTHER function in the same file, with a later line that starts with the function's own name.
-// That is two docs glued together, and it is how every one of the fifty looked. A doc that merely
+// ANOTHER declaration in the same file, with a later line that starts with the declaration's own name.
+// That is two docs glued together, and it is how every one of the fifty looked. Types, vars and
+// consts strand the same way — thirty more, found when the scan was widened to them. A doc that merely
 // mentions a neighbour ("decisionWord is decisionOf plus …") starts with its own name and passes.
 
-// strandedDocs returns "file:line fn ← owner" for each doc that carries another function's head.
+// declared is one top-level name in a file and the doc comment Go attaches to it.
+type declared struct {
+	name string
+	doc  *ast.CommentGroup
+	pos  token.Pos
+}
+
+// declarations lists every function, method, type, var and const a file declares at top level. A
+// lone spec with no parentheses has its doc on the GenDecl; a grouped one has it on the spec.
+func declarations(f *ast.File) []declared {
+	var out []declared
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			out = append(out, declared{d.Name.Name, d.Doc, d.Pos()})
+		case *ast.GenDecl:
+			for _, sp := range d.Specs {
+				var name string
+				var doc *ast.CommentGroup
+				switch sp := sp.(type) {
+				case *ast.TypeSpec:
+					name, doc = sp.Name.Name, sp.Doc
+				case *ast.ValueSpec:
+					if len(sp.Names) != 1 {
+						continue
+					}
+					name, doc = sp.Names[0].Name, sp.Doc
+				default:
+					continue
+				}
+				if doc == nil && !d.Lparen.IsValid() {
+					doc = d.Doc
+				}
+				out = append(out, declared{name, doc, sp.Pos()})
+			}
+		}
+	}
+	return out
+}
+
+// strandedDocs returns "file:line name ← owner" for each doc that carries another declaration's head.
 func strandedDocs(name string, src []byte) ([]string, error) {
 	fs := token.NewFileSet()
 	f, err := parser.ParseFile(fs, name, src, parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
-	funcs := map[string]bool{}
-	for _, d := range f.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok {
-			funcs[fd.Name.Name] = true
-		}
+	decls := declarations(f)
+	known := map[string]bool{}
+	for _, d := range decls {
+		known[d.name] = true
 	}
 	var out []string
-	for _, d := range f.Decls {
-		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Doc == nil {
+	for _, d := range decls {
+		if d.doc == nil {
 			continue
 		}
-		lines := strings.Split(fd.Doc.Text(), "\n")
+		lines := strings.Split(d.doc.Text(), "\n")
 		first := strings.Fields(lines[0])
-		if len(first) == 0 || first[0] == fd.Name.Name || !funcs[first[0]] {
+		if len(first) == 0 || first[0] == d.name || !known[first[0]] {
 			continue
 		}
 		for _, l := range lines[1:] {
-			if w := strings.Fields(l); len(w) > 0 && w[0] == fd.Name.Name {
-				out = append(out, name+":"+
-					strconv.Itoa(fs.Position(fd.Doc.Pos()).Line)+" "+fd.Name.Name+" ← "+first[0])
+			if w := strings.Fields(l); len(w) > 0 && w[0] == d.name {
+				out = append(out, name+":"+strconv.Itoa(fs.Position(d.pos).Line)+" "+d.name+" ← "+first[0])
 				break
 			}
 		}
@@ -67,7 +105,9 @@ var strandedSamples = []struct {
 	{"package p\n// b does the second thing.\n// a does the first thing.\nfunc a() {}\nfunc b() {}\n", 1},
 	// Mentioning a neighbour is not stranding: the doc starts with its own name.
 	{"package p\n// a is b plus a check.\nfunc a() {}\nfunc b() {}\n", 0},
-	// A doc that opens with a word that is not a function here is prose, whatever follows.
+	// Not only functions: a type's doc left above a var is the same accident.
+	{"package p\n// T is the thing.\n// v counts them.\nvar v int\ntype T struct{}\n", 1},
+	// A doc that opens with a word that is not a declaration here is prose, whatever follows.
 	{"package p\n// The b case.\n// a does it.\nfunc a() {}\nfunc b() {}\n", 0},
 }
 
@@ -95,6 +135,6 @@ func TestNoStrandedDocComments(t *testing.T) {
 		hits = append(hits, h...)
 	}
 	for _, h := range hits {
-		t.Errorf("%s — the leading paragraph is the second function's doc: move it back above that function", h)
+		t.Errorf("%s — the leading paragraph is the doc of the name it opens with: move it back above that declaration", h)
 	}
 }

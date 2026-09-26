@@ -23,16 +23,6 @@ import (
 // As a tool it is asked when the agent wants it, and the answer returns where every other tool
 // result does. What the members see is unchanged: the same record, one lens each.
 
-// councilAdvice runs one deliberation for the council tool and renders the members' readings. The
-// question, when the agent supplies one, rides as the task the members weigh — otherwise they weigh
-// the turn's own task. Errors come back as errors: an agent told "the council had nothing to add"
-// when the backend actually failed would read silence as agreement.
-//
-// complete marks the call as the agent DECLARING the task finished, which is how a turn ends. The
-// council reads the same record as a finish and either accepts — the loop is signalled and the turn
-// is over — or hands back what is not done, and the agent keeps working. Ending was a passive event
-// before this: the agent stopped calling tools and the turn simply stopped, with nothing asked and
-// nothing shown. Now it is an act, and the act is answered.
 // councilDoingCall is the call id the council's progress note is filed under.
 //
 // A council is not a tool call and has no id of its own, but the note is cleared BY id — a
@@ -99,6 +89,16 @@ type declarationGater interface {
 // with a door of its own (landing) reads to register a gate instead of a second door.
 func (a *App) CouncilEnabled() bool { return a.cfg.Council != nil }
 
+// councilAdvice runs one deliberation for the council tool and renders the members' readings. The
+// question, when the agent supplies one, rides as the task the members weigh — otherwise they weigh
+// the turn's own task. Errors come back as errors: an agent told "the council had nothing to add"
+// when the backend actually failed would read silence as agreement.
+//
+// complete marks the call as the agent DECLARING the task finished, which is how a turn ends. The
+// council reads the same record as a finish and either accepts — the loop is signalled and the turn
+// is over — or hands back what is not done, and the agent keeps working. Ending was a passive event
+// before this: the agent stopped calling tools and the turn simply stopped, with nothing asked and
+// nothing shown. Now it is an act, and the act is answered.
 func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool) (string, error) {
 	if a.cfg.Council == nil {
 		return "", fmt.Errorf("no council is configured for this run")

@@ -20,17 +20,6 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// attached is the engine an attached UI talks to: its own App for everything it can work out for
-// itself, and the daemon for the handful of things only the process holding the run can do.
-//
-// The split is not a compromise. The session log is append-only and the store is a port, so a
-// second process reading the same directory reconstructs the same transcript — that is the store
-// port used twice, which is what having ports is for. What it cannot reconstruct is the run: the
-// goroutine, its cancel, the tool blocked waiting for an answer. Those five go over the wire.
-//
-// Embedding *app.App means every method not named below is the local one, and a method added to
-// the boundary later keeps working here without being listed. The five are overridden by being
-// written out, so the file reads as "these, and only these, leave the process".
 // clientBox holds the attached TUI's pooled daemon client behind a pointer, so a dead connection
 // can be replaced. The daemon's graceful restart (a self-update) drains every open connection and
 // the successor rebinds the SAME socket within a second — the web console redials and survives,
@@ -61,6 +50,17 @@ func (b *clientBox) redial(sock string) bool {
 	return true
 }
 
+// attached is the engine an attached UI talks to: its own App for everything it can work out for
+// itself, and the daemon for the handful of things only the process holding the run can do.
+//
+// The split is not a compromise. The session log is append-only and the store is a port, so a
+// second process reading the same directory reconstructs the same transcript — that is the store
+// port used twice, which is what having ports is for. What it cannot reconstruct is the run: the
+// goroutine, its cancel, the tool blocked waiting for an answer. Those five go over the wire.
+//
+// Embedding *app.App means every method not named below is the local one, and a method added to
+// the boundary later keeps working here without being listed. The five are overridden by being
+// written out, so the file reads as "these, and only these, leave the process".
 type attached struct {
 	*app.App
 	c *clientBox
@@ -507,21 +507,6 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 	return out
 }
 
-// pendingPrompt turns the daemon's answer to "what are you blocked on?" into the event the screen
-// already knows how to draw.
-//
-// Synthesised rather than forwarded: the daemon's transient events never leave its process, so
-// there is nothing to forward. What comes over the wire is the request's own fields, and this
-// rebuilds the same payload the TUI would have received had the engine been in this process — the
-// same call id, so the answer the user gives goes back to the tool that is waiting for it.
-//
-// The three outcomes are distinct on purpose. drawing says a prompt is new and here it is; the id
-// alone says "still the same one, already on screen"; and cleared says the daemon has nothing
-// pending, which is what lets the next prompt through even if it reuses an id.
-//
-// A FAILED status is none of those. Treating it as "nothing pending" would clear the marker, and
-// the next poll would redraw a prompt that is already on screen — one dropped packet turning into
-// two stacked modals over the same question.
 // pulse is one poll's answer. A struct because it was six return values and the two facts added
 // here would have made it eight, every caller unpacking positions it does not use.
 type pulse struct {
@@ -549,6 +534,21 @@ type pulse struct {
 	reachable bool
 }
 
+// pendingPrompt turns the daemon's answer to "what are you blocked on?" into the event the screen
+// already knows how to draw.
+//
+// Synthesised rather than forwarded: the daemon's transient events never leave its process, so
+// there is nothing to forward. What comes over the wire is the request's own fields, and this
+// rebuilds the same payload the TUI would have received had the engine been in this process — the
+// same call id, so the answer the user gives goes back to the tool that is waiting for it.
+//
+// The three outcomes are distinct on purpose. drawing says a prompt is new and here it is; the id
+// alone says "still the same one, already on screen"; and cleared says the daemon has nothing
+// pending, which is what lets the next prompt through even if it reuses an id.
+//
+// A FAILED status is none of those. Treating it as "nothing pending" would clear the marker, and
+// the next poll would redraw a prompt that is already on screen — one dropped packet turning into
+// two stacked modals over the same question.
 func (a attached) pendingPrompt(sid session.SessionID, drawn string) pulse {
 	st, err := a.c.get().Status(string(sid))
 	if err != nil {

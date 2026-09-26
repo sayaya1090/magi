@@ -224,18 +224,6 @@ func didSomething(calls []*session.ToolCall) bool {
 	return false
 }
 
-// reasoningSpinNudge is what the agent is told after a reasoning-only spin is cancelled. n is
-// which spin this is, counting from 1.
-//
-// It escalates, and it must. The first message is the whole of what the loop knows: you thought
-// without acting. By the third, that has been said and disproved as sufficient, and repeating it
-// verbatim only stacks an identical instruction the model has already failed to follow — measured,
-// nine spins ten minutes apart with 82 minutes and no tool call between them.
-//
-// What each repeat adds is the fact the model cannot see for itself. It does not know its answer
-// was cancelled, or that the thinking it just did was DISCARDED rather than remembered, or that
-// this has now happened repeatedly. Absent that, the loop looks to it like the same fresh question
-// each time, which is exactly how it behaved.
 // salvageCap bounds how much of a cancelled response is handed back. The tail, not the head:
 // conclusions are at the end of a chain of reasoning, and the opening is restating the problem.
 const salvageCap = 2000
@@ -297,6 +285,18 @@ func malformedCallNudge(n int, reply, badName string) string {
 		"repair request — the next reply that is not a real tool call will be shown to the person as text. " + body
 }
 
+// reasoningSpinNudge is what the agent is told after a reasoning-only spin is cancelled. n is
+// which spin this is, counting from 1.
+//
+// It escalates, and it must. The first message is the whole of what the loop knows: you thought
+// without acting. By the third, that has been said and disproved as sufficient, and repeating it
+// verbatim only stacks an identical instruction the model has already failed to follow — measured,
+// nine spins ten minutes apart with 82 minutes and no tool call between them.
+//
+// What each repeat adds is the fact the model cannot see for itself. It does not know its answer
+// was cancelled, or that the thinking it just did was DISCARDED rather than remembered, or that
+// this has now happened repeatedly. Absent that, the loop looks to it like the same fresh question
+// each time, which is exactly how it behaved.
 func reasoningSpinNudge(n int) string {
 	const opening = "You streamed a very long chain of reasoning without taking ANY action. Thinking " +
 		"alone does not make progress. STOP reasoning now and take the concrete next step with a " +
@@ -323,15 +323,15 @@ func reasoningSpinNudge(n int) string {
 	}
 }
 
-// consumeStream drains one provider stream, publishing text/reasoning deltas as
-// transient events and recording the real prompt-token count for the meter. A
-// non-nil error means the provider reported one (already emitted to the bus) and
-// the turn must unwind.
 // streamDiag enables opt-in stderr stream diagnostics (MAGI_STREAM_DIAG), mirroring
 // the adapter-side flag so pre-finish stalls and post-finish drains can be traced
 // together in one run without affecting normal operation.
 var streamDiag = os.Getenv("MAGI_STREAM_DIAG") != ""
 
+// consumeStream drains one provider stream, publishing text/reasoning deltas as
+// transient events and recording the real prompt-token count for the meter. A
+// non-nil error means the provider reported one (already emitted to the bus) and
+// the turn must unwind.
 func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentActor event.Actor, stream <-chan port.ProviderEvent, msgID string, cancel context.CancelFunc) (streamStep, error) {
 	var text, reasoning strings.Builder
 	var res streamStep

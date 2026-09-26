@@ -136,7 +136,6 @@ type firedEvent struct {
 	payload map[string]string
 }
 
-// HostConfig configures the plugin host.
 // Analyzer runs a one-shot, tool-free LLM analysis on behalf of a plugin
 // (magi.analyze) — a "sidecar" call for observation-style plugins (lesson
 // extraction, summarizers) that must never mutate anything. model "" = the
@@ -146,6 +145,7 @@ type Analyzer interface {
 	Analyze(ctx context.Context, system, text, model string) (string, error)
 }
 
+// HostConfig configures the plugin host.
 type HostConfig struct {
 	ToolSink   ToolSink
 	MCPMgr     MCPManager                   // optional: enables magi.register_mcp()

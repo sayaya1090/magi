@@ -47,8 +47,6 @@ func (m *Model) buildGlam(tw int) {
 // maxInputRows caps how tall the input box grows for multi-line input.
 const maxInputRows = 6
 
-// chromeHeight is the number of rows used by header + input + footer (+ modal /
-// command palette).
 // minViewport is the smallest transcript viewport we keep visible; the pane block
 // is capped so chrome + viewport never exceeds the screen (input stays on screen).
 const minViewport = 3
@@ -226,6 +224,8 @@ func (m *Model) baseChromeHeight() int {
 	return h
 }
 
+// chromeHeight is the number of rows used by header + input + footer (+ modal /
+// command palette).
 func (m *Model) chromeHeight() int { return m.baseChromeHeight() + m.panesBlockHeight() }
 
 // overlayLine composites overlay onto a screen row of content at display column

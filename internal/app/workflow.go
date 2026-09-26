@@ -287,11 +287,11 @@ func (a *App) injectWorkflow(ctx context.Context, sid session.SessionID, text st
 		event.Actor{Kind: event.ActorSystem, ID: "workflow"}, pd)
 }
 
-// emitPhase publishes a (transient) workflow-phase event for observers.
 // workflowDonePhase is the Phase value on the single event that marks the whole pipeline finished,
 // as distinct from any one phase's own turn.finished. The headless runner breaks on it.
 const workflowDonePhase = "workflow"
 
+// emitPhase publishes a (transient) workflow-phase event for observers.
 func (a *App) emitPhase(sid session.SessionID, phase, status, detail string) {
 	d, _ := json.Marshal(event.WorkflowPhaseData{Phase: phase, Status: status, Detail: detail})
 	a.publishTransient(sid, event.TypeWorkflowPhase, event.Actor{Kind: event.ActorSystem, ID: "workflow"}, d)
