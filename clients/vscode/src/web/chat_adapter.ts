@@ -29,6 +29,10 @@ import {
   takeUntil,
 } from 'rxjs';
 
+/** The transient notice a send shows, and how long it stays unless something replaces it. */
+const SENDING = 'sending…';
+const SENDING_EXPIRES_MS = 4000;
+
 export interface WebviewBridge {
   postMessage(message: WebviewToHostMessage): void;
 }
@@ -600,6 +604,23 @@ export function createWebviewInputAdapter(
     }
   }
 
+  /**
+   * The transient "sending…" notice, and its own expiry. Said once: this lived as two identical
+   * blocks (a general send and a chosen answer), and a notice that is set in two places is one whose
+   * expiry can be changed in only one of them.
+   *
+   * The expiry clears the note only while it still says "sending…" — anything written there since
+   * (a host note, "reply already in flight…") is somebody else's and stays. It never touches the
+   * persistent state notice: that one lives in its own element and changes only with the state.
+   */
+  function showSending(): void {
+    if (!noteEl) return;
+    noteEl.textContent = SENDING;
+    setTimeout(() => {
+      if (noteEl.textContent === SENDING) noteEl.textContent = '';
+    }, SENDING_EXPIRES_MS);
+  }
+
   function clearAutoCompletion(): void {
     suggestCtrl.invalidate();
     if (hintEl) hintEl.textContent = '';
@@ -856,12 +877,7 @@ export function createWebviewInputAdapter(
       }
     }
     if (hintEl) hintEl.textContent = '';
-    if (noteEl) {
-      noteEl.textContent = 'sending…';
-      setTimeout(() => {
-        if (noteEl.textContent === 'sending…') noteEl.textContent = '';
-      }, 4000);
-    }
+    showSending();
   }
 
   function submitChoice(callId: string, option: string): boolean {
@@ -891,12 +907,7 @@ export function createWebviewInputAdapter(
         webviewId: wid,
       });
     }
-    if (noteEl) {
-      noteEl.textContent = 'sending…';
-      setTimeout(() => {
-        if (noteEl.textContent === 'sending…') noteEl.textContent = '';
-      }, 4000);
-    }
+    showSending();
     return true;
   }
 
@@ -1161,7 +1172,8 @@ export function createWebviewReceiveHandlers(
           if (scrollEl.scrollTop > maxScroll) scrollEl.scrollTop = maxScroll;
         }
       }
-      if (options.getNoteText() === 'sending…') {
+      // Same constant as the producer: if the two spelled it differently this would never clear.
+      if (options.getNoteText() === SENDING) {
         options.setNoteText('');
       }
       options.recoveryController?.refresh();
