@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 
@@ -394,6 +395,16 @@ func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID,
 	return a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"}, data)
 }
 
+// resurface is appendResurfacedPrompt for the drain, which has no caller to hand an error to. A
+// failed write here is a person's queued request that will not run — the re-run seeds from the log,
+// and the prompt is not in it — so it is said, the way the other best-effort writes to a store that
+// cannot be written are, rather than dropped without a trace.
+func (a *App) resurface(ctx context.Context, sid session.SessionID, originMsgID, text string) {
+	if err := a.appendResurfacedPrompt(ctx, sid, originMsgID, text); err != nil {
+		log.Printf("magi: re-queueing a prompt in %s (it will not run): %v", sid, err)
+	}
+}
+
 // taskEvents returns evs with EVERY interjection detected this turn removed, for the
 // task-identity views — turnTask derivation and the council's per-turn evidence scan.
 // Wider than liveEvents: it also hides interjections the orchestrator answered inline
@@ -748,7 +759,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						// Link back to the original prompt so the display layer pairs query and
 						// answer. On a dead ctx, persist but do NOT re-run (no-retry-storm).
 						a.resetForNewTopLevel(sid)
-						_ = a.appendResurfacedPrompt(bctx, sid, work.MsgID, work.Text)
+						a.resurface(bctx, sid, work.MsgID, work.Text)
 						if runCtx.Err() == nil {
 							rerun = true
 						}
@@ -790,7 +801,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 					a.resetForNewTopLevel(sid)
 					for _, p := range newSteers {
 						if txt := strings.TrimSpace(p.Text); txt != "" {
-							_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, p.MsgID, txt)
+							a.resurface(context.WithoutCancel(runCtx), sid, p.MsgID, txt)
 						}
 					}
 				}
@@ -810,12 +821,12 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				a.resetForNewTopLevel(sid)
 				for _, p := range newSteers {
 					if txt := strings.TrimSpace(p.Text); txt != "" {
-						_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, p.MsgID, txt)
+						a.resurface(context.WithoutCancel(runCtx), sid, p.MsgID, txt)
 					}
 				}
 				for _, q := range queued {
 					if text := strings.TrimSpace(q.Text); text != "" {
-						_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, q.MsgID, text)
+						a.resurface(context.WithoutCancel(runCtx), sid, q.MsgID, text)
 					}
 				}
 			}

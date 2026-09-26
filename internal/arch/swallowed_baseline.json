@@ -1,5 +1,5 @@
 {
-  "total": 145,
+  "total": 141,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -44,7 +44,7 @@
     "internal/adapter/tui/paste.go": 1,
     "internal/adapter/tui/probe_unix.go": 3,
     "internal/adapter/tui/probe_windows.go": 3,
-    "internal/app/app.go": 8,
+    "internal/app/app.go": 4,
     "internal/app/app_plugin_api.go": 1,
     "internal/app/app_state.go": 3,
     "internal/app/compact.go": 1,

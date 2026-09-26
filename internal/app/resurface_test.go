@@ -1,85 +1,54 @@
 package app
 
 import (
-	"encoding/json"
+	"bytes"
+	"context"
+	"errors"
+	"log"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
-// promptEvent builds a TypePromptSubmitted event with the given MessageID and text,
-// optionally linked back to an original via ResurfacedFrom.
-func promptEvent(seq int64, msgID, text, resurfacedFrom string) event.Event {
-	data, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID:      msgID,
-		Parts:          []session.Part{{Kind: session.PartText, Text: text}},
-		ResurfacedFrom: resurfacedFrom,
-	})
-	return event.Event{Seq: seq, Type: event.TypePromptSubmitted, Data: data}
+// refusesPrompts writes everything except a submitted prompt — the one write resurface makes.
+type refusesPrompts struct {
+	port.Store
 }
 
-func assistantEvent(seq int64, msgID, text string) event.Event {
-	data, _ := json.Marshal(event.PartAppendedData{
-		MessageID: msgID,
-		Role:      session.RoleAssistant,
-		Part:      session.Part{Kind: session.PartText, Text: text},
-	})
-	return event.Event{Seq: seq, Type: event.TypePartAppended, Data: data}
+func (r refusesPrompts) Append(ctx context.Context, sid session.SessionID, evs ...event.Event) ([]int64, error) {
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			return nil, errors.New("the disk is full")
+		}
+	}
+	return r.Store.Append(ctx, sid, evs...)
 }
 
-// A queued interjection that was later re-surfaced (linked via ResurfacedFrom) must
-// show ONCE, next to its answer — the stranded original prompt is dropped and the
-// re-emitted copy sits at the back of the stream just before the assistant reply.
-func TestDropResurfacedOrigins(t *testing.T) {
-	evs := []event.Event{
-		promptEvent(1, "m_orig", "what's the capital of France?", ""), // typed mid-turn, stranded up top
-		assistantEvent(2, "a_task", "…working on the original task…"),
-		promptEvent(3, "m_resurf", "what's the capital of France?", "m_orig"), // re-emitted at drain
-		assistantEvent(4, "a_ans", "Paris."),
-	}
+// A queued request that could not be written back into the log will not run, because the re-run
+// seeds from the log. The drain has nobody to return that to, so it has to be said — it used to be
+// discarded with `_ =` and leave no trace at all.
+func TestAPromptThatCannotBeRequeuedIsSaid(t *testing.T) {
+	inner, _ := jsonl.New(t.TempDir())
+	a := closeAfter(t, New(refusesPrompts{inner}, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil,
+		Config{Permission: "allow"}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 
-	got := dropResurfacedOrigins(evs)
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	// The stranded original (m_orig) is gone; the re-surfaced copy remains.
-	for _, e := range got {
-		if e.Type != event.TypePromptSubmitted {
-			continue
-		}
-		var d event.PromptSubmittedData
-		if json.Unmarshal(e.Data, &d) == nil && d.MessageID == "m_orig" {
-			t.Fatalf("stranded original prompt m_orig was not dropped")
-		}
-	}
+	a.resurface(context.Background(), sid, "m_origin", "please also run the tests")
 
-	msgs := reconstruct(got)
-	// Exactly one user message survives, and it is immediately followed by its answer.
-	var userIdx = -1
-	userCount := 0
-	for i, m := range msgs {
-		if m.Role == session.RoleUser {
-			userCount++
-			userIdx = i
-		}
-	}
-	if userCount != 1 {
-		t.Fatalf("want exactly 1 user message after dedup, got %d", userCount)
-	}
-	if userIdx != len(msgs)-2 || msgs[len(msgs)-1].Role != session.RoleAssistant {
-		t.Fatalf("re-surfaced query not paired with its answer: userIdx=%d of %d, last role=%v",
-			userIdx, len(msgs), msgs[len(msgs)-1].Role)
-	}
-}
-
-// Without any ResurfacedFrom links, the filter is a no-op (ordinary prompts untouched).
-func TestDropResurfacedOriginsNoOp(t *testing.T) {
-	evs := []event.Event{
-		promptEvent(1, "m1", "hi", ""),
-		assistantEvent(2, "a1", "hello"),
-		promptEvent(3, "m2", "bye", ""),
-	}
-	got := dropResurfacedOrigins(evs)
-	if len(got) != len(evs) {
-		t.Fatalf("no-op filter changed event count: %d -> %d", len(evs), len(got))
+	got := buf.String()
+	if !strings.Contains(got, "will not run") || !strings.Contains(got, "the disk is full") {
+		t.Fatalf("a lost requeue must be logged with its cause, got %q", got)
 	}
 }
