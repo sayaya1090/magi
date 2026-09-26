@@ -662,7 +662,9 @@ const councilCore = "Judge the agent's REPORT against the TASK and PLAN. Use the
 	"no matter how reasonable the excuse or how confident the framing (\"this constitutes full completion\", " +
 	"\"honest acknowledgment of limitations\", \"nothing to fix\"). An eloquent justification never converts " +
 	"unfinished work into done: vote continue, and in feedback tell the agent to either actually perform and " +
-	"verify that part, or finish honestly by reporting the task as failed/blocked instead of done.\n" +
+	"verify that part, or finish honestly by reporting the task as failed/blocked instead of done. The ONE " +
+	"exception is a requirement the record PROVES cannot be met — the BLOCKED mark in the walk below, under " +
+	"every one of its conditions; an excuse that falls short of any of them is still this rule.\n" +
 	"The REPORT leads with a `STATUS:` line and may carry labeled sections. When an `EVIDENCE:` section is " +
 	"present it is where the run-the-check proof should be — but it is still the agent's transcription: accept " +
 	"it only when the SIGNALS or tool results corroborate that run; an EVIDENCE line that merely restates the " +
@@ -685,7 +687,10 @@ const councilCore = "Judge the agent's REPORT against the TASK and PLAN. Use the
 	"`feedback`. A missing diff or signal is NOT a defect.\n" +
 	"- \"abstain\": your lens genuinely cannot judge from what is given. Excluded from the tally.\n\n" +
 	"Never invent a defect, never demand evidence the task never required, and never continue out of mere " +
-	"uncertainty or a wish for more proof. GROUND every continue demand in the TASK: when the defect you name " +
+	"uncertainty or a wish for more proof. Never tell the agent to create, add, place or make up something the " +
+	"task PRESUPPOSES already exists — an input file, data, a record to read: if it is missing, the question is " +
+	"whether it is BLOCKED under the conditions above, and the only feedback that helps is a place still " +
+	"unsearched. A result computed from a stand-in the agent made proves nothing about the task. GROUND every continue demand in the TASK: when the defect you name " +
 	"is a SPECIFIC — an exact value, a numeric type or integer width, a version pin, a field or identifier's " +
 	"exact spelling or capitalization, a format, or a threshold — you must be able to point to where the TASK " +
 	"ITSELF states it, and say which task words require it in `feedback`. If the task does not state that " +
@@ -701,8 +706,8 @@ const councilCore = "Judge the agent's REPORT against the TASK and PLAN. Use the
 	// turn, not to read magi's changelog.
 	"REQUIREMENTS WALK — write it BEFORE you decide, as the FIRST field of your reply.\n" +
 	"Enumerate the requirements the TASK ITSELF states — one line each, in the task's own words, walking them " +
-	"in the order YOUR ROUTE gives. For each write three things: the requirement, then SATISFIED or " +
-	"UNSATISFIED, then the VERBATIM fragment of what you were shown that settles it — or NO-EVIDENCE when " +
+	"in the order YOUR ROUTE gives. For each write three things: the requirement, then SATISFIED, " +
+	"UNSATISFIED or BLOCKED, then the VERBATIM fragment of what you were shown that settles it — or NO-EVIDENCE when " +
 	"nothing you were shown speaks to it either way. List only what the TASK states: a requirement it never " +
 	"stated is a phantom, and the grounding rule above governs it. Keep the walk to the requirements that " +
 	"decide the outcome — a walk too long to read is a walk nobody uses.\n" +
@@ -713,12 +718,31 @@ const councilCore = "Judge the agent's REPORT against the TASK and PLAN. Use the
 	"for the comparison it claims to have made. That word is the agent saying so, one step removed. " +
 	"Cite the output the comparison produced, or mark the item NO-EVIDENCE. Measured: three members " +
 	"once settled a whole task on one such banner, and both of that task's tests then failed.\n" +
+	"BLOCKED — the requirement truly CANNOT be met here, and the honest report of that is the correct end. " +
+	"Mark it BLOCKED only when ALL of these hold; if any one fails, it is UNSATISFIED:\n" +
+	"  (a) it depends on something the TASK PRESUPPOSES already exists and the agent has no legitimate way " +
+	"to produce — an input file or data the task says to read, a credential, an outside service, a " +
+	"permission this run withholds. Anything the task asks the agent to MAKE, FIX, INSTALL or RUN is never " +
+	"BLOCKED;\n" +
+	"  (b) a TOOL RESULT in the record shows the absence or refusal — quote it. The agent saying so is not " +
+	"enough;\n" +
+	"  (c) the search was as thorough as a careful person's: the WHOLE workspace, not only the folder the " +
+	"task names or the agent guessed (a task can misplace a file); reasonable variants of the name (case, " +
+	"extension, singular/plural); and any obvious other way to get the same thing. Check this yourself " +
+	"against the tool results: if any reasonable avenue is untried, mark UNSATISFIED and name THAT avenue in " +
+	"`feedback`;\n" +
+	"  (d) the report says plainly that this requirement was NOT done and why — no success framing, and no " +
+	"substitute presented as the result;\n" +
+	"  (e) nothing was invented to fill the gap — no made-up data, no stand-in file created, no real file " +
+	"overwritten. If something was, mark UNSATISFIED and say in `feedback` to undo it and report the " +
+	"blocker instead.\n" +
 	"THEN decide, and the decision must FOLLOW from the walk you just wrote:\n" +
 	"- any requirement UNSATISFIED → continue, and name that requirement in `feedback`;\n" +
 	"- a requirement supported only by NO-EVIDENCE is NOT satisfied — treat it as UNSATISFIED — unless the " +
 	"task never called for evidence at all (a read / answer / analyze / review task, where the report's " +
 	"substance IS the deliverable and the proportionality rule above applies);\n" +
-	"- every requirement SATISFIED → done.\n" +
+	"- every requirement SATISFIED or BLOCKED → done: the report has told the truth about what could not be " +
+	"done, and another round cannot change the environment;\n" +
 	"Write the walk first and the decision after it. A decision written before the walk is a walk written to " +
 	"fit the decision. (When the criteria ARE an enumerated checklist, the walk is that checklist, item by " +
 	"item, by number — never wave a partly-met checklist to done as a whole.)\n\n" +
@@ -748,7 +772,7 @@ const orientAssembled = "You are shown an assembled block below: the TASK, the P
 // for the verdict first gets the verdict first, written before the model has read a single
 // requirement back to itself.
 func verdictSchemaFor(keep bool) string {
-	s := `{"checks":["<requirement> - SATISFIED|UNSATISFIED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
+	s := `{"checks":["<requirement> - SATISFIED|UNSATISFIED|BLOCKED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
 		`"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence",` +
 		`"feedback":"the specific gap (only if continue)",` +
 		`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"`

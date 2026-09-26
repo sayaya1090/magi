@@ -40,7 +40,7 @@ import (
 // it is supposed to support.
 const panelSchema = `{"verdicts":[` +
 	`{"member":"<name>","lens":"<lens>",` +
-	`"checks":["<requirement> - SATISFIED|UNSATISFIED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
+	`"checks":["<requirement> - SATISFIED|UNSATISFIED|BLOCKED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
 	`"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence",` +
 	`"feedback":"the specific gap (only if continue)",` +
 	`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"}` +
@@ -183,7 +183,15 @@ const panelCloseAsk = "── ACROSS THE WALKS ──\n" +
 	"cancelled by a show of hands;\n" +
 	"- a lens asking for proof of something the TASK never required is not a defect and must not hold the " +
 	"round — that is the churn the rules forbid;\n" +
-	"- everything walked, satisfied by tool results, and nothing implausible → done.\n" +
+	"- a BLOCKED item is re-checked here, not taken on trust: it stands only if a tool result in the record " +
+	"shows the absence, the search covered the whole workspace and the obvious variants and alternatives, " +
+	"the thing missing is one the task presupposed rather than one it asked for, the report says plainly it " +
+	"was not done, and nothing was invented or overwritten to fill the gap. If any lens marked the same item " +
+	"UNSATISFIED and named an avenue still untried, or you can name one yourself from what the tools " +
+	"returned, the item is open → continue, and name that avenue;\n" +
+	"- everything walked and each item either satisfied by tool results or BLOCKED under every condition " +
+	"above, and nothing implausible → done. An honest \"this cannot be done here\", proven, is a finished " +
+	"turn: another round cannot change the environment.\n" +
 	"If the walks disagree and what the tools returned cannot say which is right, CONTINUE: one more turn " +
 	"costs a turn, a wrong done costs the task.\n" +
 	"Reply with ONLY this JSON object, no prose, no code fence:\n" +

@@ -174,6 +174,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	if pre := preexistingDirtBanner(a.preexistingDirtOf(sid)); pre != "" {
 		actions = pre + "\n\n" + actions
 	}
+	a.mu.Lock()
+	base := a.stateLocked(sid).worldBase
+	a.mu.Unlock()
+	if made := createdInputsBanner(namedFilesCreatedThisTurn(task, s.Workdir, base)); made != "" {
+		actions = made + "\n\n" + actions
+	}
 	if jobs := a.liveJobsNow(a.jobsStartedBy(ctx, sid)); jobs != "" {
 		actions = jobs + "\n\n" + actions
 	}

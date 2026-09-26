@@ -1075,3 +1075,33 @@ func TestEvidenceGuidanceSection(t *testing.T) {
 		t.Errorf("no guidance → no section:\n%s", e)
 	}
 }
+
+// A requirement the record PROVES cannot be met has to have a way out of the walk. Without one, "any
+// requirement UNSATISFIED → continue" turned an honest "the file is not in this workspace" away every
+// round until the cap landed it (measured live 2026-09-27: three rejections in a row, each member
+// quoting the empty search result that proved the agent right). The way out is narrow on purpose —
+// the person who asked for it asked for a thorough check that there really is no other way — so
+// every condition is pinned, and each is a separate way to wave an excuse through if it goes.
+func TestBlockedIsAWayOutOnlyUnderEveryCondition(t *testing.T) {
+	for _, lens := range []string{"correctness", "verification", "completeness"} {
+		p := memberSystem(council.Member{Name: "x", Lens: lens}, "count the rows of invoices.csv", false)
+		for _, want := range []string{
+			"SATISFIED|UNSATISFIED|BLOCKED",                                   // the reply shape carries the mark
+			"every requirement SATISFIED or BLOCKED → done",                   // and the decision follows it
+			"if any one fails, it is UNSATISFIED",                             // all-or-nothing
+			"TASK PRESUPPOSES",                                                // (a) only what the task assumed exists
+			"MAKE, FIX, INSTALL or RUN is never",                              // (a) never what it asked for
+			"a TOOL RESULT in the record shows the absence",                   // (b) shown, not said
+			"the WHOLE workspace, not only the folder",                        // (c) the search that was missing live
+			"reasonable variants of the name",                                 // (c)
+			"name THAT avenue",                                                // (c) an open avenue is named
+			"says plainly that this requirement was NOT done",                 // (d)
+			"no stand-in file created, no real file overwritten",              // (e) the incident itself
+			"Never tell the agent to create, add, place or make up something", // the order given live
+		} {
+			if !strings.Contains(p, want) {
+				t.Errorf("lens=%s: the BLOCKED rule lost %q", lens, want)
+			}
+		}
+	}
+}

@@ -562,3 +562,20 @@ func TestAMemberEchoingThePlaceholderKeepsTheirVote(t *testing.T) {
 		}
 	}
 }
+
+// The closing call sees all three walks, so it is where a BLOCKED mark one lens accepted too easily is
+// caught: it re-checks the mark instead of counting it, and an avenue any lens (or it) can still name
+// keeps the round open. And it must be allowed to end on a proven blocker, or the members' way out is
+// closed again one step later.
+func TestTheClosingCallRechecksBlockedAndCanEndOnIt(t *testing.T) {
+	for _, want := range []string{
+		"a BLOCKED item is re-checked here, not taken on trust",
+		"the search covered the whole workspace",
+		"named an avenue still untried",
+		"BLOCKED under every condition above, and nothing implausible → done",
+	} {
+		if !strings.Contains(panelCloseAsk, want) {
+			t.Errorf("the closing call lost %q", want)
+		}
+	}
+}
