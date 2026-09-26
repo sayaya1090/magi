@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -100,7 +101,11 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	p := a.cfg.RoutePersister
 	a.mu.Unlock()
 	if p != nil {
-		_ = p.PersistModel(modelID) // best-effort
+		// Best-effort, and said: a choice that was not saved comes back as the old model on the next
+		// start, and this line is the only place that says why.
+		if err := p.PersistModel(modelID); err != nil {
+			log.Printf("magi: saving the model choice %q: %v", modelID, err)
+		}
 	}
 	// Recorded, not just announced.
 	//
@@ -310,7 +315,9 @@ func (a *App) SetProfile(p ProfileDef) {
 	persist := a.cfg.RoutePersister
 	a.mu.Unlock()
 	if persist != nil {
-		_ = persist.PersistProfile(p) // best-effort
+		if err := persist.PersistProfile(p); err != nil { // best-effort, and said (see SetModel)
+			log.Printf("magi: saving profile %q: %v", p.Name, err)
+		}
 	}
 }
 

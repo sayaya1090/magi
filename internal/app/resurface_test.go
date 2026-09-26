@@ -91,3 +91,30 @@ func TestANoteThatDidNotLandIsSaid(t *testing.T) {
 		t.Fatalf("a refused note must be logged with who left it and why it failed, got %q", got)
 	}
 }
+
+// failingPersister cannot save anything.
+type failingPersister struct{}
+
+func (failingPersister) PersistModel(string) error       { return errors.New("config.toml is read-only") }
+func (failingPersister) PersistProfile(ProfileDef) error { return errors.New("config.toml is read-only") }
+
+// A model or profile choice that was not saved comes back as the old one on the next start; the
+// log line is the only place that says why.
+func TestAChoiceThatWasNotSavedIsSaid(t *testing.T) {
+	inner, _ := jsonl.New(t.TempDir())
+	a := closeAfter(t, New(inner, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil,
+		Config{Permission: "allow", RoutePersister: failingPersister{}}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	a.SetModel(sid, "gpt-x")
+	a.SetProfile(ProfileDef{Name: "fast", Model: "gpt-y"})
+
+	got := buf.String()
+	if !strings.Contains(got, `"gpt-x"`) || !strings.Contains(got, `"fast"`) || strings.Count(got, "read-only") != 2 {
+		t.Fatalf("both unsaved choices should be logged with the cause, got %q", got)
+	}
+}
