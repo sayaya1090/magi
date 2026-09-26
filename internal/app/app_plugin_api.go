@@ -42,7 +42,7 @@ func (a *App) PluginNote(sessionID, text string) {
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
 	})
-	_ = a.appendFact(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
+	a.appendBestEffort(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
 		event.Actor{Kind: event.ActorSystem, ID: "plugin"}, pd)
 }
 

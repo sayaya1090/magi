@@ -864,7 +864,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		}
 		if writeFinish {
 			d, _ := json.Marshal(event.TurnFinishedData{})
-			_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypeTurnFinished,
+			a.appendBestEffort(context.WithoutCancel(runCtx), sid, event.TypeTurnFinished,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 		}
 		// A request made AFTER the person pressed stop still has to run.

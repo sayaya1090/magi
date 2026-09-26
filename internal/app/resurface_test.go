@@ -52,3 +52,23 @@ func TestAPromptThatCannotBeRequeuedIsSaid(t *testing.T) {
 		t.Fatalf("a lost requeue must be logged with its cause, got %q", got)
 	}
 }
+
+// The same for every best-effort fact: a write the store refused names what was lost and why.
+func TestABestEffortFactThatDidNotLandIsSaid(t *testing.T) {
+	inner, _ := jsonl.New(t.TempDir())
+	a := closeAfter(t, New(refusesPrompts{inner}, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil,
+		Config{Permission: "allow"}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	a.appendBestEffort(context.Background(), sid, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "test"}, []byte(`{}`))
+
+	got := buf.String()
+	if !strings.Contains(got, string(event.TypePromptSubmitted)) || !strings.Contains(got, "the disk is full") {
+		t.Fatalf("a refused best-effort write must be logged with its type and cause, got %q", got)
+	}
+}

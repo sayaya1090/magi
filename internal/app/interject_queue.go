@@ -94,7 +94,7 @@ func (a *App) enqueueInterject(ctx context.Context, sid session.SessionID, msgID
 func (a *App) dropQueued(ctx context.Context, sid session.SessionID, msgID string) {
 	if msgID != "" {
 		ad, _ := json.Marshal(event.PromptAbandonedData{MsgID: msgID})
-		_ = a.appendFact(ctx, sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, ad)
+		a.appendBestEffort(ctx, sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, ad)
 	}
 	a.recordDeferral(ctx, sid, msgID, true)
 }
@@ -166,7 +166,7 @@ func (a *App) recordDeferral(ctx context.Context, sid session.SessionID, msgID s
 		return
 	}
 	data, _ := json.Marshal(event.InterjectionDeferredData{MessageID: msgID, Resolved: resolved})
-	_ = a.appendFact(ctx, sid, event.TypeInterjectionDeferred, event.Actor{Kind: event.ActorSystem, ID: "interject"}, data)
+	a.appendBestEffort(ctx, sid, event.TypeInterjectionDeferred, event.Actor{Kind: event.ActorSystem, ID: "interject"}, data)
 }
 
 // ensureDeferredHydrated reconstructs, once per session per process, the set of interjections

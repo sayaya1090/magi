@@ -283,7 +283,7 @@ func (a *App) injectWorkflow(ctx context.Context, sid session.SessionID, text st
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
 	})
-	_ = a.appendFact(context.WithoutCancel(ctx), sid, event.TypePromptSubmitted,
+	a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePromptSubmitted,
 		event.Actor{Kind: event.ActorSystem, ID: "workflow"}, pd)
 }
 

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 	"time"
 
@@ -21,6 +22,17 @@ func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.T
 	a.touch(sid)
 	a.bus.Publish(ev)
 	return nil
+}
+
+// appendBestEffort is appendFact for a write whose caller has nowhere to send a failure: a turn's
+// ending, a plan change, an abandoned prompt, a model switch. Each was `_ = a.appendFact(...)`, and a
+// store that could not be written left no trace at all — the screen then shows a turn that never
+// finished, or a plan that never changed, and nothing anywhere says why. The failure is logged, the
+// way todos.go already logged its labels.
+func (a *App) appendBestEffort(ctx context.Context, sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) {
+	if err := a.appendFact(ctx, sid, typ, actor, data); err != nil {
+		log.Printf("magi: recording %s in %s: %v", typ, sid, err)
+	}
 }
 
 // bear writes the session.created fact this session has been holding, if it still holds one.

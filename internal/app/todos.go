@@ -31,7 +31,7 @@ func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.A
 	a.stateLocked(sid).todos = td
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: td})
-	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+	a.appendBestEffort(ctx, sid, event.TypeTodosChanged, actor, d)
 }
 
 // setTodoStatusIf moves the i-th todo from one status to another, but only when it is
@@ -51,7 +51,7 @@ func (a *App) setTodoStatusIf(ctx context.Context, sid session.SessionID, actor 
 	a.stateLocked(sid).todos = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
-	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+	a.appendBestEffort(ctx, sid, event.TypeTodosChanged, actor, d)
 }
 
 // markTodoActive moves the i-th todo pending→in_progress (◐) so the panel shows which
@@ -119,7 +119,7 @@ func (a *App) finalizeTodos(ctx context.Context, sid session.SessionID, finished
 	a.stateLocked(sid).todos = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
-	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
+	a.appendBestEffort(ctx, sid, event.TypeTodosChanged, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 }
 
 // todosEqual reports whether two plans are identical, so putTodos skips no-op writes.

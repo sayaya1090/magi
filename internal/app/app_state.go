@@ -517,7 +517,7 @@ func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 			continue
 		}
 		dd, _ := json.Marshal(event.PromptAbandonedData{MsgID: p.MsgID})
-		_ = a.appendFact(ctx, sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, dd)
+		a.appendBestEffort(ctx, sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, dd)
 		a.recordDeferral(ctx, sid, p.MsgID, true) // resolved: left the queue (abandoned)
 		drained++
 	}
@@ -539,7 +539,7 @@ func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 				continue // typed after the press: new intent, not queue
 			}
 			d, _ := json.Marshal(event.PromptAbandonedData{MsgID: id})
-			_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
+			a.appendBestEffort(ctx, sid, event.TypePromptAbandoned,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 			if id != mid {
 				drained++ // an undetected queued prompt; count it toward the "N queued also cleared" note

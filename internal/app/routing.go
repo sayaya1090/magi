@@ -125,7 +125,7 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	// Best-effort on purpose, like the PersistModel above it: the switch has ALREADY taken effect
 	// in memory and the turn after this one will use the new model. A store that could not take the
 	// record is worth a lost line in the log, not an undone change the caller was told about.
-	_ = a.appendFact(context.Background(), sid, event.TypeModelChanged,
+	a.appendBestEffort(context.Background(), sid, event.TypeModelChanged,
 		event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
 }
 
