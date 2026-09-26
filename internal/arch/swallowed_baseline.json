@@ -1,5 +1,5 @@
 {
-  "total": 124,
+  "total": 121,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -40,7 +40,6 @@
     "internal/adapter/tui/model.go": 1,
     "internal/adapter/tui/model_event.go": 3,
     "internal/adapter/tui/model_input.go": 2,
-    "internal/adapter/tui/model_submit.go": 3,
     "internal/adapter/tui/paste.go": 1,
     "internal/adapter/tui/probe_unix.go": 3,
     "internal/adapter/tui/probe_windows.go": 3,

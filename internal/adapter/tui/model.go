@@ -595,6 +595,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellResultMsg:
 		return m, m.applyShellResult(msg)
 
+	case sendFailedMsg:
+		return m, m.applySendFailed(msg)
+
 	case providersMsg:
 		if msg.note != "" {
 			return m, m.snack(msg.note)

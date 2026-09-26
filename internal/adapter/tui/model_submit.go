@@ -44,7 +44,8 @@ func (m *Model) steer(text string) tea.Cmd {
 	m.history = append(m.history, text)
 	m.histIdx, m.histDraft = len(m.history), "" // a submitted prompt retires the stashed draft
 	send := m.expandPastes(m.expandMentions(text))
-	m.blocks = append(m.blocks, block{kind: blockUser, text: m.expandPastes(text), queued: true, ts: time.Now()})
+	shown := block{kind: blockUser, text: m.expandPastes(text), queued: true, ts: time.Now()}
+	m.blocks = append(m.blocks, shown)
 	m.ta.Reset()
 	m.refresh()
 	sid := m.sid
@@ -56,14 +57,7 @@ func (m *Model) steer(text string) tea.Cmd {
 	if m.anyPaneRunning() {
 		note = "queued · the main agent picks it up after the running subagents finish this step"
 	}
-	return tea.Batch(m.snack(note), func() tea.Msg {
-		_ = m.app.Steer(m.ctx, command.SubmitPrompt{
-			SessionID: sid,
-			Parts:     []session.Part{{Kind: session.PartText, Text: send}},
-			Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
-		})
-		return nil
-	})
+	return tea.Batch(m.snack(note), m.sendCmd(true, sid, send, sendFailedMsg{draft: shown.text, shownAt: shown.ts}))
 }
 
 // shellRun is one `!`-executed command and its captured output, staged to be
@@ -121,14 +115,8 @@ func (m *Model) applyShellResult(msg shellResultMsg) tea.Cmd {
 		send := shellContext([]shellRun{run})
 		sid := m.sid
 		m.refresh()
-		return tea.Batch(m.snack("ran !"+oneLine(msg.cmd, 40)+" — steered into the turn"), func() tea.Msg {
-			_ = m.app.Steer(m.ctx, command.SubmitPrompt{
-				SessionID: sid,
-				Parts:     []session.Part{{Kind: session.PartText, Text: send}},
-				Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
-			})
-			return nil
-		})
+		return tea.Batch(m.snack("ran !"+oneLine(msg.cmd, 40)+" — steered into the turn"),
+			m.sendCmd(true, sid, send, sendFailedMsg{}))
 	}
 	m.pendingShell = append(m.pendingShell, run)
 	m.refresh()
@@ -191,7 +179,8 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	if pre := m.drainPendingShell(); pre != "" {
 		send = pre + send
 	}
-	m.blocks = append(m.blocks, block{kind: blockUser, text: display, ts: time.Now()})
+	shown := block{kind: blockUser, text: display, ts: time.Now()}
+	m.blocks = append(m.blocks, shown)
 	m.running = true
 	m.awaitingTurnReqID = true // the next ActorUser prompt.submitted owns this turn's spinner
 	m.turnStart = time.Now()   // start the elapsed/token meter
@@ -201,14 +190,62 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.turnReceipted = false // a new turn earns a new receipt
 	m.refresh()
 	sid := m.sid
-	return tea.Batch(m.sp.Tick, func() tea.Msg {
-		_ = m.app.Submit(m.ctx, command.SubmitPrompt{
+	return tea.Batch(m.sp.Tick, m.sendCmd(false, sid, send, sendFailedMsg{turn: true, draft: display, shownAt: shown.ts}))
+}
+
+// sendFailedMsg is a prompt the engine did not take. Submit and Steer fail only when the prompt
+// could not be written to the session log — and then nothing downstream ever happens: no turn
+// starts, so no event arrives to stop the spinner, and the text is already gone from the input.
+// Each of the three senders used to drop that error, leaving a spinner turning over a message
+// that was never sent.
+type sendFailedMsg struct {
+	err     error
+	turn    bool      // the send started a turn: the spinner is on and has to come off
+	draft   string    // what the person typed, to give back when the input is still empty
+	shownAt time.Time // the transcript block drawn for it before the send, to take back down
+}
+
+// sendCmd sends text as a new turn (Submit) or into the running one (Steer), and answers with
+// failed — its err filled in — when the engine refused it.
+func (m *Model) sendCmd(steer bool, sid session.SessionID, text string, failed sendFailedMsg) tea.Cmd {
+	return func() tea.Msg {
+		c := command.SubmitPrompt{
 			SessionID: sid,
-			Parts:     []session.Part{{Kind: session.PartText, Text: send}},
+			Parts:     []session.Part{{Kind: session.PartText, Text: text}},
 			Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
-		})
-		return nil
-	})
+		}
+		var err error
+		if steer {
+			err = m.app.Steer(m.ctx, c)
+		} else {
+			err = m.app.Submit(m.ctx, c)
+		}
+		if err == nil {
+			return nil
+		}
+		failed.err = err
+		return failed
+	}
+}
+
+// applySendFailed undoes what the send had already shown, and says why.
+func (m *Model) applySendFailed(msg sendFailedMsg) tea.Cmd {
+	if msg.turn {
+		m.running = false
+		m.awaitingTurnReqID = false
+	}
+	if !msg.shownAt.IsZero() {
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if m.blocks[i].kind == blockUser && m.blocks[i].ts.Equal(msg.shownAt) {
+				m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
+				break
+			}
+		}
+	}
+	if msg.draft != "" && strings.TrimSpace(m.ta.Value()) == "" {
+		m.ta.SetValue(msg.draft)
+	}
+	return m.snack("not sent — " + msg.err.Error())
 }
 
 // mentionRE matches @-prefixed file paths.
