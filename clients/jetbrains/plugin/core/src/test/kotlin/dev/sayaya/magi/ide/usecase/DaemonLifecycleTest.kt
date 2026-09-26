@@ -7,17 +7,16 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
 import java.nio.file.Paths
-import kotlin.random.Random
 
 /**
  * 데몬 수명주기의 규칙을 소켓 없이 시험한다.
  *
  * 이 시험이 여기 있는 것이 [Daemons] 포트를 만든 이유다. 전에는 이 클래스가 `DaemonClient` 를
- * 직접 잡고 있어서, 백오프를 시험하려면 진짜 유닉스 소켓을 여닫고 진짜로 자야 했다 — 그래서
- * 시험이 하나도 없었다. 규칙과 전송이 갈리자 규칙만 따로 돌릴 수 있게 됐다.
+ * 직접 잡고 있어서, 판정을 시험하려면 진짜 유닉스 소켓을 여닫아야 했다. 규칙과 전송이 갈리자
+ * 규칙만 따로 돌릴 수 있게 됐다.
  *
- * 자는 것과 난수도 주입한다. 시험이 벽시계를 기다리면 느린 것이 문제가 아니라 **CI 에서 가끔
- * 실패**하는 것이 문제다.
+ * 붙거나 띄우는 경로(`attachOrStart`)와 그 백오프·지터 시험은 2026-09-26 에 걷었다 — 제품이 한
+ * 번도 부르지 않았다. 제품의 재기동 백오프는 `Launches` 가 하고 `LaunchesTest` 가 잰다.
  */
 class DaemonLifecycleTest {
     private class Child : Process() {
@@ -106,14 +105,7 @@ class DaemonLifecycleTest {
         override fun unusable(socket: Path) = unusable
     }
 
-    private fun lifecycle(f: Fake, slept: MutableList<Long> = mutableListOf(), start: () -> Unit = { f.starts++ }) =
-        DaemonLifecycle(
-            socket = sock,
-            start = { start() },
-            daemons = f,
-            sleep = { slept += it },
-            random = Random(1),
-        )
+    private fun lifecycle(f: Fake) = DaemonLifecycle(socket = sock, daemons = f)
 
     // ── 판정 ──────────────────────────────────────────────────────────────────
 
@@ -142,97 +134,5 @@ class DaemonLifecycleTest {
         // **무엇을 만났는지가 사라진다.** 그러면 사람은 왜 안 되는지 모른 채 창을 닫았다 연다.
         val v = lifecycle(Fake(reach = Reach.CouldNotAsk("SocketException: … non-socket"))).verdict()
         assertEquals(DaemonLifecycle.Verdict.Unknown("SocketException: … non-socket"), v)
-    }
-
-    // ── 붙거나 띄우거나 ───────────────────────────────────────────────────────
-
-    @Test
-    fun `이미 있으면 띄우지 않고 붙는다`() {
-        val f = Fake(aliveFrom = 1)
-        val out = lifecycle(f).attachOrStart()
-        assertTrue(out is DaemonLifecycle.Outcome.Attached)
-        assertEquals(0, f.starts, "띄운 적이 없어야 한다")
-        assertEquals(1, f.attempts, "첫 시도에 붙었어야 한다")
-    }
-
-    @Test
-    fun `없으면 띄우고 붙는다`() {
-        val f = Fake(aliveFrom = 3)
-        val out = lifecycle(f).attachOrStart()
-        assertTrue(out is DaemonLifecycle.Outcome.Attached)
-        assertEquals(1, f.starts, "기동은 한 번뿐이어야 한다")
-    }
-
-    @Test
-    fun `기동은 성공한 뒤 다시 부르지 않는다`() {
-        // 붙기까지 여러 번 걸려도 프로세스를 여러 개 띄우면 안 된다. flock 이 막아 주지만
-        // 막힌 프로세스가 매번 뜨는 것은 그 자체로 결함이다.
-        val f = Fake(aliveFrom = 5)
-        lifecycle(f).attachOrStart(attempts = 6)
-        assertEquals(1, f.starts)
-    }
-
-    @Test
-    fun `못 붙으면 빈 화면이 아니라 이유를 말한다`() {
-        val f = Fake(aliveFrom = Int.MAX_VALUE)
-        val out = lifecycle(f).attachOrStart(attempts = 2)
-        assertTrue(out is DaemonLifecycle.Outcome.Unreachable)
-        assertTrue(
-            (out as DaemonLifecycle.Outcome.Unreachable).reason.contains(sock.toString()),
-            "이유에 소켓 경로가 있어야 사람이 어디를 볼지 안다",
-        )
-    }
-
-    @Test
-    fun `띄우지도 못했으면 그 이유를 말한다`() {
-        // 기동이 매번 던지면(PATH 에 magi 가 없다, 실행할 수 없는 파일) 데몬은 한 번도 안 떴다.
-        // 그걸 「N번 띄웠는데 응답이 없다」고 말하면 사람은 데몬을 들여다보러 가고, 왜 못 띄웠는지는
-        // 버려져 있었다.
-        val f = Fake(aliveFrom = Int.MAX_VALUE)
-        val out = lifecycle(f, start = { f.starts++; throw java.io.IOException("magi: no such file") })
-            .attachOrStart(attempts = 2)
-        val reason = (out as DaemonLifecycle.Outcome.Unreachable).reason
-        assertTrue("띄우지 못했다" in reason, "기동 실패가 기동 실패로 말해져야 한다: $reason")
-        assertTrue("magi: no such file" in reason, "기동이 던진 원인이 사유에 있어야 한다: $reason")
-        assertTrue(sock.toString() in reason, reason)
-    }
-
-    @Test
-    fun `띄운 뒤 못 붙었으면 마지막 연결 오류를 싣는다`() {
-        val f = Fake(aliveFrom = Int.MAX_VALUE)
-        val reason = (lifecycle(f).attachOrStart(attempts = 2) as DaemonLifecycle.Outcome.Unreachable).reason
-        assertTrue("못 붙었다" in reason && "띄우지 못했다" !in reason, reason)
-        assertTrue("아직 아무도 안 듣는다" in reason, "마지막 연결 오류가 사유에 있어야 한다: $reason")
-    }
-
-    @Test
-    fun `열 수 없는 경로면 띄워 보지도 않는다`() {
-        val f = Fake(unusable = "소켓 경로가 너무 길다")
-        val out = lifecycle(f).attachOrStart()
-        assertEquals(DaemonLifecycle.Outcome.Unreachable("소켓 경로가 너무 길다"), out)
-        assertEquals(0, f.starts, "경로가 틀렸는데 프로세스를 띄우면 안 된다")
-        assertEquals(0, f.attempts)
-    }
-
-    // ── 백오프 ────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `백오프는 늘어나고 상한에서 멈춘다`() {
-        val slept = mutableListOf<Long>()
-        val f = Fake(aliveFrom = Int.MAX_VALUE)
-        lifecycle(f, slept).attachOrStart(attempts = 8, firstBackoffMillis = 200)
-        assertEquals(8, slept.size)
-        assertTrue(slept[1] > slept[0], "두 번째가 첫 번째보다 길어야 한다: $slept")
-        assertTrue(slept.all { it <= 3_000 }, "상한 2000ms + 지터를 넘으면 안 된다: $slept")
-    }
-
-    @Test
-    fun `지터가 붙는다`() {
-        // 창 셋이 한꺼번에 열리면 같은 박자로 재시도해 같은 순간에 또 부딪힌다. 그래서 매번
-        // 다른 만큼 잔다 — 대기값이 전부 같으면 지터가 죽은 것이다.
-        val slept = mutableListOf<Long>()
-        lifecycle(Fake(aliveFrom = Int.MAX_VALUE), slept)
-            .attachOrStart(attempts = 6, firstBackoffMillis = 400)
-        assertTrue(slept.any { it % 100L != 0L }, "지터 없이 전부 2의 거듭제곱이면 안 된다: $slept")
     }
 }

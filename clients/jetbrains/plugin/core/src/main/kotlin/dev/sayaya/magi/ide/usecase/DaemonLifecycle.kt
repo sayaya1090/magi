@@ -1,20 +1,20 @@
 package dev.sayaya.magi.ide.usecase
 
 import java.nio.file.Path
-import kotlin.random.Random
 
 /**
- * 워크스페이스 데몬 프로세스의 수명주기(기동, 감시, 재접속)를 관리한다.
+ * 워크스페이스 데몬이 지금 어떤 상태인지 판정한다(살았나·질서 있게 나갔나·죽임을 당했나·모르나).
  *
- * 설계 근거 및 상태 전이 규칙은 `clients/jetbrains/README.md` §2를 준수한다.
+ * 기동과 재접속은 여기서 하지 않는다 — 제품의 그 경로는 `ui/StartDaemon.kt` 이고, 모르는 상태에서
+ * 띄우지 않기·자기 갱신 유예·재기동 예산·계보 구분을 거기서 한다. 이 클래스에 있던
+ * `attachOrStart`(붙거나 띄우고 백오프)는 제품에 한 번도 연결되지 않은 채 시험만 붙들고 있었고,
+ * 「모르면 띄운다」는 점에서 제품 경로보다 거칠어 2026-09-26 에 걷었다.
+ * 설계 근거는 `clients/jetbrains/README.md` §2.
  */
 class DaemonLifecycle(
     private val socket: Path,
-    private val start: (Path) -> Unit,
     /** 전송 계층 추상화 ([Daemons]). 단위 테스트 페이크 주입 및 원격 환경 확장을 지원한다. */
     private val daemons: Daemons,
-    private val sleep: (Long) -> Unit = { Thread.sleep(it) },
-    private val random: Random = Random.Default,
 ) {
 
     /**
@@ -48,54 +48,6 @@ class DaemonLifecycle(
         is Reach.Absent -> Verdict.Left
         is Reach.Refused -> Verdict.Killed
         is Reach.CouldNotAsk -> Verdict.Unknown(r.why)
-    }
-
-    /**
-     * 데몬에 연결하거나, 미기동 상태인 경우 기동 후 연결을 확립한다 (`clients/jetbrains/README.md` §2).
-     *
-     * 부재, 비정상 종료, 기동 중 상태를 구분하지 않고 연결 시도 후 실패 시 기동을 트리거하며,
-     * 다중 IDE 창 동시 기동 시의 경쟁은 코어의 파일 락(flock)이 단일성을 중재한다.
-     * 기동 경쟁에서 밀린 세션은 백오프 및 무작위 지터(Jitter)를 적용하여 재시도함으로써 동시 충돌을 분산한다.
-     * 최종 실패 시 [Outcome.Unreachable]로 명시적 실패 사유를 반환한다.
-     */
-    fun attachOrStart(
-        attempts: Int = 6,
-        firstBackoffMillis: Long = 120,
-    ): Outcome {
-        daemons.unusable(socket)?.let { return Outcome.Unreachable(it) }
-
-        var lastConnect: Throwable? = runCatching { return Outcome.Attached(daemons.connect(socket)) }.exceptionOrNull()
-
-        var started = false
-        var startFailure: Throwable? = null
-        var backoff = firstBackoffMillis
-        repeat(attempts) {
-            if (!started) {
-                runCatching { start(socket) }
-                    .onSuccess { started = true }
-                    .onFailure { startFailure = it }
-            }
-            sleep(backoff + random.nextLong(backoff / 2 + 1))
-            backoff = (backoff * 2).coerceAtMost(2_000)
-            lastConnect = runCatching { return Outcome.Attached(daemons.connect(socket)) }.exceptionOrNull()
-        }
-        // Two different failures, and the reason has to say which. A start that threw every time
-        // (no magi on the PATH, a binary that cannot run) used to be reported as "started N times and
-        // nothing answered" — the one sentence that sends a person to look at the daemon, when the
-        // daemon never ran — and the error that said why was dropped.
-        return Outcome.Unreachable(
-            if (!started) {
-                "데몬을 띄우지 못했다: $socket — ${startFailure?.message ?: startFailure?.javaClass?.simpleName}"
-            } else {
-                "데몬에 못 붙었다: $socket — 띄운 뒤 ${attempts}번 기다렸지만 응답이 없다" +
-                    (lastConnect?.message?.let { " ($it)" } ?: "")
-            }
-        )
-    }
-
-    sealed interface Outcome {
-        data class Attached(val client: Daemon) : Outcome
-        data class Unreachable(val reason: String) : Outcome
     }
 }
 

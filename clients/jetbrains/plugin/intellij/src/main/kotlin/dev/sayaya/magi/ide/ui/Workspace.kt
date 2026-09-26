@@ -105,7 +105,7 @@ internal class Workspace(private val project: Project) {
                     work(Companion(client, sid.orEmpty()))
                 }
             } catch (e: Exception) {
-                val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
+                val v = DaemonLifecycle(sock, daemons = SocketDaemons).verdict()
                 trouble(
                     // 누락 방지를 위해 when 구문의 모든 분기를 명시적으로 매핑한다.
                     when (v) {

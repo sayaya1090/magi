@@ -141,7 +141,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `RowTextTest` | 행의 글자 — 시각·한 줄 줄임·접힘 열쇠·편집 양쪽 · **옮겨 적기**(색이 말하던 것을 글자가 말하는가: 실패한 툴이 실패로 보이나·누가 말했나·물은 것과 답한 것 둘 다·흐르는 중인 답의 커서 글리프 제거·행 사이 빈 줄). ★ **생각이 기본 접힘이었습니다** — 길다는 이유로 접지 않는 것이 사용자 요구인데(Think·보고서 기본 접기 금지) 이 창만 접고 있었습니다(VS Code 판은 흐리게 그리되 접지 않습니다, 2026-09-19 실측). 판정을 `RowText.openByDefault` 로 빼내 **불러서** 잽니다 — 화면 안의 `if` 는 소스 글자로밖에 못 재고, 이 저장소는 그 방식이 「낱말을 다 남긴 채 검사만 끄는」 변이를 통과시킨 것을 이미 봤습니다. 변이 2/2(생각을 접힘으로 되돌리기 · 도구까지 펼치게 넓히기). ★ **§6.4 의 실물 확인 줄 둘을 판정으로 옮겼습니다.** 「짧은 Think 에는 동작하지 않는 접기 표시가 없어야 한다」는 눈으로만 볼 일이 아니라 판정이므로 `RowText.foldable` 로 빼내 잽니다 — 글리프와 실제 토글이 **같은 판정**을 지나야 한쪽만 고쳐지지 않습니다. 「다시 그려도 사용자 선택이 유지된다」는 `foldKey` 가 같은 내용에 같은 열쇠를 내는지로 잽니다. ⚠ 본문이 바뀌면 열쇠도 바뀌므로 **흐르는 중인 생각은 접어 둔 것이 펼쳐집니다** — 문서가 「별도 기록」이라 적은 그 자리이고, 시험이 그 대가를 명시합니다. 변이 4/4(짧은 생각·펼칠 것 없는 도구·증거 없는 소집을 접기 대상으로 넓히기 · 생각을 기본 접힘으로 되돌리기) ★ **자식 단추 위의 키가 부모를 접었습니다** — 접기 단축키는 행 판에 걸리는데 IDE 는 포커스가 그 아래 「차이 보기」 단추에 있을 때도 부모의 단축키를 후보로 잡습니다(2026-09-20 실물: 단추에 포커스를 두고 Space → 단추가 안 눌리고 부모가 접힘). 판정을 `RowText.foldsOnKey` 로 빼내 **불러서** 잽니다 — 값이 아니라 동일성으로 견주는 것이 요점이라(판은 다시 그릴 때마다 새로 섭니다) 값이 같은 다른 객체도 함께 잽니다. 변이 1/1(자식이 포커스여도 접도록 되돌리기). |
 | `CompanionTest` | 문마다 무엇을 싣고 무엇을 읽나. **`steer`/`submit` 은 기전과 입력을 따로 잰다** — 「status 로 고른다」를 재던 시험은 `doing` 이 찬 응답을 먹여 초록이었는데, 현장에서 그 칸을 채우는 것은 빌트인 도구 50개 중 하나뿐이라 늘 비어 있었다(도는 턴을 못 봄). 전사가 아는 사실을 넘기는 갈래와, 탐침만으로는 못 본다는 재현을 같이 못박는다 · **창 사용량은 문에 묻는다**(스트림의 `context.usage` 는 transient 라 재생이 없어, 도는 대화에 붙으면 턴 한 번 전까지 빈칸이었다 — 대화를 실어 보내는지까지 본다) |
 | `AssistTest` | 거들기 문 넷과 대기 카운트 · **거부와 「할 말 없음」의 갈림**(문의 거부는 `error`, 완성기의 침묵은 `reason` — 한 칸만 읽으면 「자동완성이 왜 죽었나」의 답이 사라진다) |
-| `DaemonLifecycleTest` | 살았나·죽었나·나갔나, 그리고 백오프 |
+| `DaemonLifecycleTest` | 살았나·죽었나·나갔나, 그리고 이 창이 띄운 프로세스만 닫는다(`DaemonProcess`) |
 | `LookNotesTest` | 훑어보기 답에서 줄번호를 뽑는다 |
 | `AuthorshipTest` | 이 줄을 어느 턴이 썼나 |
 | `ProblemsTest` | 지적과 반대 의견 |
@@ -1825,3 +1825,13 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `DaemonLifecycle.attachOrStart`: 시험만 부릅니다(§6.51 정정 참고). README 의 「백오프·지터를 `DaemonLifecycleTest` 로 검증」은 제품이 쓰지 않는 경로에 대한 문장입니다. 제품 기동은 `StartDaemon` 입니다.
   - `Companion.removeCron`·`Companion.reloadCron`: 문 감싸개만 있고 부르는 화면이 없습니다. VS Code 는 같은 두 문을 명령(`doors.ts`)으로 제공하므로, 지울 코드라기보다 **JetBrains 쪽 기능 차이**입니다.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 410 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과.
+
+---
+
+## 6.53 `DaemonLifecycle.attachOrStart` 걷기 (2026-09-26)
+
+- **무엇이 바뀌었나**: 제품에 한 번도 연결되지 않은 `attachOrStart`(붙거나 띄우고 백오프)를 지웠습니다(§6.52 에서 목록에 올린 것). 제품의 같은 일은 `ui/StartDaemon.ifAbsent` 가 하며, 상태를 모를 때 띄우지 않기·자기 갱신 유예·재기동 예산(`Launches`)·계보 구분을 거기서 합니다. `attachOrStart` 는 「연결이 안 되면 띄운다」여서 상태를 모르는 경우에도 띄웠고, 제품에 연결하면 오히려 이중 기동을 다시 여는 퇴보였습니다.
+  - `DaemonLifecycle` 은 판정(`verdict()`)만 남고, 생성자에서 `start`·`sleep`·`random` 이 빠졌습니다(`Workspace.kt` 호출 한 곳 수정).
+  - `DaemonLifecycleTest` 의 「붙거나 띄우거나」·「백오프」 절 9건을 지웠습니다(§6.51 에서 붙인 2건 포함). 판정 4건과 `DaemonProcess` 3건은 남습니다.
+  - README 의 「백오프·지터를 `DaemonLifecycleTest` 로 검증」을 고쳐, 제품 백오프는 `Launches` 와 `LaunchesTest` 가 맡는다고 적었습니다.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 401 중 5 건너뜀·나머지 통과(`DaemonLifecycleTest` 7), 헤드리스 IntelliJ 151 통과.
