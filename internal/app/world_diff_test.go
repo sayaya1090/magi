@@ -154,3 +154,22 @@ func TestTheIndexSkipsWhatTheSnapshotSkips(t *testing.T) {
 		t.Errorf("an unchanged workspace reports deletions:\n%s", got)
 	}
 }
+
+// A quiet workspace is not a verdict. The absence sentence is the one council members quoted when
+// they turned away an honest "I could not find the file" on a read-only request, and the agent
+// answered them by overwriting a real file with invented rows (2026-09-27). The sentence has to
+// carry its own caveat, because the members read this block and not the one under Changes.
+func TestAQuietWorkspaceSaysItIsNotADefectByItself(t *testing.T) {
+	root := t.TempDir()
+	wsWrite(t, root, "invoices.csv", "id,amount\n1,10\n")
+	base := indexWorkspace(root)
+	got := worldDiff(root, time.Now().Add(time.Hour), base)
+	if !strings.Contains(got, "no file in the workspace has been modified") {
+		t.Fatalf("the quiet case changed shape:\n%s", got)
+	}
+	for _, want := range []string{"only reads", "defect only", "never a reason to make one"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the absence is stated without what it means (%q missing):\n%s", want, got)
+		}
+	}
+}

@@ -182,8 +182,18 @@ func worldDiff(workdir string, since time.Time, base fileIndex) string {
 		// that says THE WORKSPACE RIGHT NOW. Measured against a workspace holding nothing but
 		// vendor/sqlite/sqlite3.c — which is the shape of a task whose source IS pre-vendored.
 		// Say what was not looked at, and the sentence is true again.
+		//
+		// And say what the absence MEANS, because a bare "nothing was modified" reads as a finding
+		// against the work. Measured live (2026-09-27, qwen3-coder:30b): asked only to read a file
+		// and count its rows, the agent answered honestly that it could not find it; two members
+		// cited this sentence as the reason it was not done, five declarations were rejected, and
+		// the agent overwrote the workspace's real invoices.csv with ten invented rows to give the
+		// council a change to see. The Changes section already carries this caveat when it is
+		// empty; the members quoted this block instead, so the caveat has to be here too.
 		return "── THE WORKSPACE RIGHT NOW (read just now, not from the record) ──\n" +
-			"no file in the workspace has been modified since this task started" + skipNote(skipped, skippedN) + "."
+			"no file in the workspace has been modified since this task started" + skipNote(skipped, skippedN) + ". " +
+			"That is expected for a task that only reads, investigates or answers, and is a defect only " +
+			"when the task asked for a change — never a reason to make one."
 	}
 	// Newest last: the tail is what just happened, which is what a reader looks for first.
 	sort.Slice(hits, func(i, j int) bool { return hits[i].mod.Before(hits[j].mod) })

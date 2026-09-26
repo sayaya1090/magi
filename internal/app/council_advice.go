@@ -376,8 +376,17 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		return msg + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said, for the record:"), nil
 	}
+	// "Address what follows" alone reads as "make the objection go away by any means". Measured live
+	// (2026-09-27): asked only to count a file's rows, an agent that honestly could not find it was
+	// turned away twice and then overwrote the real file with invented rows so there was something
+	// to count. The cap's landing message already says an honest failure is a correct outcome; the
+	// rejection that comes before it has to say so too, or the agent meets that sentence only after
+	// the damage is done.
 	return "The council does NOT accept this as finished yet. Address what follows and declare " +
-		"completion again when you believe it is done." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+		"completion again when you believe it is done. If what they ask for cannot be done with what " +
+		"the workspace actually holds, say so plainly instead — an honest account of what could not " +
+		"be done is a correct outcome. Never invent data, or create or overwrite a file the task did " +
+		"not ask for, to satisfy an objection." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 		renderCouncilAdvice(delib, "What the members said:"), nil
 }
 
