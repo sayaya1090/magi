@@ -1,5 +1,5 @@
 {
-  "total": 117,
+  "total": 116,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -23,7 +23,6 @@
     "internal/adapter/plugin/lua/bridge_net.go": 4,
     "internal/adapter/plugin/lua/bridge_pipe.go": 2,
     "internal/adapter/plugin/lua/plugin.go": 1,
-    "internal/adapter/plugin/lua/watch.go": 1,
     "internal/adapter/store/jsonl/jsonl.go": 1,
     "internal/adapter/tool/builtin/bash_notes.go": 1,
     "internal/adapter/tool/builtin/bgproc.go": 22,

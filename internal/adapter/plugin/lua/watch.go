@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -91,7 +92,11 @@ func (h *Host) Watch(ctx context.Context) error {
 					t.Stop()
 				}
 				timers[name] = time.AfterFunc(200*time.Millisecond, func() {
-					_ = h.Reload(name)
+					// A save that broke the plugin is a reload that failed, and the person editing it
+					// is the one who needs to read why — it used to be discarded.
+					if err := h.Reload(name); err != nil {
+						h.logf(fmt.Sprintf("[%s] hot reload: %v", name, err))
+					}
 				})
 				mu.Unlock()
 			case _, ok := <-w.Errors:
