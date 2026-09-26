@@ -316,6 +316,95 @@ export function context(resp: Response | null): string {
   ].filter(Boolean).join('\n');
 }
 
+/** The five parts of the window, in the order the Office task pane and the JetBrains panel draw them. */
+export const CONTEXT_PARTS = [
+  ['system', 'system'], ['tools', 'tool list'], ['talk', 'conversation'], ['calls', 'calls'], ['results', 'results'],
+] as const;
+
+export interface Gauge {
+  /** The headline, e.g. `8.2k / 131k tokens · 6%`. */
+  text: string;
+  /** Segments of the bar: `fraction` is of the whole bar, `share` (%) is of the parts' own sum. */
+  segments: { kind: string; label: string; share: number; fraction: number }[];
+  /** Folds and what is still there — the same sentence the text section carried. */
+  note: string;
+}
+
+/** Tokens as a person reads them: 999 · 1.5k · 12k (the Office and JetBrains spelling). */
+export function kilo(n: number): string {
+  const v = Math.round(Number(n) || 0);
+  if (v < 1000) return String(v);
+  if (v < 10000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${Math.round(v / 1000)}k`;
+}
+
+/**
+ * The context section as a gauge — the shape the Office task pane draws, with the core's rule for the
+ * numbers (the same rule [context] states above).
+ *
+ * The filled length is the MEASURED `used` over the window, and what is left stays empty so "how much
+ * is left" is visible; with no window there is no gauge. Inside the filled length the parts divide it
+ * by their share of their OWN sum — they are a chars/4 estimate that does not add up to `used`, so they
+ * speak only as proportions, and the legend says so.
+ */
+export function gauge(resp: Response | null): Gauge | null {
+  if (!resp?.ok) return null;
+  const c = (resp.context ?? null) as
+    { window?: number; used?: number; estimated?: boolean;
+      compactions?: number; parts?: Record<string, number>; topics?: string[] } | null;
+  if (!c || !c.window) return null;
+  const used = c.used ?? 0;
+  const pct = Math.round((used / c.window) * 100);
+  const filled = Math.min(1, used / c.window);
+  const parts = c.parts ?? {};
+  const sum = CONTEXT_PARTS.reduce((n, [k]) => n + (Number(parts[k]) || 0), 0);
+  const segments = sum > 0
+    ? CONTEXT_PARTS.filter(([k]) => (Number(parts[k]) || 0) > 0).map(([k, label]) => ({
+      kind: k, label, share: Math.round((Number(parts[k]) * 100) / sum), fraction: (filled * Number(parts[k])) / sum,
+    }))
+    : [];
+  return {
+    text: `${c.estimated ? '~' : ''}${kilo(used)} / ${kilo(c.window)} tokens · ${pct}%`,
+    segments,
+    note: c.compactions
+      ? `folded ${c.compactions}×` + (c.topics?.length ? ` — still there: ${c.topics.join(', ')}` : '')
+      : '',
+  };
+}
+
+export interface FleetRow {
+  /** What stands on the row: name, state, load, and whether it is actually there. */
+  line: string;
+  /** Everything else — model, what it can do, the socket — for the row's tooltip. */
+  tip: string;
+  /** The state dot: working · waiting · gone · quiet. */
+  dot: 'working' | 'waiting' | 'gone' | 'quiet';
+}
+
+/**
+ * The fleet section as rows a person can scan: a short line, the rest on hover.
+ *
+ * The line used to carry everything — model and the companion's whole `does` list included — so every
+ * row ran past the panel's edge and the state was pushed out of sight by a list of skills. The full
+ * sentence [fleet] builds is kept, as the tooltip, so nothing the row used to say is lost.
+ */
+export function fleetRows(resp: Response | null): FleetRow[] {
+  if (!resp?.ok) return [];
+  const full = fleet(resp);
+  return (resp.roster ?? []).map((r, i) => {
+    const gone = r.sighting ? 'elsewhere' : r.live ? '' : 'no answer';
+    return {
+      line: [
+        peerLabel({ socket: r.socket ?? '', name: r.name, workdir: r.workdir }) || '?',
+        sayState(r.state), carrying(r), gone, r.sighting ? seenAgo(r.ageSeconds) : '',
+      ].filter(Boolean).join(' · '),
+      tip: [full[i], r.workdir ?? '', r.socket ?? ''].filter(Boolean).join('\n'),
+      dot: gone && !r.sighting ? 'gone'
+        : r.state === 'working' ? 'working' : r.state === 'waiting' ? 'waiting' : 'quiet',
+    };
+  });
+}
+
 /**
  * How full the window is, read off the STREAM instead of the door.
  *

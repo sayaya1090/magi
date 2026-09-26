@@ -1435,6 +1435,18 @@ node --test clients/vscode/out/test/*.property.test.js
   - `core/webview_protocol.ts` 의 `AskSchema`: 실제로 쓰이는 것은 `NullableAskSchema` 입니다.
 - **실측**: `npm test` 562 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.
 
+### 6.54 현황 창: 사용량은 게이지로, 다른 컴패니언은 짧은 줄 + 툴팁으로 (`core/panel.ts` `gauge`·`fleetRows`)
+
+- **무엇이 바뀌었나**:
+  - **사용량**: 컨텍스트를 글 한 줄 대신 Office 작업창과 같은 띠로 그립니다. 칠해진 길이는 **측정된 총량(`used`)/창**이고, 그 안을 조각(시스템·도구 목록·대화·호출·결과)이 **제 합에 대한 몫**으로 나눕니다. 범례도 토큰 수가 아니라 몫(%)과 「추정」으로 적습니다 — 조각은 chars/4 어림이라 `used` 와 더해지지 않는다는 코어 규칙(`internal/app/context_state.go`)을 따른 것입니다. 창을 모르면 게이지를 안 그립니다. 0인 조각은 칸도 범례도 없습니다.
+  - **다른 컴패니언**: 한 줄에 이름 · 상태 · 짐 · 응답 없음/다른 곳 · 경과만 두고, 모델과 할 줄 아는 것(`does`) 전체 · 작업 폴더 · 소켓은 툴팁으로 옮겼습니다. 예전 줄은 스킬 목록 때문에 창 끝을 넘어가 상태가 안 보였습니다. 앞의 점 색은 일하는 중/기다림/응답 없음/조용함입니다.
+- **새 시험**: `panel.test.ts`
+  - 「the gauge fills by the measured total and splits it by shares of the parts」 — 조각 합(8k)≠측정 총량(9k)인 자료로, 칠해진 길이가 9k/131k 이고 몫이 25/50/13/6/6 인지.
+  - 「no window, no gauge; empty parts draw no segment」 — `kilo` 눈금 포함.
+  - 「a fleet row says who and how it is; what it can do is in the tooltip」.
+- **변이 검증**: 칠해진 길이를 조각 합/창으로 → 시험 2건 실패. 줄 끝에 옛 전체 문장을 다시 붙임 → 1건 실패. 둘 다 원복 후 초록.
+- **실측**: `npm test` 574 pass / 0 fail. (웹뷰 실물 화면은 아직 안 봤습니다.)
+
 ### Windows 에디터 핸드 경로 회귀
 
 `hand_provider.test.ts`는 `os.tmpdir()` 아래 공백과 #을 포함한 작업 경로를 만들고 `path.join()`으로 모의 문서 키와 기대 경로를 구성합니다. POSIX 절대 경로를 Windows 문서 키로 사용하지 않습니다. 거절 사유와 성공 문구는 해당 네이티브 경로를 포함한 전체 문자열로 비교하며 실제 HTTP tools/call 검사도 유지합니다.

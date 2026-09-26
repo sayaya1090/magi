@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as activity from '../core/activity';
 import { Companion } from './workspace';
-import { context as contextOf, fleet as fleetOf, jobs as jobsOf, schedules } from '../core/panel';
+import { context as contextOf, fleetRows, gauge as gaugeOf, jobs as jobsOf, schedules } from '../core/panel';
 import { planLines } from '../core/transcript';
 
 /**
@@ -80,7 +80,9 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       // stream is the fallback, and it is the only source on a daemon without that capability —
       // measured on one that has nine and not this.
       context: ctx === null ? (this.usage || null) : (contextOf(ctx) || this.usage),
-      fleet: fleet === null ? null : fleetOf(fleet).join('\n'),
+      // The same door, as a gauge (see `panel.gauge`); the text above stays the fallback when there is none.
+      gauge: ctx === null ? null : gaugeOf(ctx),
+      fleet: fleet === null ? null : fleetRows(fleet),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
       hand: this.hand,
@@ -159,6 +161,31 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
   pre { margin:0; white-space:pre-wrap; word-break:break-word;
         font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .none { opacity:.6; font-style:italic; }
+  /* Context gauge — the Office task pane's shape: one thin bar whose scale is the whole window. */
+  .gauge { display:flex; align-items:center; gap:8px; margin:2px 0; }
+  .bar { flex:1 1 auto; height:6px; display:flex; overflow:hidden; border-radius:3px;
+         background:var(--vscode-editorWidget-border, rgba(128,128,128,.25)); }
+  .bar i { display:block; height:100%; }
+  .bar i + i { box-shadow: inset 1px 0 0 var(--vscode-sideBar-background, transparent); }
+  .gtext { flex:none; white-space:nowrap; font-size:.85em; opacity:.8; font-variant-numeric:tabular-nums; }
+  .keys { display:flex; flex-wrap:wrap; gap:2px 12px; font-size:.85em; opacity:.8; }
+  .keys span::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
+                       margin-right:4px; vertical-align:-1px; background:currentColor; }
+  .keys .est::before { display:none; }
+  .p-system { color:var(--vscode-descriptionForeground); } .p-tools { color:var(--vscode-charts-purple); }
+  .p-talk { color:var(--vscode-textLink-foreground); } .p-calls { color:var(--vscode-charts-orange); }
+  .p-results { color:var(--vscode-charts-blue); }
+  .bar i.p-system { background:var(--vscode-descriptionForeground); } .bar i.p-tools { background:var(--vscode-charts-purple); }
+  .bar i.p-talk { background:var(--vscode-textLink-foreground); } .bar i.p-calls { background:var(--vscode-charts-orange); }
+  .bar i.p-results { background:var(--vscode-charts-blue); }
+  .note { font-size:.85em; opacity:.7; margin-top:2px; }
+  /* Fleet rows: a short line and a state dot; the rest is the row's tooltip. */
+  .row { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:1px 0; }
+  .row::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px;
+                 vertical-align:-1px; background:var(--vscode-descriptionForeground); }
+  .row.working::before { background:var(--vscode-textLink-foreground); }
+  .row.waiting::before { background:var(--vscode-charts-orange); }
+  .row.gone::before { background:var(--vscode-errorForeground); }
 </style></head><body><div id="body"></div>
 <script nonce="${nonce}">
 const vs = acquireVsCodeApi();
@@ -171,16 +198,46 @@ function section(title, text) {
   else p.textContent = text;
   body.append(h, p);
 }
+function head(title) { const h = document.createElement('h3'); h.textContent = title; body.append(h); }
+function contextSection(g, text) {
+  if (!g) { section('context', text); return; }
+  head('context');
+  const row = document.createElement('div'); row.className = 'gauge';
+  const bar = document.createElement('div'); bar.className = 'bar';
+  for (const s of g.segments) {
+    const i = document.createElement('i'); i.className = 'p-' + s.kind;
+    i.style.width = (s.fraction * 100) + '%'; i.title = s.label + ' ' + s.share + '%'; bar.appendChild(i);
+  }
+  const t = document.createElement('span'); t.className = 'gtext'; t.textContent = g.text;
+  row.append(bar, t); body.append(row);
+  if (g.segments.length) {
+    const keys = document.createElement('div'); keys.className = 'keys';
+    for (const s of g.segments) {
+      const k = document.createElement('span'); k.className = 'p-' + s.kind; k.textContent = s.label + ' ' + s.share + '%'; keys.appendChild(k);
+    }
+    // The parts are a chars/4 estimate and speak only as shares of their own sum — say so.
+    const est = document.createElement('span'); est.className = 'est'; est.textContent = 'shares, estimated'; keys.appendChild(est);
+    body.append(keys);
+  }
+  if (g.note) { const n = document.createElement('div'); n.className = 'note'; n.textContent = g.note; body.append(n); }
+}
+function fleetSection(rows) {
+  if (rows === null || !Array.isArray(rows) || rows.length === 0) { section('fleet', rows === null ? null : ''); return; }
+  head('fleet');
+  for (const r of rows) {
+    const d = document.createElement('div'); d.className = 'row ' + r.dot; d.textContent = r.line; d.title = r.tip; body.append(d);
+  }
+}
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.kind !== 'plan') return;
   body.textContent = '';
   section('now', m.state);
   section('plan', m.plan);
-  section('context', m.context);
+  contextSection(m.gauge, m.context);
   section('jobs', m.jobs);
   section('scheduled', m.cron);
-  section('fleet', m.fleet);
+  fleetSection(m.fleet);
   section('handed over', m.handed);
   section("this editor's tools", m.hand);
 });

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { carrying, context, fleet, jobs, localStamp, offers, originWord, sayState, schedules } from '../core/panel';
+import { carrying, context, fleet, fleetRows, gauge, jobs, kilo, localStamp, offers, originWord, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -613,3 +613,44 @@ test('an unreadable timestamp is not invented', () => {
   assert.equal(localStamp('', now), '');
   assert.equal(localStamp('어제쯤', now), '');
 });
+
+/**
+ * The context section as a gauge — the Office task pane's shape, the core's rule for the numbers:
+ * the filled length is the MEASURED used over the window, and the parts (a chars/4 estimate that
+ * does not add up to used) divide it only by their share of their own sum.
+ */
+test('the gauge fills by the measured total and splits it by shares of the parts', () => {
+  // Parts sum to 8k while the measured total is 9k — the core says they will not agree.
+  const g = gauge({ ok: true, context: { window: 131000, used: 9000,
+    parts: { system: 2000, tools: 4000, talk: 1000, calls: 500, results: 500 } } } as never)!;
+  assert.deepEqual(g.segments.map((s) => s.kind), ['system', 'tools', 'talk', 'calls', 'results']);
+  const filled = g.segments.reduce((n, s) => n + s.fraction, 0);
+  assert.ok(Math.abs(filled - 9000 / 131000) < 1e-9, `filled by the estimate, not the measured total: ${filled}`);
+  assert.deepEqual(g.segments.map((s) => s.share), [25, 50, 13, 6, 6]);
+  assert.equal(g.text, '9k / 131k tokens · 7%');
+});
+
+test('no window, no gauge; empty parts draw no segment', () => {
+  assert.equal(gauge({ ok: true, context: { used: 10 } } as never), null);
+  assert.equal(gauge(null), null);
+  assert.deepEqual(gauge({ ok: true, context: { window: 131000, used: 5000 } } as never)!.segments, []);
+  assert.equal(kilo(999), '999'); assert.equal(kilo(1500), '1.5k'); assert.equal(kilo(131072), '131k');
+});
+
+/**
+ * Fleet rows are short — name, state, load, presence — and the rest is the tooltip. The line used to
+ * carry the model and the whole `does` list, so every row ran past the panel's edge.
+ */
+test('a fleet row says who and how it is; what it can do is in the tooltip', () => {
+  const [row] = fleetRows({ ok: true, roster: [{ socket: '/tmp/s.sock', workdir: '/w/magi', state: 'working',
+    live: true, model: 'gpt-oss:20b', can: 9, does: ['auto_margin_needs_block_display', 'bench_task_inspect', 'x'] }] } as never);
+  assert.ok(row.line.startsWith('magi'), row.line);
+  assert.ok(!row.line.includes('auto_margin_needs_block_display'), `the skills went back onto the row: ${row.line}`);
+  assert.ok(!row.line.includes('gpt-oss'), `the model went back onto the row: ${row.line}`);
+  assert.ok(row.tip.includes('auto_margin_needs_block_display') && row.tip.includes('/tmp/s.sock'), row.tip);
+  assert.equal(row.dot, 'working');
+  const [gone] = fleetRows({ ok: true, roster: [{ socket: '/tmp/g.sock', name: 'api', state: 'idle' }] } as never);
+  assert.equal(gone.dot, 'gone');
+  assert.ok(gone.line.includes('no answer'), gone.line);
+});
+
