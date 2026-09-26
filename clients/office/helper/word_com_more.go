@@ -331,7 +331,19 @@ func wordComRunMore(d wordDoc, name string, args map[string]any) (res map[string
 			default:
 				e.AddAt = strconv.Itoa(intOf(v))
 			}
-			if vs, has := a["values"].([]any); has {
+			// 값은 새 열마다 한 목록이다. 평평한 목록 하나는 한 열(위→아래)로 읽는다 — 창(WordHand.js #editTable)과 같은 규칙.
+			vs, has := a["values"].([]any)
+			flat := has && len(vs) > 0
+			for _, col := range vs {
+				if _, isArr := col.([]any); isArr {
+					flat = false
+					break
+				}
+			}
+			if asked := wcInt(a, "count"); flat && (asked == 0 || asked == 1) {
+				vs = []any{vs}
+			}
+			if has {
 				for _, col := range vs {
 					var cells []string
 					if cs, isArr := col.([]any); isArr {
@@ -350,6 +362,9 @@ func wordComRunMore(d wordDoc, name string, args map[string]any) (res map[string
 			}
 			if e.AddCount == 0 {
 				e.AddCount = 1
+			}
+			if len(e.AddValues) > 0 && len(e.AddValues) != e.AddCount {
+				return nil, nil, true, fmt.Errorf("add_columns 는 열 %d개인데 values 는 %d개입니다 — values 는 새 열마다 위→아래 목록 하나입니다(예: [[\"머리\", \"값1\", \"값2\"]])", e.AddCount, len(e.AddValues))
 			}
 		}
 		e.DelCols, _ = wcInts(args["delete_columns"])

@@ -56,8 +56,16 @@ public sealed partial class Hand
             {
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id"));
                 var d = ops.ReadSlide(n);
+                // 표는 격자다 — 칸의 글을 안 실으면 모델은 「표가 있다」까지만 안다. 작업창 손은 2026-09-02 부터 싣는데 이 손은 빠져
+                // 있었다: 방금 채운 표를 되읽으니 text "" 만 왔다(실물 2021, 2026-09-27 시나리오 PP-1). 같은 칸 이름(rows·columns·cells)으로 싣는다.
+                var grids = d.Shapes.Any(s => s.Type == "Table") ? ops.TablesOn(n).ToDictionary(t => t.ShapeId) : new Dictionary<string, TableInfo>();
                 return (new() { ["slide"] = d.Slide, ["slide_id"] = d.SlideId, ["layout"] = d.Layout, ["notes"] = d.Notes,
-                        ["shapes"] = d.Shapes.Select(s => new Dictionary<string, object?> { ["shape_id"] = s.ShapeId, ["name"] = s.Name, ["type"] = s.Type, ["placeholder"] = s.Placeholder, ["text"] = s.Text, ["left"] = s.Left, ["top"] = s.Top, ["width"] = s.Width, ["height"] = s.Height }).ToList() },
+                        ["shapes"] = d.Shapes.Select(s =>
+                        {
+                            var row = new Dictionary<string, object?> { ["shape_id"] = s.ShapeId, ["name"] = s.Name, ["type"] = s.Type, ["placeholder"] = s.Placeholder, ["text"] = s.Text, ["left"] = s.Left, ["top"] = s.Top, ["width"] = s.Width, ["height"] = s.Height };
+                            if (grids.TryGetValue(s.ShapeId, out var g)) { row["rows"] = g.Rows; row["columns"] = g.Columns; row["cells"] = g.Cells; }
+                            return row;
+                        }).ToList() },
                         new() { $"슬라이드 {d.Slide}(id {d.SlideId}) — 도형 {d.Shapes.Count}개" });
             }
             case "list_layouts":

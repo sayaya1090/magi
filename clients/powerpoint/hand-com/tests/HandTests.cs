@@ -278,6 +278,20 @@ public class HandTests
     }
 
     [Fact]
+    public void ReadSlideCarriesTheTableCells()
+    {
+        // 작업창 손과 같은 칸 이름 — 앞 판은 표를 text "" 로만 보였다(시나리오 PP-1, 2026-09-27)
+        var hand = new Hand(new FakeOps(), 1);
+        var made = hand.Handle(Call("add_table", "{\"slide\":1,\"rows\":2,\"columns\":2,\"values\":[[\"항목\",\"값\"],[\"매출\",\"112\"]]}"));
+        Assert.Null(made.Error);
+        var shapes = (List<Dictionary<string, object?>>)hand.Handle(Call("read_slide", "{\"slide\":1}")).Result!["shapes"]!;
+        var table = shapes.Single(s => (string?)s["type"] == "Table");
+        Assert.Equal(2, table["rows"]); Assert.Equal(2, table["columns"]);
+        Assert.Equal("112", ((IReadOnlyList<IReadOnlyList<string>>)table["cells"]!)[1][1]);
+        Assert.DoesNotContain(shapes.Where(s => (string?)s["type"] != "Table"), s => s.ContainsKey("cells"));
+    }
+
+    [Fact]
     public void ChartsRefuseMismatchedSeriesAndNameTheKind()
     {
         var hand = new Hand(new FakeOps(), 1);

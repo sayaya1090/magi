@@ -410,9 +410,29 @@ export class WordHand extends HandPort {
       const items = await this.#paras(context, 'text');
       const { from, to, list } = this.#pick(items, a);
       if (list.length >= items.length) refuse('본문의 문단을 전부 지울 수는 없습니다 — 하나는 남겨야 합니다');
-      for (const p of list) p.delete();
+      // **끝 문단까지 지우라면 앞 문단의 문단 표시를 지운다.** 문서의 마지막 문단 표시는 Word 가 못 지워서, 문단째 지우면 글만
+      // 비고 빈 문단이 남는다 — 문서 끝에 쓴 것을 치우면 사람의 문서에 빈 줄이 하나 붙었다(실물 2021, 2026-09-27 시나리오 WD-1).
+      // 앞 문단 글의 끝(표시 앞)부터 마지막 문단 글의 끝까지 지우면 앞 문단이 마지막 표시를 물려받는다. 표시가 문단 서식을
+      // 들고 있으므로 앞 문단의 서식을 읽어 두었다가 다시 입힌다. 앞 문단이 표 안이면 그 길은 표를 가르므로 문단째 지운다.
+      const prev = to === items.length && from > 1 ? items[from - 2] : null;
+      if (prev) prev.load('tableNestingLevel,style,alignment,firstLineIndent,leftIndent,rightIndent,lineSpacing,spaceAfter,spaceBefore');
+      await context.sync();
+      if (prev && prev.tableNestingLevel === 0) {
+        const keep = { style: prev.style, alignment: prev.alignment, firstLineIndent: prev.firstLineIndent, leftIndent: prev.leftIndent, rightIndent: prev.rightIndent, lineSpacing: prev.lineSpacing, spaceAfter: prev.spaceAfter, spaceBefore: prev.spaceBefore };
+        prev.getRange('End').expandTo(items[to - 1].getRange('End')).delete();
+        await context.sync();
+        const now = context.document.body.paragraphs.getLast();
+        for (const [k, v] of Object.entries(keep)) if (v != null) now[k] = v;
+      } else {
+        for (const p of list) p.delete();
+      }
       await context.sync(); this.#mutated();
-      return this.#envelope({ from, to, deleted: list.length }, [`문단 ${from}${to > from ? `–${to}` : ''} 을 지웠습니다 (${list.length}개) — 되돌릴 수 없습니다`]);
+      // **센 대로 말한다.** 문서의 마지막 문단 표시는 Word 가 못 지운다 — 끝 문단을 지우라면 글만 비고 문단은 남는다. 그런데도
+      // 「지웠습니다 (1개)」라고 답해서, 문단 수가 그대로인 것을 되읽은 쪽만 알았다(실물 LTSC 2021, 2026-09-27 시나리오 WD-1).
+      const after = context.document.body.paragraphs; after.load('items'); await context.sync();
+      const deleted = Math.max(0, items.length - after.items.length);
+      const kept = list.length - deleted;
+      return this.#envelope({ from, to, deleted, ...(kept ? { emptied: kept } : {}) }, [`문단 ${from}${to > from ? `–${to}` : ''} 을 지웠습니다 (${deleted}개)${kept ? ` — 문서의 마지막 문단은 Word 가 못 지워 비워 두었습니다(${kept}개)` : ''} — 되돌릴 수 없습니다`]);
     });
   }
   async #setStyle(a) {
@@ -576,7 +596,13 @@ export class WordHand extends HandPort {
         t.mergeCells(fr, fc, tr, tc); await context.sync(); done.push(`(${fr},${fc})–(${tr},${tc}) 병합`);
       }
       if (add) {
-        const count = int(add, 'count') ?? (Array.isArray(add.values) ? add.values.length : 1); const values = Array.isArray(add.values) ? add.values.map((col) => (Array.isArray(col) ? col.map((v) => String(v ?? '')) : [String(col ?? '')])) : undefined;
+        // 값은 새 열마다 한 목록이다. **평평한 목록 하나는 한 열(위→아래)로 읽는다** — 모델이 그렇게 주고, 앞 판은 그것을 한 칸짜리
+        // 열 여럿으로 읽어 개수가 안 맞은 채 Word 에 넘겼다(「InvalidArgument — Table.addColumns」, 실물 2021, 2026-09-27 시나리오 WD-1).
+        let raw = Array.isArray(add.values) ? add.values : undefined; const asked = int(add, 'count');
+        if (raw?.length && raw.every((v) => !Array.isArray(v)) && (asked == null || asked === 1)) raw = [raw];
+        const count = asked ?? (raw ? raw.length : 1);
+        if (raw && raw.length !== count) refuse(`add_columns 는 열 ${count}개인데 values 는 ${raw.length}개입니다 — values 는 새 열마다 위→아래 목록 하나입니다(예: [["머리", "값1", "값2"]])`);
+        const values = raw?.map((col) => (Array.isArray(col) ? col.map((v) => String(v ?? '')) : [String(col ?? '')]));
         // Word 의 values 는 행×열이다 — 사람은 열마다 위→아래로 준다. 표의 행 수에 맞춰 뒤집는다.
         const byRow = values ? Array.from({ length: rows }, (_, r) => values.map((col) => col[r] ?? '')) : undefined;
         const at = add.at ?? 'end';

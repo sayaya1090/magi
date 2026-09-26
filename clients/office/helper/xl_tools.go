@@ -741,10 +741,10 @@ func xlCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "add_pivot",
 			Desc: "Create a PivotTable from a source range (headers in the first row) at a destination cell on a " +
-				"sheet: rows and columns are field names, values are {field, function}. Needs ExcelApi 1.8. Refused " +
+				"sheet: rows and columns are field names, values are {field, function}. Needs ExcelApi 1.8. Refused, with the real header names, if a field is not in the source; refused " +
 				"if the destination overlaps existing data.",
 			Props: withSheet(
-				property{Name: "source", Type: "string", Desc: "Data range with headers, e.g. \"Data!A1:F200\" (sheet-qualified is allowed here). Required."},
+				property{Name: "source", Type: "string", Desc: "Data range with headers, e.g. \"Data!A1:F200\" (sheet-qualified is allowed here), or a table name (its headers are included). Required."},
 				property{Name: "destination", Type: "string", Desc: "Top-left cell for the pivot on sheet (\"H2\"). Required."},
 				property{Name: "name", Type: "string", Desc: "Pivot name."},
 				property{Name: "rows", Type: "array", Items: "string", Desc: "Row fields (header names)."},

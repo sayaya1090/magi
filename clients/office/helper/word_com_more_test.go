@@ -140,6 +140,19 @@ func TestWordComRunMatchesThePaneOnShapesTablesAndFields(t *testing.T) {
 		t.Errorf("열 값이 창처럼 열마다 위→아래로 안 왔다: %+v", e)
 	}
 
+	// 평평한 목록 하나는 한 열이다(창과 같은 규칙) — 앞 판은 한 칸짜리 열 셋으로 읽었다(시나리오 WD-1, 2026-09-27)
+	if _, _, _, err := wordComRunMore(d, "edit_table", map[string]any{"table": json.Number("1"),
+		"add_columns": map[string]any{"values": []any{"지급일", "10/31", "11/30"}}}); err != nil {
+		t.Fatalf("평평한 목록: %v", err)
+	}
+	if e := d.tableEdits[len(d.tableEdits)-1]; e.AddCount != 1 || len(e.AddValues) != 1 || len(e.AddValues[0]) != 3 || e.AddValues[0][2] != "11/30" {
+		t.Errorf("평평한 목록이 한 열로 안 읽혔다: %+v", e)
+	}
+	if _, _, _, err := wordComRunMore(d, "edit_table", map[string]any{"table": json.Number("1"),
+		"add_columns": map[string]any{"count": json.Number("2"), "values": []any{[]any{"a", "b"}}}}); err == nil || !strings.Contains(err.Error(), "열 2개인데 values 는 1개") {
+		t.Errorf("열 수와 값 목록 수가 달라도 거절하지 않았다: %v", err)
+	}
+
 	// 필드: 조각 · 자리 · 거절
 	if _, _, _, err := wordComRunMore(d, "insert_field", map[string]any{}); err == nil {
 		t.Error("field·template 없이 필드를 넣었다")

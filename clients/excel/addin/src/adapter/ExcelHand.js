@@ -740,12 +740,34 @@ export class ExcelHand extends HandPort {
     return this.runner(async (context) => {
       const sheets = [];
       if (str(a, 'sheet')) { const ws = this.#sheet(context, a); ws.load('name'); sheets.push(ws); } else { const all = context.workbook.worksheets; all.load('items/name'); await context.sync(); sheets.push(...all.items); }
+      // **Excel 이 센 수를 그대로 안 믿는다.** replaceAll 은 피벗 안의 칸도 「바꿨다」고 세는데 그 칸은 그대로다 — 셀 3개를 바꿨다고
+      // 답한 뒤 찾아보니 2개였다(실물 Excel 2021, 2026-09-27 시나리오 XL-1). 맞는 칸을 먼저 잡아 두고, 바꾼 뒤 다시 읽어 센다.
+      const hits = sheets.map((ws) => { const f = ws.findAllOrNullObject(find, { matchCase, completeMatch }); f.load('isNullObject,areas/items/address,areas/items/values'); return f; });
+      await context.sync();
+      const was = hits.map((f) => (f.isNullObject ? [] : f.areas.items.map((ar) => ({ address: ExcelHand.#bare(ar.address), values: ar.values }))));
       const counts = sheets.map((ws) => ws.replaceAll(find, replace, { matchCase, completeMatch }));
       await context.sync(); this.#mutated();
-      const per = sheets.map((ws, i) => ({ sheet: ws.name, cells: counts[i].value })).filter((x) => x.cells > 0);
+      // 다시 읽기는 **다음 묶음에서** 한다 — 같은 묶음 안에서는 Excel 이 피벗 칸에도 넣으려던 값을 돌려줄 수 있다.
+      const names = sheets.map((ws) => ws.name);
+      const now = await this.runner(async (ctx) => {
+        const got = was.map((areas, i) => areas.map((ar) => { const r = ctx.workbook.worksheets.getItem(names[i]).getRange(ar.address); r.load('values'); return r; }));
+        await ctx.sync();
+        return got.map((areas) => areas.map((r) => r.values));
+      });
+      const per = sheets.map((ws, i) => {
+        let cells = 0; const stuck = [];
+        was[i].forEach((ar, k) => {
+          let same = 0;
+          ar.values.forEach((line, r) => line.forEach((v, c) => { if (String(now[i][k]?.[r]?.[c]) !== String(v)) cells += 1; else same += 1; }));
+          if (same) stuck.push(ar.address);
+        });
+        return { sheet: ws.name, cells, excel: counts[i].value, ...(stuck.length ? { unchanged: stuck } : {}) };
+      }).filter((x) => x.cells > 0 || x.unchanged);
       const total = per.reduce((s, x) => s + x.cells, 0);
-      if (total === 0) refuse(`「${clip(find, 40)}」 가 ${str(a, 'sheet') ? `시트 ${sheets[0].name}` : '통합 문서'} 에 없습니다 — 바꾼 것이 없습니다`);
-      return this.#envelope({ find, replace, cells: total, sheets: per }, [`「${clip(find, 30)}」 → 「${clip(replace, 30)}」 셀 ${total}개 (${per.map((x) => `${x.sheet} ${x.cells}`).join(', ')})`]);
+      const stuck = per.flatMap((x) => (x.unchanged ?? []).map((ad) => `${x.sheet}!${ad}`));
+      const why = stuck.length ? ` — 안 바뀐 칸: ${stuck.slice(0, 8).join(', ')}${stuck.length > 8 ? ` 외 ${stuck.length - 8}` : ''}(피벗·보호된 칸은 Excel 이 못 바꿉니다 — 피벗은 원본을 고치고 refresh_pivot)` : '';
+      if (total === 0) refuse(stuck.length ? `「${clip(find, 40)}」 를 하나도 못 바꿨습니다${why}` : `「${clip(find, 40)}」 가 ${str(a, 'sheet') ? `시트 ${sheets[0].name}` : '통합 문서'} 에 없습니다 — 바꾼 것이 없습니다`);
+      return this.#envelope({ find, replace, cells: total, sheets: per.map(({ excel, ...x }) => x) }, [`「${clip(find, 30)}」 → 「${clip(replace, 30)}」 셀 ${total}개 (${per.filter((x) => x.cells).map((x) => `${x.sheet} ${x.cells}`).join(', ')})${why}`]);
     });
   }
   async #copyRange(a) {
@@ -1320,9 +1342,22 @@ export class ExcelHand extends HandPort {
     return this.runner(async (context) => {
       const ws = this.#sheet(context, a); ws.load('name');
       const at = ExcelHand.#sheetOf(source);
-      const src = at ? context.workbook.worksheets.getItem(at.sheet).getRange(at.address) : ws.getRange(source);
+      // **표 이름도 원본이다.** 모델은 방금 만든 표를 이름으로 댄다 — 그런데 Excel 에서 표 이름을 범위로 풀면 **머리글이 빠진
+      // 데이터 몸통**이고, 첫 데이터 행이 필드 이름이 되어 「ItemNotFound — PivotHierarchyCollection.getItem」 한 줄로 끝났다
+      // (실물 Excel 2021, 2026-09-27 시나리오 XL-1). 표면 머리글까지 든 범위를 쓴다.
+      const table = at ? null : context.workbook.tables.getItemOrNullObject(source);
+      table?.load('isNullObject');
       const target = ws.getRange(dest); target.load('address,values');
       await context.sync();
+      const src = at ? context.workbook.worksheets.getItem(at.sheet).getRange(at.address)
+        : (table && !table.isNullObject ? table.getRange() : ws.getRange(source));
+      // 없는 필드를 대면 Excel 은 어느 이름이 없는지도 안 말한다 — 머리글을 읽어 **있는 이름을 적어** 거절한다.
+      const head = src.getRow(0); head.load('values');
+      await context.sync();
+      const fields = (head.values?.[0] ?? []).map((v) => String(v));
+      const asked = [...rows, ...cols, ...values.map((v) => (typeof v === 'string' ? v : String(v?.field ?? '')))].map(String);
+      const missing = asked.filter((f) => !fields.includes(f));
+      if (missing.length) refuse(`원본 ${source} 의 머리글에 ${missing.map((f) => `'${f}'`).join(', ')} 가 없습니다 — 있는 필드: ${fields.map((f) => `'${f}'`).join(', ') || '(비어 있음)'}. 원본 첫 줄이 머리글이어야 합니다`);
       const name = str(a, 'name') ?? `Pivot${Date.now().toString(36).slice(-4)}`;
       const pivot = ws.pivotTables.add(name, src, target);
       for (const f of rows) pivot.rowHierarchies.add(pivot.hierarchies.getItem(String(f)));

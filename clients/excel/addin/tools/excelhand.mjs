@@ -22,7 +22,9 @@ const scalar = (prop, path) => {
     case 'address': return `Sheet1!${rangeOf(path)}`;
     case 'removed': return 1; case 'uniqueRemaining': return 3; case 'rowCount': return boxOf(path).rows; case 'columnCount': return boxOf(path).cols; case 'cellCount': return boxOf(path).rows * boxOf(path).cols;
     // 행·열 전체("7:7", "C:D")의 values 는 2021 실물이 null 로 줬다 — 손이 .flat() 으로 죽지 않아야 한다(2026-09-07).
-    case 'values': return /^(\d+:\d+|[A-Z]+:[A-Z]+)$/.test(rangeOf(path)) ? null : [['h1', 'h2'], [1, 2]];
+    // replace_all 은 찾은 칸을 바꾼 뒤 다시 읽어 센다 — 찾은 칸은 찾는 말이어야 「바뀌었다」가 선다.
+    case 'values': if (path.includes('findAllOrNullObject')) return [['매출', '매출'], ['매출', '매출']];
+      return /^(\d+:\d+|[A-Z]+:[A-Z]+)$/.test(rangeOf(path)) ? null : [['h1', 'h2'], [1, 2]];
     case 'formulas': return [['h1', 'h2'], [1, '=A2*2']];
     case 'numberFormat': return [['General', 'General'], ['General', '#,##0']];
     case 'text': return path.endsWith('.title') || path.includes('axes') || path.includes('Title') ? '제목' : [['h1', 'h2'], ['1', '2']];

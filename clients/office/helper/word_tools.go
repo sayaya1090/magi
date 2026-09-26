@@ -322,7 +322,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Props: []property{tableProp,
 				property{Name: "delete_rows", Type: "array", Items: "integer", Desc: "Row indexes to remove, 0-based."},
 				property{Name: "delete_columns", Type: "array", Items: "integer", Desc: "Column indexes to remove, 0-based."},
-				property{Name: "add_columns", Type: "object", Desc: "{at: \"end\" | \"start\" | <column index to insert after>, count, values: [[…per new column, top to bottom]]}."},
+				property{Name: "add_columns", Type: "object", Desc: "{at: \"end\" | \"start\" | <column index to insert after>, count, values: [[…per new column, top to bottom]]} — one flat list is one column. Refused if count and the number of value lists differ."},
 				property{Name: "merge", Type: "object", Desc: "{from_row, from_column, to_row, to_column} 0-based inclusive."},
 			},
 			Required: []string{"table"},
