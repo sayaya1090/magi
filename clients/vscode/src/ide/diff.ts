@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { SnapshotContentProvider } from './snapshot_provider';
 import { Ask } from '../core/touched';
 import {
   ApprovalSnapshots,
@@ -7,8 +8,6 @@ import {
   approvalDiffUri,
   approvalDiffTitle,
 } from '../core/diff';
-
-import { ProviderLifecycle } from './provider_lifecycle';
 
 /**
  * Provides read-only content for virtual diff and patch documents.
@@ -21,54 +20,17 @@ import { ProviderLifecycle } from './provider_lifecycle';
  * Protects documents currently open in editor tabs from eviction (insertion-order FIFO).
  * Never degrades missing or expired snapshots to empty documents.
  */
-export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
+export class DiffProvider extends SnapshotContentProvider<ApprovalSnapshots> {
   static readonly scheme = 'magi-diff';
-  private readonly snapshots: ApprovalSnapshots;
-  private readonly lifecycle: ProviderLifecycle;
 
   constructor(maxEntries: number = 100) {
-    this.lifecycle = new ProviderLifecycle({
+    super({
       scheme: DiffProvider.scheme,
-      onPrune: () => this.prune(),
       supportsDiffTabs: true,
+      maxEntries,
+      makeStore: (n, isOpen) => new ApprovalSnapshots(n, isOpen),
+      missing: (key) => `승인 스냅샷이 만료되었거나 존재하지 않습니다: ${key}`,
     });
-    this.snapshots = new ApprovalSnapshots(maxEntries, (key: string) => this.isOpen(key));
-  }
-
-  isOpen(key: string): boolean {
-    return this.lifecycle.isOpen(key);
-  }
-
-  provideTextDocumentContent(uri: vscode.Uri): string {
-    const key = uri.toString();
-    const content = this.snapshots.get(key);
-    if (content === undefined) {
-      throw new Error(`승인 스냅샷이 만료되었거나 존재하지 않습니다: ${key}`);
-    }
-    return content;
-  }
-
-  put(uri: vscode.Uri, content: string): boolean {
-    return this.snapshots.put(uri.toString(), content);
-  }
-
-  get(uri: vscode.Uri | string): string | undefined {
-    const key = typeof uri === 'string' ? uri : uri.toString();
-    return this.snapshots.get(key);
-  }
-
-  prune(): number {
-    return this.snapshots.evictExcess();
-  }
-
-  protectTemp(uris: (vscode.Uri | string)[]): () => void {
-    const keys = uris.map((u) => (typeof u === 'string' ? u : u.toString()));
-    return this.snapshots.protectTemp(keys);
-  }
-
-  dispose(): void {
-    this.lifecycle.dispose();
-    this.snapshots.clear();
   }
 }
 
