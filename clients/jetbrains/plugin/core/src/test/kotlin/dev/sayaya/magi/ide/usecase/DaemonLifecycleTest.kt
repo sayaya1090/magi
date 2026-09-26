@@ -106,10 +106,10 @@ class DaemonLifecycleTest {
         override fun unusable(socket: Path) = unusable
     }
 
-    private fun lifecycle(f: Fake, slept: MutableList<Long> = mutableListOf()) =
+    private fun lifecycle(f: Fake, slept: MutableList<Long> = mutableListOf(), start: () -> Unit = { f.starts++ }) =
         DaemonLifecycle(
             socket = sock,
-            start = { f.starts++ },
+            start = { start() },
             daemons = f,
             sleep = { slept += it },
             random = Random(1),
@@ -181,6 +181,28 @@ class DaemonLifecycleTest {
             (out as DaemonLifecycle.Outcome.Unreachable).reason.contains(sock.toString()),
             "이유에 소켓 경로가 있어야 사람이 어디를 볼지 안다",
         )
+    }
+
+    @Test
+    fun `띄우지도 못했으면 그 이유를 말한다`() {
+        // 기동이 매번 던지면(PATH 에 magi 가 없다, 실행할 수 없는 파일) 데몬은 한 번도 안 떴다.
+        // 그걸 「N번 띄웠는데 응답이 없다」고 말하면 사람은 데몬을 들여다보러 가고, 왜 못 띄웠는지는
+        // 버려져 있었다.
+        val f = Fake(aliveFrom = Int.MAX_VALUE)
+        val out = lifecycle(f, start = { f.starts++; throw java.io.IOException("magi: no such file") })
+            .attachOrStart(attempts = 2)
+        val reason = (out as DaemonLifecycle.Outcome.Unreachable).reason
+        assertTrue("띄우지 못했다" in reason, "기동 실패가 기동 실패로 말해져야 한다: $reason")
+        assertTrue("magi: no such file" in reason, "기동이 던진 원인이 사유에 있어야 한다: $reason")
+        assertTrue(sock.toString() in reason, reason)
+    }
+
+    @Test
+    fun `띄운 뒤 못 붙었으면 마지막 연결 오류를 싣는다`() {
+        val f = Fake(aliveFrom = Int.MAX_VALUE)
+        val reason = (lifecycle(f).attachOrStart(attempts = 2) as DaemonLifecycle.Outcome.Unreachable).reason
+        assertTrue("못 붙었다" in reason && "띄우지 못했다" !in reason, reason)
+        assertTrue("아직 아무도 안 듣는다" in reason, "마지막 연결 오류가 사유에 있어야 한다: $reason")
     }
 
     @Test

@@ -1803,3 +1803,14 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `test copy hands over the item and delete hands it over and closes`: 복사는 항목을 넘기고 창을 닫지 않으며, 삭제는 항목을 넘기고 창을 닫습니다.
 - **변이 검증**: (1) 삭제 뒤 `close(OK_EXIT_CODE)` 제거 → 실패. (2) `REASON_QUESTION_LEFT` 번역 분기 제거 → 실패. 원복 후 초록.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 408 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과(새 시험 2 포함).
+
+---
+
+## 6.51 데몬을 못 띄웠을 때 그 이유를 말하기 (2026-09-26)
+
+- **무엇이 바뀌었나 (`DaemonLifecycle.attachOrStart`)**: 기동(`start`)이 던진 예외를 `runCatching` 이 버리고 있었습니다. PATH 에 magi 가 없거나 실행할 수 없는 파일이어서 매번 기동에 실패해도, 사유는 「기동을 N회 시도했고 마지막까지 응답이 없다」였습니다. 데몬이 한 번도 안 떴는데 사람을 데몬 쪽으로 보내는 문장이었고, 기동이 성공한 경우에도 「N회 기동」은 사실이 아니었습니다. 이제 두 경우를 가릅니다.
+  - 기동이 끝내 실패: 「데몬을 띄우지 못했다: 소켓 — 기동 예외의 문구」
+  - 띄운 뒤 못 붙음: 「데몬에 못 붙었다: 소켓 — 띄운 뒤 N번 기다렸지만 응답이 없다 (마지막 연결 오류)」
+- **새 시험 (`DaemonLifecycleTest`)**: `띄우지도 못했으면 그 이유를 말한다`, `띄운 뒤 못 붙었으면 마지막 연결 오류를 싣는다`. 기존 `못 붙으면 빈 화면이 아니라 이유를 말한다`(소켓 경로 포함)는 그대로 통과합니다.
+- **변이 검증**: (1) 기동 예외 문구를 버림 → 실패. (2) 두 경우 구분을 없앰 → 실패. 원복 후 초록.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 410 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과.

@@ -64,20 +64,32 @@ class DaemonLifecycle(
     ): Outcome {
         daemons.unusable(socket)?.let { return Outcome.Unreachable(it) }
 
-        runCatching { return Outcome.Attached(daemons.connect(socket)) }
+        var lastConnect: Throwable? = runCatching { return Outcome.Attached(daemons.connect(socket)) }.exceptionOrNull()
 
         var started = false
+        var startFailure: Throwable? = null
         var backoff = firstBackoffMillis
         repeat(attempts) {
             if (!started) {
-                runCatching { start(socket) }.onSuccess { started = true }
+                runCatching { start(socket) }
+                    .onSuccess { started = true }
+                    .onFailure { startFailure = it }
             }
             sleep(backoff + random.nextLong(backoff / 2 + 1))
             backoff = (backoff * 2).coerceAtMost(2_000)
-            runCatching { return Outcome.Attached(daemons.connect(socket)) }
+            lastConnect = runCatching { return Outcome.Attached(daemons.connect(socket)) }.exceptionOrNull()
         }
+        // Two different failures, and the reason has to say which. A start that threw every time
+        // (no magi on the PATH, a binary that cannot run) used to be reported as "started N times and
+        // nothing answered" — the one sentence that sends a person to look at the daemon, when the
+        // daemon never ran — and the error that said why was dropped.
         return Outcome.Unreachable(
-            "데몬에 못 붙었다: $socket — 기동을 ${attempts}회 시도했고 마지막까지 응답이 없다"
+            if (!started) {
+                "데몬을 띄우지 못했다: $socket — ${startFailure?.message ?: startFailure?.javaClass?.simpleName}"
+            } else {
+                "데몬에 못 붙었다: $socket — 띄운 뒤 ${attempts}번 기다렸지만 응답이 없다" +
+                    (lastConnect?.message?.let { " ($it)" } ?: "")
+            }
         )
     }
 
