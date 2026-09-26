@@ -12,16 +12,10 @@ import { Companion } from './workspace';
  * language server re-checks — none of which happens when a file is rewritten from outside.
  */
 export class EditorHand implements Ide, vscode.Disposable {
-  private server: Pick<Hand, 'url' | 'headers' | 'close'> | null = null;
+  private server: Hand | null = null;
   private attached = false;
-  private disposed = false;
-  private offering: Promise<void> | null = null;
 
-  constructor(
-    private readonly companion: Companion,
-    private readonly workdir: string,
-    private readonly startServer: (ide: Ide) => Promise<Pick<Hand, 'url' | 'headers' | 'close'>> = Hand.start,
-  ) {}
+  constructor(private readonly companion: Companion, private readonly workdir: string) {}
 
   /**
    * Start the server and tell the companion about it.
@@ -31,20 +25,8 @@ export class EditorHand implements Ide, vscode.Disposable {
    * cannot drive their editor. It goes to the log rather than a popup: nothing is broken, and a
    * notification for it would fire on every second window.
    */
-  offer(): Promise<void> {
-    if (this.disposed || this.attached) return Promise.resolve();
-    if (this.offering) return this.offering;
-    // Install the shared operation before invoking dependencies, including synchronous mocks.
-    this.offering = Promise.resolve().then(() => this.prepareOffer()).finally(() => {
-      this.offering = null;
-    });
-    return this.offering;
-  }
-
-  private async prepareOffer(): Promise<void> {
-    if (this.disposed) return;
+  async offer(): Promise<void> {
     const caps = await this.companion.caps();
-    if (this.disposed) return;
     if (caps === null) {
       this.why = 'could not read companion capabilities; check the connection and retry';
       return;
@@ -55,22 +37,16 @@ export class EditorHand implements Ide, vscode.Disposable {
     }
     if (!this.server) {
       try {
-        const server = await this.startServer(this);
-        if (this.disposed) {
-          server.close();
-          return;
-        }
-        this.server = server;
+        this.server = await Hand.start(this);
       } catch (e) {
         // No loopback port. Its own outcome, not a kind of refusal: NOT BEING the hand and BEING
         // BROKEN are different events, and a person who cannot tell them apart cannot act on
         // either. (The JetBrains client says the same thing in its own words, and has said it
         // since it grew this button.)
-        if (!this.disposed) this.why = `could not open a loopback port — ${(e as Error).message}`;
+        this.why = `could not open a loopback port — ${(e as Error).message}`;
         throw e;
       }
     }
-    if (this.disposed) return;
     const r = await this.companion.ask('mcp-attach', {
       name: HAND_NAME, url: this.server.url, headers: this.server.headers,
     });
@@ -178,8 +154,6 @@ export class EditorHand implements Ide, vscode.Disposable {
   }
 
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
     // Detach BEFORE the server goes, or the daemon holds an address that answers nothing until it
     // next tries to call it.
     if (this.attached) void this.companion.ask('mcp-detach', { name: HAND_NAME });
