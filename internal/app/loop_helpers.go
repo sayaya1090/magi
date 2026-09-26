@@ -140,28 +140,6 @@ func abandonedPromptIDs(evs []event.Event) map[string]bool {
 	return out
 }
 
-// userPromptIDsNotAbandoned lists every user prompt still standing in the log, in order —
-// unlike unansweredUserPromptIDs it does not ask whether a turn has since finished, because the
-// caller is asking "did the person say something new", not "is anything owed a turn". A
-// turn.finished written by a turn that never read the prompt answers nothing.
-func userPromptIDsNotAbandoned(evs []event.Event) []string {
-	abandoned := abandonedPromptIDs(evs)
-	var out []string
-	seen := map[string]bool{}
-	for _, e := range evs {
-		if e.Type != event.TypePromptSubmitted || e.Actor.Kind != event.ActorUser {
-			continue
-		}
-		var d event.PromptSubmittedData
-		if json.Unmarshal(e.Data, &d) != nil || d.MessageID == "" || abandoned[d.MessageID] || seen[d.MessageID] {
-			continue
-		}
-		out = append(out, d.MessageID)
-		seen[d.MessageID] = true
-	}
-	return out
-}
-
 // unansweredUserPromptIDs returns every genuine (ActorUser) prompt in the log that no assistant
 // reply has covered and that was not already abandoned — the full set a cancel must drain, INCLUDING
 // a prompt Steer'd into the log a moment before the interrupt that the loop never detected into the
