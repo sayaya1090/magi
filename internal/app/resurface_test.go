@@ -72,3 +72,22 @@ func TestABestEffortFactThatDidNotLandIsSaid(t *testing.T) {
 		t.Fatalf("a refused best-effort write must be logged with its type and cause, got %q", got)
 	}
 }
+
+// And for a note the loop leaves the model: one that did not land is advice never read.
+func TestANoteThatDidNotLandIsSaid(t *testing.T) {
+	inner, _ := jsonl.New(t.TempDir())
+	a := closeAfter(t, New(refusesPrompts{inner}, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil,
+		Config{Permission: "allow"}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	a.notePromptText(context.Background(), sid, event.Actor{Kind: event.ActorSystem, ID: "steer"}, "look at the tests first")
+
+	got := buf.String()
+	if !strings.Contains(got, "steer") || !strings.Contains(got, "the disk is full") {
+		t.Fatalf("a refused note must be logged with who left it and why it failed, got %q", got)
+	}
+}

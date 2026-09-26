@@ -1,5 +1,5 @@
 {
-  "total": 130,
+  "total": 124,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -45,15 +45,12 @@
     "internal/adapter/tui/probe_unix.go": 3,
     "internal/adapter/tui/probe_windows.go": 3,
     "internal/app/app.go": 3,
-    "internal/app/app_state.go": 1,
     "internal/app/compact.go": 1,
     "internal/app/diagnose.go": 1,
     "internal/app/guard.go": 1,
     "internal/app/hooks.go": 1,
-    "internal/app/inject.go": 1,
-    "internal/app/loop.go": 3,
     "internal/app/loopmap.go": 1,
-    "internal/app/permission.go": 2,
+    "internal/app/permission.go": 1,
     "internal/app/policy.go": 1,
     "internal/app/reconstruct.go": 1,
     "internal/app/routing.go": 2,

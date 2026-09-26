@@ -22,5 +22,5 @@ func (a *App) injectSteerConstraint(ctx context.Context, sid session.SessionID, 
 	text := "# Mid-task steer (from the user)\n\n" + steer + "\n\n---\n" +
 		"Apply this as a constraint on the work already in progress — do NOT restart. Adjust how you " +
 		"carry out what remains so this holds, and make sure it does before you finish."
-	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "steer"}, text)
+	a.notePromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "steer"}, text)
 }

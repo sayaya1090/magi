@@ -551,7 +551,7 @@ func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 	// actually queued — a plain cancel with an empty queue stays quiet. Rendered via the
 	// system-note path (ActorSystem PromptSubmitted → the TUI/headless "⟳ … note" line).
 	if drained > 0 {
-		_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"},
+		a.notePromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"},
 			fmt.Sprintf("cancelled — %d queued request(s) also cleared; your newest request runs next.", drained))
 	}
 }

@@ -427,7 +427,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"all that survives — the rest is gone. Continue FROM this instead of deriving " +
 					"it again:\n\n" + tail
 			}
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, say)
+			a.notePromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, say)
 			continue
 		}
 		// A reply shaped like a tool call that could not be read as one — no tool name (gpt-oss via
@@ -529,14 +529,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 			if !ts.cutNoted {
 				ts.cutNoted = true
-				_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, note)
+				a.notePromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, note)
 			}
 		} else if res.cut {
 			// Same shape, different cause: the connection ended mid-reply. Say which one it was,
 			// on the record with the prefix, and keep going — the run used to end here.
 			if !ts.cutNoted {
 				ts.cutNoted = true
-				_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByLostStreamNote)
+				a.notePromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByLostStreamNote)
 			}
 		}
 

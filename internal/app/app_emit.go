@@ -110,6 +110,16 @@ func (a *App) appendPromptText(ctx context.Context, sid session.SessionID, actor
 	return a.appendFact(ctx, sid, event.TypePromptSubmitted, actor, pd)
 }
 
+// notePromptText is appendPromptText for a note the loop leaves for the model — a steer, a nudge,
+// a permission outcome — where the caller has no one to hand a failure to. A note that did not land
+// is advice the model never read, so the failure is logged rather than discarded (see
+// appendBestEffort).
+func (a *App) notePromptText(ctx context.Context, sid session.SessionID, actor event.Actor, text string) {
+	if err := a.appendPromptText(ctx, sid, actor, text); err != nil {
+		log.Printf("magi: recording a note from %s in %s: %v", actor.ID, sid, err)
+	}
+}
+
 // AppendCronRun writes what a scheduled COMMAND did into its session.
 //
 // A prompt job's session fills itself — the turn writes the prompt, the steps and the answer. A

@@ -310,7 +310,7 @@ func (a *App) noteUnanswered(ctx context.Context, sid session.SessionID, tc *ses
 	}
 	// WithoutCancel: the turn's context may be the very thing being torn down, and a record of why
 	// a tool was allowed or denied is worth more than the turn it belonged to.
-	_ = a.appendPromptText(context.WithoutCancel(ctx), sid,
+	a.notePromptText(context.WithoutCancel(ctx), sid,
 		event.Actor{Kind: event.ActorSystem, ID: "permission"}, fmt.Sprintf(
 			"no UI answered the permission prompt for %s within %s — %s by the %q policy",
 			tc.Name, a.answerBound(sid), verdict, a.Permission()))
