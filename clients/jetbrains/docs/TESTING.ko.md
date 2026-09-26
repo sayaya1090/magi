@@ -1849,3 +1849,21 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `SourceTextTest` 의 `예약은 계획 창에서 지우고 다시 읽을 수 있다`: 삭제가 광고에 묶이고, 새 잡에는 안 서고, 지우기 전에 묻고, 다시 읽기가 목록 문이 있을 때만 서는지 봅니다. 이 창의 다른 가드와 같은 소스 읽기 방식입니다 — 계획 창을 헤드리스로 세우는 시험은 아직 없습니다.
 - **변이 검증**: (1) 삭제를 광고 없이 세움, (2) 확인 없이 지움, (3) 다시 읽기를 조건 없이 세움 → 각각 실패. 원복 후 초록.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 403 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과. 실물 IDE 에서 단추를 눌러 보지는 않았습니다.
+
+---
+
+## 6.55 실물 계획 창에서 본 것 넷 — 가로 넘침, 소켓 이름, 빈 콤보, 빈 상태 모양 (2026-09-26)
+
+사용자 IDE 에 떠 있던 실제 「MAGI 계획」 창을 캡처해서 보고 고쳤습니다.
+
+- **가로 넘침**: 판 전체를 그냥 쌓은 판째로 `JBScrollPane` 에 넣어서, 가장 긴 한 줄(다른 컴패니언 줄)의 폭으로 판이 넓어졌습니다. 그래서 가로 스크롤바가 섰고, 「제어」의 입력 칸 둘은 오른쪽이 잘렸고, 대화 콤보 오른쪽의 **「새 대화」 단추는 창 밖으로 밀려 보이지 않았습니다.** 이제 판을 전사 창과 같은 `Look.column()`(뷰포트 폭을 따름)으로 쌓습니다. 긴 줄은 `…` 로 줄고, 전문은 그 줄의 툴팁에서 읽습니다.
+- **소켓 이름**: 이름이 없는 컴패니언이 `daemon-magi-6lw0yxf3.sock` 같은 소켓 파일명으로 불렸습니다. 이제 작업 디렉터리 이름으로 부르고, 둘 다 없을 때만 소켓을 씁니다. 이름으로 부를 때는 괄호의 디렉터리를 되풀이하지 않습니다.
+- **빈 대화 콤보**: 지금 대화가 목록에 없으면(첫 말 전의 대화는 저장소에 없음) 콤보가 빈 흰 상자였습니다. 이제 「지금 대화(첫 말을 하면 목록에 올라옵니다)」라고 적습니다.
+- **빈 상태 모양**: 다섯 절의 빈 상태 문구가 흐린 보통 글씨 셋과, 전사용 기울인 들여쓰기(`Look.aside`) 둘로 섞여 있었습니다. 하나(`none`, 흐린 보통 글씨)로 맞췄습니다.
+- **새 시험 (`PlanPanelLayoutTest`)**:
+  - `test a long row does not widen the panel past its window`: 300px 스크롤 판에 400자 줄을 넣어도 판 폭이 창을 넘지 않고, 가로 스크롤바가 안 서고, 오른쪽 단추가 창 안에 있어야 합니다.
+  - `test the plan window scrolls a width-tracking column`: 계획 창의 뿌리가 그 판(`Look.column()`)이고 그것을 스크롤하는지 소스로 봅니다.
+  - `test a companion with no name is called by its workspace, not its socket file`.
+  - 기존 `SourceTextTest` 의 `플릿 행이 무엇을 하는 곳인지 말한다` 는 행을 `line` 으로 지어 라벨·툴팁에 같이 쓰는 새 모양을 읽게 고쳤습니다(「라벨 문자열 자체를 본다」는 의도는 그대로).
+- **변이 검증**: (1) 폭 따르기를 끔 → 첫 시험 실패. (2) 계획 창 뿌리를 옛 `BorderLayout` 판으로 되돌림 → 둘째 시험 실패. (3) 이름 대체를 소켓으로 되돌림 → 셋째 시험 실패. 원복 후 초록.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 403 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 154 통과. 고친 판을 실물 IDE 에서 다시 캡처하는 것은 따로 합니다.

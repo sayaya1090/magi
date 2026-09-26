@@ -795,8 +795,9 @@ class SourceTextTest {
         assertTrue(Regex("""maxOf\(r\.can, does\.size\)""").containsMatchIn(panel),
             "표본 수를 `does.size` 로 센다 — 코어가 수를 따로 싣는 이유가 그것이 아니다")
         // 만드는 것과 붙이는 것은 다르다 — 라벨 문자열 자체를 본다.
-        val row = Regex("""JBLabel\(name \+ [^)]*\)""").find(panel)?.value
-        assertTrue(row != null, "플릿 행의 라벨을 못 찾았다")
+        // 행은 한 줄(`line`)로 지어 라벨과 툴팁에 같이 쓴다 — 판이 좁으면 라벨은 … 로 잘리고 전문은 툴팁이다.
+        val row = Regex("""val line = name \+ [^\n]*""").find(panel)?.value
+        assertTrue(row != null && "JBLabel(line)" in panel, "플릿 행의 라벨을 못 찾았다")
         assertTrue("offers" in row!!, "무엇을 하는지 만들어 놓고 행에 안 붙인다: $row")
     }
 
