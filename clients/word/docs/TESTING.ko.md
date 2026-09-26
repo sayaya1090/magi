@@ -201,3 +201,11 @@ Word 에서 `Styles("Heading 2")` 는 실패하므로 WdBuiltinStyle 번호로 �
 반쯤 고친 채 남겼다** — 지금은 번호를 다 재고 나서 고친다. **바닥글 필드 글자가 본문에 들어갔다** — `doc.Range(start, start)` 는 늘
 본문이다. **본문 필드가 남의 자리 표시를 채웠다** — 찾아 바꾸기를 버리고 자리를 세며 끼운다. 그리고 **도형 좌표가 부를 때와 읽을 때 달랐다**
 ((300,20) → (228,−64)) — 쪽 기준으로 못박는다.
+
+### 2026-09-27 CI 보완 검증
+
+`TestComDatesAreReadAsLocalTime`은 전역 `time.Local`을 바꾸지 않고 변환 함수에 KST를 전달합니다. 제품의 Windows COM 호출은 계속 `time.Local`을 전달합니다. 브리지 고루틴이 시각을 읽는 동안 테스트가 전역 시간대를 바꾸는 경합을 제거했습니다.
+
+macOS에서 PATH에 `pdftoppm`과 `sips`가 모두 없으면 `RenderPDFPage`는 `errNoPDFRenderer`를 반환합니다. 기존 `TestRenderPageFallsBackToWordsOwnDrawingOnlyWhenNothingCanDrawThePDF`가 macOS에서도 통과하며, COM이 없는 경우에는 오류를 유지합니다. 제안 식별자의 난수 생성 오류는 호출자에게 전달합니다. 오류 무시 기준선은 늘리지 않았습니다.
+
+`2e1e2b93` 위 수정본에서 macOS `go test -race -count=3 ./clients/office/helper/...`, `go test ./internal/arch -count=1`, Office helper의 `go vet`와 `GOOS=windows go test -c`를 통과했습니다. Windows 교차 컴파일은 Windows나 Word 실물 실행 결과가 아닙니다.

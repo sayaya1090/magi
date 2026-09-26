@@ -48,11 +48,15 @@ func RenderPDFPage(pdf []byte, page, maxWidth int) ([]byte, error) {
 		return png, nil
 	}
 	if runtime.GOOS == "darwin" {
+		bin, err := exec.LookPath("sips")
+		if err != nil {
+			return nil, errNoPDFRenderer
+		}
 		if page != 1 {
 			return nil, fmt.Errorf("이 Mac 에는 pdftoppm 이 없어 sips 로 첫 쪽만 그립니다 — %d쪽은 못 그립니다(brew install poppler)", page)
 		}
 		out := filepath.Join(dir, "page.png")
-		cmd := exec.Command("sips", "-s", "format", "png", "--resampleWidth", strconv.Itoa(maxWidth), in, "--out", out)
+		cmd := exec.Command(bin, "-s", "format", "png", "--resampleWidth", strconv.Itoa(maxWidth), in, "--out", out)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {

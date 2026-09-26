@@ -305,7 +305,10 @@ func TestAStaleGenerationIsRefusedEvenWithALiveContext(t *testing.T) {
 	defer unsub()
 	_ = drainAll(ch)
 	live := context.Background()
-	if b.forGen(live, 2, func() []StreamFrame { b.live = true; return []StreamFrame{{Kind: "stream", Data: []byte(`{"live":true}`)}} }) {
+	if b.forGen(live, 2, func() []StreamFrame {
+		b.live = true
+		return []StreamFrame{{Kind: "stream", Data: []byte(`{"live":true}`)}}
+	}) {
 		t.Error("옛 세대가 같은 대화·살아 있는 ctx 로 상태를 바꿨다")
 	}
 	if b.deliver(live, 2, "sess-A", StreamFrame{Kind: "event", Data: []byte(`{"seq":9}`)}, 9) {

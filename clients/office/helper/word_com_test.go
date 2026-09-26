@@ -316,11 +316,9 @@ func TestTheWordFallbackRecognisesThePanesOwnRefusal(t *testing.T) {
 
 // COM 의 날짜는 지역 시각이다 — 서울에서 17:19 에 단 메모는 08:19Z 다.
 func TestComDatesAreReadAsLocalTime(t *testing.T) {
-	was := time.Local
-	time.Local = time.FixedZone("KST", 9*3600)
-	t.Cleanup(func() { time.Local = was })
+	local := time.FixedZone("KST", 9*3600)
 	naive := time.Date(2026, 9, 26, 17, 19, 0, 0, time.UTC) // go-ole 이 붙여 주는 모양
-	if got := comLocalToUTC(naive).Format(time.RFC3339); got != "2026-09-26T08:19:00Z" {
+	if got := comLocalToUTC(naive, local).Format(time.RFC3339); got != "2026-09-26T08:19:00Z" {
 		t.Fatalf("지역 시각을 UTC 로 옮기지 못했다: %s", got)
 	}
 }

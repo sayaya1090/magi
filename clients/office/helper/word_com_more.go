@@ -458,7 +458,11 @@ func wordComRunMore(d wordDoc, name string, args map[string]any) (res map[string
 			body["paragraph"] = para
 		}
 		raw, _ := json.Marshal(body)
-		key := wordFixPrefix + strings.ToUpper(strconv.FormatInt(wordNow().UnixMilli(), 36)) + wordRandTag()
+		tag, err := wordRandTag()
+		if err != nil {
+			return nil, nil, true, fmt.Errorf("제안 식별자를 만들지 못했습니다: %w", err)
+		}
+		key := wordFixPrefix + strings.ToUpper(strconv.FormatInt(wordNow().UnixMilli(), 36)) + tag
 		if err := d.SetVariable(key, string(raw)); err != nil {
 			return nil, nil, true, err
 		}
@@ -532,14 +536,16 @@ var wordFixTools = func() map[string]bool {
 // wordNow 는 시험이 바꿔 낀다.
 var wordNow = time.Now
 
-func wordRandTag() string {
+func wordRandTag() (string, error) {
 	const al = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	b := make([]byte, 4)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
 	for i := range b {
 		b[i] = al[int(b[i])%len(al)]
 	}
-	return string(b)
+	return string(b), nil
 }
 
 // wordDecodeSuggestion 은 창의 WordHand.decodeSuggestion 과 같다 — 못 읽는 것은 「읽을 수 없는 제안」으로, 누를 수 없게.

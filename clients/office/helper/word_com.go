@@ -720,6 +720,6 @@ func wcClip(s string, n int) string {
 // ⚠ COM 의 날짜(VT_DATE)는 **지역 시각**이고 시간대를 안 싣는데, go-ole 은 그것을 UTC 라고 붙여 돌려준다. 그대로
 // 쓰면 한국에서 17:19 에 단 메모가 「17:19Z」 — 아홉 시간 뒤의 일 — 로 읽혔다(실측 2026-09-26). 창(Office.js)은 같은
 // 메모를 제대로 된 UTC 로 준다. 벽시계 값을 지역 시각으로 다시 읽어 옮긴다.
-func comLocalToUTC(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.Local).UTC()
+func comLocalToUTC(t time.Time, local *time.Location) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), local).UTC()
 }

@@ -155,7 +155,7 @@ func wdate(d *ole.IDispatch, name string) string {
 		return ""
 	}
 	if t, ok := v.Value().(time.Time); ok {
-		return comLocalToUTC(t).Format(time.RFC3339)
+		return comLocalToUTC(t, time.Local).Format(time.RFC3339)
 	}
 	return fmt.Sprint(v.Value())
 }
