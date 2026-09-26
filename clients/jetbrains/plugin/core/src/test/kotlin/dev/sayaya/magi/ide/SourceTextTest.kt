@@ -635,20 +635,17 @@ class SourceTextTest {
             "와이어가 `$n` 을 안 받는다 — 몫이 서로 안 더해지고 빠진 조각은 보이지도 않는다")
         assertTrue("val parts: ContextParts?" in wire, "`ContextState` 가 조각을 안 든다")
 
+        // 조각을 띠로 옮기는 자리는 코어의 ContextGauge 다(Office 작업창과 같은 규칙) — 다섯 다 읽어야 한다.
+        val gauge = code(sources.first { it.name == "ContextGauge.kt" })
+        for (n in names) assertTrue("p?.$n" in gauge, "띠가 `$n` 을 안 읽는다 — 그 조각은 화면에 안 선다")
+        // ⚠ **제 컴포넌트로 그린다.** 총량 라벨(JBLabel)에 붙이면 개행이 안 그려져 조용히 사라진다 —
+        // 이제 조각은 띠(ctxBar)와 색 점 범례(ctxKeys)로 선다.
         val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
-        assertTrue("fun makeup(" in panel, "조각을 글로 옮기는 자리가 없다")
-        for (n in names) assertTrue("p.$n" in panel, "화면이 `$n` 을 안 그린다")
-        // ⚠ **제 컴포넌트로 그린다.** 총량 라벨(JBLabel)에 붙이면 개행이 안 그려져 조용히 사라진다.
-        // ⚠ **정확한 식이 아니라 성질을 묻는다.** 첫 판은 그 식을 글자 그대로 찾았는데,
-        // 그 줄에 「접은 뒤 남은 주제」가 더해지자 앵커가 깨졌다 — 규칙의 뜻은 그대로인데.
-        val assign = panel.indexOf("ctxParts.text =")
-        assertTrue(assign > 0, "조각을 제 컴포넌트에 안 그린다 — 총량 라벨에 붙이면 화면에서 사라진다")
-        assertTrue("makeup(" in panel.substring(assign, minOf(panel.length, assign + 300)),
-            "제 컴포넌트에 조각이 아닌 것을 그린다 — 조각은 어디로 갔나")
-        assertFalse(Regex("ctx\\.text[^\\n]{0,80}makeup\\(").containsMatchIn(panel),
+        assertTrue("ContextGauge.of(seen)" in panel, "창이 띠 모델을 안 쓴다")
+        assertTrue("ctxBar.segments =" in panel, "조각이 띠에 안 그려진다")
+        assertTrue("ctxKeys.add(" in panel, "조각의 범례가 안 그려진다 — 색만 있고 이름이 없으면 읽히지 않는다")
+        assertFalse(Regex("ctx\\.text[^\\n]{0,80}segments").containsMatchIn(panel),
             "조각을 총량 라벨에 붙였다 — `JBLabel` 은 개행을 안 그려 그 줄이 화면에서 사라진다")
-        assertTrue(Regex("""val ctxParts = Look\.flow\(\)""").containsMatchIn(panel),
-            "조각 줄이 접히는 칸이 아니다 — 한 줄 라벨이면 좁은 판에서 잘린다")
     }
 
     /**
@@ -796,10 +793,11 @@ class SourceTextTest {
         assertTrue(Regex("""maxOf\(r\.can, does\.size\)""").containsMatchIn(panel),
             "표본 수를 `does.size` 로 센다 — 코어가 수를 따로 싣는 이유가 그것이 아니다")
         // 만드는 것과 붙이는 것은 다르다 — 라벨 문자열 자체를 본다.
-        // 행은 한 줄(`line`)로 지어 라벨과 툴팁에 같이 쓴다 — 판이 좁으면 라벨은 … 로 잘리고 전문은 툴팁이다.
-        val row = Regex("""val line = name \+ [^\n]*""").find(panel)?.value
-        assertTrue(row != null && "JBLabel(line)" in panel, "플릿 행의 라벨을 못 찾았다")
-        assertTrue("offers" in row!!, "무엇을 하는지 만들어 놓고 행에 안 붙인다: $row")
+        // 줄에는 이름·상태만 서고, 무엇을 하는지는 툴팁에 선다(긴 목록이 줄마다 잘리던 것을 옮김, 2026-09-27).
+        // 만들어 놓고 어디에도 안 붙이는 일이 없도록 툴팁에 실리는지 본다.
+        assertTrue(Regex("""JBLabel\(line, """).containsMatchIn(panel), "플릿 행의 라벨을 못 찾았다")
+        assertTrue(Regex("""plan\.companions\.does", offers""").containsMatchIn(panel),
+            "무엇을 하는지 만들어 놓고 행(툴팁)에 안 붙인다")
     }
 
     /**

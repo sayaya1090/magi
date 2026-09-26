@@ -55,6 +55,15 @@ object Palette {
     /** 셋째 자리. 보라인 사유는 console.css 에 적혀 있다 — 붉은 계열이면 거절과 구분이 안 된다. */
     val casper = Ink("#6D28D9", "#D8B4FE")
     /** 판. */
+    /**
+     * 컨텍스트 띠의 다섯 조각([ContextGauge.Part]). Office 작업창의 `--p-*` 색과 같은 계열이다 — 대화는 강조색을
+     * 쓰고, 나머지는 서로 가까이 붙어도 갈리게 색상환에서 떨어뜨렸다.
+     */
+    val partSystem = Ink("#8A8F98", "#A3A8B0")
+    val partTools = Ink("#6B5BD2", "#AFA3F5")
+    val partCalls = Ink("#C77700", "#F2B45C")
+    val partResults = Ink("#0284C7", "#7CC8F2")
+
     val surface = Ink("#F5EEE3", "#211B14")
     /** 판 위의 판. */
     val surfaceContainer = Ink("#F2ECE2", "#211B14")

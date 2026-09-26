@@ -375,4 +375,20 @@ class RowTextTest {
             "종류가 다른데 열쇠가 같다",
         )
     }
+
+    @Test
+    fun `대화 항목은 구별되는 것이 앞에 선다 — 시각, 제목, 식별자`() {
+        val seoul = java.time.ZoneId.of("Asia/Seoul")
+        val a = dev.sayaya.magi.ide.model.SessionRow(id = "s_5ed27afca364206997b05910",
+            title = "src/invoice.py 의 total() 이 amount 가 빈 행에서 멈춘다", lastActivity = "2026-09-26T12:55:11Z")
+        val b = a.copy(id = "s_d2570ddf11f315ec9b9e5801", lastActivity = "2026-09-26T13:13:41Z")
+        val la = RowText.talkLabel(a, "(제목 없음)", seoul)
+        val lb = RowText.talkLabel(b, "(제목 없음)", seoul)
+        assertTrue(la.startsWith("09-26 21:55 · src/invoice.py"), la)
+        assertTrue(la.endsWith("·b05910"), la)
+        // 제목이 같은 두 대화가 앞머리 몇 자만 보이는 좁은 목록에서도 갈린다.
+        assertNotEquals(la.take(14), lb.take(14), "같은 요청으로 시작한 두 대화의 앞머리가 같다")
+        // 시각을 모르면(옛 데몬) 시각 없이 선다.
+        assertEquals("(제목 없음)  ·abcdef", RowText.talkLabel(dev.sayaya.magi.ide.model.SessionRow(id = "s_abcdef"), "(제목 없음)", seoul))
+    }
 }

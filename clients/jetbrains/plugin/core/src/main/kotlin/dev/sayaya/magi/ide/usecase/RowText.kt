@@ -96,6 +96,26 @@ object RowText {
         return if (rest == 0L) "${h}h" else "${h}h ${rest}m"
     }
 
+    /**
+     * 대화 콤보의 한 항목. **구별되는 것이 앞에 선다** — 마지막으로 말이 오간 지역 시각, 그다음 제목,
+     * 끝에 식별자 여섯 자.
+     *
+     * 제목이 앞에 있을 때는 좁은 창에서 목록이 제목 앞머리까지만 보였고, 같은 요청으로 시작한 대화들이
+     * 「src/invoice.py 의 t…」 두 줄로 똑같이 섰다(실물 화면, 2026-09-27). 식별자는 끝에 두어 이름이
+     * 겹쳐도 항목의 열쇠가 하나로 남게 한다. 시각을 모르면(옛 데몬) 시각 없이 선다.
+     */
+    fun talkLabel(row: dev.sayaya.magi.ide.model.SessionRow, untitled: String,
+                  zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): String {
+        val at = (row.lastActivity ?: row.created)?.let {
+            runCatching {
+                java.time.Instant.parse(it).atZone(zone)
+                    .format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+            }.getOrNull()
+        }
+        val title = row.title?.take(40)?.ifBlank { null } ?: untitled
+        return (at?.let { "$it · " } ?: "") + title + "  ·" + row.id.takeLast(6)
+    }
+
     fun clock(at: String?): String = at?.let {
         runCatching {
             java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())

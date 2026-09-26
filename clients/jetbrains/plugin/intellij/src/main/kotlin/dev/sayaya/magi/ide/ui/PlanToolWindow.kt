@@ -92,13 +92,35 @@ class PlanToolWindow : ToolWindowFactory {
          * JBLabel은 줄바꿈 문자(\n)를 처리하지 않으므로, 다중 행 텍스트 유실을 방지하기 위해 [Look.flow] 패널로 감싸 개별 라벨로 표시합니다.
          */
         val ctxParts = Look.flow().apply { border = JBUI.Borders.empty(0, 12, 2, 12) }
+        // 컨텍스트 띠(Office 작업창과 같은 모양): 창 전체가 눈금인 가는 띠 + 오른쪽 총량, 아래 색 점 범례.
+        // 글자 한 줄(「구성비(추정치): 도구 70% …」)이던 것을 바꿨다 — 무엇이 창을 채우는지가 한눈에 보이게.
+        val ctxBar = Look.GaugeBar()
+        val ctxText = JBLabel(" ").apply { foreground = Look.faint; font = com.intellij.util.ui.JBFont.small() }
+        val ctxRow = JBPanel<JBPanel<*>>(BorderLayout(JBUI.scale(8), 0)).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(4, 12, 2, 12)
+            add(ctxBar, BorderLayout.CENTER)
+            add(ctxText, BorderLayout.EAST)
+            isVisible = false
+        }
+        val ctxKeys = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, JBUI.scale(12), JBUI.scale(2))).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(0, 8, 2, 12)
+            isVisible = false
+        }
         // 긴 세션 제목으로 인해 도구 창 가로 폭이 비정상적으로 확장되지 않도록 제한된 너비 콤보박스를 사용합니다.
+        var talkIds: Map<String, String> = emptyMap()
+        /** 대화 id → 제목 전문. 콤보 항목의 툴팁이 읽는다. */
+        var talkTitles: Map<String, String> = emptyMap()
         val talk = Look.narrowCombo<String>().apply {
             // 지금 대화가 목록에 없으면(첫 말 전의 대화는 저장소에 없다) 아무것도 안 골라진 칸이
             // 빈 흰 상자로 섰다 — 무엇을 고르는 칸인지도, 왜 비었는지도 말하지 않는 칸이었다.
             val base = renderer
             renderer = javax.swing.ListCellRenderer<String?> { list, value, index, sel, focus ->
-                base.getListCellRendererComponent(list, value ?: MagiBundle.msg("plan.talk.current"), index, sel, focus)
+                base.getListCellRendererComponent(list, value ?: MagiBundle.msg("plan.talk.current"), index, sel, focus).also { c ->
+                    (c as? javax.swing.JComponent)?.toolTipText =
+                        value?.let { talkIds[it] }?.let { talkTitles[it] }?.takeIf { it.isNotBlank() }
+                }
             }
         }
         val model = Look.narrowCombo<String>(16).apply {
@@ -145,7 +167,6 @@ class PlanToolWindow : ToolWindowFactory {
         var askOf: (RosterRow) -> Unit = {}
         var paintAsked: (Long) -> Unit = {}
         /** 세션 표시 문자열("제목 (s_…id6)")에서 실제 세션 ID를 매핑하는 역조회 테이블. */
-        var talkIds: Map<String, String> = emptyMap()
 
         model.addActionListener {
             if (painting) return@addActionListener
@@ -201,6 +222,8 @@ class PlanToolWindow : ToolWindowFactory {
             add(cronPane)
             add(section(MagiBundle.msg("plan.usage")))
             add(ctx)
+            add(ctxRow)
+            add(ctxKeys)
             add(ctxParts)
             add(section(MagiBundle.msg("plan.controls")))
             // 두 콤보는 「무엇을 고르는 칸인가」를 왼쪽에 적고(라벨 폭을 맞춰 칸의 시작이 한 줄에 선다),
@@ -300,16 +323,38 @@ class PlanToolWindow : ToolWindowFactory {
             // 못 봤다. 문은 지금 답한다. 스트림은 낙하이고, 문 없는 데몬에서는 그것이 유일한
             // 원천이다. (모름을 0% 로 그리지 않는다는 규칙은 그대로다 — 둘 다 없으면 안 적는다.)
             val seen = ctxFromDoor ?: v?.contextNow()
-            ctx.text = seen?.let {
-                MagiBundle.msg("plan.usage.ctx", "%.0f%%  (%s/%s)".format(it.percent, k(it.tokens), k(it.window)))
-            } ?: MagiBundle.msg("plan.usage.none")
-            // 컨텍스트 구성비([makeup]) 및 요약 압축 이력 표시:
-            // 단순 압축 횟수뿐만 아니라 보존된 핵심 토픽 목록을 함께 표시하여,
-            // 대화가 압축되었을 때 유지되고 있는 맥락을 사용자가 명확히 인지할 수 있도록 지원합니다.
+            val gauge = dev.sayaya.magi.ide.usecase.ContextGauge.of(seen)
+            // 모르면 띠를 안 세운다 — 모름을 0% 로 그리지 않는다.
+            ctx.isVisible = gauge == null
+            ctx.text = MagiBundle.msg("plan.usage.none")
+            ctxRow.isVisible = gauge != null
+            ctxKeys.isVisible = gauge?.segments?.isNotEmpty() == true
+            ctxKeys.removeAll()
+            if (gauge != null) {
+                ctxBar.segments = gauge.segments.map { Look.partColor(it.part) to it.fraction }
+                val kilo = dev.sayaya.magi.ide.usecase.ContextGauge::kilo
+                ctxText.text = kilo(gauge.used) + (if (gauge.window > 0) " / " + kilo(gauge.window) else "") +
+                    " " + MagiBundle.msg("plan.usage.tokens") + (gauge.percent?.let { " · $it%" } ?: "")
+                // 조각은 chars/4 어림이라 측정된 총량과 안 더해진다 — 코어의 규칙대로 제 합에 대한 몫(%)으로만
+                // 말하고, 어림이라고 밝힌다(`ContextGauge`).
+                gauge.segments.forEach { seg ->
+                    ctxKeys.add(JBLabel(partName(seg.part) + " " + seg.share + "%", Look.dot(Look.partColor(seg.part)), javax.swing.SwingConstants.LEFT).apply {
+                        foreground = Look.faint
+                        font = com.intellij.util.ui.JBFont.small()
+                        iconTextGap = JBUI.scale(4)
+                    })
+                }
+                if (gauge.segments.isNotEmpty()) ctxKeys.add(JBLabel(MagiBundle.msg("plan.usage.estimated")).apply {
+                    foreground = Look.faint
+                    font = com.intellij.util.ui.JBFont.small()
+                })
+                ctxBar.toolTipText = (listOf(ctxText.text) + gauge.segments.map { partName(it.part) + " " + it.share + "%" })
+                    .joinToString(" · ") + " (" + MagiBundle.msg("plan.usage.estimated") + ")"
+            }
+            ctxKeys.revalidate(); ctxKeys.repaint()
+            // 접기 이력: 몇 번 접혔나와, 접은 뒤 남은 주제.
+            // 다회 압축된 세션의 경우 초기 판단 컨텍스트가 생략되었을 수 있으므로 압축 사실을 먼저 명시합니다.
             ctxParts.text = listOf(
-                makeup(seen?.parts),
-                // 요약 압축 횟수 및 보존된 토픽 정보:
-                // 다회 압축된 세션의 경우 초기 판단 컨텍스트가 생략되었을 수 있으므로 압축 사실을 먼저 명시합니다.
                 seen?.compactions?.takeIf { it > 0 }
                     ?.let { MagiBundle.msg("plan.usage.folded", it) }.orEmpty(),
                 seen?.topics?.takeIf { it.isNotEmpty() }
@@ -632,9 +677,10 @@ class PlanToolWindow : ToolWindowFactory {
                         talk.toolTipText = null
                         painting = true
                         talkIds = got.rows.associate { row ->
-                            val label = (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("plan.untitled")) + "  ·" + row.id.takeLast(6)
-                            label to row.id
+                            RowText.talkLabel(row, MagiBundle.msg("plan.untitled")) to row.id
                         }
+                        // 펼친 목록은 콤보 폭으로 잘린다 — 제목 전문은 항목의 툴팁으로 읽는다.
+                        talkTitles = got.rows.associate { it.id to (it.title ?: "") }
                         talk.removeAllItems()
                         talkIds.keys.forEach { talk.addItem(it) }
                         talkIds.entries.firstOrNull { it.value == got.now }?.let { talk.selectedItem = it.key }
@@ -955,33 +1001,13 @@ class PlanToolWindow : ToolWindowFactory {
      * 플릿 한 행. 목격담은 흐리게+나이, 사람 기다리면 강조 — 그리고 **저쪽에 쌓인 대기**가
      * 있으면 센다(`waiting`): 남에게 청한 일이 어디서 기다리는지가 이 판의 절반이다.
      */
-    /**
-     * 창을 **무엇이** 채우나 — 총량 옆의 한 줄.
-     *
-     * 총량만 그리는 화면이 왜 문제인지는 코어가 적어 두었다: *"somebody looking at a nearly-full
-     * bar reaches for the conversation, and on this harness **the conversation is routinely the
-     * small half**."* 도구 카탈로그만으로 기본 로스터에서 6~7k 이라 대개 대화보다 크고, 그래서
-     * 총량만 보고 대화를 접는 사람은 안 줄어드는 쪽을 접는다.
-     *
-     * **제 합에 대한 몫으로 그린다.** 다섯은 어림(chars/4)이라 `used` 와 안 더해진다 — 비율로는
-     * 정직하고 총량으로는 아니다. 창의 %로 그리면 그 부정직을 화면에 옮기게 된다.
-     *
-     * 조각이 없거나(옛 데몬·스트림 낙하) 합이 0이면 **아무 말도 안 한다** — 모름을 0%로 그리지
-     * 않는다는 이 판의 규칙 그대로다.
-     */
-    private fun makeup(p: dev.sayaya.magi.ide.model.ContextParts?): String {
-        val sum = p?.sum() ?: 0
-        if (p == null || sum <= 0) return ""
-        val share = listOf(
-            MagiBundle.msg("plan.usage.part.tools") to p.tools,
-            MagiBundle.msg("plan.usage.part.results") to p.results,
-            MagiBundle.msg("plan.usage.part.talk") to p.talk,
-            MagiBundle.msg("plan.usage.part.calls") to p.calls,
-            MagiBundle.msg("plan.usage.part.system") to p.system,
-        ).filter { it.second > 0 }
-            .sortedByDescending { it.second }
-            .joinToString("  ") { "${it.first} ${it.second * 100 / sum}%" }
-        return if (share.isBlank()) "" else MagiBundle.msg("plan.usage.makeup", share)
+    /** 컨텍스트 띠 조각의 이름(Office 와 같은 낱말: 시스템 · 도구 목록 · 대화 · 호출 · 결과). */
+    private fun partName(part: dev.sayaya.magi.ide.usecase.ContextGauge.Part): String = when (part) {
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.System -> MagiBundle.msg("plan.usage.part.system")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Tools -> MagiBundle.msg("plan.usage.part.tools")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Talk -> MagiBundle.msg("plan.usage.part.talk")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Calls -> MagiBundle.msg("plan.usage.part.calls")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Results -> MagiBundle.msg("plan.usage.part.results")
     }
 
     private fun fleetRow(r: RosterRow, crowded: Boolean = false, self: Boolean = false): JBLabel {
@@ -1030,16 +1056,35 @@ class PlanToolWindow : ToolWindowFactory {
         // 자기 행은 목록에 남는다(자기에게 건네면 지금 턴 뒤로 미룬다 — 막지 않는 의도). 그러니 「다른
         // 컴패니언」 아래에 섰을 때 그것이 이 창이라는 말이 있어야 한다.
         val mine = if (self) part("plan.companions.self") else ""
-        val line = name + mine + role + state + load + offers + where + share + seen
-        return JBLabel(line).apply {
+        // 한 줄에는 누구이고 지금 어떤가만 선다 — 상태 점 · 이름 · (이 창) · 상태 · 부하 · 동거 · 목격.
+        // 할 수 있는 일(does)·역할·폴더·소켓은 툴팁으로 옮겼다. 줄에 다 싣던 때는 할 수 있는 일 목록이
+        // 줄마다 판 끝에서 잘려, 긴 꼬리만 보이고 정작 상태가 밀려났다(사용자 지적, 2026-09-27).
+        val line = name + mine + state + load + share + seen
+        // 툴팁은 여러 줄 HTML 이다 — 줄마다 남이 지은 글자(이름·역할·할 수 있는 일)라 하나씩 거른다(Markup.text).
+        val tip = buildList {
+            add(name + mine + state + load + share + seen)
+            if (role.isNotBlank()) add(role.removePrefix(" · "))
+            if (offers.isNotBlank()) add(MagiBundle.msg("plan.companions.does", offers.removePrefix("  · ")))
+            if (where.isNotBlank()) add(MagiBundle.msg("plan.companions.where", where.trim().removeSurrounding("(", ")")))
+            add(r.socket)
+        }.joinToString("<br>", "<html>", "</html>") { dev.sayaya.magi.ide.usecase.Markup.text(it) }
+        val dot = when {
+            r.sighting -> Look.muted
+            r.state == "working" -> Look.accent
+            r.state == "waiting" -> Look.primary
+            r.state == "abandoned" -> Look.error
+            else -> Look.faint
+        }
+        return JBLabel(line, Look.dot(dot), javax.swing.SwingConstants.LEFT).apply {
+            iconTextGap = JBUI.scale(6)
             foreground = when {
                 r.sighting -> Look.muted
                 r.state == "waiting" -> Look.primary
                 else -> Look.body
             }
             border = JBUI.Borders.empty(2, 0)
-            // 판이 좁으면 줄이 … 로 잘린다(판은 가로로 안 넓어진다). 잘린 나머지는 여기서 읽는다.
-            toolTipText = line + "\n" + r.socket
+            // 줄이 짧아도 판이 더 좁으면 … 로 잘린다(판은 가로로 안 넓어진다). 전부는 툴팁에서 읽는다.
+            toolTipText = tip
         }
     }
 

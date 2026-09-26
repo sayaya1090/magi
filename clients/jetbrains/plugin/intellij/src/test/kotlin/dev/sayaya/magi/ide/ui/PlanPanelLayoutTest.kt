@@ -98,7 +98,9 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
             it.isAccessible = true
             it.invoke(plan, RosterRow(socket = "/tmp/s.sock", name = "api", workdir = "/Users/me/projects/billing"), false, false) as JBLabel
         }
-        assertTrue("a named companion keeps its name, workspace beside it: ${named.text}",
-            named.text.startsWith("api") && named.text.contains("(billing)"))
+        assertTrue("a named companion keeps its name: ${named.text}", named.text.startsWith("api"))
+        assertTrue("the workspace of a named companion is in its tooltip: ${named.toolTipText}",
+            named.toolTipText.contains("billing"))
+        assertFalse("the long details went back onto the row: ${named.text}", named.text.contains("billing"))
     }
 }

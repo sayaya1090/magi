@@ -276,10 +276,10 @@ internal object Look {
             val c = (base as javax.swing.ListCellRenderer<Any?>)
                 .getListCellRendererComponent(list, value, index, sel, focus)
             val full = value?.toString().orEmpty()
-            if (c is javax.swing.JLabel) {
-                c.toolTipText = full.ifBlank { null }
-                if (full.length > chars + 2) c.text = full.take(chars) + "…"
-            }
+            // 글자를 손으로 자르지 않는다. 폭은 원형 값이 정하고, 칸보다 긴 글은 Swing 이 그 칸의 폭에서
+            // 「…」로 줄인다. 전에는 chars 자에서 잘라, 넓게 늘어난 콤보와 펼친 목록에서도 18자에서 끊겼다 —
+            // 대화 목록이 「src/invoice.py 의 t…」 둘로 똑같이 섰다(실물 화면, 2026-09-27). 전문은 툴팁.
+            if (c is javax.swing.JLabel) c.toolTipText = full.ifBlank { null }
             c
         }
     }
@@ -542,6 +542,64 @@ internal object Look {
         foreground = body
         // 헤더 발신자명과의 시각적 구분을 위해 좌측 14px 들여쓰기 적용
         border = JBUI.Borders.empty(3, 14, 0, 0)
+    }
+
+    /** 컨텍스트 띠 조각의 색([Palette] 의 part* — 대화는 강조색). */
+    fun partColor(part: dev.sayaya.magi.ide.usecase.ContextGauge.Part): Color = when (part) {
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.System -> of(Palette.partSystem)
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Tools -> of(Palette.partTools)
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Talk -> accent
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Calls -> of(Palette.partCalls)
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Results -> of(Palette.partResults)
+    }
+
+    /** 범례의 색 점(지름 8px) — 글자와 같은 줄에 선다. */
+    fun dot(color: Color): javax.swing.Icon = object : javax.swing.Icon {
+        override fun getIconWidth() = JBUI.scale(8)
+        override fun getIconHeight() = JBUI.scale(8)
+        override fun paintIcon(c: java.awt.Component?, g: java.awt.Graphics, x: Int, y: Int) {
+            val g2 = g.create() as java.awt.Graphics2D
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = color
+            g2.fillOval(x, y, iconWidth, iconHeight)
+            g2.dispose()
+        }
+    }
+
+    /**
+     * 컨텍스트 띠 — 높이 6px, 눈금 전체가 옅은 바탕이고 조각들이 왼쪽부터 제 몫만큼 칠해진다.
+     * 안 찬 자리는 바탕으로 남는다(「얼마나 남았나」가 보이게 — [dev.sayaya.magi.ide.usecase.ContextGauge]).
+     */
+    class GaugeBar : JComponent() {
+        /** (색, 눈금에 대한 몫) — 몫의 합은 1 이하다. */
+        var segments: List<Pair<Color, Double>> = emptyList()
+            set(value) { field = value; repaint() }
+
+        init { isOpaque = false }
+
+        override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(120), JBUI.scale(6))
+        override fun getMinimumSize(): Dimension = Dimension(JBUI.scale(40), JBUI.scale(6))
+        override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, JBUI.scale(6))
+
+        override fun paintComponent(g: java.awt.Graphics) {
+            val g2 = g.create() as java.awt.Graphics2D
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+            val h = JBUI.scale(6)
+            val y = (height - h) / 2
+            val arc = h
+            val track = java.awt.geom.RoundRectangle2D.Float(0f, y.toFloat(), width.toFloat(), h.toFloat(), arc.toFloat(), arc.toFloat())
+            g2.color = of(Palette.outlineVariant)
+            g2.fill(track)
+            g2.clip(track)
+            var x = 0.0
+            for ((color, fraction) in segments) {
+                val w = fraction * width
+                g2.color = color
+                g2.fill(java.awt.geom.Rectangle2D.Double(x, y.toDouble(), w, h.toDouble()))
+                x += w
+            }
+            g2.dispose()
+        }
     }
 
     /** 보조 안내 텍스트 컴포넌트 (사고 과정 첫 줄, keep 알림, 시스템 안내 등 이탤릭 서식 적용). */
