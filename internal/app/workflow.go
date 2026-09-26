@@ -106,7 +106,12 @@ func (a *App) runWorkflow(ctx context.Context, s session.Session) error {
 		// Gate 2: verification. A real command is authoritative; otherwise the
 		// model runs tests itself (best-effort, no hard gate).
 		if cmd == "" {
-			_ = a.runPhase(ctx, s, verify, "")
+			// No deterministic verifier: the phase is trusted — when it RAN. A phase that failed
+			// (the provider down, the context cancelled) checked nothing, and used to be counted
+			// as verified all the same.
+			if err := a.runPhase(ctx, s, verify, ""); err != nil {
+				return err
+			}
 			verified = true // no deterministic verifier available; trust the phase
 			break
 		}

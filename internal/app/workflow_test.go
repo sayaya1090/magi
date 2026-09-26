@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -280,5 +281,33 @@ func TestWorkflowGoTestGateRejectsAMaskedPass(t *testing.T) {
 	}
 	if llm.implementCalls < 2 {
 		t.Errorf("a masked go-test pass was accepted — implement entered %d times, want >=2 (looped)", llm.implementCalls)
+	}
+}
+
+// failsInVerify is workflowLLM, except that the VERIFY phase's provider call fails.
+type failsInVerify struct{ workflowLLM }
+
+func (f *failsInVerify) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	if phaseOf(r.System) == "verify" {
+		return nil, errors.New("the provider is down")
+	}
+	return f.workflowLLM.StreamChat(ctx, r)
+}
+
+// With no verification command the VERIFY phase is the model checking its own work, and the
+// pipeline trusts it. It trusted it even when the phase FAILED: the error was discarded and the
+// run went on to REVIEW and SUMMARIZE as verified. Every other phase returns its error; so does
+// this one.
+func TestWorkflowAFailedVerifyPhaseIsNotTrusted(t *testing.T) {
+	llm := &failsInVerify{}
+	a, sid, _ := newWorkflowApp(t, llm, nil, Config{Permission: "allow", System: "base", WorkflowMaxLoops: 1})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	err := a.runWorkflow(ctx, a.sessionInfo(ctx, sid))
+	if err == nil {
+		t.Fatal("a workflow whose verify phase failed reported success")
+	}
+	if contains2(llm.phases, "review") {
+		t.Errorf("the pipeline went on to review after a failed verify; phases=%v", llm.phases)
 	}
 }
