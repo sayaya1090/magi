@@ -1895,3 +1895,18 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - **「원문을 편집창에서 열기」 글자 단추**: 도구 행마다 반복되어 행에서 가장 큰 것이 이 단추였습니다. 복사 아이콘 옆에 같은 크기의 아이콘 단추(`EditSource`, 설명은 툴팁·접근성 이름)로 바꿨습니다. `OutputEditorTest` 는 이 단추를 툴팁으로 찾습니다.
 - **화면 확인**: 대화 목록 수정은 샌드박스에서 다시 보려 했으나 디스플레이가 꺼져 있어 확인하지 못했습니다. 다음 화면 작업 때 봅니다.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 404 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 158 통과.
+
+---
+
+## 6.58 현황 창의 대화·모델 목록을 흐름(`StateFlow`)으로 (2026-09-27)
+
+- **왜**: §6.57 의 결함(창을 열 때 한 번 읽고 실패를 버려 콤보가 영영 빔)은 콜백 구조가 만든 것이었습니다. 「한 번 읽기 — 실패 버리기 — 다시 읽을 계기는 3초 틱·창 표시·펼치기에 흩어짐」. 모델 콤보는 여기에 더해, 대화가 있어야 하는 통로(`onDaemon`)로 물어서 첫 말 전의 새 대화에서 「대화 없음」으로 실패했습니다.
+- **무엇이 바뀌었나**:
+  - `ui/DaemonList.kt`: 데몬이 답하는 목록 하나를 `StateFlow<Loading | Ready | Failed>` 로 듭니다. `refresh()` 요청은 최신 것만 살리고(`flatMapLatest`), 데몬에 못 닿은 읽기는 백오프로 스스로 다시 읽습니다. 최종 답(「이 데몬에 그 문이 없다」)은 값이라 다시 읽지 않습니다.
+  - `Workspace.askWithoutChat`: 콜백 통로의 `suspend` 판입니다. 못 닿으면 `DaemonUnreachable` 로 던지고, 한 번만 재개합니다.
+  - `PlanToolWindow`: 두 목록을 `DaemonList` 로 들고 `Dispatchers.EDT` 에서 그립니다. 창의 범위(`lists`)는 도구 창이 닫힐 때 취소됩니다. 모델 목록은 대화 없이 묻습니다. 3초 틱의 「꺼진 콤보 되살리기」는 흐름이 대신하므로 지웠습니다. 펼칠 때 다시 읽기와 동사 뒤 다시 읽기는 `refresh()` 입니다.
+  - 창의 나머지 경로(계획·작업·컴패니언·예약 폴링)는 아직 콜백입니다. 같은 틀로 옮길 다음 대상입니다.
+- **새 시험 (`DaemonListTest`)**: 두 번 실패한 뒤 채워진다, `refresh` 는 다시 읽는다, 최종 답은 다시 읽지 않는다, 범위를 취소하면 재시도가 멈춘다. `PlanPanelLayoutTest` 의 가드는 새 구조(두 목록이 `DaemonList`, 모델은 대화 없이 묻기, 범위 취소, 펼치면 다시 읽기)를 봅니다.
+- **변이 검증**: (1) 재시도를 없앰 → 실패. (2) `refresh` 를 무력화 → 실패. 원복 후 초록.
+- **화면 확인**: 디스플레이가 꺼져 있어 샌드박스 실물로는 아직 못 봤습니다.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 404 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 162 통과.

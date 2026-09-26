@@ -56,15 +56,18 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
     }
 
     /**
-     * A failed read of the conversation or model list must not be dropped: an enabled, empty combo is
-     * never retried (the tick only revives disabled ones), so the list stayed empty for the life of the
-     * window whenever the daemon was still starting when the window opened.
+     * The conversation and model lists are held as flows ([DaemonList]) that retry a failed read on
+     * their own. The callback version dropped the failure (`onDaemon({})`) and left the combo empty for
+     * good whenever the daemon was still starting; the model list also asked through the door that needs
+     * a conversation, so a new, unspoken conversation left it blank.
      */
-    fun `test a failed list read leaves the combo for the retry, not empty for good`() {
+    fun `test both lists are flows that retry, and the model list needs no conversation`() {
         val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/PlanToolWindow.kt").readText()
-        assertFalse("the conversation list read drops its failure", "fun loadTalks() = workspace.onDaemonWithoutChat({})" in text)
-        assertFalse("the model list read drops its failure", "fun loadModels() = workspace.onDaemon({})" in text)
-        assertTrue("a failed read does not disable the combo", "combo.isEnabled = false" in text)
+        assertTrue("the conversation list is not a DaemonList", "val talks = DaemonList(lists)" in text)
+        assertTrue("the model list is not a DaemonList", "val models = DaemonList(lists)" in text)
+        val models = text.substringAfter("val models = DaemonList(lists)").substringBefore("fun off(")
+        assertTrue("the model list asks through the door that needs a conversation", "askWithoutChat" in models)
+        assertTrue("the window's scope is not cancelled with it", "Disposer.register(toolWindow.disposable) { lists.cancel() }" in text)
         assertTrue("opening the list does not re-read it", "popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) = loadTalks()" in text)
     }
 

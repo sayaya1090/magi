@@ -18,6 +18,12 @@ import dev.sayaya.magi.ide.model.RosterRow
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.model.SessionRow
 import java.awt.BorderLayout
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import com.intellij.openapi.application.EDT
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComboBox
@@ -537,77 +543,100 @@ class PlanToolWindow : ToolWindowFactory {
         }
 
         // 대화 목록은 매 틱이 아니라 펴는 순간과 동사 뒤에만 — 스토어 훑기를 3초마다 시키지 않는다.
-        // 못 읽었으면 콤보를 끈다 — 켜진 채 빈 콤보는 3초 틱의 재시도(꺼진 것만 되살린다)가 영영
-        // 안 건드려, 창과 함께 데몬이 새로 뜰 때마다 대화 목록이 끝까지 비어 있었다(실물 화면, 2026-09-26:
-        // 데몬은 대화 셋을 답하는데 콤보는 비어 있었다). 실패를 버리던 `{}` 가 그 원인이었다.
-        fun couldNotRead(combo: JComboBox<*>, why: String) = SwingUtilities.invokeLater {
+        // ── 대화·모델 목록: 흐름으로 든다([DaemonList]) ─────────────────────────────────────────────
+        // 콜백 판은 창을 열 때 한 번 읽고 실패를 `{}` 로 버렸다. 데몬이 아직 뜨는 중이면 콤보는 켜진 채
+        // 빈 채로 남고, 3초 틱의 재시도는 꺼진 콤보만 되살려 영영 비어 있었다(실물 화면, 2026-09-26).
+        // 여기서는 실패한 읽기가 스스로 백오프로 다시 읽고, 창이 닫히면 범위째 멈춘다.
+        val lists = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        Disposer.register(toolWindow.disposable) { lists.cancel() }
+
+        /** 대화 목록 한 번의 답. [rows] 가 null 이면 이 데몬에 목록 문이 없다(재시도할 일이 아니다). */
+        class TalkList(val rows: List<dev.sayaya.magi.ide.model.SessionRow>?, val why: String?, val now: String?)
+        /** 모델 목록 한 번의 답. [names] 가 null 이면 문이 없거나 비었다 — [why] 가 그 사유다. */
+        class ModelList(val names: List<String>?, val why: String?, val current: String?)
+
+        val talks = DaemonList(lists) {
+            workspace.askWithoutChat { comp ->
+                val sr = comp.sessions()
+                // 모름≠없음의 갈림은 ok 다 — 빈 목록은 omitempty 로 통째 생략돼 null 로 온다
+                // (cron 이 판 그 함정의 sessions 판). 문이 없을 때만 ok=false 다.
+                if (!sr.ok) TalkList(null, sr.error, null)
+                else TalkList(sr.sessions.orEmpty(), null, comp.facts().session)
+            }
+        }
+        val models = DaemonList(lists) {
+            // 모델 목록은 대화가 없어도 묻는다 — 대화를 요구하는 통로로 물었을 때는 첫 말 전의 새 대화에서
+            // 「대화 없음」으로 실패해 모델 콤보가 빈 칸이었다.
+            workspace.askWithoutChat { comp ->
+                val mr = comp.models()
+                // why 는 백엔드가 잠깐 죽었다는 말 — 그때의 목록은 못 믿으므로 던져서 다시 읽게 한다.
+                mr.why?.let { throw IllegalStateException(MagiBundle.msg("plan.models.failed", it.lineSequence().first().take(80))) }
+                when {
+                    !mr.ok -> ModelList(null, MagiBundle.msg("plan.models.nodoor") +
+                        (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""), null)
+                    mr.models.isNullOrEmpty() -> ModelList(null, MagiBundle.msg("plan.models.empty"), null)
+                    // 지금 모델은 턴이 돌 때 스트림으로만 들어왔다 — 막 연 창은 턴 전까지 빈 칸이었다. 한 번 묻는다.
+                    else -> ModelList(mr.models, null, runCatching { comp.facts().model }.getOrNull()?.takeIf { it.isNotBlank() })
+                }
+            }
+        }
+        fun off(combo: JComboBox<*>, why: String) {
             combo.isEnabled = false
-            combo.toolTipText = MagiBundle.msg("common.failed", why)
+            combo.toolTipText = why
         }
-        fun loadTalks() = workspace.onDaemonWithoutChat({ couldNotRead(talk, it) }) { comp ->
-            val sr = comp.sessions()
-            // 모름≠없음의 갈림은 ok 다 — 빈 목록은 omitempty 로 통째 생략돼 null 로 온다
-            // (cron 이 판 그 함정의 sessions 판). 문이 없을 때만 ok=false 다.
-            val list = if (sr.ok) sr.sessions.orEmpty() else null
-            if (list == null) {
-                // 눌리게 그려놓고 아무 일도 안 나는 콤보를 두지 않는다(M3: 불가능한 동작은 비활성).
-                SwingUtilities.invokeLater {
-                    talk.isEnabled = false
-                    talk.toolTipText = MagiBundle.msg("plan.models.nodoor") +
-                        (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
-                }
-                return@onDaemonWithoutChat
-            }
-            val now = comp.facts().session
-            SwingUtilities.invokeLater {
-                talk.isEnabled = true
-                talk.toolTipText = null
-                painting = true
-                talkIds = list.associate { row ->
-                    val label = (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("plan.untitled")) + "  ·" + row.id.takeLast(6)
-                    label to row.id
-                }
-                talk.removeAllItems()
-                talkIds.keys.forEach { talk.addItem(it) }
-                talkIds.entries.firstOrNull { it.value == now }?.let { talk.selectedItem = it.key }
-                painting = false
-            }
-        }
-        fun loadModels() = workspace.onDaemon({ couldNotRead(model, it) }) { comp ->
-            val mr = comp.models()
-            // 같은 함정의 models 판: 빈 목록도 ok=true 로 오되 필드는 생략된다. why 는 백엔드가
-            // 잠깐 죽었다는 말이라 그때도 목록은 못 믿는다 — 비활성+사유가 정직하다.
-            val m = if (mr.ok && mr.why == null) mr.models.orEmpty() else null
-            // 지금 모델은 턴이 돌 때 스트림으로만 들어왔다 — 막 연 창은 턴 전까지 빈 칸이었다(실물 화면).
-            // 목록을 채울 때 데몬에게 한 번 묻는다.
-            val current = if (m.isNullOrEmpty()) null else runCatching { comp.facts().model }.getOrNull()?.takeIf { it.isNotBlank() }
-            if (m.isNullOrEmpty()) {
-                SwingUtilities.invokeLater {
-                    model.isEnabled = false
-                    model.toolTipText = when {
-                        !mr.ok -> MagiBundle.msg("plan.models.nodoor") +
-                            (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
-                        mr.why != null -> MagiBundle.msg("plan.models.failed", mr.why!!.lineSequence().first().take(80))
-                        else -> MagiBundle.msg("plan.models.empty")
+        lists.launch(Dispatchers.EDT) {
+            talks.state.collect { st ->
+                when (st) {
+                    DaemonList.State.Loading -> {}
+                    is DaemonList.State.Failed -> off(talk, MagiBundle.msg("common.failed", st.why))
+                    is DaemonList.State.Ready -> {
+                        val got = st.value
+                        // 눌리게 그려놓고 아무 일도 안 나는 콤보를 두지 않는다(M3: 불가능한 동작은 비활성).
+                        if (got.rows == null) {
+                            off(talk, MagiBundle.msg("plan.models.nodoor") +
+                                (got.why?.let { " — " + it.lineSequence().first().take(80) } ?: ""))
+                            return@collect
+                        }
+                        talk.isEnabled = true
+                        talk.toolTipText = null
+                        painting = true
+                        talkIds = got.rows.associate { row ->
+                            val label = (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("plan.untitled")) + "  ·" + row.id.takeLast(6)
+                            label to row.id
+                        }
+                        talk.removeAllItems()
+                        talkIds.keys.forEach { talk.addItem(it) }
+                        talkIds.entries.firstOrNull { it.value == got.now }?.let { talk.selectedItem = it.key }
+                        painting = false
                     }
                 }
-                return@onDaemon
-            }
-            SwingUtilities.invokeLater {
-                model.isEnabled = true
-                model.toolTipText = null
-                painting = true
-                val keep = model.selectedItem
-                model.removeAllItems()
-                m.forEach { model.addItem(it) }
-                (keep ?: current)?.let { pick ->
-                    if ((0 until model.itemCount).none { model.getItemAt(it) == pick }) model.addItem(pick as String)
-                    model.selectedItem = pick
-                }
-                painting = false
             }
         }
-
+        lists.launch(Dispatchers.EDT) {
+            models.state.collect { st ->
+                when (st) {
+                    DaemonList.State.Loading -> {}
+                    is DaemonList.State.Failed -> off(model, MagiBundle.msg("common.failed", st.why))
+                    is DaemonList.State.Ready -> {
+                        val got = st.value
+                        val names = got.names ?: return@collect off(model, got.why.orEmpty())
+                        model.isEnabled = true
+                        model.toolTipText = null
+                        painting = true
+                        val keep = model.selectedItem
+                        model.removeAllItems()
+                        names.forEach { model.addItem(it) }
+                        (keep ?: got.current)?.let { pick ->
+                            if ((0 until model.itemCount).none { model.getItemAt(it) == pick }) model.addItem(pick as String)
+                            model.selectedItem = pick
+                        }
+                        painting = false
+                    }
+                }
+            }
+        }
+        fun loadTalks() = talks.refresh()
+        fun loadModels() = models.refresh()
         fun paintAskedNow() = SwingUtilities.invokeLater {
             askedPane.removeAll()
             val snap = synchronized(asked) { asked.toList() }
@@ -701,14 +730,11 @@ class PlanToolWindow : ToolWindowFactory {
             override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent?) {}
             override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent?) {}
         })
-        refresh(); poll(); loadTalks(); loadModels()
+        refresh(); poll() // 두 목록은 만들어질 때 이미 읽기 시작했다
         val timer = Timer(3_000) {
             if (toolWindow.isVisible) {
                 refresh(); poll()
-                // 죽은 콤보는 틱마다 되살려 본다(리뷰: 접었다 펴야만 풀리는 「영영 죽음」이었다).
-                // 산 콤보는 안 두드린다 — 목록 새로고침은 펴는 순간과 동사 뒤의 일이다.
-                if (!talk.isEnabled) loadTalks()
-                if (!model.isEnabled) loadModels()
+                // 두 목록의 재시도는 흐름이 스스로 한다([DaemonList]) — 틱이 되살릴 일이 없다.
             }
         }.apply { isRepeats = true }
         timer.start()

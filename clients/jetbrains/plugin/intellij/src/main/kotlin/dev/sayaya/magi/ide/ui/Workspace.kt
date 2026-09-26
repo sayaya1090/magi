@@ -66,6 +66,27 @@ internal class Workspace(private val project: Project) {
         connect(null, needChat = false, trouble, work)
 
     /**
+     * [onDaemonWithoutChat] 의 `suspend` 판 — 흐름([DaemonList])이 부르는 통로다.
+     *
+     * 데몬에 못 닿으면 [DaemonUnreachable] 로 던진다(콜백 판은 그것을 `trouble` 로 넘기고, 부르는 쪽이
+     * `{}` 로 버리면 흔적이 없었다). [read] 가 던진 것도 그대로 던진다. 한 번만 재개한다 — 연결을 닫다가
+     * 난 오류가 이미 끝난 호출을 다시 깨우지 않게.
+     */
+    suspend fun <T> askWithoutChat(read: (Companion) -> T): T =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            val done = java.util.concurrent.atomic.AtomicBoolean(false)
+            onDaemonWithoutChat({ why ->
+                if (done.compareAndSet(false, true)) cont.resumeWith(Result.failure(DaemonUnreachable(why)))
+            }) { comp ->
+                val got = runCatching { read(comp) }
+                if (done.compareAndSet(false, true)) cont.resumeWith(got)
+            }
+        }
+
+    /** 데몬에 못 닿았다 — 사유는 화면에 적을 수 있는 문장이다. */
+    class DaemonUnreachable(why: String) : Exception(why)
+
+    /**
      * 3초 주기 상태 폴링용 연결.
      *
      * 대화 추론 대기 타임아웃(2분) 대신 단기 타임아웃([DaemonClient.PATIENCE_POLL])을 적용하여,
