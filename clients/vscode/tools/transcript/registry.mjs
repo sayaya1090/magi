@@ -15,12 +15,21 @@ export const EXPECTED_BUNDLE_COUNTS = {
   markdown: 1,
 };
 
-export const TOTAL_EXPECTED_SCENARIOS = 50;
+/*
+ * The total is the SUM of the counts above, not a second number to keep in step with them.
+ *
+ * It used to be written out by hand here, and the same figures a third time in the comment below.
+ * Adding a scenario meant three edits, and the third one is the kind that gets missed: the comment
+ * still read "8, 14, 2, 13, 8, 1 = 46" while the map said layout 12 and the total said 50. A guard
+ * that states its expectation in three places can disagree with itself. The per-bundle counts stay
+ * exact on purpose — adding a scenario is meant to be a deliberate edit — but there is one of them.
+ */
+export const TOTAL_EXPECTED_SCENARIOS = Object.values(EXPECTED_BUNDLE_COUNTS).reduce((a, b) => a + b, 0);
 
 /**
  * Validates bundle registry invariants (§5.8.6):
  * 1. Exactly 6 bundles in expected order: layout, asks, autocomplete, diff, a11y, markdown
- * 2. Exact scenario count per bundle (8, 14, 2, 13, 8, 1 = 46)
+ * 2. Exact scenario count per bundle (EXPECTED_BUNDLE_COUNTS), and their sum as the total
  * 3. Zero duplicate scenario IDs
  * 4. Zero missing scenario IDs
  *
