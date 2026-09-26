@@ -1021,11 +1021,6 @@ func notRunning(in daemon.Info, err error) error {
 		nameOfSocket(in.Socket), where)
 }
 
-// routes is every path this server answers, in one place.
-
-
-
-
 // fleet is the dashboard's data: every daemon this config directory knows about.
 //
 // The states and their derivation live in internal/adapter/fleet, shared with `magi --agents`. Two

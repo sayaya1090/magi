@@ -2,6 +2,12 @@ package main
 
 import "net/http"
 
+// routes is every path this server answers, in one place.
+//
+// Wrapped where the table is built, not where the server is started: a guard applied at the call
+// site is one a later route can be added beside, and a test that calls the wrapper directly passes
+// either way — measured, by removing the wrapping and watching the check stay green.
+//
 // A list rather than a run of mux.HandleFunc calls because the page links to some of these, and a
 // test checks that everything the page references is a path this binary serves — which is the real
 // meaning of "self-contained", and cannot be checked against a list that exists only as statements.
