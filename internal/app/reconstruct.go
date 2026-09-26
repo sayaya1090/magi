@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,7 +98,7 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 				// index is left intact, so a message that goes on growing after the fold still
 				// finds its parts.
 				entries = append(entries, &entry{seq: ev.Seq, msg: session.Message{
-					ID:    "compaction-" + itoa(ev.Seq),
+					ID:    "compaction-" + strconv.FormatInt(ev.Seq, 10),
 					Role:  session.RoleSystem,
 					Parts: []session.Part{{Kind: session.PartText, Text: foldNote(d, topics)}},
 				}})
@@ -120,7 +121,7 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 				text += "\n\n" + h
 			}
 			summary := &entry{seq: ev.Seq, msg: session.Message{
-				ID:    "compaction-" + itoa(ev.Seq),
+				ID:    "compaction-" + strconv.FormatInt(ev.Seq, 10),
 				Role:  session.RoleSystem,
 				Parts: []session.Part{{Kind: session.PartText, Text: text}},
 			}}
@@ -198,7 +199,7 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 // the same bytes and the prefix cache holds across steps.
 func elideStub(n int) json.RawMessage {
 	b, _ := json.Marshal("[tool result elided to keep the conversation inside the context window (" +
-		itoa(int64(n)) + " bytes). It is re-derivable: re-read the file or re-run the command if it is needed again.]")
+		strconv.Itoa(n) + " bytes). It is re-derivable: re-read the file or re-run the command if it is needed again.]")
 	return b
 }
 
@@ -375,28 +376,6 @@ func rebuildMessages(evs []event.Event, ids []string) []session.Message {
 		out = append(out, e.msg)
 	}
 	return out
-}
-
-func itoa(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }
 
 // foldNote is what a READER is told where a compaction happened. It says what the agent lost, not

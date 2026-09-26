@@ -203,31 +203,3 @@ func TestTruncateOutput(t *testing.T) {
 		t.Errorf("truncateOutput = %q", got)
 	}
 }
-
-// itoa formats int64s including zero and negatives, matching strconv semantics.
-func TestItoa(t *testing.T) {
-	for _, n := range []int64{0, 7, -7, 12345, -98765} {
-		if got, want := itoa(n), fmtInt(n); got != want {
-			t.Errorf("itoa(%d) = %q, want %q", n, got, want)
-		}
-	}
-}
-
-func fmtInt(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var digs []byte
-	for n > 0 {
-		digs = append([]byte{byte('0' + n%10)}, digs...)
-		n /= 10
-	}
-	if neg {
-		return "-" + string(digs)
-	}
-	return string(digs)
-}

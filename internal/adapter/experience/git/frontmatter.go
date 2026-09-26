@@ -1,6 +1,9 @@
 package git
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // A skill may open with a small YAML-ish header. It does not have to.
 //
@@ -150,7 +153,7 @@ func renderHeader(h skillHeader, body string) string {
 		b.WriteString("agent-groups: [" + strings.Join(h.AgentGroups, ", ") + "]\n")
 	}
 	if h.Observed > 0 {
-		b.WriteString("observed: " + itoa(h.Observed) + "\n")
+		b.WriteString("observed: " + strconv.Itoa(h.Observed) + "\n")
 	}
 	if h.FirstSeen != "" {
 		b.WriteString("first-seen: " + h.FirstSeen + "\n")

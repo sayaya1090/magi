@@ -902,25 +902,4 @@ func arr(d map[string]any, k string) []any {
 }
 
 // itoa writes a whole number the way the other copies write it — no decimal point on a count.
-func itoa(f float64) string {
-	n := int64(f)
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [24]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
-}
+func itoa(f float64) string { return strconv.FormatInt(int64(f), 10) }

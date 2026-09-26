@@ -480,18 +480,6 @@ func sanitize(s string) string {
 	}, s)
 }
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
-}
-
 // SkillInfo is one stored skill with the header a person governing the store needs.
 //
 // Retrieve answers "what is relevant to this query" and returns three; this answers "what is in
