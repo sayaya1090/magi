@@ -1954,58 +1954,12 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun openAnswerRecoveryDialog(item: dev.sayaya.magi.ide.usecase.AnswerDrafts.Recovery) {
-            val dlg = object : com.intellij.openapi.ui.DialogWrapper(project, true) {
-                val fullText = com.intellij.ui.components.JBTextArea(item.text).apply {
-                    isEditable = false
-                    lineWrap = true
-                    wrapStyleWord = true
-                }
-                init {
-                    title = MagiBundle.msg("chat.answer.recovery.detail.title")
-                    init()
-                }
-                override fun createCenterPanel(): javax.swing.JComponent {
-                    val reasonText = when (item.reason) {
-                        dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_SESSION_CHANGED ->
-                            MagiBundle.msg("chat.answer.recovery.reason.session_changed")
-                        dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_QUESTION_LEFT ->
-                            MagiBundle.msg("chat.answer.recovery.reason.question_left")
-                        dev.sayaya.magi.ide.usecase.AnswerDrafts.REASON_SUBMISSION_FAILED ->
-                            MagiBundle.msg("chat.answer.recovery.reason.submission_failed")
-                        else -> item.reason
-                    }
-                    val form = com.intellij.util.ui.FormBuilder.createFormBuilder()
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.workspace"), com.intellij.ui.components.JBLabel(project.basePath ?: project.name))
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.session"), com.intellij.ui.components.JBLabel(item.session))
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.callid"), com.intellij.ui.components.JBLabel(item.callId))
-                    val qText = item.questionText
-                    if (!qText.isNullOrBlank()) {
-                        form.addLabeledComponent(MagiBundle.msg("chat.answer.recovery.question"), com.intellij.ui.components.JBLabel(qText))
-                    }
-                    return form
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.reason"), com.intellij.ui.components.JBLabel(reasonText))
-                        .addLabeledComponent(MagiBundle.msg("chat.answer.recovery.fulltext"), com.intellij.ui.components.JBScrollPane(fullText).apply {
-                            preferredSize = java.awt.Dimension(450, 200)
-                        })
-                        .panel
-                }
-
-                override fun createActions(): Array<javax.swing.Action> = arrayOf(
-                    object : DialogWrapperAction(MagiBundle.msg("chat.answer.recovery.copy")) {
-                        override fun doAction(e: java.awt.event.ActionEvent?) {
-                            copyAnswerRecovery(item)
-                        }
-                    },
-                    object : DialogWrapperAction(MagiBundle.msg("chat.answer.recovery.delete")) {
-                        override fun doAction(e: java.awt.event.ActionEvent?) {
-                            deleteAnswerRecovery(item)
-                            close(OK_EXIT_CODE)
-                        }
-                    },
-                    cancelAction.apply { putValue(javax.swing.Action.NAME, MagiBundle.msg("common.cancel")) }
-                )
-            }
-            dlg.show()
+            AnswerRecoveryDialog(
+                project = project,
+                item = item,
+                onCopy = { copyAnswerRecovery(it) },
+                onDelete = { deleteAnswerRecovery(it) },
+            ).show()
         }
 
         /**

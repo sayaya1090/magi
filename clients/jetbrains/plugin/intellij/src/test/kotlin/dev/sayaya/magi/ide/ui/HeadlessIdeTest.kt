@@ -205,7 +205,7 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      */
     fun `test 드롭다운은 긴 항목이 와도 판을 안 벌린다`() {
         val c = MagiConfigurable(project)
-        val panel = c.createComponent()!!
+        val panel = c.createComponent()
         val combos = ArrayList<javax.swing.JComboBox<*>>()
         fun walk(x: java.awt.Component) {
             if (x is javax.swing.JComboBox<*>) combos += x
@@ -240,7 +240,7 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      */
     fun `test 데몬이 준 긴 글이 판을 안 벌린다`() {
         val c = MagiConfigurable(project)
-        val panel = c.createComponent()!!
+        val panel = c.createComponent()
         val all = ArrayList<java.awt.Component>()
         fun walk(x: java.awt.Component) {
             all += x
@@ -453,7 +453,7 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      */
     fun `test 설정 화면의 못 붙었다는 맨 위에 눈에 띄게 선다`() {
         val cfg = MagiConfigurable(project)
-        val root = cfg.createComponent()!!
+        val root = cfg.createComponent()
         val layout = root.layout as java.awt.GridBagLayout
         // 첫 줄에 있는 컴포넌트를 찾는다. 「맨 위」는 자리이지 이름이 아니라, 자리로 잰다.
         val first = root.components.first { c ->

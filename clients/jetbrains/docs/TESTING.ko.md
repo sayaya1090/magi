@@ -1792,3 +1792,14 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
     4. 실제 loopback `HandServer` 연동: 실제 `IdeHand`를 바인딩한 루프백 서버에 없는 파일 `show`를 POST 호출하여 HTTP 200, 요청 ID(99) 보존, `result.isError == true`, 오류 문구 정상 전달을 §6.48의 기한 있는 `executeHttpExchange` 헬퍼를 통해 검증.
   - fixture와 열린 에디터는 준비 시작부터 외곽 `finally`에서 `closeFile` 및 파일 삭제를 독립 try-catch로 안전하게 정리하도록 보완.
 
+
+---
+
+## 6.50 답변 복구 대화상자 분리와 첫 시험 (2026-09-26)
+
+- **무엇이 바뀌었나**: `MagiToolWindow.openAnswerRecoveryDialog` 안의 익명 `DialogWrapper`(약 50줄)를 `AnswerRecoveryDialog` 클래스로 옮겼습니다. 복사·삭제는 콜백(`onCopy`·`onDelete`)으로 받아 툴윈도의 기존 `copyAnswerRecovery`·`deleteAnswerRecovery` 를 그대로 부릅니다. 동작은 같습니다. 곁들여 `HeadlessIdeTest` 의 `createComponent()!!` 세 곳에서 `!!` 를 뺐습니다 — `MagiConfigurable.createComponent()` 는 이미 non-null `JComponent` 를 돌려주어 불필요한 단언 경고였습니다.
+- **새 시험 (`AnswerRecoveryDialogTest`)**: 전에는 이 대화상자가 헤드리스 시험에서 한 번도 열리지 않았습니다(익명 객체라 세울 수 없었음).
+  - `test the dialog shows the item it was opened for, in words`: 대화·호출 id·질문·전문이 그대로 보이고, 사유 코드는 번들 문구로 번역되며 원시 코드(`question_left` 등)는 안 보입니다. 헤드리스라 창이 없으므로 `createCenterPanel()` 이 만드는 판을 읽습니다.
+  - `test copy hands over the item and delete hands it over and closes`: 복사는 항목을 넘기고 창을 닫지 않으며, 삭제는 항목을 넘기고 창을 닫습니다.
+- **변이 검증**: (1) 삭제 뒤 `close(OK_EXIT_CODE)` 제거 → 실패. (2) `REASON_QUESTION_LEFT` 번역 분기 제거 → 실패. 원복 후 초록.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 408 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과(새 시험 2 포함).
