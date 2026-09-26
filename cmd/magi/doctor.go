@@ -162,7 +162,7 @@ func printDoctor(w io.Writer, checks []doctorCheck) int {
 	return exit
 }
 
-// osGOOS is indirection-free in production; tests build doctorDeps directly.
+// defaultDoctorGOOS is the platform doctor reports on in production; tests build doctorDeps directly.
 //
 //coverage:ignore returns the constant this binary was compiled for
 func defaultDoctorGOOS() string { return runtime.GOOS }
