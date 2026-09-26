@@ -178,6 +178,16 @@ test('resolveOutputItem distinguishes tool call seq from tool result seq and res
   assert.ok(colonItem);
   assert.equal(colonItem.content, 'hello from colon call');
   assert.equal(colonItem.title, 'bash 결과');
+
+  // Two calls in one step: each result is titled by ITS call, not by whichever call came first.
+  const twoCalls: Event[] = [
+    { seq: 40, type: 'part.appended', data: { role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'c_read', name: 'read' } } } },
+    { seq: 41, type: 'part.appended', data: { role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'c_bash', name: 'bash' } } } },
+    { seq: 42, type: 'part.appended', data: { role: 'tool', part: { kind: 'tool-result', toolResult: { callId: 'c_read', content: 'file body' } } } },
+    { seq: 43, type: 'part.appended', data: { role: 'tool', part: { kind: 'tool-result', toolResult: { callId: 'c_bash', content: 'ok' } } } },
+  ];
+  assert.equal(resolveOutputItem(twoCalls, 'tool:c_bash:43')?.title, 'bash 결과');
+  assert.equal(resolveOutputItem(twoCalls, 'tool:c_read:42')?.title, 'read 결과');
 });
 
 test('resolveOutputItem formats structured tool results with JSON and marks (JSON) in title', () => {

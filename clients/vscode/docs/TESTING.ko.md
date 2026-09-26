@@ -1389,3 +1389,12 @@ node --test clients/vscode/out/test/*.property.test.js
 - **변이 검증**: (1) 뷰 태그 뒤에 인라인 `<script nonce>` 본문을 되살림 → tsc 통과, 위 가드만 실패. (2) 뷰 태그를 HTML 주석으로 바꿈 → tsc 통과, 위 가드가 「fewer script tags」로 실패. (3) `.vscodeignore` 에 `out/web/chat_view.bundle.js` 추가 → 실제 `vsce` 패키징 시험이 「VSIX missing extension/out/web/chat_view.bundle.js」로 실패. 모두 원복 후 560/0.
   - ⚠ 변이 실행 중 VSIX 4건도 빨갰는데, 이는 `tsc` 만 돌리고 에셋 빌드를 건너뛰어 `markdown_render.js` 가 번들 안 된 산출물로 덮인 탓입니다. 변이 없이 같은 절차로 대조해 똑같이 4건 실패함을 확인했습니다. `npm test` 는 둘 다 돌리므로 해당하지 않습니다.
 - **실측**: `npm test` 560 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.
+
+---
+
+### 6.49 메시지 조각 읽기를 한 모양으로 (`core/part.ts`)
+
+- **무엇이 바뀌었나**: 전사 접기(`transcript.ts`)는 조각을 `PartLike` 로 읽고, 출력 문서(`output.ts`)는 같은 조각을 `as any` 사슬 다섯 번과 손으로 베낀 `toolResult` 타입으로 읽었습니다. `PartLike` 와 `partOf(e)` 를 `src/core/part.ts` 로 옮겨 둘이 함께 씁니다. (`transcript.ts` 가 이미 `output.ts` 를 임포트하므로 거꾸로는 순환이고, `protocol.ts` 는 wire 시험이 Go 구조체와 대조하는 파일이라 새 모듈에 둡니다.)
+- **새 시험**: `output.test.ts` 「resolves tool name from call」에 한 단계 안의 호출 둘(`read`·`bash`)을 더했습니다. 각 결과의 제목은 **그 호출**의 도구 이름이어야 합니다. 이전에는 이것을 재는 시험이 없었습니다 — 아래 변이 (2)가 고치기 전 트리에서도 살아남았습니다.
+- **변이 검증**: (1) `partOf` 가 늘 빈 조각을 돌려줌 → 5건 실패. (2) 도구 이름을 찾을 때 callId 대조를 뺌 → 새 단언이 실패(시험 추가 전에는 560/0 으로 통과). 원복 후 초록.
+- **실측**: `npm test` 560 pass / 0 fail(새 단언은 기존 시험 안에 들어가 시험 수는 그대로), `node tools/transcript-test.mjs` 7 passed.

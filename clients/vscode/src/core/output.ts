@@ -8,6 +8,7 @@
  */
 
 import { Event } from './protocol';
+import { partOf } from './part';
 import { ImmutableSnapshotStore } from './snapshot';
 
 export { ImmutableSnapshotStore } from './snapshot';
@@ -119,15 +120,12 @@ export function resolveOutputItem(events: Event[], outputId: string): OutputItem
     const resultEv = events.find(
       (e) =>
         e.seq === parsed.resultSeq &&
-        e.type === 'part.appended' &&
-        (e.data as any)?.part?.kind === 'tool-result' &&
-        (e.data as any)?.part?.toolResult?.callId === parsed.callId
+        partOf(e).kind === 'tool-result' &&
+        partOf(e).toolResult?.callId === parsed.callId
     );
     if (!resultEv) return null;
 
-    const toolResult = (resultEv.data as any)?.part?.toolResult as
-      | { callId?: string; content?: unknown; isError?: boolean; advisory?: boolean }
-      | undefined;
+    const toolResult = partOf(resultEv).toolResult;
     if (!toolResult) return null;
 
     const rawContent = toolResult.content;
@@ -136,12 +134,9 @@ export function resolveOutputItem(events: Event[], outputId: string): OutputItem
     }
 
     const callEv = events.find(
-      (e) =>
-        e.type === 'part.appended' &&
-        (e.data as any)?.part?.kind === 'tool-call' &&
-        (e.data as any)?.part?.toolCall?.callId === parsed.callId
+      (e) => partOf(e).kind === 'tool-call' && partOf(e).toolCall?.callId === parsed.callId
     );
-    const toolName = (callEv?.data as any)?.part?.toolCall?.name || '도구';
+    const toolName = partOf(callEv).toolCall?.name || '도구';
 
     let content: string;
     let language: OutputLanguage;

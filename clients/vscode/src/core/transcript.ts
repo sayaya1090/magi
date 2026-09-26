@@ -1,4 +1,5 @@
 import { Event } from './protocol';
+import { PartLike } from './part';
 import { extractFileNav, FileNav } from './nav_tool';
 import { makeAssistantOutputId, makeToolResultOutputId } from './output';
 
@@ -183,16 +184,6 @@ export interface Row {
   folded?: boolean;
   /** Read-only output document ID for finalized assistant text or tool result. Absent for drafts or unresolvable items. */
   outputId?: string;
-}
-
-interface PartLike {
-  kind?: string;
-  text?: string;
-  /** `image` parts: where the picture is, and what it is. */
-  image?: { path?: string; mime?: string };
-  toolCall?: { callId?: string; name?: string; args?: unknown };
-  toolResult?: { callId?: string; content?: unknown; isError?: boolean; advisory?: boolean };
-  error?: string;
 }
 
 /**
