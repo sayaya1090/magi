@@ -381,7 +381,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 				}
 				return m.snack(p.job + " is already gone"), true
 			}
-			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: p.sid})
+			if err := m.app.Interrupt(m.ctx, command.Interrupt{SessionID: p.sid}); err != nil {
+				return m.snack("could not interrupt " + p.role + " — " + err.Error()), true
+			}
 			return m.snack("interrupting " + p.role), true
 		}
 		if m.focusPane >= 0 {
@@ -390,7 +392,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		if m.running {
-			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: m.sid})
+			// Over a socket (an attached screen) the interrupt can fail, and then the turn keeps
+			// running while the person believes it stopped.
+			if err := m.app.Interrupt(m.ctx, command.Interrupt{SessionID: m.sid}); err != nil {
+				return m.snack("could not interrupt — " + err.Error()), true
+			}
 			return nil, true
 		}
 	case "alt+enter", "ctrl+j", "shift+enter":

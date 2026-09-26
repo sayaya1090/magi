@@ -471,6 +471,10 @@ type shellResultMsg struct {
 // snackClearMsg auto-dismisses a snackbar after its delay (seq guards staleness).
 type snackClearMsg struct{ seq int }
 
+// noticeMsg is a line for the snackbar from a command that ran off the update loop — the reply to
+// something the person did, which they would otherwise never hear.
+type noticeMsg string
+
 // snack shows a transient bottom notice and returns the auto-dismiss timer cmd.
 func (m *Model) snack(text string) tea.Cmd {
 	m.snackbar = text
@@ -597,6 +601,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sendFailedMsg:
 		return m, m.applySendFailed(msg)
+
+	case noticeMsg:
+		return m, m.snack(string(msg))
 
 	case providersMsg:
 		if msg.note != "" {

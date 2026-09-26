@@ -14,16 +14,22 @@ import (
 
 // answerQuestion resolves the open ask_user modal with the picked option ("" =
 // dismissed) and hands it to the blocked tool execution.
+//
+// A refused answer is said. The engine refuses one that is no longer wanted — another screen on the
+// same daemon answered first, or the prompt expired — and telling this screen it succeeded would
+// leave a person watching the opposite of what they chose with no reason to doubt it.
 func (m *Model) answerQuestion(answer string) tea.Cmd {
 	q := m.quest
 	m.quest = nil
 	sid := m.sid
 	m.refresh()
 	return func() tea.Msg {
-		_ = m.app.RespondQuestion(m.ctx, command.RespondQuestion{
+		if err := m.app.RespondQuestion(m.ctx, command.RespondQuestion{
 			SessionID: sid, CallID: q.callID, Answer: answer,
 			Actor: event.Actor{Kind: event.ActorUser, ID: "tui"},
-		})
+		}); err != nil {
+			return noticeMsg("answer not delivered — " + err.Error())
+		}
 		return nil
 	}
 }
@@ -36,10 +42,12 @@ func (m *Model) respond(decision string) tea.Cmd {
 		sid = m.sid
 	}
 	return func() tea.Msg {
-		_ = m.app.RespondPermission(m.ctx, command.RespondPermission{
+		if err := m.app.RespondPermission(m.ctx, command.RespondPermission{
 			SessionID: sid, CallID: p.callID, Decision: decision,
 			Actor: event.Actor{Kind: event.ActorUser, ID: "tui"},
-		})
+		}); err != nil {
+			return noticeMsg("decision not delivered — " + err.Error())
+		}
 		return nil
 	}
 }
