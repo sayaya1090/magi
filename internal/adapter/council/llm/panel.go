@@ -328,12 +328,11 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		return out, panelClose{}
 	}
 
-	schema := panelSchemaFor(req.Keep)
 	// The judging instruction is the same text every other shape uses; only the roster and the
-	// independence clause are added, and the identity line is replaced by the roster.
-	body := panelBody(members, req.SuiteWalk)
-	sys := body + orientAssembled + fmt.Sprintf(councilCore, keepClauseFor(req.Keep)) +
-		fmt.Sprintf(councilGrounds, citeNoEvidence, schema)
+	// independence clause are added, and the identity line is replaced by the roster. Built by
+	// panelPromptFor and nothing else, so the prompt the tests read is the one that is sent — this
+	// line used to repeat the expression, and the tests were reading a copy of it.
+	sys := panelPromptFor(members, req.Keep, req.SuiteWalk)
 	user := evidence(req)
 	sys = withLangNote(sys, req.Task)
 
