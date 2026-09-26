@@ -12,7 +12,7 @@ import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
 import { OutputProvider, openOutputDocument } from './output';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
-import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath } from '../core/nav';
+import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath, ActionOriginOptions } from '../core/nav';
 import { parseWebviewToHostMessage, HostToWebviewMessage } from '../core/webview_protocol';
 import { renderChatHtml } from '../web/chat_html';
 
@@ -549,13 +549,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         break;
       case 'diff': {
         await resolveAndOpenDiff({
-          m,
-          session: this.session,
-          companionWorkdir: this.companion.workdir,
-          companionState: this.companion.state.state,
-          asks: this.asks,
-          events: this.events,
-          postNote: (text) => this.post({ kind: 'note', text }),
+          ...this.actionOrigin(m),
           opener: {
             openDiff: (workdir, sessionId, ask) =>
               openApprovalDiff(this.diffProvider, workdir, sessionId, ask),
@@ -565,13 +559,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       }
       case 'open': {
         await resolveAndOpenFile({
-          m,
-          session: this.session,
-          companionWorkdir: this.companion.workdir,
-          companionState: this.companion.state.state,
-          asks: this.asks,
-          events: this.events,
-          postNote: (text) => this.post({ kind: 'note', text }),
+          ...this.actionOrigin(m),
           opener: {
             async openDocument(absPath: string, line?: number) {
               const uri = vscode.Uri.file(absPath);
@@ -728,6 +716,19 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private post(msg: HostToWebviewMessage): void { void this.view?.webview.postMessage(msg); }
+
+  /** What the page's "open this" / "show the diff" request is resolved against: this conversation, as it is now. */
+  private actionOrigin(m: ActionOriginOptions['m']): ActionOriginOptions {
+    return {
+      m,
+      session: this.session,
+      companionWorkdir: this.companion.workdir,
+      companionState: this.companion.state.state,
+      asks: this.asks,
+      events: this.events,
+      postNote: (text) => this.post({ kind: 'note', text }),
+    };
+  }
 
   /**
    * Open the conversation.

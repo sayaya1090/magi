@@ -653,3 +653,26 @@ test('Chat §4.5 Item 1: session-new 실패 시 sessionCreationFailed 이벤트 
 });
 
 
+
+test('Chat: open/diff requests resolve against this conversation as it is now (actionOrigin)', async () => {
+  const companion = createMockCompanion();
+  companion.state = { state: 'working' as any };
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const mockView = createMockWebviewView();
+  (chat as any).openStream = async () => {};
+  chat.resolveWebviewView(mockView.view as any);
+  chat.showSession('sess-7');
+
+  const m = { kind: 'open', callId: 'c1' } as any;
+  const o = (chat as any).actionOrigin(m);
+  assert.equal(o.m, m);
+  assert.equal(o.session, 'sess-7');
+  assert.equal(o.companionWorkdir, '/workspace');
+  assert.equal(o.companionState, 'working');
+  assert.equal(o.asks, (chat as any).asks);
+  assert.equal(o.events, (chat as any).events);
+
+  o.postNote('no such file');
+  assert.deepEqual(mockView.messages.filter((x) => x.kind === 'note' && x.text === 'no such file').length, 1,
+    'postNote must reach the page as a note');
+});

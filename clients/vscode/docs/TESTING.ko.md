@@ -1406,3 +1406,12 @@ node --test clients/vscode/out/test/*.property.test.js
 - **무엇이 바뀌었나**: `switchContext` 끝에서 「일반 초안으로 나감」 반환이 안쪽 else 와 바깥 else 에 글자 그대로 두 벌 있었습니다. 조건을 하나로 합쳐(질문이고, 떠날 때 답하던 그 질문이거나 자유 입력) 한 벌만 둡니다. 동작은 같습니다.
 - **변이 검증**: (1) 자유 입력 질문이 답변 모드로 못 들어가게 함 → 단위 시험 2건 실패. (2) 「떠날 때 답하던 질문」 대조를 뺌 → 단위 시험은 **통과**(0 fail)하고, `transcript-test` 의 `[bundle:asks] 질문·초안` 이 실패합니다. 이 성질은 브라우저 층에서만 재고 있다는 뜻입니다. 원복 후 초록.
 - **실측**: `npm test` 560 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.
+
+---
+
+### 6.51 열기·비교 요청의 문맥을 한 곳에서 짓기 (`Chat.actionOrigin`)
+
+- **무엇이 바뀌었나**: `chat.ts` 의 `diff`·`open` 처리기가 같은 문맥 객체(대화·작업 디렉터리·컴패니언 상태·대기 질문·이벤트·안내 전송) 7필드를 한 벌씩 짓고 있었습니다. `actionOrigin(m)` 하나로 짓고 두 처리기가 펼쳐 씁니다. 펼치지 않으면 필수 필드가 빠져 컴파일이 깨지므로 처리기와의 연결은 타입이 지킵니다.
+- **새 시험**: `chat_host.test.ts` 「open/diff requests resolve against this conversation as it is now」 — 지금 보이는 대화 id·작업 디렉터리·컴패니언 상태·질문 저장소·이벤트가 그대로 실리고, `postNote` 가 페이지에 안내로 닿는지 봅니다. 이전에는 이 처리기들의 문맥을 재는 시험이 없어, 대화 id 를 빈 값으로 바꾸는 변이가 560/0 으로 살아남았습니다.
+- **변이 검증**: `session` 을 빈 값으로 / `companionState` 를 undefined 로 → 각각 새 시험 실패. 원복 후 초록.
+- **실측**: `npm test` 561 pass / 0 fail.
