@@ -1,6 +1,6 @@
-// 워드 66개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:3000/word)에 붙은 **첫 문서**에 순서대로 다 불러 보고 표로 낸다.
+// 워드 66개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:26411/word)에 붙은 **첫 문서**에 순서대로 다 불러 보고 표로 낸다.
 //
-//   node clients/word/addin/tools/sweep.mjs [--deck <wd-…>] [--docx <다른 문서.docx>] [--origin https://127.0.0.1:3000/word]
+//   node clients/word/addin/tools/sweep.mjs [--deck <wd-…>] [--docx <다른 문서.docx>] [--origin https://127.0.0.1:26411/word]
 //
 // 문서 **끝에** 문단 셋을 붙이고 그 아래에서만 논다(표·목록·그림·필드·내용 컨트롤). 끝에 그 문단부터 끝까지 지우고 바닥글·속성·
 // 메모(태그)·제안을 되돌린다 — 앞에 있던 글은 안 건드린다. 토큰은 헬퍼 페이지에서, 문서는 /api/documents 에서 얻는다.
@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const here = dirname(fileURLToPath(import.meta.url));
-const opt = { deck: '', docx: '', origin: 'https://127.0.0.1:3000/word' };
+const opt = { deck: '', docx: '', origin: 'https://127.0.0.1:26411/word' };
 for (let i = 2; i < process.argv.length; i += 2) { const k = process.argv[i].replace(/^--/, ''); if (k in opt) opt[k] = process.argv[i + 1] ?? ''; }
 const page = await (await fetch(opt.origin + '/taskpane.html')).text();
 const m = page.match(/token[^a-zA-Z0-9]{1,6}([A-Za-z0-9_-]{16,})/);

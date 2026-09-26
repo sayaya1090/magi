@@ -11,7 +11,7 @@ import { FakeHand } from '../src/adapter/FakeHand.js';
 import { fixture } from '../src/ui/docFixture.js';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // 헬퍼의 자가 서명 인증서 — 시험 도구에서만
-const origin = process.argv[2] ?? 'https://127.0.0.1:3002';
+const origin = process.argv[2] ?? 'https://127.0.0.1:26411/word';
 const token = process.env.TOKEN ?? '';
 if (!token) { console.error('TOKEN 이 없다'); process.exit(2); }
 

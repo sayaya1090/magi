@@ -1,6 +1,6 @@
-// 엑셀 76개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:3000/xl)에 붙은 **첫 통장**에 순서대로 다 불러 보고 표로 낸다.
+// 엑셀 76개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:26411/xl)에 붙은 **첫 통장**에 순서대로 다 불러 보고 표로 낸다.
 //
-//   node clients/excel/addin/tools/sweep.mjs [--deck <wb-…>] [--xlsx <다른 통장.xlsx>] [--origin https://127.0.0.1:3000/xl]
+//   node clients/excel/addin/tools/sweep.mjs [--deck <wb-…>] [--xlsx <다른 통장.xlsx>] [--origin https://127.0.0.1:26411/xl]
 //
 // 「스윕」시트를 만들어 그 안에서만 놀고 끝에 지운다 — 원본 시트는 안 건드린다(통장 속성·메모·제안은 되돌린다).
 // 토큰은 헬퍼 페이지에서, 통장은 /api/documents 에서 얻는다. 그림 답은 이 파일 옆 sweep_<도구>.png 로 떨어진다.
@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const here = dirname(fileURLToPath(import.meta.url));
-const opt = { deck: '', xlsx: '', origin: 'https://127.0.0.1:3000/xl' };
+const opt = { deck: '', xlsx: '', origin: 'https://127.0.0.1:26411/xl' };
 for (let i = 2; i < process.argv.length; i += 2) { const k = process.argv[i].replace(/^--/, ''); if (k in opt) opt[k] = process.argv[i + 1] ?? ''; }
 const page = await (await fetch(opt.origin + '/taskpane.html')).text();
 const m = page.match(/token[^a-zA-Z0-9]{1,6}([A-Za-z0-9_-]{16,})/);
