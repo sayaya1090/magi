@@ -1434,3 +1434,9 @@ node --test clients/vscode/out/test/*.property.test.js
   - `core/complete.ts` 의 `whyCodeNoCompletion()`: 「쓸 사람이 있을지 모른다」며 9248f00a 에 같이 들어왔고 끝내 부르는 곳이 없었습니다.
   - `core/webview_protocol.ts` 의 `AskSchema`: 실제로 쓰이는 것은 `NullableAskSchema` 입니다.
 - **실측**: `npm test` 562 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.
+
+### Windows 에디터 핸드 경로 회귀
+
+`hand_provider.test.ts`는 `os.tmpdir()` 아래 공백과 #을 포함한 작업 경로를 만들고 `path.join()`으로 모의 문서 키와 기대 경로를 구성합니다. POSIX 절대 경로를 Windows 문서 키로 사용하지 않습니다. 거절 사유와 성공 문구는 해당 네이티브 경로를 포함한 전체 문자열로 비교하며 실제 HTTP tools/call 검사도 유지합니다.
+
+`test-vscode`의 `windows-hand` 작업은 Windows 러너에서 빌드 후 `hand_provider.test.js`와 `hand_lifecycle.test.js`를 실행합니다. Ubuntu 전체 테스트는 그대로 유지합니다. 이 Windows 검증은 Node 호스트 모의 테스트이며 VS Code GUI나 IME 실물 검증이 아닙니다.

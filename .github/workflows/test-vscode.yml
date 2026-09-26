@@ -65,3 +65,20 @@ jobs:
             echo "::error::only ${n:-0} tests ran; this suite has over 220 — the runner was handed a pattern that matched (almost) nothing"
             exit 1
           fi
+
+  windows-hand:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: clients/vscode
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: build
+        run: npm run build
+      - name: editor hand host tests on native Windows paths
+        run: node --test out/test/hand_provider.test.js out/test/hand_lifecycle.test.js
