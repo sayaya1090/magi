@@ -1076,3 +1076,37 @@ Office.js 에 글꼴 스킴이 없다는 것은 레퍼런스로 확인했다(`Sl
 ## 통합 헬퍼 재확인
 
 - **2026-09-06 저녁, 통합 헬퍼(`magi office`, 3000 의 `/ppt`) 재확인**: 새 인증서 하나를 넣고 PowerPoint 를 다시 켠 뒤 작업창이 붙어(`pid-…`) 바인딩(도구 48)·`list_slides`·`add_slide`·`render_slide` OK. ⚠떠 있던 프로그램은 옛 매니페스트를 물고 있다 — 매니페스트를 바꾸면 껐다 켜야 새 주소를 읽는다.
+
+## 스트림 상태를 묶음의 세대로 가른다 — #201 §6.50 (2026-09-27, Windows)
+
+`d740cef2` 는 대화를 옮긴 뒤 옛 스트림의 사건·restart 가 새 대화의 history·lastSeq 에 섞이는 것을 막았다. 검토자(#201 §6.50)가
+나머지를 짚었다: `stream` 은 read 가 돌아오자마자 ctx 를 보기 전에 `live·empty` 를 썼고, `readOnce` 의 붙음(`live=true`)과 끊김
+안내는 검증 없는 `push` 로 나갔다 — 옮긴 뒤 새 스트림이 세운 live=true 를 옛 일꾼이 false 로 되돌렸다. 그리고 `BindWith` 는 옛
+cancel 을 부르고 락을 풀었다가 새 cancel 을 적었으므로, 동시에 온 Bind 둘이면 둘째가 첫째의 cancel 을 덮어 **첫째 일꾼이 영영
+안 끊겼다**.
+
+고친 것(`clients/office/helper/bridge.go`): 묶음마다 세대(gen)를 올리고(`BindWith`·`Stop`), 옛 cancel 부르기·세대 올리기·새
+cancel 설치를 한 락 안에서 한다. 스트림 일꾼이 쓰는 상태와 내는 알림은 **전부 `forGen`** 을 거친다 — b.mu 를 쥐고 세대·ctx·멈춤을
+본 뒤에만 쓰고, 알림은 같은 락 안에서 막히지 않게(버리는 쪽으로) 넣는다. 같은 대화로 다시 묶어도 옛 세대는 거절된다. 빈 대화 거절도
+옛 일꾼을 무효로 한다.
+
+시험(`bridge_gen_test.go`, 시간 대신 채널 장벽으로 순서를 고정하고 옛 일꾼의 끝은 `streamDone` 으로 본다):
+옛 read 가 도는 중 다른 대화·같은 대화로 다시 묶고 새 스트림이 live·사건을 세운 뒤 옛 read 가 끊김으로 돌아옴 → 새 상태·알림 보존;
+멈춘 뒤 늦은 연결 성공·실패 → 아무것도 안 바뀜; 지금 세대의 붙음→사건→restart→끊김 안내와 빈 대화는 그대로 됨; 동시 Bind 둘 → 남는
+일꾼과 cancel 의 주인이 마지막 세대; 같은 대화·살아 있는 ctx·옛 세대 → 세대 하나로 거절.
+
+변이: 세대 검사를 빼면 마지막 시험이 빨강(다른 시험은 ctx 검사로도 막혀 못 잡았다 — 그래서 그 시험을 더했다), 읽기 끝의 상태 쓰기를
+검증 없이 하면 빨강, cancel 설치를 락 밖으로 되돌리면 동시 Bind 시험이 200회 중 9회 빨강.
+
+검사 SHA `56bc3adb` 위의 작업 트리. 실행:
+
+| 명령 | 결과 |
+|---|---|
+| `go test -cpu 1,2 -run '…Subscriber…|…Rebound…|Test.*Binding|Test.*Stream' -count=20 ./clients/office/helper` | 통과 |
+| `go test ./clients/office/helper/...` · `go vet`(windows·darwin) | 통과 |
+| `go test -race …` | **미실행** — 이 Windows 에 cgo(gcc)가 없다. macOS 세션에 요청 |
+| JetBrains `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks` | core 404(건너뜀 6) 통과 · 헤드리스 156 중 1 실패 — 따로 돌리면 `HeadlessIdeTest` 31 중 2 실패. 이 변경은 Kotlin 을 안 건드린다 |
+| VS Code `npm test --prefix clients/vscode` | 570 중 555 통과·7 실패·8 건너뜀 — 실패 일곱은 §6.47 `hand_provider.test` 의 POSIX 경로 픽스처(`/test/workspace/a.txt` → Windows 에서 `C:\test\…`) |
+| 전체 Playwright `node clients/vscode/tools/transcript-test.mjs` | JetBrains 빌드와 겹친 세 번은 layout 「빈 안내 표시가 메시지를 보내지 않는다」에서 실패, 부하 없이 세 번은 7/7 통과 — 부하에 흔들리는 시나리오 |
+
+IDE·Office 실물 검증은 이 변경으로 하지 않았다(스트림 경계는 시험 주입으로 잰다).

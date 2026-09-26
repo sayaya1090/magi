@@ -276,7 +276,7 @@ func TestAnEmptyConversationIsNotABrokenStream(t *testing.T) {
 	b := NewBridge()
 	defer b.Stop()
 	var calls int32
-	b.read = func(ctx context.Context, _, _ string, _ int64) error {
+	b.read = func(ctx context.Context, _ uint64, _, _ string, _ int64) error {
 		atomic.AddInt32(&calls, 1)
 		return errors.New(`no conversation "s_x" in this workspace — ` + "`sessions`" + ` lists them`)
 	}
@@ -389,19 +389,19 @@ func TestALateSubscriberGetsTheConversationSoFar(t *testing.T) {
 func TestAStreamThatWasReboundAwayDeliversNothing(t *testing.T) {
 	b := NewBridge()
 	b.mu.Lock()
-	b.session, b.lastSeq = "sess-new", -1
+	b.session, b.lastSeq, b.gen = "sess-new", -1, 2 // 옛 묶음은 세대 1, 지금은 2
 	b.mu.Unlock()
 	ch, unsub := b.Subscribe()
 	defer unsub()
 	drain(t, ch, "stream", time.Second)
 
 	ev := StreamFrame{Kind: "event", Data: json.RawMessage(`{"seq":7,"sessionId":"sess-old"}`)}
-	if b.deliver(context.Background(), "sess-old", ev, 7) {
+	if b.deliver(context.Background(), 1, "sess-old", ev, 7) {
 		t.Fatal("옛 대화의 스트림이 계속 읽으라는 답을 받았다")
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if b.deliver(cancelled, "sess-new", ev, 7) {
+	if b.deliver(cancelled, 2, "sess-new", ev, 7) {
 		t.Fatal("취소된 스트림이 계속 읽으라는 답을 받았다")
 	}
 	b.mu.Lock()
@@ -417,7 +417,7 @@ func TestAStreamThatWasReboundAwayDeliversNothing(t *testing.T) {
 	}
 
 	// 지금의 묶음이면 그대로 간다 — 막는 자리가 전부 막는 것은 아니어야 한다.
-	if !b.deliver(context.Background(), "sess-new", ev, 7) {
+	if !b.deliver(context.Background(), 2, "sess-new", ev, 7) {
 		t.Fatal("지금 묶인 대화의 프레임을 막았다")
 	}
 	if f := drain(t, ch, "event", time.Second); string(f.Data) != string(ev.Data) {

@@ -56,9 +56,13 @@ type Bridge struct {
 	// 답해 물음이 내려갔을 때 창이 「무엇으로 답했는지 모른다」 대신 결정을 적을 수 있다(2026-09-05).
 	answered struct{ id, decision string }
 	// read 는 한 번 붙어서 끝까지 읽는 함수. 시험이 바꿔 낀다.
-	read      func(ctx context.Context, socket, sid string, since int64) error
-	lastSeq   int64
-	listeners map[chan StreamFrame]struct{}
+	read func(ctx context.Context, gen uint64, socket, sid string, since int64) error
+	// gen 은 지금 묶음의 세대 — BindWith·Stop 이 올린다. 스트림 일꾼은 제 세대를 들고 다니며 forGen 으로만 상태를 바꾼다(#201 §6.50).
+	gen uint64
+	// streamDone 은 스트림 일꾼 하나가 끝났다는 알림 — 시험이 「옛 일꾼이 다 끝났다」를 시간에 기대지 않고 보려고 건다(nil 이면 아무것도 안 한다).
+	streamDone func(gen uint64)
+	lastSeq    int64
+	listeners  map[chan StreamFrame]struct{}
 	// history 는 지금 묶인 대화의 event 프레임 전부(상한 historyCap). 창은 열릴 때마다 새로 붙고
 	// 이 피드는 붙은 뒤의 프레임만 흘렸다 — 그래서 창을 다시 열면 그 대화의 앞이 비어 있었다
 	// (사용자 지적 2026-09-05: 「리로드하면 과거 대화도 뿌려 달라」). 늦게 붙는 쪽에 되풀이한다.
@@ -164,28 +168,33 @@ func firstOr(xs []string, or string) string {
 
 // BindWith 는 Bind 에 생애와 도구까지 적는 것.
 func (b *Bridge) BindWith(socket, sid, life string, tools []string) error {
+	// ⚠ **옛 스트림을 끊는 일과 새 스트림을 세우는 일은 한 락 안에서 한다.** 앞의 판은 옛 cancel 을 부르고 락을 풀었다가
+	// 새 cancel 을 다시 락 안에서 적었다 — 그 틈에 다른 Bind 가 끼면 둘째가 첫째의 cancel 을 덮어, **첫째 스트림은 영영
+	// 취소되지 않은 채** 돌았다(#201 §6.50). 세대(gen)도 여기서 올린다: 이 호출 뒤로 옛 세대의 스트림은 상태 하나, 알림
+	// 하나도 못 바꾼다(forGen). 같은 대화로 다시 묶어도 세대는 새것이다.
 	b.mu.Lock()
 	if b.cancel != nil {
 		b.cancel()
 		b.cancel = nil
 	}
+	b.gen++
 	if b.session != sid {
 		b.lastSeq = -1
 		b.history = nil
 	}
-	b.socket, b.session, b.live = socket, sid, false
+	b.socket, b.session, b.live, b.empty = socket, sid, false, false
 	b.life, b.tools = life, append([]string(nil), tools...)
 	b.stopped = false
-	b.mu.Unlock()
-
 	if sid == "" {
+		// 빈 대화는 거절한다 — 옛 스트림은 위에서 이미 무효가 됐고, 새 일꾼은 세우지 않는다.
+		b.mu.Unlock()
 		return errors.New("이 컴패니언은 아직 대화가 없습니다 — 한 번 말을 걸면 생깁니다")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	b.mu.Lock()
 	b.cancel = cancel
+	gen := b.gen
 	b.mu.Unlock()
-	go b.stream(ctx, socket, sid)
+	go b.stream(ctx, gen, socket, sid)
 	return nil
 }
 
@@ -213,6 +222,7 @@ func (b *Bridge) Empty() bool {
 func (b *Bridge) Stop() {
 	b.mu.Lock()
 	b.stopped = true
+	b.gen++ // 늦게 돌아오는 읽기가 멈춘 묶음의 상태를 되살리지 못하게
 	if b.cancel != nil {
 		b.cancel()
 		b.cancel = nil
@@ -221,43 +231,51 @@ func (b *Bridge) Stop() {
 }
 
 // stream 은 대화를 읽어 애드인으로 흘린다. 끊기면 다시 붙는다(§5.4 — 하트비트를 두지 않는다).
-func (b *Bridge) stream(ctx context.Context, socket, sid string) {
+//
+// 이 일꾼이 쓰는 상태(live·empty·lastSeq·history)와 내는 알림은 **전부 forGen 을 거친다** — 이 일꾼의 세대가 아직
+// 지금의 묶음일 때만. 앞의 판은 read 가 돌아오자마자 ctx 를 보기도 전에 live·empty 를 썼고, 그 사이 다른 대화로
+// 옮겨 새 스트림이 live=true 를 세웠으면 옛 일꾼이 그것을 false 로 되돌렸다(#201 §6.50, 검토자가 주입 read 로 재현).
+func (b *Bridge) stream(ctx context.Context, gen uint64, socket, sid string) {
+	if done := b.streamDone; done != nil {
+		defer done(gen)
+	}
 	backoff := 200 * time.Millisecond
-	for ctx.Err() == nil {
-		b.mu.Lock()
-		since := b.lastSeq
-		b.mu.Unlock()
-
+	for {
+		var since int64
+		if !b.forGen(ctx, gen, func() []StreamFrame { since = b.lastSeq; return nil }) {
+			return
+		}
 		read := b.read
 		if read == nil {
 			read = b.readOnce
 		}
-		err := read(ctx, socket, sid, since)
+		err := read(ctx, gen, socket, sid, since)
 		empty := isEmptyConversation(err)
-		b.mu.Lock()
-		wasLive, wasEmpty := b.live, b.empty
-		b.live, b.empty = false, empty
-		b.mu.Unlock()
-		if ctx.Err() != nil {
-			return
-		}
-		switch {
-		case empty && !wasEmpty:
-			// 빈 대화: 끊긴 것이 아니라 아직 시작 전이다. 그렇게 말하고, 조용히 다시 붙어 본다.
-			b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{
-				"live": false, "empty": true, "session": sid,
-			}))})
-		case empty:
-			// 이미 말했다 — 되풀이하지 않는다.
-		default:
+		still := b.forGen(ctx, gen, func() []StreamFrame {
+			wasLive, wasEmpty := b.live, b.empty
+			b.live, b.empty = false, empty
+			switch {
+			case empty && !wasEmpty:
+				// 빈 대화: 끊긴 것이 아니라 아직 시작 전이다. 그렇게 말하고, 조용히 다시 붙어 본다.
+				return []StreamFrame{{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{
+					"live": false, "empty": true, "session": sid,
+				}))}}
+			case empty:
+				return nil // 이미 말했다 — 되풀이하지 않는다.
+			}
+			var out []StreamFrame
 			if wasLive || wasEmpty {
-				b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(`{"live":false}`)})
+				out = append(out, StreamFrame{Kind: "stream", Data: json.RawMessage(`{"live":false}`)})
 			}
 			if err != nil {
-				b.push(StreamFrame{Kind: "note", Data: json.RawMessage(mustJSON(map[string]any{
+				out = append(out, StreamFrame{Kind: "note", Data: json.RawMessage(mustJSON(map[string]any{
 					"note": "대화 스트림이 끊겼습니다: " + err.Error(),
 				}))})
 			}
+			return out
+		})
+		if !still {
+			return // 옮겨 갔거나 멈췄다 — 끊겼다는 안내도 내지 않는다(취소된 읽기의 오류는 사람에게 할 말이 아니다).
 		}
 		select {
 		case <-ctx.Done():
@@ -270,7 +288,7 @@ func (b *Bridge) stream(ctx context.Context, socket, sid string) {
 	}
 }
 
-func (b *Bridge) readOnce(ctx context.Context, socket, sid string, since int64) error {
+func (b *Bridge) readOnce(ctx context.Context, gen uint64, socket, sid string, since int64) error {
 	cl, err := daemon.Dial(socket)
 	if err != nil {
 		return err
@@ -281,49 +299,75 @@ func (b *Bridge) readOnce(ctx context.Context, socket, sid string, since int64) 
 		cl.Close() // 읽는 중인 연결을 끊는 유일한 길
 	}()
 
-	b.mu.Lock()
-	b.live, b.empty = true, false
-	b.mu.Unlock()
-	b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{"live": true, "session": sid}))})
+	// 붙었다 — 그러나 그 사이 옮겨 갔으면 「살아 있다」고 말할 자격이 없다.
+	if !b.forGen(ctx, gen, func() []StreamFrame {
+		b.live, b.empty = true, false
+		return []StreamFrame{{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{"live": true, "session": sid}))}}
+	}) {
+		return errStaleStream
+	}
 
 	return cl.Transcript(sid, since, func(why string) {
 		// **서버가 커서를 거절하면 이벤트보다 먼저 이 프레임 하나가 온다**(`answerable`).
 		// 안 읽으면 화면에 있던 대화 뒤에 같은 대화의 처음이 붙는다 — 작업창은 PowerPoint 를
 		// 껐다 켤 때마다 새로 붙으므로 이 프레임을 제일 자주 받는 쪽이 우리다(§5.7).
-		b.deliver(ctx, sid, StreamFrame{Kind: "restart", Data: json.RawMessage(mustJSON(map[string]any{"why": why}))}, -1)
+		b.deliver(ctx, gen, sid, StreamFrame{Kind: "restart", Data: json.RawMessage(mustJSON(map[string]any{"why": why}))}, -1)
 	}, func(ev event.Event) bool {
 		// **커서를 미는 것은 `seq > 0` 인 이벤트뿐이다**(§5.7). 로그에 안 앉는 이벤트는 `Seq`
 		// 가 0 이고, 0 은 이 문의 계약에서 「전부」다 — 그대로 커서에 넣으면 다시 붙을 때 화면이
 		// 두 벌이 되고, 그 사고가 **아무 소리 없이** 일어난다.
-		return b.deliver(ctx, sid, StreamFrame{Kind: "event", Data: json.RawMessage(mustJSON(ev))}, ev.Seq)
+		return b.deliver(ctx, gen, sid, StreamFrame{Kind: "event", Data: json.RawMessage(mustJSON(ev))}, ev.Seq)
 	})
 }
+
+// errStaleStream 은 「붙는 사이 묶음이 바뀌었다」 — 끊김이 아니다. stream 은 이것을 받아도 안내를 내지 않는다(forGen 이 먼저 거절한다).
+var errStaleStream = errors.New("이 스트림의 묶음이 바뀌었습니다")
 
 // deliver 는 스트림 하나가 읽은 프레임을 **그 스트림이 아직 지금의 묶음일 때만** 넘긴다. 커서도 그때만 민다.
 //
 // ⚠ 대화를 옮기면(`BindWith`) 옛 스트림은 ctx 가 취소될 뿐이고, 연결은 따로 도는 고루틴이 닫는다 — 그 사이에
 // 옛 대화의 사건이 이미 읽혀 있으면 이 콜백이 **새 대화의 기록(history)에 그것을 섞고, 새 스트림의 커서를 옛
 // 대화의 번호로 덮는다.** 앞의 것은 창에 남의 대화 한 줄을, 뒤의 것은 새 대화를 앞이 빠진 채 읽게 한다. 둘 다
-// 아무 소리 없이 일어난다(#201, 2026-09-26). 확인과 기록은 한 락 안에서 한다: 확인 뒤 기록 전에 묶음이 바뀌는
-// 틈을 남기지 않는다.
+// 아무 소리 없이 일어난다(#201, 2026-09-26). 세대로 가른다 — 같은 대화로 다시 묶었어도 옛 세대는 거절한다(§6.50).
 //
 // seq 가 0 보다 크면 커서를 그 값으로, -1 이면 되돌린다(restart), 0 이면 그대로 둔다. 돌려주는 값은 「계속
 // 읽을까」 — 묶음에서 떨어진 스트림은 더 읽을 이유가 없다.
-func (b *Bridge) deliver(ctx context.Context, sid string, f StreamFrame, seq int64) bool {
+func (b *Bridge) deliver(ctx context.Context, gen uint64, sid string, f StreamFrame, seq int64) bool {
+	return b.forGen(ctx, gen, func() []StreamFrame {
+		if b.session != sid {
+			return nil
+		}
+		switch {
+		case seq > 0:
+			b.lastSeq = seq
+		case seq < 0:
+			b.lastSeq = -1
+		}
+		return []StreamFrame{f}
+	})
+}
+
+// forGen 은 스트림 일꾼이 상태를 바꾸는 **유일한 자리**다. b.mu 를 쥐고, 그 일꾼의 세대가 지금의 묶음이고 ctx 가 살아 있고
+// 멈추지 않았을 때만 f 를 부른다. f 가 돌려준 프레임은 같은 락 안에서 기록하고 구독자에게 **막히지 않게**(버리는 쪽으로)
+// 넣는다 — 검증은 락 밖, 쓰기는 락 안으로 가르면 그 사이에 묶음이 바뀐다. 네트워크 I/O 와 막히는 전송은 이 안에 넣지 않는다.
+//
+// 이 계약은 「묶음이 바뀐 뒤로 옛 세대가 새 프레임을 넣지 못한다」이다. 바뀌기 전에 이미 구독자 채널에 들어간 프레임을
+// 거둬 오지는 않는다.
+func (b *Bridge) forGen(ctx context.Context, gen uint64, f func() []StreamFrame) bool {
 	b.mu.Lock()
-	if ctx.Err() != nil || b.session != sid {
-		b.mu.Unlock()
+	defer b.mu.Unlock()
+	if gen != b.gen || ctx.Err() != nil || b.stopped {
 		return false
 	}
-	switch {
-	case seq > 0:
-		b.lastSeq = seq
-	case seq < 0:
-		b.lastSeq = -1
+	for _, fr := range f() {
+		for _, ch := range b.recordLocked(fr) {
+			select {
+			case ch <- fr:
+			default:
+				// 안 받아 가는 창은 **버린다.** 여기서 막히면 다른 창까지 같이 선다(push 와 같은 정책).
+			}
+		}
 	}
-	targets := b.recordLocked(f)
-	b.mu.Unlock()
-	b.fanOut(targets, f)
 	return true
 }
 
