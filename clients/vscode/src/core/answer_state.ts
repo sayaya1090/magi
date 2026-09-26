@@ -495,39 +495,29 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
     const newState = currentSessionState();
     const activeAsk = options?.activeAsk;
 
-    if (activeAsk && activeAsk.kind === 'question') {
-      const isFreeText = !activeAsk.options || activeAsk.options.length === 0;
-      if (newState.pendingQuestion === activeAsk.callId || isFreeText) {
-        newState.pendingQuestion = activeAsk.callId;
-        return {
-          companionKey: currentCompanionKey,
-          sessionId: currentSessionId,
-          enterAnswerMode: true,
-          callId: activeAsk.callId,
-          label: activeAsk.what || activeAsk.callId,
-          nextInputText: newState.questionDrafts[activeAsk.callId] || '',
-          clearAutoCompletion: true
-        };
-      } else {
-        newState.pendingQuestion = null;
-        return {
-          companionKey: currentCompanionKey,
-          sessionId: currentSessionId,
-          exitAnswerMode: true,
-          nextInputText: newState.generalDraft,
-          clearAutoCompletion: true
-        };
-      }
-    } else {
-      newState.pendingQuestion = null;
+    // Answer mode comes back only for a question that is still the one this context was answering,
+    // or a free-text one (nothing to have picked). Everything else lands in the general draft.
+    const isFreeText = !activeAsk?.options || activeAsk.options.length === 0;
+    if (activeAsk && activeAsk.kind === 'question' && (newState.pendingQuestion === activeAsk.callId || isFreeText)) {
+      newState.pendingQuestion = activeAsk.callId;
       return {
         companionKey: currentCompanionKey,
         sessionId: currentSessionId,
-        exitAnswerMode: true,
-        nextInputText: newState.generalDraft,
+        enterAnswerMode: true,
+        callId: activeAsk.callId,
+        label: activeAsk.what || activeAsk.callId,
+        nextInputText: newState.questionDrafts[activeAsk.callId] || '',
         clearAutoCompletion: true
       };
     }
+    newState.pendingQuestion = null;
+    return {
+      companionKey: currentCompanionKey,
+      sessionId: currentSessionId,
+      exitAnswerMode: true,
+      nextInputText: newState.generalDraft,
+      clearAutoCompletion: true
+    };
   }
 
   function enterAnswerMode(callId: string, label?: string, currentInputText?: string): ModeChangeResult {

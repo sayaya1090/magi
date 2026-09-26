@@ -1398,3 +1398,11 @@ node --test clients/vscode/out/test/*.property.test.js
 - **새 시험**: `output.test.ts` 「resolves tool name from call」에 한 단계 안의 호출 둘(`read`·`bash`)을 더했습니다. 각 결과의 제목은 **그 호출**의 도구 이름이어야 합니다. 이전에는 이것을 재는 시험이 없었습니다 — 아래 변이 (2)가 고치기 전 트리에서도 살아남았습니다.
 - **변이 검증**: (1) `partOf` 가 늘 빈 조각을 돌려줌 → 5건 실패. (2) 도구 이름을 찾을 때 callId 대조를 뺌 → 새 단언이 실패(시험 추가 전에는 560/0 으로 통과). 원복 후 초록.
 - **실측**: `npm test` 560 pass / 0 fail(새 단언은 기존 시험 안에 들어가 시험 수는 그대로), `node tools/transcript-test.mjs` 7 passed.
+
+---
+
+### 6.50 문맥 전환 뒤 답변 모드 결정의 중복 갈래 합치기 (`answer_state.ts`)
+
+- **무엇이 바뀌었나**: `switchContext` 끝에서 「일반 초안으로 나감」 반환이 안쪽 else 와 바깥 else 에 글자 그대로 두 벌 있었습니다. 조건을 하나로 합쳐(질문이고, 떠날 때 답하던 그 질문이거나 자유 입력) 한 벌만 둡니다. 동작은 같습니다.
+- **변이 검증**: (1) 자유 입력 질문이 답변 모드로 못 들어가게 함 → 단위 시험 2건 실패. (2) 「떠날 때 답하던 질문」 대조를 뺌 → 단위 시험은 **통과**(0 fail)하고, `transcript-test` 의 `[bundle:asks] 질문·초안` 이 실패합니다. 이 성질은 브라우저 층에서만 재고 있다는 뜻입니다. 원복 후 초록.
+- **실측**: `npm test` 560 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.
