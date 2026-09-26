@@ -3,6 +3,7 @@ package update
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/procalive"
 	"os"
 	"path/filepath"
@@ -84,7 +85,7 @@ func journalOf(target string) string { return target + ".update.json" }
 
 func readLedger(target string) (ledger, error) {
 	var l ledger
-	b, err := os.ReadFile(journalOf(target))
+	b, err := atomicfile.ReadFile(journalOf(target))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ledger{}, nil // no transaction here is the ordinary case, not a failure
@@ -114,25 +115,7 @@ func writeLedger(target string, l ledger) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".magi-update-journal-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return atomicfile.Write(path, b, 0o600)
 }
 
 // Began records that a candidate has been installed over target and the build it replaced is beside
