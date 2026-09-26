@@ -17,7 +17,10 @@ function Call($name, $argmap) {
       -ContentType "application/json; charset=utf-8" -Body $bytes -UseBasicParsing
     ([System.Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json).result
   } catch {
-    @{ isError = $true; content = @(@{ text = "HTTP: $($_.Exception.Message)" }) }
+    # ⚠ **못 닿은 것을 거절로 세지 않는다.** 여기서 isError 만 세우면 `-ExpectError` 자리들이 전부
+    # 통과로 찍힌다 — 실측 2026-09-26: 인증서 불신으로 서른한 번이 다 실패한 회차에서 거절을 기대하던
+    # 여섯이 「ok」로 나왔다. 서버에 닿지도 못한 회차가 초록을 내면 그 초록은 아무 뜻이 없다.
+    @{ isError = $true; transport = $true; content = @(@{ text = "HTTP: $($_.Exception.Message)" }) }
   }
 }
 function Try1($label, $name, $argmap, [switch]$ExpectError) {
@@ -25,7 +28,8 @@ function Try1($label, $name, $argmap, [switch]$ExpectError) {
   $bad = $r.isError -eq $true
   $txt = ""
   if ($r.content) { $txt = ($r.content[0].text -replace "`r?`n", " ") }
-  $good = if ($ExpectError) { $bad } else { -not $bad }
+  # 닿지 못한 회차는 어느 쪽 기대에도 맞지 않는다 — 거절을 본 것이 아니라 아무것도 못 본 것이다.
+  $good = if ($r.transport -eq $true) { $false } elseif ($ExpectError) { $bad } else { -not $bad }
   # **판정은 파이프라인이 아니라 콘솔로 보낸다.** 파이프로 흘리면 `| Out-Null` 이 결과까지
   # 같이 삼켜서, 실패가 몇 개인지는 알아도 **무엇이 실패했는지**가 화면에서 사라진다.
   if ($good) { $script:pass++; Write-Host "  ok   $label" }

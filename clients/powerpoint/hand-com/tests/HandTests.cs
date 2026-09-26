@@ -360,4 +360,47 @@ public class HandTests
         Assert.Equal(1, one.Result!["matched"]);
         Assert.Equal(0, hand.Handle(Call("advise", "{\"items\":[{\"message\":\"m\",\"why\":\"w\"}]}")).Changed!.Count); // 안내는 한 일이 아니다
     }
+
+    // 도형 이름은 **문 앞에서** 표준명이 된다 — 두 손(FakeOps·InteropOps)이 같은 글자를 받도록.
+    //
+    // ⚠ 실측 2026-09-26(LTSC 2021): 이 문이 이름을 그대로 넘기던 때 COM 손의 switch 가 넷만 알고
+    // star5·triangle·heart·cloud 를 전부 네모로 그렸고, 뜻 없는 「우주선」마저 네모를 세우며 성공으로
+    // 답했다. 도구 설명은 60종을 광고하며 「모르는 이름은 목록을 대고 거절한다」고 적혀 있었다.
+    [Fact]
+    public void ShapeKindIsResolvedAtTheDoorAndUnknownNamesAreRefused()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+
+        // 별명도 한국어도 표준명으로 들어간다.
+        Assert.Equal("star5", hand.Handle(Call("add_shape", "{\"slide\":1,\"kind\":\"별\"}")).Result!["kind"]);
+        Assert.Equal("roundRectangle", hand.Handle(Call("add_shape", "{\"slide\":1,\"kind\":\"둥근사각형\"}")).Result!["kind"]);
+        Assert.Equal("flowChartInputOutput", hand.Handle(Call("add_shape", "{\"slide\":1,\"kind\":\"flowChartInputOutput\"}")).Result!["kind"]);
+
+        // 빠뜨리면 문서가 말하는 기본값 — textbox 다(여기는 rectangle 이었고, 웹 손은 textbox 였다).
+        Assert.Equal("textbox", hand.Handle(Call("add_shape", "{\"slide\":1}")).Result!["kind"]);
+
+        // 모르는 이름은 목록을 대고 거절한다. 네모를 대신 세우지 않는다.
+        var no = hand.Handle(Call("add_shape", "{\"slide\":1,\"kind\":\"우주선\"}"));
+        Assert.NotNull(no.Error);
+        Assert.Contains("아는 도형이 아닙니다", no.Error);
+        Assert.Contains("star5", no.Error);
+    }
+
+    // 한 일이 없으면 없다고 말한다.
+    //
+    // ⚠ 실측 2026-09-26: `apply_style {}` 이 「장 2개의 제목·본문 서식을 맞췄습니다」로 돌아왔다 —
+    // 글꼴도 크기도 색도 주지 않았는데. 고친 것이 없는데 고쳤다고 답하면 다음 수가 그 위에 선다.
+    [Fact]
+    public void ApplyStyleWithNothingToApplyIsRefusedRatherThanReportedAsDone()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        hand.Handle(Call("add_slides", "{\"slides\":[{\"title\":\"매출\",\"body\":\"성장\"}]}"));
+
+        var empty = hand.Handle(Call("apply_style", "{}"));
+        Assert.NotNull(empty.Error);
+        Assert.Contains("무엇을 맞출지", empty.Error);
+
+        var real = hand.Handle(Call("apply_style", "{\"title\":{\"size\":40}}"));
+        Assert.Null(real.Error);
+    }
 }

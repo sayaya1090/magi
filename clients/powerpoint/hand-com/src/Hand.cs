@@ -146,7 +146,8 @@ public sealed partial class Hand
             case "add_shape":
             {
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id"));
-                var kind = a.Str("kind") ?? "rectangle";
+                // 기본값은 문서가 말하는 대로 textbox 다 — 여기는 rectangle 이었고, 웹 손은 textbox 였다.
+                var kind = ShapeKinds.Resolve(a.Str("kind"));
                 var id = ops.AddShape(n, kind, a.Num("left") ?? 40, a.Num("top") ?? 40, a.Num("width") ?? 200, a.Num("height") ?? 80, a.Str("text"), a.Str("fill"), a.Num("size"), a.Str("color"), a.Bool("bold") ?? false);
                 Mutated();
                 return (new() { ["slide"] = n, ["shape_id"] = id, ["kind"] = kind }, new() { $"슬라이드 {n}: {kind} 도형 {id} 추가" });
@@ -161,6 +162,13 @@ public sealed partial class Hand
             case "apply_style":
             {
                 var t = a.Object("title"); var b = a.Object("body");
+                // ⚠ **아무것도 안 주면 아무것도 안 하고, 그러면서 했다고 답했다.** 실측 2026-09-26:
+                // `apply_style {}` 이 「장 2개의 제목·본문 서식을 맞췄습니다」로 돌아왔다 — 고친 글꼴도
+                // 크기도 색도 없이. 아래의 `ApplyStyle` 은 제목·본문 자리를 만나기만 하면 그 장을 셌고,
+                // 무엇을 걸었는지는 세지 않았다. 한 일이 없으면 **없다고 말해야** 다음 수가 달라진다.
+                var asked = new[] { t?.Str("font"), t?.Str("color"), b?.Str("font"), b?.Str("color"), a.Str("ea_font") }.Any(x => x is not null)
+                    || t?.Num("size") is not null || b?.Num("size") is not null || t?.Bool("bold") is not null;
+                if (!asked) throw new HandError("무엇을 맞출지 주지 않았습니다 — title·body 의 font·size·color·bold 나 ea_font 중 하나는 있어야 합니다");
                 var n = ops.ApplyStyle(t?.Str("font"), t?.Num("size"), t?.Str("color"), t?.Bool("bold"), b?.Str("font"), b?.Num("size"), b?.Str("color"), a.Str("ea_font"));
                 Mutated();
                 return (new() { ["styled"] = n }, new() { $"장 {n}개의 제목·본문 서식을 맞췄습니다" + (a.Str("ea_font") is not null ? $" · 한글 글꼴 {a.Str("ea_font")}" : "") });

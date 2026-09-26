@@ -193,13 +193,20 @@ public sealed partial class InteropOps : IOps
     public string AddShape(int n, string kind, double l, double t, double w, double h, string? text, string? fill, double? size, string? color, bool bold)
     {
         var s = pres.Slides[n];
+        // ⚠ **이 자리의 `_` 갈래는 모르는 이름을 조용히 네모로 그렸다.** 실측 2026-09-26(LTSC 2021):
+        // star5·triangle·heart·cloud 를 부르면 넷 다 AutoShapeType=1(네모)이 섰고, 뜻 없는 「우주선」도
+        // 네모가 서면서 성공으로 답했다 — 도구 설명은 60종을 광고하고 "An unknown name is refused with
+        // the full list rather than guessed at" 라고 적혀 있는데, 이 손은 넷만 알고 나머지는 전부
+        // 네모였다. 웹 손(Office.js)은 같은 표를 다 갖고 있으므로 365 와 2021 이 다른 그림을 그렸다.
+        //
+        // 이름표는 `ShapeKinds` 하나로 모았고(웹 손의 GEOMETRY 에서 생성), 모르는 이름은 여기 오기 전에
+        // 거절된다.
         PowerPoint.Shape sh = kind switch
         {
             "textbox" => s.Shapes.AddTextbox(Office.MsoTextOrientation.msoTextOrientationHorizontal, (float)l, (float)t, (float)w, (float)h),
-            "ellipse" => s.Shapes.AddShape(Office.MsoAutoShapeType.msoShapeOval, (float)l, (float)t, (float)w, (float)h),
-            "roundRectangle" => s.Shapes.AddShape(Office.MsoAutoShapeType.msoShapeRoundedRectangle, (float)l, (float)t, (float)w, (float)h),
             "line" => s.Shapes.AddLine((float)l, (float)t, (float)(l + w), (float)(t + h)),
-            _ => s.Shapes.AddShape(Office.MsoAutoShapeType.msoShapeRectangle, (float)l, (float)t, (float)w, (float)h),
+            _ => s.Shapes.AddShape(ShapeKinds.Mso.TryGetValue(kind, out var geo) ? geo : Office.MsoAutoShapeType.msoShapeRectangle,
+                                   (float)l, (float)t, (float)w, (float)h),
         };
         if (fill is not null && kind != "line") { sh.Fill.Visible = Office.MsoTriState.msoTrue; sh.Fill.Solid(); sh.Fill.ForeColor.RGB = Bgr(fill); }
         if (text is not null && sh.HasTextFrame == Office.MsoTriState.msoTrue)

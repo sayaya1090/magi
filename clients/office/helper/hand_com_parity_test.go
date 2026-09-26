@@ -56,3 +56,61 @@ func TestTheComHandKnowsExactlyTheCatalogue(t *testing.T) {
 		t.Fatalf("도구가 %d개다 — 문서(48)를 같이 고쳐라", len(known))
 	}
 }
+
+// 도형 이름표도 두 벌이다. 웹 손(Office.js)의 GEOMETRY 와 COM 손(2021)의 ShapeKinds 가 갈리면 같은
+// 이름이 한쪽에선 별이고 다른 쪽에선 네모가 된다 — 그리고 그 어긋남은 아무 데서도 오류가 되지 않는다.
+//
+// ⚠ **실측 2026-09-26(LTSC 2021):** `add_shape{kind:"star5"}`·`triangle`·`heart`·`cloud` 가 넷 다
+// AutoShapeType=1(네모)로 섰다. COM 손의 switch 가 넷만 알고 나머지 쉰여섯은 `_` 갈래에서 네모가 됐고,
+// 뜻 없는 「우주선」도 네모를 세우며 성공으로 답했다 — 도구 설명은 60종을 광고하고 「모르는 이름은 목록을
+// 대고 거절한다」고 적어 두었는데도. 365 는 옳게 그리고 2021 은 네모를 그리는, 화면으로만 보이는 차이였다.
+func TestBothHandsKnowTheSameShapes(t *testing.T) {
+	js, err := os.ReadFile("../../powerpoint/addin/src/adapter/OfficeHand.js")
+	if err != nil {
+		t.Fatalf("웹 손의 소스를 못 읽었다(%v) — 자리가 바뀌었으면 이 경로를 같이 고친다", err)
+	}
+	cs, err := os.ReadFile("../../powerpoint/hand-com/src/ShapeKinds.cs")
+	if err != nil {
+		t.Fatalf("COM 손의 이름표를 못 읽었다(%v) — 자리가 바뀌었으면 이 경로를 같이 고친다", err)
+	}
+
+	web := map[string]bool{}
+	if i := strings.Index(string(js), "const GEOMETRY = new Map(Object.entries({"); i >= 0 {
+		body := string(js)[i:]
+		body = body[:strings.Index(body, "}));")]
+		for _, m := range regexp.MustCompile(`:\s*'([A-Za-z0-9]+)'`).FindAllStringSubmatch(body, -1) {
+			web[m[1]] = true
+		}
+	}
+	if len(web) == 0 {
+		t.Fatal("웹 손에서 GEOMETRY 표를 못 찾았다")
+	}
+
+	com := map[string]bool{"line": true} // line 은 AddLine 으로 가는 길이라 Mso 표에 없다
+	for _, m := range regexp.MustCompile(`\["([A-Za-z0-9]+)"\] = Office\.MsoAutoShapeType\.`).FindAllStringSubmatch(string(cs), -1) {
+		com[m[1]] = true
+	}
+	if len(com) <= 1 {
+		t.Fatal("COM 손에서 Mso 표를 못 찾았다")
+	}
+
+	var onlyWeb, onlyCom []string
+	for n := range web {
+		if !com[n] {
+			onlyWeb = append(onlyWeb, n)
+		}
+	}
+	for n := range com {
+		if !web[n] {
+			onlyCom = append(onlyCom, n)
+		}
+	}
+	sort.Strings(onlyWeb)
+	sort.Strings(onlyCom)
+	if len(onlyWeb) > 0 {
+		t.Errorf("웹 손만 아는 도형 %d개 — 2021 에서는 조용히 네모가 된다: %s", len(onlyWeb), strings.Join(onlyWeb, ", "))
+	}
+	if len(onlyCom) > 0 {
+		t.Errorf("COM 손만 아는 도형 %d개 — 365 에서는 거절된다: %s", len(onlyCom), strings.Join(onlyCom, ", "))
+	}
+}
