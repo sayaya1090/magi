@@ -176,6 +176,8 @@ var (
 		Catalogue: wordCatalogue, DocumentProp: wordDocumentProp, ValueEnums: wordValueEnums, EnumExempt: wordEnumExempt,
 		ArgExample: `{"paragraph": 3}`,
 		WantsImage: func(name string, _ map[string]any) bool { return name == "insert_image" },
+		// 2021 의 작업창(WordApi 1.3)이 버전을 이유로 거절한 것을 COM 으로 대신한다(word_com.go).
+		Fallback: wordComFallback,
 		WantsFile: func(name string) string {
 			if name == "insert_file" {
 				return ".docx"
