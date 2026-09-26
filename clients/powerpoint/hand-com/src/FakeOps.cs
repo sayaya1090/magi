@@ -13,7 +13,7 @@ public sealed class FakeOps : IOps
     {
         public int Id; public string Name = ""; public string Type = "Placeholder"; public string? Placeholder; public string Text = "";
         public double L, T, W = 828, H = 60; public string? Font; public double? Size; public string? Color; public bool? Bold;
-        public string? Fill; public string? Url; public double Rotation; public bool Visible = true; public string? AltText;
+        public string? Fill; public string? Url; public double Rotation; public bool Visible = true; public string? AltText; public bool? Decorative;
         public Dictionary<string, string> Tags = new(StringComparer.OrdinalIgnoreCase);
         public List<List<string>>? Cells;           // 표일 때
         public List<int>? Members;                  // 그룹일 때
@@ -131,9 +131,9 @@ public sealed class FakeOps : IOps
     public void FormatShape(int n, string id, ShapeFormat f)
     {
         var sh = ShapeAt(n, id);
-        if (f.Decorative is not null) throw new HandError("decorative 는 이 손(COM, Office 2021)이 못 겁니다 — 그 속성이 2021 객체 모델에 없습니다. alt_text 로 대신 적으세요");
+        // 실물(InteropOps)이 늦은 바인딩으로 걸 수 있으므로 가짜도 받는다 — 두 손이 다르게 답하면 시험이 거짓이 된다.
         if (f.Font is not null) sh.Font = f.Font; if (f.Size is double sz) sh.Size = sz; if (f.Bold is bool b) sh.Bold = b; if (f.Color is not null) sh.Color = f.Color;
-        if (f.Fill is not null) sh.Fill = f.Fill == "none" ? null : f.Fill; if (f.Rotation is double r) sh.Rotation = r; if (f.Visible is bool v) sh.Visible = v; if (f.AltText is not null) sh.AltText = f.AltText;
+        if (f.Fill is not null) sh.Fill = f.Fill == "none" ? null : f.Fill; if (f.Rotation is double r) sh.Rotation = r; if (f.Visible is bool v) sh.Visible = v; if (f.AltText is not null) sh.AltText = f.AltText; if (f.Decorative is bool dec) sh.Decorative = dec;
         if (f.Transparency is double tr && (tr < 0 || tr > 1)) throw new HandError($"transparency 는 0~1 입니다 — {tr}");
     }
     public void MoveShape(int n, string id, double? l, double? t, double? w, double? h, string? z)

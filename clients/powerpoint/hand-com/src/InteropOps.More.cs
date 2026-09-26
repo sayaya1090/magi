@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using Office = Microsoft.Office.Core;
@@ -97,7 +98,11 @@ public sealed partial class InteropOps
     public void FormatShape(int n, string id, ShapeFormat f)
     {
         var sh = Find(n, id);
-        if (f.Decorative is not null) throw new HandError("decorative 는 이 손(COM, Office 2021)이 못 겁니다 — 그 속성이 2021 객체 모델에 없습니다. alt_text 로 대신 적으세요");
+        // ⚠ **「2021 객체 모델에 없다」는 틀린 말이었다.** 실측 2026-09-26(LTSC 2021): PowerShell 에서
+        // `$shape.Decorative = -1` 이 그대로 섰다. 없는 것은 속성이 아니라, 이 손이 묶인 형식 라이브러리(2016 판
+        // Interop)에 그 **이름**이 없었던 것이다. 그래서 늦은 바인딩으로 부른다 — 정말 그 속성이 없는 판이면
+        // 그때만 거절한다. 사람이 「이 그림은 장식」이라고 해 둘 길이 2021 에서만 막혀 있을 이유가 없었다.
+        // 다른 서식을 다 건 뒤 마지막에 건다: 도중에 거절되면 반쯤 고친 도형이 남는다.
         var hasText = sh.HasTextFrame == Office.MsoTriState.msoTrue;
         if (!hasText && (f.Font ?? f.Align ?? f.Underline ?? f.VAlign ?? f.Autosize ?? f.BulletType ?? f.BulletStyle) is not null) throw new HandError($"도형 {id} 에는 글틀이 없습니다({sh.Type}) — 글 서식은 걸 수 없습니다");
         if (hasText)
@@ -129,6 +134,24 @@ public sealed partial class InteropOps
         if (f.LineDash is not null) sh.Line.DashStyle = EnumOf<Office.MsoLineDashStyle>("msoLine", f.LineDash.Replace("System", "Sys"), "line_dash");
         if (f.Rotation is double r) sh.Rotation = (float)r; if (f.Visible is bool vis) sh.Visible = Tri(vis);
         if (f.AltText is not null) sh.AlternativeText = f.AltText; if (f.AltTitle is not null) sh.Title = f.AltTitle;
+        if (f.Decorative is bool dec) SetDecorative(sh, dec);
+    }
+
+    /// <summary>장식용 표시 — 형식 라이브러리에 이름이 없어 IDispatch 로 부른다.</summary>
+    private static void SetDecorative(PowerPoint.Shape sh, bool on)
+    {
+        try
+        {
+            ((object)sh).GetType().InvokeMember("Decorative", System.Reflection.BindingFlags.SetProperty, null, sh, new object[] { on ? -1 : 0 });
+        }
+        catch (System.Reflection.TargetInvocationException e) when (e.InnerException is COMException ce && (uint)ce.HResult == 0x80020006)
+        {
+            throw new HandError("decorative 를 이 PowerPoint 판이 모릅니다(Shape.Decorative 없음) — alt_text 로 대신 적으세요");
+        }
+        catch (COMException ce) when ((uint)ce.HResult == 0x80020006)
+        {
+            throw new HandError("decorative 를 이 PowerPoint 판이 모릅니다(Shape.Decorative 없음) — alt_text 로 대신 적으세요");
+        }
     }
     public void MoveShape(int n, string id, double? l, double? t, double? w, double? h, string? z)
     {

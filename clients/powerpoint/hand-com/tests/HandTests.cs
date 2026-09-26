@@ -297,7 +297,9 @@ public class HandTests
         Assert.Contains("바꿀 것이 하나도", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\"}")).Error);
         Assert.Contains("#RRGGBB", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"color\":\"blue\"}")).Error);
         Assert.Contains("underline 는", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"underline\":\"Squiggle\"}")).Error);
-        Assert.Contains("decorative 는 이 손", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"decorative\":true}")).Error);
+        // 2021 에서도 된다(늦은 바인딩, 실측 2026-09-26) — 거절하던 때의 문장이 여기 있었다.
+        var dec = hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"decorative\":true}"));
+        Assert.Null(dec.Error); Assert.Contains("장식 → True", string.Join(" ", dec.Changed!));
         var ft = hand.Handle(Call("set_text", "{\"slide\":1,\"placeholder\":\"title\",\"text\":\"매출 140억 달성\"}"));
         var run = hand.Handle(Call("format_text", "{\"slide\":1,\"shape_id\":\"1\",\"find\":\"140억\",\"color\":\"#FF0000\"}"));
         Assert.Null(run.Error); Assert.Equal(3, run.Result!["start"]); Assert.Equal(4, run.Result["length"]);
