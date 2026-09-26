@@ -1943,3 +1943,14 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - `Look.narrow` 렌더러가 글자를 18자에서 **손으로 잘랐습니다.** 폭은 원형 값이 정하고 칸보다 긴 글은 Swing 이 제 폭에서 줄이므로, 손으로 자르던 코드를 없앴습니다. 항목의 제목 전문은 툴팁입니다.
 - **흐름 전환 실물 확인**: 샌드박스에서 대화·모델 콤보가 창을 열자마자 채워지는 것을 확인했습니다(§6.58·§6.59).
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 410 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 163 통과. 게이지·컴패니언 줄은 샌드박스 캡처로 확인했습니다.
+
+---
+
+## 6.61 상태 표시줄: 턴이 열려 있는데 「연결됨」이라 적던 것 (2026-09-27)
+
+샌드박스 실물에서 본 것입니다. 표시줄이 `magi: 연결됨 · 허용 · 턴 3m58s` 라고 적는 동안 턴은 08:01:01 까지 2분 더 돌았습니다. 턴은 닫히지 않았습니다(전사의 턴 타이머가 계속 올라감). 「작업 중」은 **도는 툴이 있을 때만**(`doing`) 섰고, 카운슬 판결 뒤 모델이 다음 답을 쓰는 사이에는 「연결됨」으로 떨어졌습니다. 한 줄이 쉰다는 말과 도는 중이라는 말을 동시에 했습니다.
+
+- **바뀐 것**: `Activity` 에 `Thinking`(턴은 열렸고 도는 툴은 없음)을 두었습니다. 표시줄은 창이 아는 사실(답 없는 `prompt.submitted` — `MagiWindows.turnOpenedAt()`)을 넘기고, 그때 「작업 중」이라 적습니다. 순서는 기다림 > 돎 > 생각 중 > 모름입니다. 창이 전사를 안 보고 있으면 여전히 「연결됨」입니다(모르는 것을 지어내지 않음). 설정 창은 전사를 안 봐서 이 갈래로 오지 않습니다.
+- **새 시험**: `ActivityTest` 의 `열린 턴에 도는 툴이 없으면 생각 중이다`.
+- **변이 검증**: `turnOpen -> Thinking` 줄 삭제 → 4건 중 1건 실패. 원복 후 초록.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 411 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 163 통과. 실물 화면 확인은 아직입니다.

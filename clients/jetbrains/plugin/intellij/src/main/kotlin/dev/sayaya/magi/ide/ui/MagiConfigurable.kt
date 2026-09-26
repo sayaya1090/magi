@@ -314,6 +314,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 // 상태 표시줄과 동일한 리소스 키를 사용하여 다중 UI 간 의미적 일관성을 유지합니다(리뷰 R9).
                 Activity.Waiting -> MagiBundle.msg("status.waiting")
                 is Activity.Doing -> a.what
+                // 설정 창은 전사를 안 본다 — 턴이 열렸는지 모르니 이 갈래로 올 일이 없다.
+                Activity.Thinking -> MagiBundle.msg("status.doing")
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
             perm.text = Perms.label(f.permission)

@@ -102,8 +102,9 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
          * 상태 표시줄의 한정된 가로 폭을 고려하여 상세 설명은 생략하고 핵심 상태만을 간결하게 구성한다.
          */
         private fun label(f: Companion.Facts): String {
-            val what = when (Activity.of(f)) {
-                is Activity.Doing -> MagiBundle.msg("status.doing")
+            val turnOpen = MagiWindows.of(project)?.turnOpenedAt() != null
+            val what = when (Activity.of(f, turnOpen)) {
+                is Activity.Doing, Activity.Thinking -> MagiBundle.msg("status.doing")
                 Activity.Waiting -> MagiBundle.msg("status.waiting")
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }

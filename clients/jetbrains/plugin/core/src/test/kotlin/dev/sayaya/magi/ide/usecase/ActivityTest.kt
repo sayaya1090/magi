@@ -41,4 +41,14 @@ class ActivityTest {
         // 정확히 그렇게 적혀 있었다.
         assertEquals(Activity.Unsaid, Activity.of(facts()))
     }
+
+    @Test
+    fun `열린 턴에 도는 툴이 없으면 생각 중이다`() {
+        // 표시줄이 「연결됨 · 턴 3m58s」라고 적던 자리다(2026-09-27 실측). 기다림과 돎은 여전히 이긴다.
+        assertEquals(Activity.Thinking, Activity.of(facts(), turnOpen = true))
+        assertEquals(Activity.Doing("go test ./..."), Activity.of(facts(doing = "go test ./..."), turnOpen = true))
+        assertEquals(Activity.Waiting, Activity.of(facts(waiting = asked), turnOpen = true))
+        // 창이 전사를 안 보고 있으면 모른다 — 「생각 중」을 지어내지 않는다.
+        assertEquals(Activity.Unsaid, Activity.of(facts(), turnOpen = false))
+    }
 }

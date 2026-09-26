@@ -41,6 +41,17 @@ sealed interface Activity {
      */
     data object Unsaid : Activity
 
+    /**
+     * 턴은 열려 있는데 도는 툴은 없다 — 모델이 생각하거나 글을 쓰는 중이다. 할 일: 없다(기다린다).
+     *
+     * 이 갈래가 없을 때 표시줄은 턴 사이사이마다 「연결됨」으로 떨어졌다. 같은 줄 끝에는 「턴 3m58s」
+     * 가 계속 올라가고 있었다 — 한 줄이 쉰다는 말과 도는 중이라는 말을 동시에 했다(실측 2026-09-27:
+     * 카운슬 판결 뒤 모델이 다음 답을 쓰는 11초 내내). 턴이 열려 있다는 것은 전사를 보는 창이
+     * **아는 사실**이라(답 없는 `prompt.submitted`), 지어낸 말이 아니다. 창이 전사를 안 보고 있으면
+     * 모른다 — 그때는 여전히 [Unsaid] 다.
+     */
+    data object Thinking : Activity
+
     companion object {
         /**
          * **순서가 계약이다.** 기다림이 돎을 이긴다 — 사람을 막아 세운 컴패니언도 턴 안이라
@@ -48,9 +59,10 @@ sealed interface Activity {
          * 먼저 보면 화면은 「도는 중」이라 적는다. 사람이 답해 줘야 나아가는 상태가 화면에서
          * **저절로 끝날 상태**와 같아 보이는 것이 이 순서를 뒤집었을 때 나는 일이다.
          */
-        fun of(f: Companion.Facts): Activity = when {
+        fun of(f: Companion.Facts, turnOpen: Boolean = false): Activity = when {
             f.waiting != null -> Waiting
             f.doing != null -> Doing(f.doing)
+            turnOpen -> Thinking
             else -> Unsaid
         }
     }
