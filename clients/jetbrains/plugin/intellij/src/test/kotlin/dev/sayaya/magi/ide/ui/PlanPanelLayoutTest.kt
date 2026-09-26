@@ -71,6 +71,19 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
         assertTrue("opening the list does not re-read it", "popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) = loadTalks()" in text)
     }
 
+    /**
+     * The 3-second poll is a flow: poll() only asks, and only the latest ask is painted (flatMapLatest),
+     * so the hand-kept sequence check that discarded late answers is gone from the painting.
+     */
+    fun `test the poll is a flow that paints only the latest read`() {
+        val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/PlanToolWindow.kt").readText()
+        assertTrue("poll() does not just ask", Regex("""fun poll\(\) \{\s*polls\.tryEmit\(Unit\)\s*}""").containsMatchIn(text))
+        assertTrue("the poll does not keep only the latest read", "polls.flatMapLatest" in text)
+        val paint = text.substringAfter("fun paintPoll(p: PollRead)").substringBefore("fun ")
+        assertFalse("painting still compares sequences by hand", "pollSeq" in paint)
+        assertTrue("a failed read does not show the window as stale", "onFailure = { stale.isVisible = true }" in text)
+    }
+
     fun `test a companion with no name is called by its workspace, not its socket file`() {
         val plan = PlanToolWindow()
         val row = plan.javaClass.getDeclaredMethod("fleetRow", RosterRow::class.java, Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).let {

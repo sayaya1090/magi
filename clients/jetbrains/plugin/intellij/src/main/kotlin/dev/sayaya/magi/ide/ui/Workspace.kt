@@ -72,15 +72,20 @@ internal class Workspace(private val project: Project) {
      * `{}` 로 버리면 흔적이 없었다). [read] 가 던진 것도 그대로 던진다. 한 번만 재개한다 — 연결을 닫다가
      * 난 오류가 이미 끝난 호출을 다시 깨우지 않게.
      */
-    suspend fun <T> askWithoutChat(read: (Companion) -> T): T =
+    suspend fun <T> askWithoutChat(read: (Companion) -> T): T = ask(DaemonClient.PATIENCE_ASK, read)
+
+    /** [askWithoutChat] 의 폴링 판 — 짧은 시한([DaemonClient.PATIENCE_POLL]), [onDaemonPolling] 과 같은 이유. */
+    suspend fun <T> askPolling(read: (Companion) -> T): T = ask(DaemonClient.PATIENCE_POLL, read)
+
+    private suspend fun <T> ask(patienceMs: Long, read: (Companion) -> T): T =
         kotlinx.coroutines.suspendCancellableCoroutine { cont ->
             val done = java.util.concurrent.atomic.AtomicBoolean(false)
-            onDaemonWithoutChat({ why ->
+            connect(null, needChat = false, { why ->
                 if (done.compareAndSet(false, true)) cont.resumeWith(Result.failure(DaemonUnreachable(why)))
-            }) { comp ->
+            }, { comp ->
                 val got = runCatching { read(comp) }
                 if (done.compareAndSet(false, true)) cont.resumeWith(got)
-            }
+            }, patienceMs)
         }
 
     /** 데몬에 못 닿았다 — 사유는 화면에 적을 수 있는 문장이다. */

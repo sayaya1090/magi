@@ -24,6 +24,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import com.intellij.openapi.application.EDT
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.withContext
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComboBox
@@ -120,6 +122,8 @@ class PlanToolWindow : ToolWindowFactory {
         var painting = false
         // 폴링 응답 정합성 시퀀스 번호: 네트워크 지연으로 인해 지연 수신된 이전 폴링 응답이 최신 폴링 결과를 덮어쓰지 않도록 검증합니다(리뷰 반영).
         val pollSeq = java.util.concurrent.atomic.AtomicLong()
+        val polls = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+            replay = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
         /**
          * 외부 컴패니언에 위임한 요청 및 접수증 관리 모델.
@@ -323,12 +327,20 @@ class PlanToolWindow : ToolWindowFactory {
 
         // 데몬 HTTP 폴링 루틴 — 스레드 풀에서 비동기 조회하고 EDT에서 렌더링합니다.
         // 연결 장애 시 반복적인 팝업 알림으로 인한 방해를 방지하기 위해 폴링 실패는 상시 상태 표시줄에 위임하고 도구 창에는 경고 라벨만 노출합니다.
+        // 폴링은 흐름이다: poll() 은 요청만 보내고, 최신 요청의 읽기만 그린다(flatMapLatest) — 늦게 온
+        // 옛 응답을 손으로 버리던 순번 비교가 필요 없다. 읽기가 실패하면 「오래됨」을 세운다.
         fun poll() {
-            val my = pollSeq.incrementAndGet()
-            // 3초 주기 폴링: 장기 블로킹 방지를 위해 짧은 타임아웃을 적용하여 비응답 데몬으로 인한 스레드 적체를 방지합니다.
-            workspace.onDaemonPolling({ if (my == pollSeq.get()) SwingUtilities.invokeLater { stale.isVisible = true } }) { comp ->
+            polls.tryEmit(Unit)
+        }
+        /** 한 번의 폴링이 데몬에게서 읽은 것. 읽기(풀 스레드)와 그리기(EDT)를 가르는 값이다. */
+        class PollRead(
+            val jr: dev.sayaya.magi.ide.model.Response,
+            val r: dev.sayaya.magi.ide.model.Response,
+            val cr: dev.sayaya.magi.ide.model.Response,
+            val past: List<dev.sayaya.magi.ide.model.SessionRow>,
+        )
+        fun readPoll(comp: dev.sayaya.magi.ide.usecase.Companion): PollRead {
             val jr = comp.jobs()
-            val j = jr.jobs
             val r = comp.roster()
             val cr = comp.cron()
             // 기능 지원 여부(Capability)가 확인된 경우에만 해당 엔드포인트를 호출합니다.
@@ -353,8 +365,10 @@ class PlanToolWindow : ToolWindowFactory {
             }
             // 완료된 서브에이전트 목록 조회 (하위 호환성: 해당 엔드포인트를 미지원하는 구버전 데몬에서는 실행 중인 작업만 표시).
             val past = comp.children().children.orEmpty()
-            SwingUtilities.invokeLater {
-                if (my != pollSeq.get()) return@invokeLater // 이전 폴링 주기의 지연 응답은 폐기합니다
+            return PollRead(jr, r, cr, past)
+        }
+        fun paintPoll(p: PollRead) {
+                val jr = p.jr; val j = jr.jobs; val r = p.r; val cr = p.cr; val past = p.past
                 stale.isVisible = false
                 work.removeAll()
                 val queued = j?.queued.orEmpty()
@@ -537,9 +551,6 @@ class PlanToolWindow : ToolWindowFactory {
                 }
                 if (links.componentCount > 0) cronPane.add(links)
                 cronPane.revalidate(); cronPane.repaint()
-            }
-            paintAsked(my) // 풀 스레드 — 원격 왕복은 EDT 밖(리뷰 F1)
-        }
         }
 
         // 대화 목록은 매 틱이 아니라 펴는 순간과 동사 뒤에만 — 스토어 훑기를 3초마다 시키지 않는다.
@@ -549,6 +560,26 @@ class PlanToolWindow : ToolWindowFactory {
         // 여기서는 실패한 읽기가 스스로 백오프로 다시 읽고, 창이 닫히면 범위째 멈춘다.
         val lists = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         Disposer.register(toolWindow.disposable) { lists.cancel() }
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        lists.launch {
+            polls.flatMapLatest {
+                kotlinx.coroutines.flow.flow {
+                    // 3초 주기라 짧은 시한으로 묻는다(비응답 데몬이 풀 스레드를 쌓지 않게).
+                    emit(runCatching {
+                        workspace.askPolling { c ->
+                            readPoll(c).also {
+                                // 보낸 요청의 상태는 풀 스레드에서 원격으로 묻는다(리뷰 F1) — 제 순번으로 늦은 그림을 막는다.
+                                paintAsked(pollSeq.incrementAndGet())
+                            }
+                        }
+                    })
+                }
+            }.collect { got ->
+                withContext(Dispatchers.EDT) {
+                    got.fold(onSuccess = { paintPoll(it) }, onFailure = { stale.isVisible = true })
+                }
+            }
+        }
 
         /** 대화 목록 한 번의 답. [rows] 가 null 이면 이 데몬에 목록 문이 없다(재시도할 일이 아니다). */
         class TalkList(val rows: List<dev.sayaya.magi.ide.model.SessionRow>?, val why: String?, val now: String?)

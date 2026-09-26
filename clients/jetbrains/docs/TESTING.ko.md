@@ -1910,3 +1910,18 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - **변이 검증**: (1) 재시도를 없앰 → 실패. (2) `refresh` 를 무력화 → 실패. 원복 후 초록.
 - **화면 확인**: 디스플레이가 꺼져 있어 샌드박스 실물로는 아직 못 봤습니다.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 404 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 162 통과.
+
+---
+
+## 6.59 현황 창의 3초 폴링을 흐름으로 (2026-09-27)
+
+- **무엇이 바뀌었나 (`PlanToolWindow`)**: `poll()` 한 함수에 읽기(`jobs`·`roster`·`cron`·`context`·`children`, 능력 1회)와 그리기(약 200줄)가 섞여 있었고, 늦게 온 옛 응답은 순번(`pollSeq`)을 손으로 비교해 버렸습니다. 이제 셋으로 나뉩니다.
+  - `readPoll(comp): PollRead` — 풀 스레드에서 읽기만 합니다.
+  - `paintPoll(PollRead)` — EDT 에서 그리기만 합니다. 그리는 코드는 그대로 옮겼습니다.
+  - `poll()` — 요청 흐름에 신호만 보냅니다. `flatMapLatest` 가 최신 요청의 읽기만 그리게 하므로 순번 비교가 그리기에서 사라졌습니다. 읽기가 실패하면 「오래됨」 표시를 세웁니다.
+  - 요청(보낸 일) 상태 그리기(`paintAsked`)는 원격 호출이 섞여 있어 자기 순번 검사를 그대로 둡니다.
+  - `Workspace.askPolling`: 폴링용 `suspend` 통로입니다(짧은 시한 `PATIENCE_POLL`). `askWithoutChat` 과 같은 몸체를 씁니다.
+- **가드**:
+  - `ArchitectureTest` 의 `3초마다 도는 폴은 폴의 인내를 쓴다` 는 콜백 통로(`onDaemonPolling`)와 흐름 통로(`askPolling`)를 모두 인정합니다. 이름만 폴링이고 긴 시한으로 붙는 일이 없도록 `askPolling` 이 `PATIENCE_POLL` 을 쓰는지도 봅니다. 변이(`PATIENCE_ASK` 로 바꿈)에서 실패합니다.
+  - `PlanPanelLayoutTest` 의 `test the poll is a flow that paints only the latest read`.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 404 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 163 통과. 실물 화면 확인은 디스플레이가 꺼져 있어 아직입니다.

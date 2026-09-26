@@ -99,11 +99,16 @@ class ArchitectureTest {
             val src = f!!.readText()
             // 3초 시계가 있는 파일만 이 규칙의 대상이다. 없으면 이 시험이 낡은 것이다.
             assertTrue(Regex("""Timer\(\s*3_000""") in src, "$name 에 3초 시계가 없다 — 이 시험부터 고칠 것")
+            // 콜백 통로(onDaemonPolling)든, 흐름이 부르는 suspend 통로(askPolling)든 — 둘 다 폴의 인내로 붙는다.
             assertTrue(
-                "onDaemonPolling(" in src,
+                "onDaemonPolling(" in src || "askPolling" in src,
                 "$name 의 3초 폴이 기본 인내(모델 문의 2분)로 붙는다 — 답 안 하는 데몬 앞에서 스레드가 쌓인다",
             )
         }
+        // askPolling 이 정말 폴의 인내를 쓰는지 — 이름만 폴링이고 기본 인내로 붙으면 위 단언은 헛돈다.
+        val ws = sources().first { it.name == "Workspace.kt" }.readText()
+        assertTrue(Regex("""fun <T> askPolling\([^)]*\)[^=]*=\s*ask\(DaemonClient\.PATIENCE_POLL""").containsMatchIn(ws),
+            "askPolling 이 PATIENCE_POLL 로 붙지 않는다")
     }
 
     @Test
