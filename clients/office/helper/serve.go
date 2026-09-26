@@ -197,7 +197,17 @@ func mount(mux *http.ServeMux, app *App, dir, root, token string, port int) *ser
 		ch, _ := bridges.For(deck).Subscribe()
 		return ch
 	}}
-	sub.Handle("/mcp", &MCPServer{App: app, Hand: hub, Token: token, Council: func() bool {
+	// 작업창이 잰 요구 집합은 API 가 든다 — API 는 아래에서 서므로 자리만 먼저 잡아 둔다.
+	var apiRef *API
+	hostCaps := func() map[string]any {
+		if apiRef == nil {
+			return nil
+		}
+		apiRef.mu.Lock()
+		defer apiRef.mu.Unlock()
+		return apiRef.hostCaps
+	}
+	sub.Handle("/mcp", &MCPServer{App: app, Hand: hub, Token: token, HostCaps: hostCaps, Council: func() bool {
 		// 데몬이 답한다(`daemon.Status.Council`). 못 닿으면 거짓 — 모르는 채로 없는 도구를
 		// 가리키느니 안 적는 쪽이 낫다.
 		st, err := bridge.Status()
@@ -217,6 +227,7 @@ func mount(mux *http.ServeMux, app *App, dir, root, token string, port int) *ser
 		Own:  &OwnCompanion{App: app, ConfigDir: dir},
 		Work: NewOwnWork(),
 	}
+	apiRef = api
 	api.Route(sub)
 	// 프로그램이 없으면 컴패니언도 없다(idle.go). 헬퍼가 사는 동안 돈다.
 	go api.watchProgram(make(chan struct{}))

@@ -41,6 +41,9 @@ type MCPServer struct {
 	// `tools.go`의 `declare`에서 도구 설명문의 턴 종료 안내 문구를 동적으로 분기하는 데 사용됩니다.
 	// nil인 경우 비활성으로 간주합니다.
 	Council func() bool
+	// HostCaps 는 작업창이 잰 요구 집합(serve.go 의 /api/caps). 이 호스트가 못 하고 헬퍼도 대신 못 하는 도구는
+	// 목록에서 빠진다(hostcaps.go). nil 이면 아무것도 숨기지 않는다.
+	HostCaps func() map[string]any
 }
 
 // hasCouncil 은 위 물음의 답. 모르면 거짓이다.
@@ -163,8 +166,15 @@ func isTimeout(err error) bool {
 
 func (s *MCPServer) toolDefs() []map[string]any {
 	tools := s.App.Catalogue(s.hasCouncil())
+	var caps map[string]any
+	if s.HostCaps != nil {
+		caps = s.HostCaps()
+	}
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
+		if s.App.hiddenHere(t.Name, caps) {
+			continue
+		}
 		out = append(out, map[string]any{
 			"name":        t.Name,
 			"description": t.Desc,
