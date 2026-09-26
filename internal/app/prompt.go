@@ -19,11 +19,6 @@ import (
 
 // ---- helpers ----
 
-// toolSpecs returns the tools available to an agent, honoring its allowlist.
-//
-// sid is the conversation being served. A tool attached FOR a conversation is advertised to that
-// one alone — see port.Owned. Every other tool (builtins, config-declared servers) has no owner and
-// is advertised to all, which is what this function did before owners existed.
 // looksOnlyReads widens the LOOKING role by the one thing its fixed list cannot know: a tool that
 // DECLARES it changes nothing (port.ReadOnlyTool — an MCP server's `annotations.readOnlyHint`).
 //
@@ -44,6 +39,11 @@ func looksOnlyReads(agent AgentSpec, t port.Tool) bool {
 	return can && ro.ReadOnly()
 }
 
+// toolSpecs returns the tools available to an agent, honoring its allowlist.
+//
+// sid is the conversation being served. A tool attached FOR a conversation is advertised to that
+// one alone — see port.Owned. Every other tool (builtins, config-declared servers) has no owner and
+// is advertised to all, which is what this function did before owners existed.
 func (a *App) toolSpecs(sid session.SessionID, agent AgentSpec) []port.ToolSpec {
 	var specs []port.ToolSpec
 	for _, t := range a.tools.List() {

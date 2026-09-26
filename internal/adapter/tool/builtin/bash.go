@@ -584,17 +584,6 @@ func scratchEnv(tmp string) []string {
 	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
 }
 
-// outputLine names the file the command's full output was captured to, when the turn kept one, and
-// says whether the message above it is that output entire or a clipped view of it. The file is
-// always everything, so a later step greps the part it needs instead of re-running the command.
-//
-// It used to say "this message shows the head and tail" on every result, including the ones it had
-// shown whole. Observed live (fix-ocaml-gc, 2026-07-30): two `grep -n "^#define Make_header" …`
-// runs, both exit 1, both answered "0 bytes — the full output; this message shows the head and
-// tail" — a head-and-tail presentation of nothing, announcing an elision that had not happened. An
-// agent told the middle was withheld has reason to go looking for what is not there; the second of
-// those two calls was the same command again. Clipping is measured by the caller and marked in the
-// body where it occurs, so this states what that measurement found.
 // killedByStatus names what the EXIT STATUS says killed the command, or "" when the status does
 // not say it was killed at all. magi kills a command at its own timeout and knows it did; a kill
 // the shell performed is reported only in the number — 124 is what GNU `timeout` exits when it
@@ -614,6 +603,18 @@ func killedByStatus(exit int) string {
 	return ""
 }
 
+// outputLine names the file the command's full output was captured to, when the turn kept one, and
+// says whether the message above it is that output entire or a clipped view of it. The file is
+// always everything, so a later step greps the part it needs instead of re-running the command.
+//
+// It used to say "this message shows the head and tail" on every result, including the ones it had
+// shown whole. Observed live (fix-ocaml-gc, 2026-07-30): two `grep -n "^#define Make_header" …`
+// runs, both exit 1, both answered "0 bytes — the full output; this message shows the head and
+// tail" — a head-and-tail presentation of nothing, announcing an elision that had not happened. An
+// agent told the middle was withheld has reason to go looking for what is not there; the second of
+// those two calls was the same command again. Clipping is measured by the caller and marked in the
+// body where it occurs, so this states what that measurement found.
+//
 // killedBy names what killed the command ("" when it ran to completion), and gates the empty-
 // capture sentence: only a command that FINISHED can be said to have written nothing.
 //

@@ -395,18 +395,6 @@ func justSettled(list []fleet.Agent, was map[string]fleet.State) []fleet.Agent {
 	return out
 }
 
-// notifyAnswers tells the asker that work it handed out has come back.
-//
-// # Why this needed a channel at all
-//
-// A companion answers in its own transcript and the asker reads it. That is cheap and honest — no
-// queue to lose things, no callback arriving mid-turn to derail the asker — but it means the answer
-// sits there until somebody looks, and the person who would look is the one who walked away. The
-// console has collected these on one page for a while; this is the part that reaches somebody who
-// is not on that page.
-//
-// The notification names the ASKER, not the receiver. "buttons finished" is a fact about a
-// companion; "design's question came back" is the thing the reader is waiting on.
 // splitLabel takes a fleet display label apart: a handoff dispatched across machines is
 // labelled "api on deskB", a string no policy scope entry can ever match — the scope
 // vocabulary is names and peer/name, never prose. The name half serves bare-name scope
@@ -426,6 +414,18 @@ func companionOfLabel(label string) string {
 	return name
 }
 
+// notifyAnswers tells the asker that work it handed out has come back.
+//
+// # Why this needed a channel at all
+//
+// A companion answers in its own transcript and the asker reads it. That is cheap and honest — no
+// queue to lose things, no callback arriving mid-turn to derail the asker — but it means the answer
+// sits there until somebody looks, and the person who would look is the one who walked away. The
+// console has collected these on one page for a while; this is the part that reaches somebody who
+// is not on that page.
+//
+// The notification names the ASKER, not the receiver. "buttons finished" is a fact about a
+// companion; "design's question came back" is the thing the reader is waiting on.
 func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 	list, err := fleet.Handoffs(ctx, s.reader, s.cfgDir, "", &s.fleetCache)
 	if err != nil {

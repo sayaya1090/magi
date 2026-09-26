@@ -242,9 +242,6 @@ type sessionState struct {
 	asideNoteOnce  string
 }
 
-// stateLocked returns the session's state, creating it on first use. The caller MUST
-// hold a.mu. The nil-map guard lets zero-value App literals (used in tests) be safe;
-// production always goes through New, which pre-allocates the map.
 // forget drops a held session.created, for the one case that writes the fact itself.
 func (a *App) forget(sid session.SessionID) {
 	a.mu.Lock()
@@ -254,6 +251,9 @@ func (a *App) forget(sid session.SessionID) {
 	a.mu.Unlock()
 }
 
+// stateLocked returns the session's state, creating it on first use. The caller MUST
+// hold a.mu. The nil-map guard lets zero-value App literals (used in tests) be safe;
+// production always goes through New, which pre-allocates the map.
 func (a *App) stateLocked(sid session.SessionID) *sessionState {
 	if a.states == nil {
 		a.states = map[session.SessionID]*sessionState{}

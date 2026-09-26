@@ -368,8 +368,6 @@ func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/guide", a.guard(a.guide))
 }
 
-// deckOf 는 이 요청이 어느 덱의 것인가. 창이 `deck` 으로 실어 보낸다 — 손 스트림이 이미
-// `presentation` 으로 갈라 놓은 그 이름이다.
 // ours 는 「이 소켓·이 생애에 우리 묶음이 있는가」 — 명단과 상태가 같은 물음을 같은 자리에 한다.
 func (a *API) ours() attached {
 	if a.Bridges == nil {
@@ -378,6 +376,8 @@ func (a *API) ours() attached {
 	return a.Bridges.AttachedTo
 }
 
+// deckOf 는 이 요청이 어느 덱의 것인가. 창이 `deck` 으로 실어 보낸다 — 손 스트림이 이미
+// `presentation` 으로 갈라 놓은 그 이름이다.
 func deckOf(r *http.Request) string {
 	if r == nil {
 		return ""

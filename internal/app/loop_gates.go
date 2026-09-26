@@ -583,6 +583,16 @@ func (a *App) callsAfterDeclaring(ctx context.Context, sid session.SessionID,
 	return kept
 }
 
+// notRunTail ends the not-run notice: the same measured rule as closingCall — an answer already
+// written is not asked for again.
+func notRunTail(lastText string) string {
+	if utf8.RuneCountInString(strings.TrimSpace(lastText)) >= finalAnswerFloor {
+		return "If it IS finished, the message you wrote before declaring already is the final answer — " +
+			"do not write it again; reply with one short line, and stop."
+	}
+	return "If it IS finished, ignore this and write your final answer."
+}
+
 // sayWhatWasNotRun tells a declared turn that the tools it just called were not run.
 //
 // A turn that has declared itself finished does no more work on the task, so its calls are dropped.
@@ -597,16 +607,6 @@ func (a *App) callsAfterDeclaring(ctx context.Context, sid session.SessionID,
 //
 // Once, and it keeps the turn open so the answer can be acted on: "not finished after all" is a
 // thing an agent can still say here, and it is the only way back.
-// notRunTail ends the not-run notice: the same measured rule as closingCall — an answer already
-// written is not asked for again.
-func notRunTail(lastText string) string {
-	if utf8.RuneCountInString(strings.TrimSpace(lastText)) >= finalAnswerFloor {
-		return "If it IS finished, the message you wrote before declaring already is the final answer — " +
-			"do not write it again; reply with one short line, and stop."
-	}
-	return "If it IS finished, ignore this and write your final answer."
-}
-
 func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState, lastText string) (loopAction, bool) {
 	if ts.dropTold || len(ts.dropped) == 0 {
 		return 0, false

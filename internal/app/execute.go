@@ -716,14 +716,6 @@ func (a *App) recallMemoryFn(ctx context.Context, agent AgentSpec) func(string) 
 	}
 }
 
-// nearestToolName returns the registered tool a called name differs from only in SEPARATORS or
-// case — `todo_write` for `todowrite`, `bashOutput` for `bash_output`. Models carry other
-// harnesses' spellings as priors, and a rejection that only says "unknown" gets the same spelling
-// back; naming the exact registered form ends that loop in one round trip.
-//
-// Deliberately NOT fuzzy: only a separator/case difference counts. A guess like `run` for `bash`
-// would put a tool the model never asked for into its mouth, and a wrong suggestion costs more
-// than none — the full roster is always listed anyway.
 // unknownToolArgs compares the argument keys a model actually sent against the ones the tool
 // declares, splitting the strays in two: `misspelled` maps a sent key to the declared key it is a
 // case/separator variant of (the model meant that argument), and `ignored` lists the rest (the
@@ -854,6 +846,14 @@ func quoteJoin(ss []string) string {
 	return strings.Join(out, ", ")
 }
 
+// nearestToolName returns the registered tool a called name differs from only in SEPARATORS or
+// case — `todo_write` for `todowrite`, `bashOutput` for `bash_output`. Models carry other
+// harnesses' spellings as priors, and a rejection that only says "unknown" gets the same spelling
+// back; naming the exact registered form ends that loop in one round trip.
+//
+// Deliberately NOT fuzzy: only a separator/case difference counts. A guess like `run` for `bash`
+// would put a tool the model never asked for into its mouth, and a wrong suggestion costs more
+// than none — the full roster is always listed anyway.
 func nearestToolName(called string, names []string) string {
 	norm := func(s string) string {
 		var b strings.Builder

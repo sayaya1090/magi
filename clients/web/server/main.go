@@ -499,9 +499,6 @@ func (s *server) clientFor(sock string) (*daemon.Client, error) {
 	return c, nil
 }
 
-// target resolves the ?d= socket a request is about, defaulting to the directory this viewer was
-// started in. Only sockets List already found are accepted: the parameter comes from a page and a
-// path from a page must not become a path this process will dial.
 // fleetStream is the roster, pushed when it changes.
 //
 // The lists were three-second polls in the browser: one request per screen per three seconds per
@@ -672,6 +669,9 @@ func (s *server) meetFrame(r *http.Request, room string) (string, bool) {
 	return string(b), true
 }
 
+// target resolves the ?d= socket a request is about, defaulting to the directory this viewer was
+// started in. Only sockets List already found are accepted: the parameter comes from a page and a
+// path from a page must not become a path this process will dial.
 func (s *server) target(r *http.Request) (daemon.Info, error) {
 	want := r.URL.Query().Get("d")
 	if want == "" {

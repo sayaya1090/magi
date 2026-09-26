@@ -101,9 +101,6 @@ func (t *httpTransport) captureSession(resp *http.Response) {
 	}
 }
 
-// call sends a JSON-RPC request via HTTP POST and handles the response.
-// The server may respond with either application/json (single response) or
-// text/event-stream (SSE stream for multiple messages).
 // reachable asks whether anybody is home at the endpoint, with one raw POST of a "ping". Only
 // "nobody was there" is a no: a refusal, an RPC error, junk — any HTTP response at all — is
 // somebody answering, and a probe that ran out of its own deadline says we stopped waiting, not
@@ -265,6 +262,9 @@ func validateHTTPResponse(msg *httpMessage, expectedID int64, method string, out
 	return nil
 }
 
+// call sends a JSON-RPC request via HTTP POST and handles the response.
+// The server may respond with either application/json (single response) or
+// text/event-stream (SSE stream for multiple messages).
 func (t *httpTransport) call(ctx context.Context, method string, params any, out any) error {
 	t.mu.Lock()
 	if t.closed {

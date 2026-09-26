@@ -13,8 +13,6 @@ import (
 	"github.com/sayaya1090/magi/internal/app"
 )
 
-// publishFake writes a daemon's record and optionally puts something behind the socket. serve nil
-// leaves a record with no listener at all — which is what a SIGKILL leaves behind.
 // leaveStaleSocket puts at path what a killed daemon leaves: a SOCKET nobody is listening on.
 //
 // Not a plain file, which is what these fixtures used to write with "the file SIGKILL leaves
@@ -39,6 +37,8 @@ func leaveStaleSocket(t *testing.T, path string) {
 	}
 }
 
+// publishFake writes a daemon's record and optionally puts something behind the socket. serve nil
+// leaves a record with no listener at all — which is what a SIGKILL leaves behind.
 func publishFake(t *testing.T, dir, name, sid string, serve func(net.Listener)) string {
 	t.Helper()
 	sock := filepath.Join(dir, "daemon-"+name+".sock")

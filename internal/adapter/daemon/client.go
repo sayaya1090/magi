@@ -733,7 +733,6 @@ func (c *Client) ReadOnlyTool(name string, args json.RawMessage) (string, error)
 	return resp.Out, nil
 }
 
-// WriteTool asks the companion to change one of its own files, and to write down that a person did.
 // PatchFile applies a unified diff to one file in the companion's workspace. A refusal here is
 // usually the file having changed since it was read, which is the whole reason to send a patch.
 func (c *Client) PatchFile(path, patch string, ask bool) error {
@@ -741,6 +740,7 @@ func (c *Client) PatchFile(path, patch string, ask bool) error {
 	return err
 }
 
+// WriteTool asks the companion to change one of its own files, and to write down that a person did.
 func (c *Client) WriteTool(name string, args json.RawMessage, ask bool) (string, error) {
 	resp, err := c.exchange(Request{Method: "edit-file", Name: name, Args: args, Ask: ask})
 	if err != nil {
@@ -758,10 +758,6 @@ func (c *Client) Git() (string, error) {
 	return resp.Out, nil
 }
 
-// Meet asks the companion for one contribution to a meeting: what it has to add, or a pass.
-//
-// topic is the question, transcript is everything said so far, and closing asks the other
-// question — what this participant will DO about it — which is what a meeting is for.
 // Join is this companion getting ready for a meeting: it reads its own workspace and answers with
 // what it brings. The session it opens is the one its turns then happen in.
 func (c *Client) Join(meeting, topic string, room []Seat) (ready, roomID string, err error) {
@@ -772,6 +768,10 @@ func (c *Client) Join(meeting, topic string, room []Seat) (ready, roomID string,
 	return resp.Out, resp.Session, nil
 }
 
+// Meet asks the companion for one contribution to a meeting: what it has to add, or a pass.
+//
+// topic is the question, transcript is everything said so far, and closing asks the other
+// question — what this participant will DO about it — which is what a meeting is for.
 func (c *Client) Meet(meeting, topic, transcript, minutes string, room []Seat, closing bool) (Contribution, error) {
 	which := ""
 	if closing {

@@ -529,7 +529,6 @@ func shardPath(workdir string, args json.RawMessage) string {
 	return relForChange(workdir, p)
 }
 
-// truncateAt returns events with seq <= boundary.
 // raiseToMessageSeam is snapToMessageSeam's other direction: boundary climbs to the straddling
 // message's last part, repeating until no message is split. Used only when lowering reached
 // zero — it folds MORE than asked, never less than whole messages.
@@ -612,6 +611,7 @@ func messageSpans(evs []event.Event) map[string]*span {
 	return spans
 }
 
+// truncateAt returns events with seq <= boundary.
 func truncateAt(evs []event.Event, boundary int64) []event.Event {
 	out := make([]event.Event, 0, len(evs))
 	for _, e := range evs {
@@ -907,15 +907,6 @@ func (a *App) contextTokens(sid session.SessionID, sys string, msgs []session.Me
 	return estimateTokens(sys, msgs)
 }
 
-// estimateTokens approximates the token count of a request (≈4 chars/token).
-//
-// It must count what the WIRE carries, not what the session holds. Reasoning parts are persisted
-// every step and rebuilt on replay, but the openai adapter's joinText sends only PartText — so
-// counting a reasoning part's Text here inflated the estimate by the bulk of a thinking model's
-// output (routinely several times the text), and the trigger takes max(real, estimate). The result
-// was a session folded away at 15-20% of real window use, and re-folded on later turns for the
-// same phantom reason. Count PartText, tool calls and tool results; skip the reasoning that never
-// leaves the machine.
 // toolSpecTokens approximates what the request's tool definitions cost on the wire (≈4 chars/token):
 // every name, description and schema travels with EVERY request, ahead of the messages.
 func toolSpecTokens(specs []port.ToolSpec) int {
@@ -926,6 +917,15 @@ func toolSpecTokens(specs []port.ToolSpec) int {
 	return chars / 4
 }
 
+// estimateTokens approximates the token count of a request (≈4 chars/token).
+//
+// It must count what the WIRE carries, not what the session holds. Reasoning parts are persisted
+// every step and rebuilt on replay, but the openai adapter's joinText sends only PartText — so
+// counting a reasoning part's Text here inflated the estimate by the bulk of a thinking model's
+// output (routinely several times the text), and the trigger takes max(real, estimate). The result
+// was a session folded away at 15-20% of real window use, and re-folded on later turns for the
+// same phantom reason. Count PartText, tool calls and tool results; skip the reasoning that never
+// leaves the machine.
 func estimateTokens(sys string, msgs []session.Message) int {
 	chars := len(sys)
 	for _, m := range msgs {

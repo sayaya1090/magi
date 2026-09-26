@@ -419,16 +419,12 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	return v
 }
 
-// pollRebut re-polls one member in the rebuttal round: same lens/prompt as poll, but
-// the evidence carries the peer digest and an instruction to hold or revise. On any
-// error or unparseable reply it returns the member's PRIOR verdict unchanged, so the
-// rebuttal can only refine consensus, never lose a vote to a flaky re-poll.
-// clipWalk bounds the walk written to the log. The walk is an audit record, not the verdict, and a
-// member that enumerates thirty requirements should not push the rest of the run out of the log.
 // thoughtText preserves the complete provider reasoning for transcript replay.
 // Log summaries remain bounded separately by clipWalk.
 func thoughtText(s string) string { return strings.TrimSpace(s) }
 
+// clipWalk bounds the walk written to the log. The walk is an audit record, not the verdict, and a
+// member that enumerates thirty requirements should not push the rest of the run out of the log.
 func clipWalk(s string) string {
 	const n = 1200
 	if len(s) <= n {
@@ -437,6 +433,10 @@ func clipWalk(s string) string {
 	return s[:n] + "…"
 }
 
+// pollRebut re-polls one member in the rebuttal round: same lens/prompt as poll, but
+// the evidence carries the peer digest and an instruction to hold or revise. On any
+// error or unparseable reply it returns the member's PRIOR verdict unchanged, so the
+// rebuttal can only refine consensus, never lose a vote to a flaky re-poll.
 func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m council.Member, prior council.Verdict, peers string) council.Verdict {
 	if strings.TrimSpace(peers) == "" {
 		return prior // no dissent to consider (all others abstained)
@@ -860,9 +860,6 @@ func evidence(req port.DeliberationRequest) string {
 	return strings.TrimSpace(b.String())
 }
 
-// decisionOf maps a member's free-form decision string to a Decision. An
-// unrecognized but parsed value resolves to Continue (the gate never finishes on
-// an ambiguous vote).
 // decisionWord is decisionOf plus whether the word was RECOGNISED. Callers where an unknown word
 // must not become a vote (the panel's close, a verdict with no decision) ask this one; callers
 // where the safe default is `continue` keep asking decisionOf.
@@ -878,6 +875,9 @@ func decisionWord(s string) (council.Decision, bool) {
 	return council.Continue, false
 }
 
+// decisionOf maps a member's free-form decision string to a Decision. An
+// unrecognized but parsed value resolves to Continue (the gate never finishes on
+// an ambiguous vote).
 func decisionOf(s string) council.Decision {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "done":

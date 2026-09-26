@@ -94,13 +94,6 @@ func evidenceArgs(name string, raw json.RawMessage) string {
 	return ""
 }
 
-// turnToolEvidence summarizes THIS turn's tool RESULTS as real, git-independent
-// evidence of what actually happened — a write that reported bytes, a `cat` that shows
-// the content. It deliberately EXCLUDES the model's own text: that is the agent's claim
-// (already passed as Report), and admitting narration as "evidence" is exactly how a
-// defeatist agent talks the council into "done" with no artifact (the download-youtube
-// lesson). Only events since the last user prompt are considered, so a prior turn's
-// successful tool result can't masquerade as this turn's. Most recent k results.
 // guidanceRead is the full text of every skill the agent opened this SESSION (the `skill`
 // tool), latest reading of each, in first-read order. Skills carry instructions the agent
 // bound itself to — a layout rule, a "render each finished page" step — and a council that
@@ -184,6 +177,13 @@ const (
 	evidenceTallyArgsCap = 240 // a tally line lists the identifying args of one tool's calls
 )
 
+// turnToolEvidence summarizes THIS turn's tool RESULTS as real, git-independent
+// evidence of what actually happened — a write that reported bytes, a `cat` that shows
+// the content. It deliberately EXCLUDES the model's own text: that is the agent's claim
+// (already passed as Report), and admitting narration as "evidence" is exactly how a
+// defeatist agent talks the council into "done" with no artifact (the download-youtube
+// lesson). Only events since the last user prompt are considered, so a prior turn's
+// successful tool result can't masquerade as this turn's. Most recent k results.
 func turnToolEvidence(evs []event.Event, k int) string {
 	names := map[string]toolCallBrief{} // callID -> what was asked
 	// One entry per finished call, keyed so a REPEAT of the same call can supersede the earlier

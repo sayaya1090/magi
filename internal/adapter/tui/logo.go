@@ -28,6 +28,17 @@ func logoBlock() string {
 	return lipgloss.JoinVertical(lipgloss.Center, art, "", ver)
 }
 
+// sentenceCase capitalises the first letter and leaves the rest as the name was written, which is
+// what sentence case asks for and what an all-caps upper() destroys — a councillor written
+// "McCoy" comes back "Mccoy" from a naive title-caser.
+func sentenceCase(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	return strings.ToUpper(string(r[0])) + string(r[1:])
+}
+
 // splashConsole renders the MAGI tri-console diagram in the deliberation display's
 // triangular composition: the first seat's block on top, its stem tee-ing into a
 // bus bar that feeds the second and third seats below — the wordmark beneath. The
@@ -40,17 +51,6 @@ func logoBlock() string {
 // padded to one common width (artW): splashCompose centers each line independently
 // by its width, and equal widths are what keep the diagram's internal alignment
 // intact. The wordmark/version sit on the same axis.
-// sentenceCase capitalises the first letter and leaves the rest as the name was written, which is
-// what sentence case asks for and what an all-caps upper() destroys — a councillor written
-// "McCoy" comes back "Mccoy" from a naive title-caser.
-func sentenceCase(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	return strings.ToUpper(string(r[0])) + string(r[1:])
-}
-
 func (m *Model) splashConsole() []string {
 	frame := lipgloss.NewStyle().Foreground(logoColor).Bold(true)
 	names := m.app.CouncilMemberNames()

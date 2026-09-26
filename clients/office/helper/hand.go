@@ -200,8 +200,6 @@ func (h *HandHub) LeaveGen(c *handConn, gen int) {
 	}
 }
 
-// Leave 는 애드인이 사라졌을 때. **헬퍼는 애드인 없이도 산다**(§5.4) — 마지막 손이 없어져도
-// 프로세스는 그대로고, 도구가 「붙어 있지 않다」로 실패할 뿐이다.
 // Peek 은 보는 연결(role=viewer)이 볼 손을 돌려준다 — 붙지도 떼지도 않는다.
 //
 // 먼저 그 문서 키 그대로. 없으면 **손이 하나뿐일 때만** 그것을 보여 준다. 2021 판에서 그 자리를 봤다
@@ -274,6 +272,8 @@ func (c *handConn) record() (deaf int, answered bool) {
 	return c.deaf, c.answered
 }
 
+// Leave 는 애드인이 사라졌을 때. **헬퍼는 애드인 없이도 산다**(§5.4) — 마지막 손이 없어져도
+// 프로세스는 그대로고, 도구가 「붙어 있지 않다」로 실패할 뿐이다.
 func (h *HandHub) Leave(c *handConn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

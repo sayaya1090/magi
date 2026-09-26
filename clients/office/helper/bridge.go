@@ -127,11 +127,6 @@ func (b *Bridge) push(f StreamFrame) {
 	}
 }
 
-// Bind 는 컴패니언 하나를 고르고 대화 스트림을 연다.
-//
-// 대화가 바뀌면 **커서를 -1 로 되돌린다**(§5.7). 옛 커서를 새 대화에 들고 가면 그 대화의 앞을
-// 못 본다 — 와이어에는 숫자만 있고 어느 로그에서 센 숫자인지가 안 실려 오므로, 세션 id 를 seq
-// 옆에 같이 들고 있는 것은 **클라이언트 몫**이라고 문이 스스로 적어 뒀다.
 // BoundTo 는 이 묶음이 무엇에 묶였는가 — 조정이 「다시 할 일이 있는가」를 재는 셋.
 func (b *Bridge) BoundTo() (socket, sid, life string, tools []string) {
 	b.mu.Lock()
@@ -141,6 +136,10 @@ func (b *Bridge) BoundTo() (socket, sid, life string, tools []string) {
 
 // Bind 는 (socket, sid) 에 묶고 스트림을 연다. life·tools 는 그 묶음의 기록이다 — 비워도 되지만
 // 그러면 데몬 재기동을 이 자리에서 못 알아본다.
+//
+// 대화가 바뀌면 **커서를 -1 로 되돌린다**(§5.7). 옛 커서를 새 대화에 들고 가면 그 대화의 앞을
+// 못 본다 — 와이어에는 숫자만 있고 어느 로그에서 센 숫자인지가 안 실려 오므로, 세션 id 를 seq
+// 옆에 같이 들고 있는 것은 **클라이언트 몫**이라고 문이 스스로 적어 뒀다.
 func (b *Bridge) Bind(socket, sid string, mark ...string) error {
 	return b.BindWith(socket, sid, firstOr(mark, ""), nil)
 }
@@ -179,7 +178,6 @@ func (b *Bridge) BindWith(socket, sid, life string, tools []string) error {
 	return nil
 }
 
-// Stop 은 붙어 있던 것을 놓는다.
 // isEmptyConversation 은 전사 문의 「없는 대화」 답을 알아본다 — 코어가 첫 말 전의 대화를 저장소에
 // 안 두어서 나는 말이고, 붙을 소켓은 멀쩡하다.
 func isEmptyConversation(err error) bool {
@@ -200,6 +198,7 @@ func (b *Bridge) Empty() bool {
 	return b.empty
 }
 
+// Stop 은 붙어 있던 것을 놓는다.
 func (b *Bridge) Stop() {
 	b.mu.Lock()
 	b.stopped = true

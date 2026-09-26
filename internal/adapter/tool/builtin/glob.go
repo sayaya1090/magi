@@ -135,8 +135,6 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	return okJSON("", out), nil
 }
 
-// patternWantsHidden reports whether any pattern segment explicitly starts with a
-// dot (so the caller is deliberately targeting hidden paths like ".github/...").
 // anchorPattern re-expresses an ABSOLUTE glob pattern as one relative to root, since matching
 // runs against workspace-relative paths. It reports whether the pattern was absolute and, if so,
 // whether it names something inside root — the two are separate answers because an absolute
@@ -161,6 +159,8 @@ func anchorPattern(root, pattern string) (rel string, abs bool, inside bool) {
 	return pattern, true, false
 }
 
+// patternWantsHidden reports whether any pattern segment explicitly starts with a
+// dot (so the caller is deliberately targeting hidden paths like ".github/...").
 func patternWantsHidden(pattern string) bool {
 	for _, seg := range strings.Split(pattern, "/") {
 		if strings.HasPrefix(seg, ".") && seg != "." && seg != ".." {

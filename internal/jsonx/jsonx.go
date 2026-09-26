@@ -120,20 +120,6 @@ func balancedSpans(s string, open, close byte) []string {
 	return out
 }
 
-// BalancedArrays is BalancedObjects for [...] arrays — every TOP-LEVEL balanced array in s, in
-// order, respecting strings and escapes. A JSON-array reply (e.g. a check-audit's list) that is
-// wrapped in prose or trailed by reasoning containing a stray ] is recovered by trying each
-// candidate, instead of a naive first-[/last-] span that mis-captures on any bracket outside the
-// balancedSpans returns every TOP-LEVEL balanced open..close span in s, in order, respecting string
-// literals and escapes so a bracket inside a quoted value never shifts the boundary. An open that
-// never closes (a stray bracket in prose/reasoning — weak models emit these: a code fragment, a set
-// literal, an unclosed example) is skipped so a real balanced span that follows it is still found,
-// rather than letting one unclosed stray swallow the rest (observed: a multi-KB reply parsed to
-// balancedSpans returns every TOP-LEVEL balanced open..close span in s, in order, respecting string
-// literals and escapes so a bracket inside a quoted value never shifts the boundary. An open that
-// never closes (a stray bracket in prose/reasoning — weak models emit these: a code fragment, a set
-// literal, an unclosed example) is skipped so a real balanced span that follows it is still found,
-// rather than letting one unclosed stray swallow the rest (observed: a multi-KB reply parsed to
 // StripTrailingCommas removes a comma that immediately precedes a closing } or ] (ignoring
 // intervening whitespace). It respects string literals — a comma inside a quoted value is untouched —
 // so it only repairs the structural trailing comma JSON forbids but weak models routinely emit.

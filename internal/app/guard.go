@@ -207,20 +207,6 @@ func hashContent(s string) uint64 {
 	return h.Sum64()
 }
 
-// noteEdit records a file's post-edit content in this turn's per-file history and reports
-// whether the edit RETURNED the file to a content state it already held earlier this turn —
-// i.e. the agent is undoing its own prior change. `before` is the file's content captured
-// just before the FIRST edit of the turn (used only to seed the pre-turn baseline); `after`
-// is the content right after this edit. Returns a non-empty advisory when a regression is
-// detected, else "". An idempotent rewrite (identical to the immediately-preceding state) is
-// the loop guard's domain and never warns here.
-//
-// Notes/limits (all acceptable since the result is a non-blocking advisory): the content is
-// a best-effort prefix — readForChange caps reads at changeReadCap, so a >cap file whose
-// first cap bytes are unchanged can false-match (or a true revert past the cap can be
-// missed). A create-then-empty (""→content→"") is reported as a real self-revert. The
-// wording is a neutral observation, not a "put it back" instruction, to avoid pushing a
-// weak model into an oscillation; and each file is flagged at most once per turn.
 // noteCreated records an absolute path this run brought into being.
 func (g *runGuard) noteCreated(abs string) {
 	if g == nil || strings.TrimSpace(abs) == "" {
@@ -256,6 +242,20 @@ func (g *runGuard) didCreate(abs string) bool {
 	return false
 }
 
+// noteEdit records a file's post-edit content in this turn's per-file history and reports
+// whether the edit RETURNED the file to a content state it already held earlier this turn —
+// i.e. the agent is undoing its own prior change. `before` is the file's content captured
+// just before the FIRST edit of the turn (used only to seed the pre-turn baseline); `after`
+// is the content right after this edit. Returns a non-empty advisory when a regression is
+// detected, else "". An idempotent rewrite (identical to the immediately-preceding state) is
+// the loop guard's domain and never warns here.
+//
+// Notes/limits (all acceptable since the result is a non-blocking advisory): the content is
+// a best-effort prefix — readForChange caps reads at changeReadCap, so a >cap file whose
+// first cap bytes are unchanged can false-match (or a true revert past the cap can be
+// missed). A create-then-empty (""→content→"") is reported as a real self-revert. The
+// wording is a neutral observation, not a "put it back" instruction, to avoid pushing a
+// weak model into an oscillation; and each file is flagged at most once per turn.
 func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -422,10 +422,6 @@ func (g *runGuard) forgetRecalledTopics() {
 	g.recalled = map[string]bool{}
 }
 
-// check records a tool call and reports whether it should be blocked as a repeat,
-// how many times this exact call has been seen at the current epoch, and the
-// fingerprint (so the caller can record/echo its result).
-//
 // repeatEpoch is the fingerprint's "the world may have moved, ask again" term. For most tools it is
 // the mutation epoch: an identical `go test` after an edit is a new question, so it must not be
 // counted as a repeat of the one before it.
@@ -453,6 +449,10 @@ func (g *runGuard) repeatEpoch(name string, args json.RawMessage) string {
 	return strconv.Itoa(g.epoch)
 }
 
+// check records a tool call and reports whether it should be blocked as a repeat,
+// how many times this exact call has been seen at the current epoch, and the
+// fingerprint (so the caller can record/echo its result).
+//
 // check COUNTS repeats and never blocks — the hard block this comment once described was
 // removed (execute.go notes the removal; block is unconditionally false below). The counts
 // still matter: they feed the nudges and the stall layer, which is what terminates a
@@ -598,16 +598,6 @@ func (g *runGuard) noteBashWrite(cmd string) (authored, reset bool) {
 	return true, g.mutated("\x00bash", stripEchoTail(cmd))
 }
 
-// noteBashExec records that a bash command actually EXERCISED the deliverable — it ran a
-// program or test, as opposed to inspecting state. Classification is by leading verb alone
-// (see isInspectOnly), INDEPENDENT of any redirect: `pytest 2>&1`, `python x.py > log`, and
-// `./run > out` all count as execution even though they redirect, whereas `echo … > f` or a
-// heredoc does not (its verb is inspect-only, i.e. it authors content rather than runs it).
-// Everything not inspect-only — `python`, `pytest`, `go test`, `./run`, `make`, a script —
-// is real execution evidence for the CURRENT deliverable version. novel (the guard.check n==1
-// for this same call) marks a first-seen exercise this epoch: only a NEW exercising command is
-// forward motion for the stalled-nudge convergence (re-running an already-run test on an
-// unchanged deliverable is not), so it sets progressSinceNudge; execSinceMut counts every
 // noteInspectProgress credits a NOVEL read-only inspection (a first-seen read/grep/glob/
 // list — a DIFFERENT file or query) as forward motion for the stall window: gathering
 // new information is real progress, not the "restating the same conclusion" loop the
@@ -783,13 +773,23 @@ func mergeSpans(in []lineSpan) []lineSpan {
 	return out
 }
 
+// noteBashExec records that a bash command actually EXERCISED the deliverable — it ran a
+// program or test, as opposed to inspecting state. Classification is by leading verb alone
+// (see isInspectOnly), INDEPENDENT of any redirect: `pytest 2>&1`, `python x.py > log`, and
+// `./run > out` all count as execution even though they redirect, whereas `echo … > f` or a
+// heredoc does not (its verb is inspect-only, i.e. it authors content rather than runs it).
+// Everything not inspect-only — `python`, `pytest`, `go test`, `./run`, `make`, a script —
+// is real execution evidence for the CURRENT deliverable version. novel (the guard.check n==1
+// for this same call) marks a first-seen exercise this epoch: only a NEW exercising command is
+// forward motion for the stalled-nudge convergence (re-running an already-run test on an
+// unchanged deliverable is not), so it sets progressSinceNudge.
 func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	if isInspectOnly(cmd) {
 		// A NOVEL inspection is not deliverable progress, but it IS a response to the
 		// "take a different action" redirect: the agent demonstrably changed direction
 		// (a new grep pattern, a new file). Counting it keeps the D18a collapse for
 		// true head-banging (only already-seen fingerprints after the nudge) while a
-		// genuine pivot keeps its full nudge budget. execSinceMut is deliberately NOT
+		// genuine pivot keeps its full nudge budget.
 		if novel && stallNoveltyEnabled() {
 			g.mu.Lock()
 			g.progressSinceNudge = true
@@ -804,11 +804,6 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	g.mu.Unlock()
 }
 
-// mutationEpoch returns the current mutation epoch — the number of real file mutations
-// (edit/write AND bash file-writes via noteBashWrite) this run. It rises only on genuine
-// deliverable changes (a read-only bash or an idempotent rewrite does not bump it), so it
-// is the version stamp the fresh-evidence gate compares against: a tester PASS recorded at
-// epoch N is stale the moment a later mutation bumps the epoch past N, forcing re-check.
 // noteOutcome records whether a call's own result was an error, by call id, for the loop's
 // identical-step check: a step that repeats a step whose calls all SUCCEEDED asks for nothing
 // new, while a repeat after a failure is a retry and runs.
@@ -833,6 +828,11 @@ func (g *runGuard) anyFailed(callIDs []string) bool {
 	return false
 }
 
+// mutationEpoch returns the current mutation epoch — the number of real file mutations
+// (edit/write AND bash file-writes via noteBashWrite) this run. It rises only on genuine
+// deliverable changes (a read-only bash or an idempotent rewrite does not bump it), so it
+// is the version stamp the fresh-evidence gate compares against: a tester PASS recorded at
+// epoch N is stale the moment a later mutation bumps the epoch past N, forcing re-check.
 func (g *runGuard) mutationEpoch() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -988,10 +988,6 @@ func capToolResult(b []byte) []byte {
 	return append(out, m...)
 }
 
-// pathExists reports whether a tool-supplied path resolves to something on disk right now. magi
-// records an absent file and an empty one as the same content (""), so a command that DELETED a
-// file looks, to the content history, exactly like one that returned it to an earlier state. The
-// two are told apart by the same stat readForChange already makes — just kept.
 // absUnder resolves a tool-supplied path against the workspace, the same way the read/stat
 // helpers here do, so the created-set and the gate name the same file.
 func absUnder(workdir, path string) string {
@@ -1001,6 +997,10 @@ func absUnder(workdir, path string) string {
 	return filepath.Clean(filepath.Join(workdir, path))
 }
 
+// pathExists reports whether a tool-supplied path resolves to something on disk right now. magi
+// records an absent file and an empty one as the same content (""), so a command that DELETED a
+// file looks, to the content history, exactly like one that returned it to an earlier state. The
+// two are told apart by the same stat readForChange already makes — just kept.
 func pathExists(workdir, path string) bool {
 	abs := absAsGiven(workdir, path)
 	_, err := os.Stat(abs)

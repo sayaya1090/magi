@@ -542,7 +542,6 @@ func (s *server) gitDo(w http.ResponseWriter, r *http.Request) {
 	writeText(w, out)
 }
 
-// askCompanion runs one read-only tool on the companion this request names.
 // browse runs a READ-ONLY look at a companion — the tree, the git state, a file, a search — on a
 // connection of its own.
 //
@@ -560,6 +559,7 @@ func (s *server) browse(r *http.Request, do func(*daemon.Client, session.Session
 	return s.alone(r, do)
 }
 
+// askCompanion runs one read-only tool on the companion this request names.
 func (s *server) askCompanion(r *http.Request, tool string, args json.RawMessage) (string, error) {
 	var out string
 	err := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {

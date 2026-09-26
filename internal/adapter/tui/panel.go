@@ -390,7 +390,6 @@ func (m *Model) ctxBar(width int) string {
 	return bar + "\n" + styleFooter.Render(gauge)
 }
 
-// panelHead renders a post-it section header.
 // scheduledSoon is what the panel says about standing work: the next few jobs, and any that can
 // never run.
 //
@@ -424,6 +423,7 @@ func (m *Model) scheduledSoon() []app.ScheduledJobInfo {
 	return out
 }
 
+// panelHead renders a post-it section header.
 func panelHead(s string) string {
 	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Render(s)
 }

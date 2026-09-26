@@ -162,16 +162,6 @@ func since(sec int) string {
 // policy and says so in the transcript, so the record shows a default rather than a decision.
 const daemonAnswerWait = 3 * time.Minute
 
-// answerWait is whether an answerer is somewhere ELSE, expressed as how long to wait for them.
-//
-// A property of the process, and the only half of the question this layer can answer: a terminal
-// has the person in front of it and waits as long as they need; a daemon has whoever attaches, and
-// cannot wait on them forever in every mode.
-//
-// WHICH modes it applies to is decided per prompt, in app.answerBound — because the mode changes
-// while the process runs (Shift+Tab, /permission, SetPermission over the socket) and a bound frozen
-// at startup would outlive the mode that justified it. Short version: ask waits, auto is bounded,
-// allow never prompts.
 // answerableRun reports whether a question raised by this run can reach a person.
 //
 // It takes the mode it started in and ignores it, deliberately — the parameter is unnamed because
@@ -190,6 +180,16 @@ func answerableRun(daemonMode bool, _ string) bool {
 	return daemonMode
 }
 
+// answerWait is whether an answerer is somewhere ELSE, expressed as how long to wait for them.
+//
+// A property of the process, and the only half of the question this layer can answer: a terminal
+// has the person in front of it and waits as long as they need; a daemon has whoever attaches, and
+// cannot wait on them forever in every mode.
+//
+// WHICH modes it applies to is decided per prompt, in app.answerBound — because the mode changes
+// while the process runs (Shift+Tab, /permission, SetPermission over the socket) and a bound frozen
+// at startup would outlive the mode that justified it. Short version: ask waits, auto is bounded,
+// allow never prompts.
 func answerWait(daemonAnswerable bool) time.Duration {
 	if daemonAnswerable {
 		return daemonAnswerWait

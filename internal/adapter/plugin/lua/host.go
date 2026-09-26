@@ -196,8 +196,6 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 	}
 }
 
-// HasEventHandlers reports whether any loaded plugin registered a handler for
-// the event — lets the app skip building observation payloads nobody consumes.
 // snapshot returns the loaded plugins in NAME ORDER. h.plugins is a map, and Go randomises map
 // iteration on purpose, so anything built by ranging it — the slash-command list, the tool list,
 // the doctor report — came out in a different order on every draw. Sorting here fixes all of them
@@ -212,6 +210,9 @@ func (h *Host) snapshot() []*plugin {
 	return out
 }
 
+// HasEventHandlers reports whether any loaded plugin registered a handler for
+// the event — lets the app skip building observation payloads nobody consumes.
+//
 // The plugin list is snapshotted and h.mu RELEASED before touching any p.mu:
 // bridge paths run Lua under p.mu and then take h.mu (runtimeModel/uiEffects),
 // so holding both here would invert the lock order into an ABBA deadlock.

@@ -11,20 +11,6 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 )
 
-// Rows folds a conversation's log into the lines a screen shows.
-//
-// This is the rule itself — the third of the eight, and the one two clients wrote separately. It
-// was ported from `clients/vscode/src/core/transcript.ts` deliberately and not merged with the
-// Kotlin one: where they had historically disagreed the TypeScript reading was chosen (rows.go
-// explains the six-vs-eight vocabulary history and subsequent alignment), and every place the two
-// differed is documented there rather than silently picked here.
-//
-// Not every event becomes a row, and the ones that do not are as deliberate as the ones that do:
-// `context.usage` and `todos.changed` are facts for other screens, and putting them in the
-// transcript would make the conversation a log file.
-//
-// **Draw shallowly.** What to SAY is the daemon's decision. A client that parses payloads to
-// compose sentences composes them once per client, and there are six clients.
 // name fills Row.ID — the one place the rule lives, so a client's name for a row is the fold's.
 //
 // A fact is named by the event that made it. A draft has no event to be named by (chunks are written
@@ -111,6 +97,20 @@ func summarise(rows []Row) {
 	}
 }
 
+// Rows folds a conversation's log into the lines a screen shows.
+//
+// This is the rule itself — the third of the eight, and the one two clients wrote separately. It
+// was ported from `clients/vscode/src/core/transcript.ts` deliberately and not merged with the
+// Kotlin one: where they had historically disagreed the TypeScript reading was chosen (rows.go
+// explains the six-vs-eight vocabulary history and subsequent alignment), and every place the two
+// differed is documented there rather than silently picked here.
+//
+// Not every event becomes a row, and the ones that do not are as deliberate as the ones that do:
+// `context.usage` and `todos.changed` are facts for other screens, and putting them in the
+// transcript would make the conversation a log file.
+//
+// **Draw shallowly.** What to SAY is the daemon's decision. A client that parses payloads to
+// compose sentences composes them once per client, and there are six clients.
 func Rows(events []event.Event) []Row {
 	rows, _ := fold(events)
 	return rows

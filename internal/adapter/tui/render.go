@@ -1254,19 +1254,6 @@ func todosFromArgs(args string) ([]session.Todo, bool) {
 	return todos, true
 }
 
-// toolSection is indent() for a tool call: the same two columns, with the first painted so every
-// line of the call — head, diff, folded output — reads as one block instead of loose lines mixed
-// into the conversation.
-//
-// A painted SPACE, not a box-drawing glyph. `│` and `▌` are East-Asian-ambiguous: a CJK terminal
-// may give them two cells, and a gutter that is sometimes two columns wide shifts every line under
-// it and breaks the click geometry that hit-tests against the plain text. A space is one cell
-// everywhere, and a background makes it a rule.
-//
-// Only the gutter is painted, not the line. Filling each row to the transcript width would need
-// every row padded to exactly that width, and a tool head is the one row that legitimately runs
-// long (a path, a command) — so the fill would either clip content or push the transcript into a
-// horizontal scroll it must never have.
 // toolHeadRoom is what a tool line has left for its argument preview and result summary, after the
 // gutter toolSection paints and whatever the caller already put on the line (the glyph and the tool
 // name). Never negative.
@@ -1319,6 +1306,19 @@ func splitHeadRoom(room, aWant, sWant int) (argsW, sumW int) {
 	return argsW, sumW
 }
 
+// toolSection is indent() for a tool call: the same two columns, with the first painted so every
+// line of the call — head, diff, folded output — reads as one block instead of loose lines mixed
+// into the conversation.
+//
+// A painted SPACE, not a box-drawing glyph. `│` and `▌` are East-Asian-ambiguous: a CJK terminal
+// may give them two cells, and a gutter that is sometimes two columns wide shifts every line under
+// it and breaks the click geometry that hit-tests against the plain text. A space is one cell
+// everywhere, and a background makes it a rule.
+//
+// Only the gutter is painted, not the line. Filling each row to the transcript width would need
+// every row padded to exactly that width, and a tool head is the one row that legitimately runs
+// long (a path, a command) — so the fill would either clip content or push the transcript into a
+// horizontal scroll it must never have.
 func (m *Model) toolSection(body string) string {
 	rule := lipgloss.NewStyle().Background(colOutline).Render(" ")
 	var b strings.Builder

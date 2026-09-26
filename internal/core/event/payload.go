@@ -128,11 +128,6 @@ type CompactionData struct {
 	Shards          []ContextShard `json:"shards,omitempty"`
 }
 
-// Reduction reports how much this compaction shed: tokens freed (before minus
-// after, clamped at 0) and that as a whole-percent share of the pre-compaction
-// size (0 when TokensBefore is 0). It backs the human-facing "↯ compacted
-// ~X→Y (−Z, −P%)" line in both the headless printer and the TUI, so the size
-// difference is stated explicitly rather than left for the reader to subtract.
 // SizeNote renders the size change as what it measured, in the one form both surfaces print.
 //
 // Reduction() clamps a negative saving to zero, which is right for a number called "freed" and
@@ -148,6 +143,11 @@ func (d CompactionData) SizeNote() string {
 	return fmt.Sprintf("−%d, −%d%%", freed, pct)
 }
 
+// Reduction reports how much this compaction shed: tokens freed (before minus
+// after, clamped at 0) and that as a whole-percent share of the pre-compaction
+// size (0 when TokensBefore is 0). It backs the human-facing "↯ compacted
+// ~X→Y (−Z, −P%)" line in both the headless printer and the TUI, so the size
+// difference is stated explicitly rather than left for the reader to subtract.
 func (d CompactionData) Reduction() (freed, pct int) {
 	freed = d.TokensBefore - d.TokensAfter
 	if freed < 0 {

@@ -17,7 +17,6 @@ import (
 // per-agent provider routes, session model overrides, profiles, and the global permission
 // mode. Split out of app.go; behavior unchanged.
 
-// Permission returns the current tool-permission policy.
 // HasCouncil answers whether a working turn here ends by declaring to a council.
 //
 // It reads the same two things the gate does (`requireFinishDeclaration`): the config has one, and
@@ -31,6 +30,7 @@ func (a *App) HasCouncil() bool {
 	return ok
 }
 
+// Permission returns the current tool-permission policy.
 func (a *App) Permission() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()

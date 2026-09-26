@@ -331,10 +331,6 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 	return ""
 }
 
-// run is the whole program: it parses flags, takes over the terminal, wires every adapter
-// and blocks on the event loop. What is worth testing has been pulled out into the helpers
-// around it — validateFlags, mergeConfig, profileDefs and the rest — and those are tested.
-//
 // newEmbedder builds the client that turns text into vectors, from the one set of settings that
 // decides it. Two callers — the MCP search and the experience store — and one builder, because two
 // constructions of the same client is two answers to "which model does this machine embed with",
@@ -366,6 +362,9 @@ var windowOf func(string) int
 // than told about one. Same lifetime problem, same answer.
 var visionOf func(string) bool
 
+// run is the whole program: it parses flags, takes over the terminal, wires every adapter
+// and blocks on the event loop. What is worth testing has been pulled out into the helpers
+// around it — validateFlags, mergeConfig, profileDefs and the rest — and those are tested.
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
@@ -1715,9 +1714,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// resolvePrompt returns the headless prompt text. The literal "-" means "read the
-// whole prompt from stdin" (so `echo ... | magi -p -` works); any other value is
-// used verbatim.
 // resolveTheme decides light or dark, and NEVER asks something that cannot answer.
 //
 // "auto" asks the terminal for its background colour: a query goes out on stdout and the reply
@@ -1753,6 +1749,10 @@ func resolveTheme(theme string, drawsTUI bool, ask func() bool) bool {
 	}
 	return ask()
 }
+
+// resolvePrompt returns the headless prompt text. The literal "-" means "read the
+// whole prompt from stdin" (so `echo ... | magi -p -` works); any other value is
+// used verbatim.
 func resolvePrompt(flagVal string, stdin io.Reader) (string, error) {
 	if flagVal != "-" {
 		return flagVal, nil
@@ -2755,11 +2755,6 @@ func seatsOf(room []daemon.Seat) []meetinglib.Seat {
 	return out
 }
 
-// MeetingTurn is this companion taking part in a meeting — see app.MeetingTurn for why it happens
-// in a session of its own with read-only tools.
-//
-// Longer than the other bounds here: a participant reads its own files before it says anything,
-// which is the reason it is worth asking rather than asking one model to imagine three.
 // MeetingJoin gets this companion ready and remembers the session it prepared in.
 //
 // One session per meeting, not per turn. Every contribution used to be its own child — fifteen of
@@ -2845,6 +2840,11 @@ func (h handover) forgetMinutes(meeting string) {
 	delete(h.minutes.by, meeting)
 }
 
+// MeetingTurn is this companion taking part in a meeting — see app.MeetingTurn for why it happens
+// in a session of its own with read-only tools.
+//
+// Longer than the other bounds here: a participant reads its own files before it says anything,
+// which is the reason it is worth asking rather than asking one model to imagine three.
 func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string,
 	room []daemon.Seat, closing bool) (daemon.Contribution, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -3016,8 +3016,6 @@ func (d daemonEngine) DraftCommit(ctx context.Context, rules string) (string, er
 	return d.App.DraftCommit(rctx, d.handover.at.now(), d.workdir, rules)
 }
 
-// GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
-// is written into this companion's log.
 // FileDo makes, moves or removes a file here — see app.FileDo for what each one writes into this
 // companion's log.
 func (d daemonEngine) FileDo(ctx context.Context, what, path, to string, ask bool) error {
@@ -3033,6 +3031,8 @@ func (d daemonEngine) GitDiff(ctx context.Context, path string, staged, untracke
 	return d.App.GitDiffOf(rctx, d.workdir, path, staged, untracked)
 }
 
+// GitDo runs one of the four from the console — see app.GitDo for the list and for which of them
+// is written into this companion's log.
 func (d daemonEngine) GitDo(ctx context.Context, what, path, message string, ask bool) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

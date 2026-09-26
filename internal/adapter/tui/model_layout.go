@@ -136,9 +136,6 @@ func (m *Model) advancePaneFade() bool {
 	return changed
 }
 
-// baseChromeHeight is the fixed chrome (everything except the agent-pane block):
-// header, bordered input, footer, and any active modal. It must NOT call
-// panesBlockHeight (panesBlockHeight derives its cap from this — no recursion).
 // splashActive reports whether the fresh-session splash is showing with the input
 // prompt hosted inside the viewport (no transcript, nothing running, no modal). In
 // that state the input is centered under the wordmark rather than pinned at the
@@ -149,6 +146,9 @@ func (m *Model) splashActive() bool {
 		m.perm == nil && m.quest == nil && len(m.paletteMatches()) == 0
 }
 
+// baseChromeHeight is the fixed chrome (everything except the agent-pane block):
+// header, bordered input, footer, and any active modal. It must NOT call
+// panesBlockHeight (panesBlockHeight derives its cap from this — no recursion).
 func (m *Model) baseChromeHeight() int {
 	if m.splashActive() {
 		return 3 // header(2) + footer(1); the input lives inside the splash viewport
@@ -261,8 +261,6 @@ func overlayBox(content string, top, left int, box string) string {
 	return content
 }
 
-// panesBlockHeight is the rows reserved for the tiled subagent overview. Zero
-// when there are no panes or when zoomed (zoom takes over the whole viewport).
 // paneLayout is the SINGLE source of truth for how the agent panes fit on screen,
 // consumed by both panesBlockHeight (reserve) and renderPanes (render) so they can
 // never drift. It caps the pane block to the space left after base chrome and a
@@ -336,6 +334,8 @@ func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	return show, perPane, more, total
 }
 
+// panesBlockHeight is the rows reserved for the tiled subagent overview. Zero
+// when there are no panes or when zoomed (zoom takes over the whole viewport).
 func (m *Model) panesBlockHeight() int {
 	_, _, _, total := m.paneLayout()
 	return total

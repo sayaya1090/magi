@@ -62,14 +62,14 @@ type baseOverride struct {
 	tok uint64
 }
 
-// base returns the effective base URL: a runtime override (set by a plugin via
-// magi.set_base_url) if present, else the configured one. Read on every request so a
-// plugin can redirect the LLM backend mid-session.
 // BaseURL is where this client's requests go now: the runtime override when a plugin or the
 // console installed one, else the configured endpoint. The value base() has always computed for
 // the request itself, so a reader and a request can never disagree about it.
 func (c *Client) BaseURL() string { return c.base() }
 
+// base returns the effective base URL: a runtime override (set by a plugin via
+// magi.set_base_url) if present, else the configured one. Read on every request so a
+// plugin can redirect the LLM backend mid-session.
 func (c *Client) base() string {
 	if o := c.dynBase.Load(); o != nil && o.url != "" {
 		return o.url
@@ -842,13 +842,6 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 	return out
 }
 
-// repairArgs makes a tool call's argument payload parseable when the model left a defect JSON
-// forbids — most often a RAW newline or tab inside a string, which is what a multi-line `content`
-// or `command` argument turns into when the model does not escape it. Every tool then fails to
-// unmarshal its own arguments and the call is lost, so the repair belongs HERE, at the one place a
-// call is finalized, rather than in each of the forty tools that would otherwise need it. Args that
-// already parse are returned untouched, and an irreparable payload is left exactly as it came so
-// the tool still reports the real error.
 // emptyArgsToObject folds the ways a model spells "this call takes no arguments" into the one
 // spelling every tool can read.
 //
@@ -875,6 +868,13 @@ func emptyArgsToObject(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
+// repairArgs makes a tool call's argument payload parseable when the model left a defect JSON
+// forbids — most often a RAW newline or tab inside a string, which is what a multi-line `content`
+// or `command` argument turns into when the model does not escape it. Every tool then fails to
+// unmarshal its own arguments and the call is lost, so the repair belongs HERE, at the one place a
+// call is finalized, rather than in each of the forty tools that would otherwise need it. Args that
+// already parse are returned untouched, and an irreparable payload is left exactly as it came so
+// the tool still reports the real error.
 func repairArgs(raw json.RawMessage) json.RawMessage {
 	var probe any
 	if json.Unmarshal(raw, &probe) == nil {

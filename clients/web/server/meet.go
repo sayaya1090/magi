@@ -354,8 +354,6 @@ func (s *server) meetSay(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "meeting", run.viewLocked())
 }
 
-// meetClose ends the discussion, which is the convener saying it is time to write down who does
-// what. The closing round runs on the driver, so this answers straight away.
 // meetOpen puts a finished meeting back into session, because a person said to.
 //
 // The room stops when the participants have nothing left to add, which is right and is also what
@@ -390,6 +388,8 @@ func (s *server) meetOpen(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, "meeting", run.view())
 }
 
+// meetClose ends the discussion, which is the convener saying it is time to write down who does
+// what. The closing round runs on the driver, so this answers straight away.
 func (s *server) meetClose(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {
 		return

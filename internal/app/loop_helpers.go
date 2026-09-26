@@ -140,11 +140,6 @@ func abandonedPromptIDs(evs []event.Event) map[string]bool {
 	return out
 }
 
-// unansweredUserPromptIDs returns every genuine (ActorUser) prompt in the log that no assistant
-// reply has covered and that was not already abandoned — the full set a cancel must drain, INCLUDING
-// a prompt Steer'd into the log a moment before the interrupt that the loop never detected into the
-// in-memory queue. Without it, that undetected prompt stayed a live seed and ran ahead of the user's
-// next, newer request.
 // userPromptIDsNotAbandoned lists every user prompt still standing in the log, in order —
 // unlike unansweredUserPromptIDs it does not ask whether a turn has since finished, because the
 // caller is asking "did the person say something new", not "is anything owed a turn". A
@@ -167,6 +162,11 @@ func userPromptIDsNotAbandoned(evs []event.Event) []string {
 	return out
 }
 
+// unansweredUserPromptIDs returns every genuine (ActorUser) prompt in the log that no assistant
+// reply has covered and that was not already abandoned — the full set a cancel must drain, INCLUDING
+// a prompt Steer'd into the log a moment before the interrupt that the loop never detected into the
+// in-memory queue. Without it, that undetected prompt stayed a live seed and ran ahead of the user's
+// next, newer request.
 func unansweredUserPromptIDs(evs []event.Event) []string {
 	abandoned := abandonedPromptIDs(evs)
 	var open []string         // ids still unanswered, in order

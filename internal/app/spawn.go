@@ -299,11 +299,6 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	return res, nil
 }
 
-// spawnFnFor is the Spawn hook a tool at this depth gets, and nil is the answer for a CHILD.
-//
-// A child with no hook cannot spawn, which makes recursion impossible by construction rather than
-// bounded by a counter somebody has to remember to check. It is a named method so a test can ask
-// the question directly instead of inferring it from a tool call that never happens.
 // onlyLooks holds a tool to its declaration: if it said its children are read-only, the child it is
 // starting may ask for nothing but the four tools that look.
 //
@@ -364,6 +359,11 @@ type spawnHooks struct {
 	Report func() string
 }
 
+// spawnFnFor is the Spawn hook a tool at this depth gets, and nil is the answer for a CHILD.
+//
+// A child with no hook cannot spawn, which makes recursion impossible by construction rather than
+// bounded by a counter somebody has to remember to check. It is a named method so a test can ask
+// the question directly instead of inferring it from a tool call that never happens.
 func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID, toolName string) spawnHooks {
 	if depth != 0 {
 		return spawnHooks{}

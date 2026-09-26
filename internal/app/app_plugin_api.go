@@ -11,12 +11,6 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// PluginNote appends a system note from a plugin to the session transcript —
-// the plugin host's magi.notify. It uses the established system-actor prompt
-// pattern (council/planner notes), so it renders as a ⟳ note, never counts as
-// an unanswered user prompt, and the model sees it next turn (an "engram saved
-// skill X — reply N to undo" notice is actionable precisely because the model
-// and the user both see it).
 // PluginFinish is a plugin tool ending the turn it was called in (magi.finish). The loop reads
 // the mark right after the step's calls ran; see turnControl.finishNow.
 func (a *App) PluginFinish(sessionID string) {
@@ -33,6 +27,12 @@ func (a *App) takeFinishNow(sid session.SessionID) bool {
 	return now
 }
 
+// PluginNote appends a system note from a plugin to the session transcript —
+// the plugin host's magi.notify. It uses the established system-actor prompt
+// pattern (council/planner notes), so it renders as a ⟳ note, never counts as
+// an unanswered user prompt, and the model sees it next turn (an "engram saved
+// skill X — reply N to undo" notice is actionable precisely because the model
+// and the user both see it).
 func (a *App) PluginNote(sessionID, text string) {
 	text = strings.TrimSpace(text)
 	if sessionID == "" || text == "" {

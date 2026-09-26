@@ -71,13 +71,6 @@ func (a *App) ContextWindows(ctx context.Context, sid session.SessionID) []Model
 	return out
 }
 
-// contextWindow returns the model's context window in tokens, resolving it in
-// this order: a seeded/registered/user-set entry wins; otherwise, the first time
-// an unseeded model is seen, it kicks off a one-shot background probe of the LLM
-// backend (ContextWindowProber) and registers the result for next time. Until
-// that probe lands — and for models with no usable window — it returns 0, which
-// every consumer treats as "unlimited / unknown" (no % gauge, no ratio
-// compaction). The probe runs in a goroutine so this hot-path call never blocks.
 // WindowOf is contextWindow for the wiring layer: the authoritative window for a model, after the
 // registry, the probe and the [limits] context_tokens override have had their say.
 //
@@ -113,6 +106,13 @@ const (
 	windowPinned                    // a person set it with /context
 )
 
+// contextWindow returns the model's context window in tokens, resolving it in
+// this order: a seeded/registered/user-set entry wins; otherwise, the first time
+// an unseeded model is seen, it kicks off a one-shot background probe of the LLM
+// backend (ContextWindowProber) and registers the result for next time. Until
+// that probe lands — and for models with no usable window — it returns 0, which
+// every consumer treats as "unlimited / unknown" (no % gauge, no ratio
+// compaction). The probe runs in a goroutine so this hot-path call never blocks.
 func (a *App) contextWindow(id string) int {
 	if id == "" {
 		return 0

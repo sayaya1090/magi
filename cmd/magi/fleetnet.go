@@ -214,11 +214,6 @@ func fleetWatchRelay(w http.ResponseWriter, r *http.Request, conn net.Conn) {
 	}
 }
 
-// answerFleet writes one refusal or reply.
-//
-// A failure here is the caller having gone, which nothing can be done about — so it is logged, the
-// way the console logs an answer it could not finish writing, rather than returned to a handler
-// that has no move left either.
 // fleetJoinHandle takes an invitation and records the two machines in each other's lists.
 //
 // Both directions in one exchange, which is the whole point of the invitation: the caller's key is
@@ -271,6 +266,11 @@ func peerCerts(r *http.Request) []*x509.Certificate {
 	return r.TLS.PeerCertificates
 }
 
+// answerFleet writes one refusal or reply.
+//
+// A failure here is the caller having gone, which nothing can be done about — so it is logged, the
+// way the console logs an answer it could not finish writing, rather than returned to a handler
+// that has no move left either.
 func answerFleet(w http.ResponseWriter, resp daemon.Response) {
 	w.Header().Set("Content-Type", "application/json")
 	b, err := json.Marshal(resp)
