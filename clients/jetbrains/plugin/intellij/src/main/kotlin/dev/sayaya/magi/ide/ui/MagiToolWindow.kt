@@ -1102,7 +1102,17 @@ class MagiToolWindow : ToolWindowFactory {
             actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
             val sourceSession = currentSendSession()
             if (sourceSession != null && r.outputText != null && r.outputSeq != null) {
-                actions.add(JButton(MagiBundle.msg("chat.output.open")).apply {
+                // 아이콘 단추 — 복사 아이콘 옆에 같은 크기로 선다. 글자 단추였을 때는 행에서 가장 큰
+                // 것이 이 단추였고, 행마다 반복되어 대화보다 단추가 먼저 읽혔다(실물 화면, 2026-09-26).
+                actions.add(JButton(com.intellij.icons.AllIcons.Actions.EditSource).apply {
+                    toolTipText = MagiBundle.msg("chat.output.open")
+                    accessibleContext.accessibleName = MagiBundle.msg("chat.output.open")
+                    isBorderPainted = false
+                    isContentAreaFilled = false
+                    isFocusPainted = false
+                    margin = JBUI.emptyInsets()
+                    border = JBUI.Borders.empty(2, 6, 0, 0)
+                    cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }

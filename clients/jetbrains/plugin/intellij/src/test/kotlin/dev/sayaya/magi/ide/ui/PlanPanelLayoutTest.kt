@@ -55,6 +55,19 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
         assertTrue("「새 채팅」 and 「채팅 요약」 are not in one row panel", row.containsMatchIn(text))
     }
 
+    /**
+     * A failed read of the conversation or model list must not be dropped: an enabled, empty combo is
+     * never retried (the tick only revives disabled ones), so the list stayed empty for the life of the
+     * window whenever the daemon was still starting when the window opened.
+     */
+    fun `test a failed list read leaves the combo for the retry, not empty for good`() {
+        val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/PlanToolWindow.kt").readText()
+        assertFalse("the conversation list read drops its failure", "fun loadTalks() = workspace.onDaemonWithoutChat({})" in text)
+        assertFalse("the model list read drops its failure", "fun loadModels() = workspace.onDaemon({})" in text)
+        assertTrue("a failed read does not disable the combo", "combo.isEnabled = false" in text)
+        assertTrue("opening the list does not re-read it", "popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) = loadTalks()" in text)
+    }
+
     fun `test a companion with no name is called by its workspace, not its socket file`() {
         val plan = PlanToolWindow()
         val row = plan.javaClass.getDeclaredMethod("fleetRow", RosterRow::class.java, Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).let {

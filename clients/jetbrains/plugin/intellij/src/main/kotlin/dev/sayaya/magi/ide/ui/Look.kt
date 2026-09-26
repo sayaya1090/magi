@@ -516,6 +516,10 @@ internal object Look {
             if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
             if (actions != null) {
                 add(javax.swing.Box.createHorizontalStrut(4))
+                // 제 크기만 차지한다. 흐름 판의 최대 폭은 무한이라, 그대로 두면 가로 BoxLayout 이 남는 폭을
+                // 앞의 빈 간격과 반씩 나눠 주어 시각이 행 가운데에 떠 있었다(실물 화면, 2026-09-26) — 다른
+                // 행들의 시각은 오른쪽 끝에 선다.
+                actions.maximumSize = actions.preferredSize
                 add(actions)
             }
         }

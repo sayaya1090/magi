@@ -87,7 +87,7 @@ test('the panel draws a plan section', () => {
  */
 test('the editor hand says which of the three things happened', () => {
   const hand = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'hand.ts'), 'utf8');
-  const offer = hand.slice(hand.indexOf('async offer('), hand.indexOf('handWhy()'));
+  const offer = hand.slice(hand.indexOf('offer(): Promise<void>'), hand.indexOf('handWhy()'));
   assert.ok(offer.length > 200, 'offer() was not found — this guard is reading nothing');
 
   // Each branch writes its own sentence. One shared sentence would be the defect back with a note.
@@ -95,7 +95,8 @@ test('the editor hand says which of the three things happened', () => {
   assert.ok(said >= 3, `only ${said} of the three outcomes says anything — the other(s) are silent`);
 
   // The capless return is the one that used to say nothing at all, so it is pinned by name.
-  const capless = offer.slice(0, offer.indexOf('Hand.start'));
+  assert.ok(offer.includes('await this.startServer(this)'), 'the server creation boundary was not found');
+  const capless = offer.slice(0, offer.indexOf('await this.startServer(this)'));
   assert.ok(/tool-servers/.test(capless) && /this\.why\s*=/.test(capless),
     'a daemon without tool-servers still returns in silence — that was outcome one');
 

@@ -537,7 +537,14 @@ class PlanToolWindow : ToolWindowFactory {
         }
 
         // 대화 목록은 매 틱이 아니라 펴는 순간과 동사 뒤에만 — 스토어 훑기를 3초마다 시키지 않는다.
-        fun loadTalks() = workspace.onDaemonWithoutChat({}) { comp ->
+        // 못 읽었으면 콤보를 끈다 — 켜진 채 빈 콤보는 3초 틱의 재시도(꺼진 것만 되살린다)가 영영
+        // 안 건드려, 창과 함께 데몬이 새로 뜰 때마다 대화 목록이 끝까지 비어 있었다(실물 화면, 2026-09-26:
+        // 데몬은 대화 셋을 답하는데 콤보는 비어 있었다). 실패를 버리던 `{}` 가 그 원인이었다.
+        fun couldNotRead(combo: JComboBox<*>, why: String) = SwingUtilities.invokeLater {
+            combo.isEnabled = false
+            combo.toolTipText = MagiBundle.msg("common.failed", why)
+        }
+        fun loadTalks() = workspace.onDaemonWithoutChat({ couldNotRead(talk, it) }) { comp ->
             val sr = comp.sessions()
             // 모름≠없음의 갈림은 ok 다 — 빈 목록은 omitempty 로 통째 생략돼 null 로 온다
             // (cron 이 판 그 함정의 sessions 판). 문이 없을 때만 ok=false 다.
@@ -566,7 +573,7 @@ class PlanToolWindow : ToolWindowFactory {
                 painting = false
             }
         }
-        fun loadModels() = workspace.onDaemon({}) { comp ->
+        fun loadModels() = workspace.onDaemon({ couldNotRead(model, it) }) { comp ->
             val mr = comp.models()
             // 같은 함정의 models 판: 빈 목록도 ok=true 로 오되 필드는 생략된다. why 는 백엔드가
             // 잠깐 죽었다는 말이라 그때도 목록은 못 믿는다 — 비활성+사유가 정직하다.
@@ -688,6 +695,12 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
         refreshTalks = { loadTalks() }
+        // 펼 때마다 목록을 새로 읽는다(다른 창·명령줄에서 생긴 대화가 여기 서도록).
+        talk.addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
+            override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) = loadTalks()
+            override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent?) {}
+            override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent?) {}
+        })
         refresh(); poll(); loadTalks(); loadModels()
         val timer = Timer(3_000) {
             if (toolWindow.isVisible) {

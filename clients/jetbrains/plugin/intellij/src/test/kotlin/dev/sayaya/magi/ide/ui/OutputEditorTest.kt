@@ -15,7 +15,7 @@ class OutputEditorTest : BasePlatformTestCase() {
     }
     private fun source(view: MagiToolWindow.View, row: Row): JButton? {
         val panel = view.javaClass.getDeclaredMethod("rowPanel", Row::class.java).apply { isAccessible = true }.invoke(view, row) as Container
-        return buttons(panel).firstOrNull { it.text == MagiBundle.msg("chat.output.open") }
+        return buttons(panel).firstOrNull { it.toolTipText == MagiBundle.msg("chat.output.open") }
     }
     @Suppress("UNCHECKED_CAST")
     private fun <T> field(view: MagiToolWindow.View, name: String): T =
