@@ -596,7 +596,8 @@ class SourceTextTest {
         val said = mutableMapOf<String, String>()
         for (st in states) {
             if (st == "idle") continue // 「아무 말 안 함」이 곧 「평상시」다 — 빈 칸이 맞다
-            val key = Regex(""""$st" -> MagiBundle\.msg\("([a-z.]+)"\)""").find(where)?.groupValues?.get(1)
+            // `part(...)` 는 번들 문구에 간격을 붙이는 감싸개다(`.properties` 가 앞 공백을 버린다).
+            val key = Regex(""""$st" -> (?:MagiBundle\.msg|part)\("([a-z.]+)"\)""").find(where)?.groupValues?.get(1)
             assertTrue(key != null, "`$st` 가 갈래에 없다 — `else` 로 흘러 프로토콜 낱말이 그대로 찍힌다")
             val line = Regex("(?m)^${Regex.escape(key!!)}=(.*)$").find(en)?.groupValues?.get(1)
             assertTrue(line != null, "`$key` 가 번들에 없다 — 사람이 `!$key!` 를 본다")
@@ -1822,6 +1823,24 @@ class SourceTextTest {
             "설정 화면이 코드로 열쇠를 바로 짓는다 — 모르는 코드에서 배관이 뜬다")
     }
 
+
+    /**
+     * **번들 값은 앞 공백에 기대지 않는다.** `.properties` 는 `=` 뒤의 앞 공백을 버리므로
+     * `plan.companions.working= — 작업 중` 은 「— 작업 중」으로 읽히고, 이름 뒤에 붙이면 「ws— 작업 중」이
+     * 된다 — 실물 계획 창에 그렇게 섰다(2026-09-26). 같은 결함이 카운슬 반대 표시와 첨부 팝업 제목에도
+     * 있었다. 간격이 필요하면 붙이는 코드가 붙인다.
+     */
+    @Test
+    fun `번들 값은 앞 공백에 기대지 않는다`() {
+        val res = File(File(System.getProperty("user.dir")).parentFile, "intellij/src/main/resources/messages")
+        for (name in listOf("MagiBundle.properties", "MagiBundle_ko.properties")) {
+            val f = File(res, name)
+            assertTrue(f.isFile, "번들을 못 찾았다: $f")
+            val leading = f.readLines().filter { Regex("""^[a-z0-9._]+= +\S""").containsMatchIn(it) }
+            assertTrue(leading.isEmpty(), "$name 의 이 값들은 앞 공백이 읽히지 않는다 — 코드에서 붙일 것:\n" +
+                leading.joinToString("\n"))
+        }
+    }
 
     /**
      * ★ **깨끗하지 않게 끝난 배경 명령은 판에 남는다.**

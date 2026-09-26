@@ -446,7 +446,10 @@ internal object Look {
         }.apply {
             isEditable = false
             isOpaque = false
-            font = JBFont.small().deriveFont(Font.ITALIC)
+            // 기울이지 않는다. 한글이 든 기울임 글씨는 문단이 줄 폭을 잴 때와 그릴 때 서체가 달라(기울임
+            // 서체에 한글이 없어 대체 서체로 그린다) 가운데 정렬이 왼쪽으로 치우쳤다 — 실물 화면에서
+            // 1600px 창의 안내문 중심이 800 이 아니라 716 이었다. 위의 제목·상태 줄도 똑바른 글씨다.
+            font = JBFont.small()
             foreground = hue
             val doc = styledDocument
             this.text = text

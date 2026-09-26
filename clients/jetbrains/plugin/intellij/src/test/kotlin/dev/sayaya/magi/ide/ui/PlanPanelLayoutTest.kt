@@ -48,19 +48,26 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
         assertTrue("the plan window does not scroll that root", "JBScrollPane(root)" in text)
     }
 
+    /** The two verbs stand on one row under the combos; they were scattered (one beside a combo, one alone). */
+    fun `test the two control buttons share one row`() {
+        val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/PlanToolWindow.kt").readText()
+        val row = Regex("""add\(JBPanel<JBPanel<\*>>\(java\.awt\.FlowLayout[^\n]*\n(?:[^\n]*\n){1,3}?\s*add\(fresh\)\s*\n\s*add\(compact\)""")
+        assertTrue("「새 채팅」 and 「채팅 요약」 are not in one row panel", row.containsMatchIn(text))
+    }
+
     fun `test a companion with no name is called by its workspace, not its socket file`() {
         val plan = PlanToolWindow()
-        val row = plan.javaClass.getDeclaredMethod("fleetRow", RosterRow::class.java, Boolean::class.javaPrimitiveType).let {
+        val row = plan.javaClass.getDeclaredMethod("fleetRow", RosterRow::class.java, Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).let {
             it.isAccessible = true
-            it.invoke(plan, RosterRow(socket = "/tmp/m/daemon-magi-6lw0yxf3.sock", workdir = "/Users/me/projects/billing"), false) as JBLabel
+            it.invoke(plan, RosterRow(socket = "/tmp/m/daemon-magi-6lw0yxf3.sock", workdir = "/Users/me/projects/billing"), false, false) as JBLabel
         }
         assertTrue("named by its socket: ${row.text}", row.text.startsWith("billing"))
         assertFalse("the workspace is said twice: ${row.text}", row.text.contains("(billing)"))
         assertTrue("the socket is still reachable from the tooltip", row.toolTipText.contains("daemon-magi-6lw0yxf3.sock"))
 
-        val named = plan.javaClass.getDeclaredMethod("fleetRow", RosterRow::class.java, Boolean::class.javaPrimitiveType).let {
+        val named = plan.javaClass.getDeclaredMethod("fleetRow", RosterRow::class.java, Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).let {
             it.isAccessible = true
-            it.invoke(plan, RosterRow(socket = "/tmp/s.sock", name = "api", workdir = "/Users/me/projects/billing"), false) as JBLabel
+            it.invoke(plan, RosterRow(socket = "/tmp/s.sock", name = "api", workdir = "/Users/me/projects/billing"), false, false) as JBLabel
         }
         assertTrue("a named companion keeps its name, workspace beside it: ${named.text}",
             named.text.startsWith("api") && named.text.contains("(billing)"))

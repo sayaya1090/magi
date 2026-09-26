@@ -21,6 +21,7 @@ import java.awt.BorderLayout
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComboBox
+import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 
@@ -61,6 +62,16 @@ class PlanToolWindow : ToolWindowFactory {
                 super.addImpl(comp, constraints, index)
             }
         }
+        // 섹션 머리: 위 여백 + 가는 선 + 작은 제목. 제목만 있을 때는 여덟 절이 한 덩어리로 붙어 보여
+        // 어디서 한 절이 끝나는지 읽히지 않았다(사용자 지적, 2026-09-26).
+        fun section(title: String): JComponent = stack(0, 0).apply {
+            add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                border = JBUI.Borders.empty(10, 12, 0, 12)
+                isOpaque = false
+                add(Look.rule(), BorderLayout.CENTER)
+            })
+            add(Look.gutter(title))
+        }
         val plan = stack(8, 12)
         val work = stack(0, 12)
         val changes = stack(0, 12)
@@ -82,7 +93,13 @@ class PlanToolWindow : ToolWindowFactory {
                 base.getListCellRendererComponent(list, value ?: MagiBundle.msg("plan.talk.current"), index, sel, focus)
             }
         }
-        val model = Look.narrowCombo<String>(16)
+        val model = Look.narrowCombo<String>(16).apply {
+            // 첫 말 전의 대화에는 데몬도 모델을 모른다(`ModelOf` 가 빈 값) — 지어내지 않고 기본이라고 말한다.
+            val base = renderer
+            renderer = javax.swing.ListCellRenderer<String?> { list, value, index, sel, focus ->
+                base.getListCellRendererComponent(list, value ?: MagiBundle.msg("plan.model.default"), index, sel, focus)
+            }
+        }
         // 비동기 작업 알림 라벨.
         val said = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         // 만료된 데이터 경고 라벨: 폴링 실패 시 기존 캐시된 데이터를 완전히 지우지 않고 유지하되, 데이터가 최신이 아님을 사용자에게 명시합니다.
@@ -162,32 +179,42 @@ class PlanToolWindow : ToolWindowFactory {
 
         val controls = stack(0, 0).apply {
             add(stale)
-            add(Look.gutter(MagiBundle.msg("plan.tasks")))
+            add(section(MagiBundle.msg("plan.tasks")))
             add(work)
-            add(Look.gutter(MagiBundle.msg("plan.changes")))
+            add(section(MagiBundle.msg("plan.changes")))
             add(changes)
-            add(Look.gutter(MagiBundle.msg("plan.companions")))
+            add(section(MagiBundle.msg("plan.companions")))
             add(fleet)
-            add(Look.gutter(MagiBundle.msg("plan.requests")))
+            add(section(MagiBundle.msg("plan.requests")))
             add(askedPane)
-            add(Look.gutter(MagiBundle.msg("plan.schedule")))
+            add(section(MagiBundle.msg("plan.schedule")))
             add(cronPane)
-            add(Look.gutter(MagiBundle.msg("plan.usage")))
+            add(section(MagiBundle.msg("plan.usage")))
             add(ctx)
             add(ctxParts)
-            add(Look.gutter(MagiBundle.msg("plan.controls")))
-            add(JBPanel<JBPanel<*>>(BorderLayout(8, 0)).apply {
+            add(section(MagiBundle.msg("plan.controls")))
+            // 두 콤보는 「무엇을 고르는 칸인가」를 왼쪽에 적고(라벨 폭을 맞춰 칸의 시작이 한 줄에 선다),
+            // 동사 단추 둘은 그 아래 한 줄에 모은다. 전에는 「새 채팅」이 대화 콤보 옆에, 「채팅 요약」이
+            // 홀로 아래에 있어 같은 층의 동작이 흩어져 보였다(사용자 지적, 2026-09-26).
+            val talkLabel = JBLabel(MagiBundle.msg("plan.control.talk")).apply { foreground = Look.faint }
+            val modelLabel = JBLabel(MagiBundle.msg("plan.control.model")).apply { foreground = Look.faint }
+            val labelWidth = maxOf(talkLabel.preferredSize.width, modelLabel.preferredSize.width) + JBUI.scale(8)
+            fun labelled(label: JBLabel, field: JComponent) = JBPanel<JBPanel<*>>(java.awt.GridBagLayout()).apply {
                 border = JBUI.Borders.empty(2, 12)
-                add(talk, BorderLayout.CENTER)
-                add(fresh, BorderLayout.EAST)
-            })
-            add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
-                border = JBUI.Borders.empty(2, 12)
-                add(model, BorderLayout.CENTER)
-            })
-            add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
-                border = JBUI.Borders.empty(4, 12)
-                add(compact, BorderLayout.WEST)
+                label.preferredSize = java.awt.Dimension(labelWidth, label.preferredSize.height)
+                val c = java.awt.GridBagConstraints().apply { anchor = java.awt.GridBagConstraints.CENTER }
+                add(label, c)
+                add(field, java.awt.GridBagConstraints().apply {
+                    gridx = 1; weightx = 1.0; fill = java.awt.GridBagConstraints.HORIZONTAL
+                    anchor = java.awt.GridBagConstraints.CENTER
+                })
+            }
+            add(labelled(talkLabel, talk))
+            add(labelled(modelLabel, model))
+            add(JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
+                border = JBUI.Borders.empty(6, 12 - 8 + labelWidth, 2, 12)
+                add(fresh)
+                add(compact)
             })
             add(said)
         }
@@ -414,12 +441,13 @@ class PlanToolWindow : ToolWindowFactory {
                         // 동시 작업의 파일 충돌은 사용자가 이름 댄 고통이다.
                         // 「살면」의 셈: 산 로컬 행만, (host, workdir) 로 — 목격담의 같은 경로
                         // 문자열이나 시체가 동거로 서면 배지가 거짓말한다(리뷰 F5).
+                        val here = workspace.socket()?.toString()
                         val crowd = rows.filter { it.live && !it.sighting && !it.workdir.isNullOrEmpty() }
                             .groupingBy { (it.host ?: "") to it.workdir!! }.eachCount()
                         rows.sortedBy { it.sighting }.forEach { row ->
                             val crowded = row.live && !row.sighting && !row.workdir.isNullOrEmpty() &&
                                 (crowd[(row.host ?: "") to row.workdir!!] ?: 0) > 1
-                            val label = fleetRow(row, crowded)
+                            val label = fleetRow(row, crowded, self = row.socket == here)
                             if (row.live && !row.sighting) {
                                 label.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                                 label.addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -472,10 +500,12 @@ class PlanToolWindow : ToolWindowFactory {
                         })
                     }
                 }
+                // 두 링크는 한 줄에 선다 — 같은 층의 동작이 두 줄로 흩어져 있었다.
+                val links = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
                 // 「추가」는 **문이 있을 때만** 선다. 없는 문을 부르고 거부를 읽는 방식으로는 낡은
                 // 빌드와 거부하는 엔진을 못 가르고, 화면은 그 둘에 다른 말을 해야 한다.
                 if (canEditCron) {
-                    cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.add")).apply {
+                    links.add(JBLabel(MagiBundle.msg("plan.schedule.add")).apply {
                         foreground = Look.accent
                         cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                         border = JBUI.Borders.empty(2, 0)
@@ -488,17 +518,18 @@ class PlanToolWindow : ToolWindowFactory {
                 // 손으로 고친 예약 파일을 다시 읽는다. 목록 문이 있는 데몬에만 선다 — 이 문은
                 // 능력 광고 없이 답하므로(VS Code 의 같은 명령과 같은 판단) 목록이 읽혔다는 것이 근거다.
                 if (crons != null) {
-                    cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.reload")).apply {
+                    links.add(JBLabel(MagiBundle.msg("plan.schedule.reload")).apply {
                         foreground = Look.accent
                         toolTipText = MagiBundle.msg("plan.schedule.reload.tip")
                         cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                        border = JBUI.Borders.empty(2, 0)
+                        border = JBUI.Borders.empty(2, if (links.componentCount > 0) 16 else 0, 2, 0)
                         addMouseListener(object : java.awt.event.MouseAdapter() {
                             override fun mouseClicked(e: java.awt.event.MouseEvent) =
                                 reloadCron(workspace, { tell(it) }, { poll() })
                         })
                     })
                 }
+                if (links.componentCount > 0) cronPane.add(links)
                 cronPane.revalidate(); cronPane.repaint()
             }
             paintAsked(my) // 풀 스레드 — 원격 왕복은 EDT 밖(리뷰 F1)
@@ -540,6 +571,9 @@ class PlanToolWindow : ToolWindowFactory {
             // 같은 함정의 models 판: 빈 목록도 ok=true 로 오되 필드는 생략된다. why 는 백엔드가
             // 잠깐 죽었다는 말이라 그때도 목록은 못 믿는다 — 비활성+사유가 정직하다.
             val m = if (mr.ok && mr.why == null) mr.models.orEmpty() else null
+            // 지금 모델은 턴이 돌 때 스트림으로만 들어왔다 — 막 연 창은 턴 전까지 빈 칸이었다(실물 화면).
+            // 목록을 채울 때 데몬에게 한 번 묻는다.
+            val current = if (m.isNullOrEmpty()) null else runCatching { comp.facts().model }.getOrNull()?.takeIf { it.isNotBlank() }
             if (m.isNullOrEmpty()) {
                 SwingUtilities.invokeLater {
                     model.isEnabled = false
@@ -559,7 +593,10 @@ class PlanToolWindow : ToolWindowFactory {
                 val keep = model.selectedItem
                 model.removeAllItems()
                 m.forEach { model.addItem(it) }
-                keep?.let { model.selectedItem = it }
+                (keep ?: current)?.let { pick ->
+                    if ((0 until model.itemCount).none { model.getItemAt(it) == pick }) model.addItem(pick as String)
+                    model.selectedItem = pick
+                }
                 painting = false
             }
         }
@@ -877,7 +914,10 @@ class PlanToolWindow : ToolWindowFactory {
         return if (share.isBlank()) "" else MagiBundle.msg("plan.usage.makeup", share)
     }
 
-    private fun fleetRow(r: RosterRow, crowded: Boolean = false): JBLabel {
+    private fun fleetRow(r: RosterRow, crowded: Boolean = false, self: Boolean = false): JBLabel {
+        // 번들의 이 조각들은 「 — 작업 중」처럼 앞 공백을 품고 적혀 있지만 `.properties` 는 `=` 뒤의
+        // 앞 공백을 버린다. 그래서 실물 화면에 「ws— 작업 중」이 섰다. 간격은 여기서 붙인다.
+        fun part(key: String, vararg args: Any): String = " " + MagiBundle.msg(key, *args).trimStart()
         // 이름이 없는 컴패니언은 그 워크스페이스 이름으로 부른다. 소켓 파일명(`daemon-magi-6lw0yxf3.sock`)은
         // 사람이 알아볼 이름이 아니다 — 실물 화면에 그렇게 떠 있었다. 둘 다 없을 때만 소켓을 쓴다.
         val dir = r.workdir?.takeIf { it.isNotBlank() }?.substringAfterLast('/')
@@ -888,20 +928,20 @@ class PlanToolWindow : ToolWindowFactory {
         // 정상 종료(stopped)와 작업 처리 중 비정상 중단(abandoned)을 명확히 구분하여 렌더링합니다.
         // 미지의 신규 상태값이 전달될 경우 임의 추정 대신 원문 문자열을 그대로 노출합니다.
         val state = when (r.state) {
-            "waiting" -> MagiBundle.msg("plan.companions.waiting")
-            "working" -> MagiBundle.msg("plan.companions.working")
+            "waiting" -> part("plan.companions.waiting")
+            "working" -> part("plan.companions.working")
             "idle" -> ""
-            "abandoned" -> MagiBundle.msg("plan.companions.abandoned")
-            "stopped" -> MagiBundle.msg("plan.companions.stopped")
-            "remote" -> MagiBundle.msg("plan.companions.remote")
+            "abandoned" -> part("plan.companions.abandoned")
+            "stopped" -> part("plan.companions.stopped")
+            "remote" -> part("plan.companions.remote")
             else -> r.state?.let { " — $it" }.orEmpty()
         }
         // 컴패니언 작업 부하(Load) 표시:
         // 코어 로드 산정 공식: "they decide where team-addressed work goes… load is Waiting + (1 if Handling)".
         // 대기 큐(`waiting`)뿐만 아니라 현재 작업 처리 중(`handling`) 여부를 함께 표기하여 수동 작업 위임 시 판단 근거를 제공합니다.
         val load = listOf(
-            if (r.handling) MagiBundle.msg("plan.companions.busy") else "",
-            if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else "",
+            if (r.handling) part("plan.companions.busy") else "",
+            if (r.waiting > 0) part("plan.companions.queue", r.waiting) else "",
         ).filter { it.isNotBlank() }.joinToString("")
         // 컴패니언 수행 가능 역할(does) 및 전체 지원 수(can) 가시화:
         // 코어 설계 의도: "Does NAMES those things… a name is enough to pick a companion out of a roster".
@@ -915,9 +955,12 @@ class PlanToolWindow : ToolWindowFactory {
         }
         val where = dir?.takeIf { it != name }?.let { "  ($it)" }.orEmpty()
         // 가십 프로토콜 기반 마지막 목격 시각(초 단위 값을 자연어 경과 시간으로 변환).
-        val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", RowText.ago(r.ageSeconds)) else ""
-        val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 동일 워크스페이스에 둘 이상 기동 시 파일 수정 충돌 주의 경고
-        val line = name + role + state + load + offers + where + share + seen
+        val seen = if (r.sighting) part("plan.companions.seen", RowText.ago(r.ageSeconds)) else ""
+        val share = if (crowded) part("plan.companions.same") else "" // 동일 워크스페이스에 둘 이상 기동 시 파일 수정 충돌 주의 경고
+        // 자기 행은 목록에 남는다(자기에게 건네면 지금 턴 뒤로 미룬다 — 막지 않는 의도). 그러니 「다른
+        // 컴패니언」 아래에 섰을 때 그것이 이 창이라는 말이 있어야 한다.
+        val mine = if (self) part("plan.companions.self") else ""
+        val line = name + mine + role + state + load + offers + where + share + seen
         return JBLabel(line).apply {
             foreground = when {
                 r.sighting -> Look.muted

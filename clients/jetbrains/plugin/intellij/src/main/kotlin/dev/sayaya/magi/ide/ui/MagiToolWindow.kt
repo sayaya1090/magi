@@ -1417,7 +1417,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun dissent(d: Problems.Dissent) = SwingUtilities.invokeLater {
             push(problems, MagiBundle.msg("problems.council"), Look.faint)
             push(problems, d.member, Look.seat(d.member) ?: Look.faint, bold = true)
-            push(problems, MagiBundle.msg("problems.against"), Look.body)
+            push(problems, " " + MagiBundle.msg("problems.against"), Look.body)
             push(problems, "  #${d.seq}  ${d.at.orEmpty()}", Look.muted)
             push(problems, "\n    ${d.why}\n", Look.faint)
             problems.caretPosition = problems.document.length
@@ -1494,7 +1494,7 @@ class MagiToolWindow : ToolWindowFactory {
                         .createPopupChooserBuilder(cut)
                         // 컷은 알파벳순 앞 20(glob 이 정렬한다) — 잘렸으면 제목이 말한다.
                         .setTitle(MagiBundle.msg("chat.mention.title", token) +
-                            if (files.size > cut.size) MagiBundle.msg("chat.mention.more", cut.size) else "")
+                            if (files.size > cut.size) " " + MagiBundle.msg("chat.mention.more", cut.size) else "")
                         .setItemChosenCallback { chosen(it) }
                         .createPopup()
                         .apply {
