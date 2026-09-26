@@ -95,8 +95,10 @@ func TestANoteThatDidNotLandIsSaid(t *testing.T) {
 // failingPersister cannot save anything.
 type failingPersister struct{}
 
-func (failingPersister) PersistModel(string) error       { return errors.New("config.toml is read-only") }
-func (failingPersister) PersistProfile(ProfileDef) error { return errors.New("config.toml is read-only") }
+func (failingPersister) PersistModel(string) error { return errors.New("config.toml is read-only") }
+func (failingPersister) PersistProfile(ProfileDef) error {
+	return errors.New("config.toml is read-only")
+}
 
 // A model or profile choice that was not saved comes back as the old one on the next start; the
 // log line is the only place that says why.
