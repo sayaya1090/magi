@@ -331,7 +331,7 @@ than asking `go list`, so no build tag hides an edge.
 | The console's dependency surface is frozen | anything `clients/web/server` reaches transitively that is not in `consoleSurface`, in **both** directions. A web release re-ships every one of those packages on its own clock |
 | Every provider wrapper keeps what it wraps | a new wrapper without `var _ port.ProviderExtras = …` |
 | Swallowed errors do not grow | a file with more `_ = f()` than its baseline, or a new file arriving with any. It holds a number (141 today) rather than forbidding the pattern, because forbidding it outright would fail on the first run and be deleted by the second |
-| A doc comment stays on its own function | a function whose doc opens with ANOTHER function's name (same file) and carries its own further down — a function inserted between a doc and its owner, which takes the doc over silently. Fifty-one were found and moved back when it was written; it forbids rather than counts, because the tree is clean |
+| A doc comment stays on its own declaration | a function, type, var or const whose doc opens with ANOTHER declaration's name (same file) and carries its own further down — a declaration inserted between a doc and its owner, which takes the doc over silently. Eighty-three were found and moved back when it was written; it forbids rather than counts, because the tree is clean |
 
 **Each of them checks that it is still able to check.** Every rule here is read off one regex or
 one directory walk, and a scanner that stops matching reports no violations — which is the same
