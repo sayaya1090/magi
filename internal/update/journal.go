@@ -119,11 +119,10 @@ func writeLedger(target string, l ledger) error {
 }
 
 // Began records that a candidate has been installed over target and the build it replaced is beside
-// it. Commit calls this in the same breath as the replacement — a separate step would leave a window
-// where the new binary is in place and nothing says the old one is recoverable.
-// Began records that a candidate has been installed over target and the build it replaced is beside
 // it, taking the install lock for the write — the same arbitration every other step of a transaction
-// now uses (review R10).
+// now uses (review R10). Commit, which already holds that lock, records through beganHeld in the same
+// breath as the replacement — a separate step would leave a window where the new binary is in place
+// and nothing says the old one is recoverable.
 func Began(target string, v Versions) error {
 	abs := resolveInstall(target)
 	release, got := takeInstall(abs)
