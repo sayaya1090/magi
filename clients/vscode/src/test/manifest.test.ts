@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { chatWebviewSource } from './support/webview_source';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -323,7 +324,7 @@ test('the panel draws the note it is sent', () => {
 
   const chatTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const adapterTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_adapter.ts'), 'utf8');
-  const chatHtmlTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
+  const chatHtmlTs = chatWebviewSource();
   const body = (chatTs + '\n' + adapterTs + '\n' + chatHtmlTs)
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   // The handler hands the drawing function the NOTE, not the state beside it.
@@ -357,7 +358,7 @@ test('the panel draws the note it is sent', () => {
  */
 test('no webview message is sent to nobody or awaited from nobody', () => {
   const dir = path.join(__dirname, '..', '..', 'src', 'ide');
-  const chatHtmlSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
+  const chatHtmlSrc = chatWebviewSource();
   const views = fs.readdirSync(dir).filter((f) => f.endsWith('.ts'))
     .map((f) => {
       const src = fs.readFileSync(path.join(dir, f), 'utf8');
@@ -508,7 +509,7 @@ test('every row kind the fold produces has a style', () => {
   const made = new Set([...fold.matchAll(/who: '([a-z]+)'/g)].map((m) => m[1]));
   assert.ok(made.size >= 4, `only ${made.size} row kinds seen in the fold — this guard is reading nothing`);
 
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
+  const chat = chatWebviewSource();
   const css = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
   assert.ok(css.length > 100, 'the stylesheet is not where this guard looks');
   const styled = new Set([...css.matchAll(/\.([a-z][a-z-]*)/g)].map((m) => m[1]));

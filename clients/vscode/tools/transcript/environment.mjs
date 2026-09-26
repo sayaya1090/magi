@@ -12,12 +12,14 @@ export const ASSET_PATHS = {
   document: ['/', '/index.html'],
   answerState: '/out/web/answer_state.js',
   adapterBundle: '/out/web/chat_adapter.bundle.js',
+  viewBundle: '/out/web/chat_view.bundle.js',
 };
 
 export const ASSET_URLS = {
   document: `${TEST_ORIGIN}/`,
   answerState: `${TEST_ORIGIN}${ASSET_PATHS.answerState}`,
   adapterBundle: `${TEST_ORIGIN}${ASSET_PATHS.adapterBundle}`,
+  viewBundle: `${TEST_ORIGIN}${ASSET_PATHS.viewBundle}`,
 };
 
 export const DEFAULT_WEB_OUT_DIR = new URL('../../out/web/', import.meta.url);
@@ -57,6 +59,7 @@ export async function prepareChatHtml(options = {}) {
     nonce,
     scriptUri: assetUrls.answerState,
     adapterUri: assetUrls.adapterBundle,
+    viewUri: assetUrls.viewBundle,
   });
 }
 
@@ -163,6 +166,11 @@ export async function installAssetRouter(page, options = {}) {
       }
       if (reqUrl.pathname === ASSET_PATHS.adapterBundle) {
         const jsUrl = new URL('chat_adapter.bundle.js', baseDirUrl);
+        const js = await readFile(fileURLToPath(jsUrl), 'utf8');
+        return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+      }
+      if (reqUrl.pathname === ASSET_PATHS.viewBundle) {
+        const jsUrl = new URL('chat_view.bundle.js', baseDirUrl);
         const js = await readFile(fileURLToPath(jsUrl), 'utf8');
         return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
       }

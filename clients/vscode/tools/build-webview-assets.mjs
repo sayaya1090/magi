@@ -23,6 +23,9 @@ const domInteractionSrc = path.join(root, 'src', 'web', 'dom_interaction.ts');
 const recoveryViewSrc = path.join(root, 'src', 'web', 'recovery_view.ts');
 const recoveryControllerSrc = path.join(root, 'src', 'web', 'recovery_controller.ts');
 const adapterSrc = path.join(root, 'src', 'web', 'chat_adapter.ts');
+/* The chat view — what used to be a 573-line script written inside chat_html.ts's template literal,
+   which TypeScript never checked. Its own bundle, loaded after the adapter's, exactly where it ran. */
+const viewSrc = path.join(root, 'src', 'web', 'chat_view.ts');
 const markdownRenderSrc = path.join(root, 'src', 'web', 'markdown_render.ts');
 const protocolSrc = path.join(root, 'src', 'core', 'webview_protocol.ts');
 /* 웹뷰 번들이 **부르는** 코어 판정. 빈 전사 안내를 무엇으로 할지는 여기서 정해지고
@@ -34,6 +37,7 @@ const outDir = path.join(root, 'out', 'web');
 const coreDir = path.join(root, 'out', 'core');
 const answerStateDst = path.join(outDir, 'answer_state.js');
 const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
+const viewDst = path.join(outDir, 'chat_view.bundle.js');
 const markdownRenderDst = path.join(outDir, 'markdown_render.js');
 const protocolDst = path.join(coreDir, 'webview_protocol.js');
 
@@ -46,6 +50,7 @@ const requiredInputs = [
   { id: 'recovery_controller', name: 'src/web/recovery_controller.ts', path: recoveryControllerSrc },
   { id: 'markdown_render', name: 'src/web/markdown_render.ts', path: markdownRenderSrc },
   { id: 'chat_adapter', name: 'src/web/chat_adapter.ts', path: adapterSrc },
+  { id: 'chat_view', name: 'src/web/chat_view.ts', path: viewSrc },
   { id: 'webview_protocol', name: 'src/core/webview_protocol.ts', path: protocolSrc },
   { id: 'activity', name: 'src/core/activity.ts', path: activitySrc },
 ];
@@ -198,6 +203,36 @@ ${bundledCode}
 `;
 
 
+// 5.5. Construct chat_view.bundle.js — the view, as an IIFE with no exports.
+//
+// It reaches the adapter, answer state and recovery state through the globals the two scripts before
+// it define, exactly as the inline script did. Its imports of those modules are TYPE-ONLY, so esbuild
+// erases them: this bundle must NOT carry a second copy of the adapter (a second copy would have its
+// own module state, and the page would be running two). The size check below is that guard.
+let viewBundledCode = '';
+try {
+  const esbuildView = esbuild.buildSync({
+    entryPoints: [viewSrc],
+    bundle: true,
+    format: 'iife',
+    write: false,
+    nodePaths: [
+      path.join(root, 'node_modules'),
+      path.join(__dirname, '..', 'node_modules'),
+    ],
+    logLevel: 'silent',
+  });
+  viewBundledCode = esbuildView.outputFiles[0].text;
+} catch (err) {
+  console.error(`esbuild failed to bundle ${viewSrc}: ${err.message}`);
+  process.exit(1);
+}
+if (/function createWebviewInputAdapter\b/.test(viewBundledCode)) {
+  console.error(`${viewSrc} bundled a copy of the adapter — its imports of chat_adapter must stay type-only.`);
+  process.exit(1);
+}
+const viewWrapped = `// Auto-generated from src/web/chat_view.ts for webview. Do not edit directly.\n${viewBundledCode}`;
+
 // 6. Construct webview_protocol.js bundle for host with inlined Valibot runtime (§5.8.3)
 let protocolBundledCode = '';
 try {
@@ -245,5 +280,6 @@ fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(coreDir, { recursive: true });
 fs.writeFileSync(answerStateDst, answerStateWrapped, 'utf8');
 fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');
+fs.writeFileSync(viewDst, viewWrapped, 'utf8');
 fs.writeFileSync(markdownRenderDst, markdownRenderBundledCode, 'utf8');
 fs.writeFileSync(protocolDst, protocolBundledCode, 'utf8');

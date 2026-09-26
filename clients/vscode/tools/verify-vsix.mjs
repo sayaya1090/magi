@@ -215,6 +215,16 @@ export async function verifyVsixArchive(vsixPath, options = {}) {
       'extension/out/web/chat_adapter.bundle.js must match built out/web/chat_adapter.bundle.js byte-for-byte'
     );
 
+    // The chat page's own code. Without it the page renders and nothing on it responds, so a VSIX that
+    // drops it is a broken extension that still installs.
+    const unpackedChatView = path.join(tempDir, 'extension', 'out', 'web', 'chat_view.bundle.js');
+    assert.ok(existsSync(unpackedChatView), 'VSIX missing extension/out/web/chat_view.bundle.js');
+    assert.equal(
+      Buffer.compare(await readFile(unpackedChatView), await readFile(path.join(rootDir, 'out', 'web', 'chat_view.bundle.js'))),
+      0,
+      'extension/out/web/chat_view.bundle.js must match built out/web/chat_view.bundle.js byte-for-byte'
+    );
+
     const expectedMarkdownRenderBytes = await readFile(path.join(rootDir, 'out', 'web', 'markdown_render.js'));
     const actualMarkdownRenderBytes = await readFile(unpackedMarkdownRender);
     assert.equal(

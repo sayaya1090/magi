@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { chatWebviewSource } from './support/webview_source';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -50,8 +51,17 @@ function code(body: string): string {
 }
 
 /** The HTML each webview builds, pulled out of its template literal. */
-function templates(): { file: string; body: string; src: string }[] {
-  const out: { file: string; body: string; src: string }[] = [];
+/*
+ * Each webview template, and the code it runs.
+ *
+ * `script` is that code when it lives OUTSIDE the template. The chat view's did not use to — it was a
+ * 573-line script inside chat_html.ts's template literal, which TypeScript never checked — and the
+ * guards below read `body` for it. It is src/web/chat_view.ts now. A guard about what the page DOES
+ * (never innerHTML, always textContent) must still read it, or it reads nothing and says so; a guard
+ * about the template itself (named interpolations) must not, so the two are kept apart.
+ */
+function templates(): { file: string; body: string; src: string; script: string }[] {
+  const out: { file: string; body: string; src: string; script: string }[] = [];
   for (const dir of [IDE, WEB]) {
     for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
       const src = fs.readFileSync(path.join(dir, f), 'utf8');
@@ -59,7 +69,9 @@ function templates(): { file: string; body: string; src: string }[] {
       if (i < 0) continue;
       const j = src.indexOf('</html>`', i);
       assert.ok(j > i, `${f}: a webview template opens and never closes`);
-      out.push({ file: f, body: src.slice(i + 1, j), src });
+      const view = path.join(WEB, 'chat_view.ts');
+      const script = f === 'chat_html.ts' ? fs.readFileSync(view, 'utf8') : '';
+      out.push({ file: f, body: src.slice(i + 1, j), src, script });
     }
   }
   return out;
@@ -83,7 +95,7 @@ test('no webview script contains a backtick', () => {
 
 /** And every interpolation in there is one we meant — a stray ${ is a hole, not a value. */
 test('every interpolation in a webview is a named one', () => {
-  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri']);
+  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri']);
   for (const { file, body } of templates()) {
     for (const m of body.matchAll(/\$\{([^}]*)\}/g)) {
       assert.ok(allowed.has(m[1].trim()), `${file}: unexpected interpolation \${${m[1]}}`);
@@ -99,10 +111,10 @@ test('every interpolation in a webview is a named one', () => {
  * ours would be the one injecting.
  */
 test('the transcript is written as text, never as HTML', () => {
-  for (const { file, body } of templates()) {
+  for (const { file, body, script } of templates()) {
     // The comments are stripped first. One of them says "textContent, never innerHTML", and a
     // guard that read prose would fail on the sentence explaining why it passes.
-    const js = code(body);
+    const js = code(body + '\n' + script);
     assert.ok(!/\.innerHTML\s*=/.test(js), `${file}: innerHTML in a webview that draws model output`);
     assert.ok(!/\bdocument\.write\s*\(/.test(js), `${file}: document.write in a webview`);
     assert.ok(!/insertAdjacentHTML\s*\(/.test(js), `${file}: insertAdjacentHTML in a webview`);
@@ -230,7 +242,7 @@ test('every door a person presses looks at what came back', () => {
  */
 test('the info card can only ask for the commands it offers', () => {
   const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
-  const chatHtml = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
+  const chatHtml = chatWebviewSource();
 
   const at = chat.indexOf("case 'run':");
   assert.ok(at > 0, 'the card asks the extension to run commands and nothing receives it');
@@ -267,7 +279,7 @@ test('the info card can only ask for the commands it offers', () => {
  * as "we could not ask" when it is nothing of the sort.
  */
 test('every state the card can show has a light', () => {
-  const chat = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
+  const chat = chatWebviewSource();
   const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
   const src = fs.readFileSync(path.join(IDE, '..', 'core', 'activity.ts'), 'utf8');
   const states = [...src.matchAll(/^\s{2}[A-Z]\w*\s*=\s*'([a-z-]+)',/gm)].map((m) => m[1]);
@@ -293,7 +305,7 @@ test('every state the card can show has a light', () => {
  * `keep` is the member's own prose and stays in the reading font, so the two must not share a rule.
  */
 test('a verdict cite is drawn as the record it quotes', () => {
-  const chat = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
+  const chat = chatWebviewSource();
   const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
 
   const cite = /\.cite \{[^}]*\}/.exec(style);
@@ -336,8 +348,9 @@ test('every field the ask carries is drawn on the card', () => {
   const fields = [...body.matchAll(/^  (\w+)\??:/gm)].map((m) => m[1]);
   assert.ok(fields.length >= 8, `only ${fields.length} Ask fields read — the scan is dead`);
 
-  const chat = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
-  const at = chat.indexOf('function drawAsk(a) {');
+  const chat = chatWebviewSource();
+  // By name, not by the whole signature: the parameter is typed now that the view is TypeScript.
+  const at = chat.indexOf('function drawAsk(');
   assert.ok(at > 0, 'the prompt card is not where this guard looks for it');
   const draw = chat.slice(at, chat.indexOf('\nconst moreEl', at));
   for (const f of fields) {
@@ -2495,7 +2508,7 @@ test('host notRunning state roundtrip delivers offerStart and note to handler', 
 });
 
 test('renderDiff uses common classifyDiffLines and removes obsolete fallback parser', () => {
-  const chatSrc = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
+  const chatSrc = chatWebviewSource();
   const fnStart = chatSrc.indexOf('function renderDiff(');
   assert.ok(fnStart > 0, 'renderDiff not found');
   const fnBody = chatSrc.slice(fnStart, chatSrc.indexOf('\nfunction ', fnStart));
@@ -4876,6 +4889,7 @@ test('§5.6: renderChatHtml defines secondary styling for inspection buttons and
     nonce: 'test-nonce',
     scriptUri: '/out/web/answer_state.js',
     adapterUri: '/out/web/chat_adapter.bundle.js',
+    viewUri: '/out/web/chat_view.bundle.js',
   });
 
   // Verify secondary tokens and fallback definitions
@@ -4896,9 +4910,9 @@ test('§5.6: renderChatHtml defines secondary styling for inspection buttons and
   assert.ok(html.includes('.inspect-btn:focus-visible'), 'defines focus-visible for inspect-btn');
 
   // Verify JavaScript drawAsk sets inspect-btn and approval-btn classes
-  assert.ok(html.includes("'file-nav-btn inspect-btn'"), 'sets inspect-btn on target file open button');
-  assert.ok(html.includes("'diff-btn inspect-btn'"), 'sets inspect-btn on diffBtn');
-  assert.ok(html.includes("'approval-btn decision-' + d"), 'sets approval-btn on decision buttons');
+  assert.ok(chatWebviewSource().includes("'file-nav-btn inspect-btn'"), 'sets inspect-btn on target file open button');
+  assert.ok(chatWebviewSource().includes("'diff-btn inspect-btn'"), 'sets inspect-btn on diffBtn');
+  assert.ok(chatWebviewSource().includes("'approval-btn decision-' + d"), 'sets approval-btn on decision buttons');
 });
 
 test('§5.6: formatChoiceOptions detects numbered lists, hides markers, and preserves numeric bodies and immutability', () => {
@@ -5008,14 +5022,15 @@ test('§5.6: renderChatHtml defines choices.hide-marker CSS and connects formatC
     nonce: 'test-nonce',
     scriptUri: '/out/web/answer_state.js',
     adapterUri: '/out/web/chat_adapter.bundle.js',
+    viewUri: '/out/web/chat_view.bundle.js',
   });
 
   // Verify CSS definition
   assert.ok(html.includes('#ask-body ol.choices.hide-marker { list-style:none; margin-left:4px; }'), 'defines hide-marker rule on choices ol');
 
   // Verify JS usage in drawAsk
-  assert.ok(html.includes('formatChoiceOptions(a.options)'), 'drawAsk calls formatChoiceOptions with a.options');
-  assert.ok(html.includes('formattedChoices.hideListMarker ? \'choices hide-marker\' : \'choices\''), 'sets hide-marker class conditionally');
+  assert.ok(chatWebviewSource().includes('formatChoiceOptions(a.options)'), 'drawAsk calls formatChoiceOptions with a.options');
+  assert.ok(chatWebviewSource().includes('formattedChoices.hideListMarker ? \'choices hide-marker\' : \'choices\''), 'sets hide-marker class conditionally');
 });
 
 test('§5.6: renderChatHtml defines ask-status, disabled button CSS, and connects in-flight indicator', () => {
@@ -5024,6 +5039,7 @@ test('§5.6: renderChatHtml defines ask-status, disabled button CSS, and connect
     nonce: 'test-nonce',
     scriptUri: '/out/web/answer_state.js',
     adapterUri: '/out/web/chat_adapter.bundle.js',
+    viewUri: '/out/web/chat_view.bundle.js',
   });
 
   // 1. CSS definitions
@@ -5033,13 +5049,13 @@ test('§5.6: renderChatHtml defines ask-status, disabled button CSS, and connect
   assert.ok(html.includes('#bar button:disabled { opacity:.5; cursor:not-allowed; }'), 'defines disabled style for composer send button');
 
   // 2. HTML and JS wiring in drawAsk
-  assert.ok(html.includes("askStatusEl.className = 'ask-status'"), 'creates askStatusEl in drawAsk');
-  assert.ok(html.includes("askStatusEl.setAttribute('role', 'status')"), 'sets role="status" on askStatusEl');
-  assert.ok(html.includes("b.className = 'choice-btn'"), 'marks choice buttons with choice-btn class');
-  assert.ok(html.includes("free.className = 'direct-btn'"), 'marks direct answer button with direct-btn class');
-  assert.ok(html.includes('inputAdapter.updateInFlightStatus?.()'), 'calls updateInFlightStatus in drawAsk');
-  assert.ok(html.includes('askControlsEl,'), 'passes askControlsEl to createWebviewInputAdapter');
-  assert.ok(html.includes('getCurrentAsk: () => currentAsk'), 'passes getCurrentAsk to createWebviewInputAdapter');
+  assert.ok(chatWebviewSource().includes("askStatusEl.className = 'ask-status'"), 'creates askStatusEl in drawAsk');
+  assert.ok(chatWebviewSource().includes("askStatusEl.setAttribute('role', 'status')"), 'sets role="status" on askStatusEl');
+  assert.ok(chatWebviewSource().includes("b.className = 'choice-btn'"), 'marks choice buttons with choice-btn class');
+  assert.ok(chatWebviewSource().includes("free.className = 'direct-btn'"), 'marks direct answer button with direct-btn class');
+  assert.ok(chatWebviewSource().includes('inputAdapter.updateInFlightStatus?.()'), 'calls updateInFlightStatus in drawAsk');
+  assert.ok(chatWebviewSource().includes('askControlsEl,'), 'passes askControlsEl to createWebviewInputAdapter');
+  assert.ok(chatWebviewSource().includes('getCurrentAsk: () => currentAsk'), 'passes getCurrentAsk to createWebviewInputAdapter');
 });
 
 test('§5.6: updateInFlightUI manages aria-busy, status text, choice-btn disabling, and composer send button isolation', () => {
@@ -5543,33 +5559,32 @@ test('§5.6: recovery copy and append release general send button while question
 
 
 
-/* 이 판이 그리는 인라인 스크립트는 **템플릿 문자열 안에 적힌 글자**다. TypeScript 는 그 안을 안
-   본다 — 타입 문법을 적어도 안 지우고, 그대로 웹뷰 JS 가 된다. 그러면 브라우저가 파싱에서 죽고,
-   대화는 **보내지도 받지도 못한 채** 화면에는 아무 말도 안 뜬다.
+/* The page carries NO inline script. Every script it runs is loaded from a file that was built from
+   type-checked TypeScript.
 
-   실제로 겪었다(2026-09-21): 승인 단추 표시를 고치며 `as const` 를 그 안에 적었다. 빌드도 초록,
-   단위 시험도 전부 초록이었고 — 아무것도 그 글자를 실행해 보지 않았기 때문이다. 실물에서 Send 를
-   눌러도 행이 안 생기는 것으로만 드러났고, 옛 VSIX 대조군을 세우고 나서야 원인이 잡혔다.
-
-   그래서 **파싱한다.** 「as const 가 있나」를 찾는 검사는 다음 타입 문법을 못 잡는다. `new Function`
-   은 본문을 컴파일만 하고 실행하지 않으므로, 문법이 틀리면 그 자리에서 던진다. */
-test('the inline webview script is parseable JavaScript — TypeScript syntax must not leak into it', () => {
+   This guard used to parse the inline script, because that script was JavaScript written inside a
+   TypeScript template literal and TypeScript never looked at it. Twice that bit, both times through
+   the build and every unit test: a backtick in a comment closed the template (TS1443), and an
+   "as const" shipped unstripped and the browser refused the whole script — the conversation stopped
+   sending AND receiving, with nothing on screen to say why. Parsing caught the second kind after the
+   fact. The script is src/web/chat_view.ts now, checked under strict, so the invariant worth holding
+   is the one that keeps it that way: nothing goes back inside the template. */
+test('the webview carries no inline script — its code is type-checked TypeScript, loaded by src', () => {
   const html = renderChatHtml({
     cspSource: "'self'",
     nonce: 'test-nonce',
     scriptUri: '/out/web/answer_state.js',
     adapterUri: '/out/web/chat_adapter.bundle.js',
+    viewUri: '/out/web/chat_view.bundle.js',
   });
-  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)]
-    .map((m) => m[1])
-    .filter((s) => s.trim());
-  assert.ok(scripts.length > 0, 'no inline script found — this guard would pass vacuously');
-  for (const [i, body] of scripts.entries()) {
-    assert.doesNotThrow(
-      () => { new Function(body); },
-      `inline script #${i} does not parse as JavaScript — the webview would die at load and the conversation would neither send nor receive`,
-    );
+  const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+  assert.ok(tags.length >= 3, 'fewer script tags than the page loads — this guard would pass vacuously');
+  for (const [, attrs, body] of tags) {
+    assert.ok(/\bsrc="/.test(attrs), `a script without src: <script${attrs}> — code is going back into the template`);
+    assert.equal(body.trim(), '', `an inline script body next to src: <script${attrs}>`);
   }
+  // The view is actually one of them — not merely "no inline code", but the code is still loaded.
+  assert.ok(tags.some(([, attrs]) => attrs.includes('chat_view.bundle.js')), 'the page no longer loads its view');
 });
 
 /* 지속 상태와 일시 알림이 **다른 요소**에 산다는 것을 판에서 잰다. 한 칸에 둘이 살던 동안 서로를
@@ -5582,6 +5597,7 @@ test('§6.9: the panel has a persistent state notice separate from the transient
     nonce: 'test-nonce',
     scriptUri: '/out/web/answer_state.js',
     adapterUri: '/out/web/chat_adapter.bundle.js',
+    viewUri: '/out/web/chat_view.bundle.js',
   });
   assert.ok(html.includes('id="state-note"'), 'the persistent notice has its own element');
   assert.ok(html.includes('aria-label="컴패니언 상태"'), 'the persistent notice is named for a reader');
@@ -5591,5 +5607,5 @@ test('§6.9: the panel has a persistent state notice separate from the transient
   assert.ok(html.includes('#note:empty, #state-note:empty { display:none; }'),
     'an empty notice takes no room');
   // 시작 단추는 지속 자리에 붙는다: 일시 알림이 만료돼도 나가는 길이 남아야 한다.
-  assert.ok(/stateNoteEl\.append\(b\)/.test(html), 'the start button is appended to the persistent notice');
+  assert.ok(/stateNoteEl\.append\(b\)/.test(chatWebviewSource()), 'the start button is appended to the persistent notice');
 });

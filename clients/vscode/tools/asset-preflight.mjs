@@ -5,6 +5,8 @@ export const REQUIRED_BUNDLES = [
   'chat_html.js',
   'answer_state.js',
   'chat_adapter.bundle.js',
+  // The view: without it the page draws its markup and never wires a single control.
+  'chat_view.bundle.js',
 ];
 
 /**

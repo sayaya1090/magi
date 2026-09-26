@@ -114,7 +114,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `answer_state.test.ts` (답변 및 초안 상태 관리) | **답변·초안 상태 전이, 전송 시도 ID 격리 및 복구 검증.** 일반 초안과 질문 초안을 독립 보관하고 Esc 취소나 재진입 시 복원합니다. A를 전송한 뒤 B를 작성하는 중에 늦게 도착한 A의 실패 응답이 B 초안을 덮어쓰지 않습니다. A 실패 후 B를 재전송했을 때 이전 A 응답이 다시 와도 시도 ID가 다르면 무시하고 B의 잠금과 초안을 유지합니다. 질문이 바뀐 뒤 이전 질문의 실패 응답이 새 입력창을 건드리지 않으며, 성공 응답과 질문 종료 순서가 뒤바뀌어도 일반 초안이 오염되지 않습니다 |
 | `nav.test.ts` (도구 파일·줄 이동 추출 및 세션 격리) | **도구 계약 기반 파일 및 시작 줄 추출과 세션 격리 검증.** `read`, `edit`, `show`, `write`, `multiedit`, `apply_edit` 및 검증된 IDE 컴패니언 도구에서 경로와 시작 줄을 추출합니다. 임의의 MCP 도구나 비파일 도구(`list`, `glob`, `bash`, `grep`)는 링크에서 제외합니다. 세션을 바꾼 뒤 이전 세션의 오래된 도구 행을 눌러도 새 세션 파일이 열리지 않도록 격리합니다 |
 | `chat_host.test.ts` (세션 동시성 및 호스트 전송 제어) | **세션 생성 경쟁, 직렬 전송 큐, 화면 전환 격리 및 실패 복원 검증 (B0).** 세션이 없을 때 메시지를 연속 전송하면 `session-new`를 1회만 호출하고 후속 메시지는 `steer`로 자동 라우팅합니다. 세션을 만드는 도중에 다른 화면으로 전환해도 활성 세션을 덮어쓰지 않고 원래 대상 세션으로 메시지를 보냅니다. 세션 생성이 실패하면 초안 텍스트와 첨부 칩을 그대로 되돌려줍니다(`giveBack`) |
-| `preflight.test.ts` (자산 번들 선행 검사 및 파일 URL 정규화) | **웹뷰 필수 번들 선행 검사 및 파일 URL 정규화 검증.** `chat_html.js`·`answer_state.js`·`chat_adapter.bundle.js` 번들이 누락되면 자식 프로세스가 종료 코드 1과 함께 누락 경로 및 재빌드 안내를 출력하고 종료합니다. Windows 드라이브 문자(`C:\...`), 공백, `#`이 포함된 경로가 URL 해시로 잘리지 않고 `pathToFileURL`을 통해 올바른 `file:///` 경로로 정규화되는지 단위 테스트로 대조합니다 |
+| `preflight.test.ts` (자산 번들 선행 검사 및 파일 URL 정규화) | **웹뷰 필수 번들 선행 검사 및 파일 URL 정규화 검증.** `chat_html.js`·`answer_state.js`·`chat_adapter.bundle.js`·`chat_view.bundle.js` 번들이 누락되면 자식 프로세스가 종료 코드 1과 함께 누락 경로 및 재빌드 안내를 출력하고 종료합니다. Windows 드라이브 문자(`C:\...`), 공백, `#`이 포함된 경로가 URL 해시로 잘리지 않고 `pathToFileURL`을 통해 올바른 `file:///` 경로로 정규화되는지 단위 테스트로 대조합니다 |
 | `output.test.ts` (원문 조회 및 스냅샷 관리) | **확정 답변·도구 결과 원문 조회, 서식 직렬화, 결정론적 URI 및 스냅샷 수명 검증 (§3.1–§3.3).** 완성된 모델 답변과 도구 결과의 원문을 축약이나 줄바꿈 변환 없이 확정 이벤트로부터 복원합니다. 도구 결과의 성공·실패 무관 열기 지원, JSON 직렬화 및 `(JSON)` 제목 표기, 유효한 빈 문자열(`""`)과 자료 없음(`null`/`undefined`)의 엄격한 구분, 콜론이 포함된 `callId` 인코딩 보존을 검증합니다. 캐시 한도가 1인 환경에서도 열린 탭을 보호하고, 탭이 닫히면 초과 항목을 정리합니다 |
 | `output_provider.test.ts` (가상 문서 프로바이더 및 호스트 디스패치) | **읽기 전용 가상 문서 프로바이더(`magi-output`) 및 호스트 메시지 디스패치 검증 (§3.1–§3.4).** VS Code API 연동 시 예외가 발생해도 비정상 종료 없이 `opened: false`로 안전하게 변환하고 오류를 보고합니다. 실패 시 `finally`를 통해 임시 보호를 즉시 해제해 캐시 누수를 막습니다. 동일 항목 재클릭 시 기존 탭을 재사용하고, 다른 세션이나 컴패니언의 동일 seq/callId 자료를 격리합니다. 패널을 닫을 때 프로바이더 등록과 구독이 중복 없이 정확히 1회씩 해제되는지도 검증합니다 |
 | `recovery_state.test.ts` (실패 답변·생성 작업 초안 인메모리 복구 관리) | **실패 답변·생성 초안 복구 모델, 등록·합산·소비 이벤트 및 복사·삭제 검증 (§4.6).** `replyResult` 실패 시 전송했던 초안을 인메모리 저장소에 등록합니다. 공백과 개행 원문, HTML 특수문자를 그대로 보존하며, 동일한 실패가 반복되면 횟수와 최신 오류만 갱신합니다. 사용자가 명시적으로 삭제한 항목은 다시 등록되지 않고, 새 실패에는 새 ID를 발급합니다. 일반 초안이 비어 있을 때는 바로 복사하고, 이미 초안이 있으면 `G + "\n\n" + text`로 결합합니다 |
@@ -177,7 +177,7 @@ cd clients/vscode && npx tsc -p . && node out/live/run.js
 
 > ⚠ **단위 검증 범위 외 항목:** 창을 실제로 닫을 때 실행되는 VS Code 네이티브 `deactivate` 경로, Windows 환경의 Named Pipe/AF_UNIX 분기 처리, 사용자에게 표출되는 경고 배너는 본 테스트의 검증 범위에서 제외됩니다.
 
-전사 뷰 및 상호작용 동작은 헤드리스 브라우저 테스트 하네스로 검증합니다(`node clients/vscode/tools/transcript-test.mjs`, 사전 요구사항: `clients/web/e2e` 내 Playwright 설치). `chat.ts`가 호출하는 공통 컴파일 HTML 생성기(`renderChatHtml`)와 실제 웹뷰 번들 자산(`answer_state.js`, `chat_adapter.bundle.js`)을 Chromium 환경에서 구동하여 4개 독립 묶음(Bundle)으로 격리 검증합니다.
+전사 뷰 및 상호작용 동작은 헤드리스 브라우저 테스트 하네스로 검증합니다(`node clients/vscode/tools/transcript-test.mjs`, 사전 요구사항: `clients/web/e2e` 내 Playwright 설치). `chat.ts`가 호출하는 공통 컴파일 HTML 생성기(`renderChatHtml`)와 실제 웹뷰 번들 자산(`answer_state.js`, `chat_adapter.bundle.js`, `chat_view.bundle.js`)을 Chromium 환경에서 구동하여 4개 독립 묶음(Bundle)으로 격리 검증합니다.
 
 ```sh
 # 1. 전사 테스트 전체 묶음 순차 실행
@@ -1374,7 +1374,18 @@ node --test clients/vscode/out/test/*.property.test.js
     5. `openTextDocument` 거절: 기존 예외 메시지가 `error = true`로 전달됨.
     6. 실제 `Hand.start(EditorHand)` 루프백 HTTP `tools/call` RPC 검증: old 미발견 시 `result.isError = true` 및 사유 전달, 성공 치환 시 `result.isError = false` 및 문서 갱신 확인.
 
+---
 
+### 6.48 채팅 웹뷰 스크립트를 타입 검사되는 모듈로 분리 (`chat_view.ts`)
 
-
-
+- **무엇이 바뀌었나**: `chat_html.ts` 의 템플릿 리터럴 안에 있던 573줄 인라인 스크립트를 `src/web/chat_view.ts` 로 옮겼습니다. 이제 `strict` 로 타입 검사되며, 어댑터 전역은 `import type` + `declare const X: typeof Adapter.X` 로 타입만 받습니다(번들에 어댑터 사본이 들어가지 않고, 빌더가 이를 검사합니다). 빌더가 `out/web/chat_view.bundle.js`(IIFE)를 만들고, 페이지는 `<script nonce src="${viewUri}">` 로 싣습니다.
+- **옮기며 고친 것**: 템플릿 원문의 이스케이프(`'\\n'` 등 6곳)는 런타임 값으로 풀어 옮겼습니다. 원문 그대로 옮기면 diff 시나리오(`diff.mjs`)가 빨개집니다 — 실제로 한 번 그렇게 잡혔습니다.
+- **동치 확인**: 옛 스크립트(템플릿을 평가한 값)와 새 모듈을 esbuild 로 타입·주석을 걷어 줄 단위로 비교했습니다. 차이는 네 자리뿐입니다 — `a.total` 좁힘 2곳, `openFile` 분기의 `callId` 지역 변수, 끝의 `export {}`.
+- **가드**:
+  - `webview.test.ts` 「the webview carries no inline script」: 페이지의 모든 `<script>` 가 `src` 를 갖고 본문이 비어 있어야 합니다. 태그가 3개 미만이면 헛통과로 보고 실패합니다.
+  - 페이지 동작을 읽던 기존 가드들은 `src/test/support/webview_source.ts` 의 `chatWebviewSource()`(마크업 + 뷰 코드)를 읽습니다.
+  - `preflight.test.ts`·`build_assets.test.ts`·하네스 라우터(`environment.mjs`·`asset-checks.mjs`)에 `chat_view.bundle.js` 를 필수 자산으로 추가했습니다.
+  - `tools/verify-vsix.mjs`: VSIX 안에 `chat_view.bundle.js` 가 있고 빌드 산출물과 바이트 단위로 같아야 합니다. 이 파일이 빠진 VSIX 는 설치는 되지만 채팅 창이 아무 입력에도 반응하지 않습니다. VSIX 픽스처 4곳에도 이 번들을 넣었습니다.
+- **변이 검증**: (1) 뷰 태그 뒤에 인라인 `<script nonce>` 본문을 되살림 → tsc 통과, 위 가드만 실패. (2) 뷰 태그를 HTML 주석으로 바꿈 → tsc 통과, 위 가드가 「fewer script tags」로 실패. (3) `.vscodeignore` 에 `out/web/chat_view.bundle.js` 추가 → 실제 `vsce` 패키징 시험이 「VSIX missing extension/out/web/chat_view.bundle.js」로 실패. 모두 원복 후 560/0.
+  - ⚠ 변이 실행 중 VSIX 4건도 빨갰는데, 이는 `tsc` 만 돌리고 에셋 빌드를 건너뛰어 `markdown_render.js` 가 번들 안 된 산출물로 덮인 탓입니다. 변이 없이 같은 절차로 대조해 똑같이 4건 실패함을 확인했습니다. `npm test` 는 둘 다 돌리므로 해당하지 않습니다.
+- **실측**: `npm test` 560 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed.

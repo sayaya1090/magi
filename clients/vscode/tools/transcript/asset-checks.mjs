@@ -81,8 +81,18 @@ export async function runAssetChecks(page, compiledHtml) {
       assert.ok(err.stderr.includes("Run 'npm run build --prefix clients/vscode' first."), 'Reports build command instruction');
     }
 
-    // D) All three bundles present -> exit code 0 and empty stderr
+    // D) chat_adapter.bundle.js present: missing chat_view.bundle.js -> exit code 1
     await writeFile(path.join(tempDir, 'chat_adapter.bundle.js'), '// adapter bundle');
+    try {
+      await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
+      assert.fail('Should have failed on missing chat_view.bundle.js');
+    } catch (err) {
+      assert.equal(err.code, 1, 'Preflight exit code is 1 when chat_view.bundle.js is missing');
+      assert.ok(err.stderr.includes('chat_view.bundle.js'), 'Reports missing chat_view.bundle.js path');
+    }
+
+    // E) All four bundles present -> exit code 0 and empty stderr
+    await writeFile(path.join(tempDir, 'chat_view.bundle.js'), '// view bundle');
     const res = await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
     assert.equal(res.stderr, '', 'Preflight succeeds with code 0 and empty stderr when all bundles exist');
   } finally {
@@ -114,6 +124,10 @@ export async function runAssetChecks(page, compiledHtml) {
   const resAdapter = await probe(ASSET_URLS.adapterBundle);
   assert.equal(resAdapter.status, 200);
   assert.ok(resAdapter.contentType.includes('application/javascript'));
+
+  const resView = await probe(ASSET_URLS.viewBundle);
+  assert.equal(resView.status, 200);
+  assert.ok(resView.contentType.includes('application/javascript'));
 
   // Old alias returns 404 and is recorded by onUnregistered
   const resOldAlias = await probe(`${TEST_ORIGIN}/out/web/chat_adapter.js`);

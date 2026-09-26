@@ -121,6 +121,8 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
       { name: 'src/web/recovery_view.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_view.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_view.ts') },
       { name: 'src/web/recovery_controller.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_controller.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_controller.ts') },
       { name: 'src/web/chat_adapter.ts', realPath: path.join(realRoot, 'src', 'web', 'chat_adapter.ts'), tempPath: path.join(tempSrcWebDir, 'chat_adapter.ts') },
+      // The view, bundled on its own (it used to be an untyped script inside chat_html.ts).
+      { name: 'src/web/chat_view.ts', realPath: path.join(realRoot, 'src', 'web', 'chat_view.ts'), tempPath: path.join(tempSrcWebDir, 'chat_view.ts') },
       { name: 'src/web/markdown_render.ts', realPath: path.join(realRoot, 'src', 'web', 'markdown_render.ts'), tempPath: path.join(tempSrcWebDir, 'markdown_render.ts') },
       { name: 'src/core/webview_protocol.ts', realPath: path.join(realRoot, 'src', 'core', 'webview_protocol.ts'), tempPath: path.join(tempSrcCoreDir, 'webview_protocol.ts') },
       /* 웹뷰 번들이 부르는 코어 판정(emptyTranscriptNote). 타입만 쓰던 동안은 esbuild 가 지워서
@@ -396,6 +398,7 @@ test('§5.8.5 VSIX regression tests: rejects license mismatch, bundle mismatch, 
 
       const renderBytes = await readFile(path.join(rootDir, 'out', 'web', 'markdown_render.js'));
       await writeFile(path.join(extDir, 'out', 'web', 'markdown_render.js'), renderBytes);
+      await cp(path.join(rootDir, 'out', 'web', 'chat_view.bundle.js'), path.join(extDir, 'out', 'web', 'chat_view.bundle.js'));
 
       // Forbidden dirs if requested
       if (customFiles.includeNodeModules) {
@@ -506,6 +509,7 @@ test('§5.8.5: verifyVsixArchive and test suite remain hermetic across three roo
     await mkdir(path.join(mockRootDir, 'out', 'web'), { recursive: true });
     await cp(path.join(rootDir, 'out', 'web', 'chat_adapter.bundle.js'), path.join(mockRootDir, 'out', 'web', 'chat_adapter.bundle.js'));
     await cp(path.join(rootDir, 'out', 'web', 'markdown_render.js'), path.join(mockRootDir, 'out', 'web', 'markdown_render.js'));
+    await cp(path.join(rootDir, 'out', 'web', 'chat_view.bundle.js'), path.join(mockRootDir, 'out', 'web', 'chat_view.bundle.js'));
 
     // Create a valid VSIX fixture in fixtureDir
     const fixtureVsix = path.join(fixtureDir, 'hermetic-fixture.vsix');
@@ -517,6 +521,7 @@ test('§5.8.5: verifyVsixArchive and test suite remain hermetic across three roo
     await cp(path.join(mockRootDir, 'THIRD_PARTY_LICENSES.txt'), path.join(extDir, 'THIRD_PARTY_LICENSES.txt'));
     await cp(path.join(mockRootDir, 'out', 'web', 'chat_adapter.bundle.js'), path.join(extDir, 'out', 'web', 'chat_adapter.bundle.js'));
     await cp(path.join(mockRootDir, 'out', 'web', 'markdown_render.js'), path.join(extDir, 'out', 'web', 'markdown_render.js'));
+    await cp(path.join(mockRootDir, 'out', 'web', 'chat_view.bundle.js'), path.join(extDir, 'out', 'web', 'chat_view.bundle.js'));
     await zipExtensionDir(stageDir, fixtureVsix);
 
     const rootVsixPath = path.join(mockRootDir, 'magi-0.2.0.vsix');
@@ -870,6 +875,7 @@ test('§5.9 P2: verifyVsixArchive and zip-read reject unsupported encryption, ZI
     }
     await cp(path.join(rootDir, 'out', 'web', 'chat_adapter.bundle.js'), path.join(extDir, 'out', 'web', 'chat_adapter.bundle.js'));
     await cp(path.join(rootDir, 'out', 'web', 'markdown_render.js'), path.join(extDir, 'out', 'web', 'markdown_render.js'));
+    await cp(path.join(rootDir, 'out', 'web', 'chat_view.bundle.js'), path.join(extDir, 'out', 'web', 'chat_view.bundle.js'));
 
     const validVsixPath = path.join(baseTempDir, 'valid.vsix');
     await zipExtensionDir(stageDir, validVsixPath);

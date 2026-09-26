@@ -80,8 +80,20 @@ test('preflight: child process exits with code 1 and logs missing bundle and bui
       assert.ok(err.stderr.includes("Run 'npm run build --prefix clients/vscode' first."));
     }
 
-    // 4) All three bundles present -> exit code 0
+    // 4) chat_adapter.bundle.js present: missing chat_view.bundle.js -> exit code 1
+    //    (the view: without it the page draws its markup and never wires a single control)
     await writeFile(path.join(tempDir, 'chat_adapter.bundle.js'), '// adapter bundle');
+    try {
+      await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
+      assert.fail('Expected process to exit with code 1 on missing chat_view.bundle.js');
+    } catch (err: any) {
+      assert.equal(err.code, 1);
+      assert.ok(err.stderr.includes('chat_view.bundle.js'));
+      assert.ok(err.stderr.includes("Run 'npm run build --prefix clients/vscode' first."));
+    }
+
+    // 5) All four bundles present -> exit code 0
+    await writeFile(path.join(tempDir, 'chat_view.bundle.js'), '// view bundle');
     const res = await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
     assert.equal(res.stderr, '');
   } finally {

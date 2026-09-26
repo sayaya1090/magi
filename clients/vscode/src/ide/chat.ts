@@ -758,11 +758,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     const adapterUri = typeof this !== 'undefined' && this?.extUri && w.asWebviewUri
       ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_adapter.bundle.js')).toString()
       : 'out/web/chat_adapter.bundle.js';
+    const viewUri = typeof this !== 'undefined' && this?.extUri && w.asWebviewUri
+      ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_view.bundle.js')).toString()
+      : 'out/web/chat_view.bundle.js';
     return renderChatHtml({
       nonce,
       cspSource,
       scriptUri,
       adapterUri,
+      viewUri,
     });
   }
 }
