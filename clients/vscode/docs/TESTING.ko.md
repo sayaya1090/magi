@@ -1415,3 +1415,12 @@ node --test clients/vscode/out/test/*.property.test.js
 - **새 시험**: `chat_host.test.ts` 「open/diff requests resolve against this conversation as it is now」 — 지금 보이는 대화 id·작업 디렉터리·컴패니언 상태·질문 저장소·이벤트가 그대로 실리고, `postNote` 가 페이지에 안내로 닿는지 봅니다. 이전에는 이 처리기들의 문맥을 재는 시험이 없어, 대화 id 를 빈 값으로 바꾸는 변이가 560/0 으로 살아남았습니다.
 - **변이 검증**: `session` 을 빈 값으로 / `companionState` 를 undefined 로 → 각각 새 시험 실패. 원복 후 초록.
 - **실측**: `npm test` 561 pass / 0 fail.
+
+---
+
+### 6.52 대화 스트림 연결 실패를 말하기 (`Chat.openStream`)
+
+- **무엇이 바뀌었나**: `openStream` 이 `reach` 에 성공한 직후 스트림 연결(`Daemon.connect`)이 실패하면 `return` 만 하고 빈 패널을 남겼습니다. 이제 추월 확인(`mine !== this.opening`) 뒤 「could not open the conversation — the companion stopped answering.」 안내를 보냅니다. 재연결(`reattach`)은 부르지 않습니다 — `reattach` 가 `openStream` 을 다시 부르므로 여기서 부르면 재연결 루프가 겹칩니다.
+- **새 시험**: `stream.test.ts` 「a stream connection that fails is said」(소스 가드 — 주변 `openStream` 가드와 같은 방식).
+- **변이 검증**: 안내 한 줄 삭제 → 새 시험 실패. 원복 후 초록.
+- **실측**: `npm test` 562 pass / 0 fail.

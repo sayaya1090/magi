@@ -115,7 +115,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // A dedicated connection: this one is turned into a stream and answers nothing else, so
     // sharing it with the status poll would make every poll wait behind a conversation.
     const s = await Daemon.connect(this.companion.socket).catch(() => null);
-    if (!s) return;
+    if (!s) {
+      if (mine !== this.opening) return;   // overtaken — the newer attempt speaks for itself
+      // The companion answered `reach` a moment ago and then refused the stream: it went away in
+      // between. Said, so the panel does not sit empty and read as a conversation with nothing in it.
+      this.post({ kind: 'note', text: 'could not open the conversation — the companion stopped answering.' });
+      return;
+    }
     // A newer attempt started while this one was connecting. Hand this socket back rather than
     // letting two streams feed one transcript — see `opening`.
     if (mine !== this.opening) { s.close(); return; }

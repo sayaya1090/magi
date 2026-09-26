@@ -1308,3 +1308,19 @@ test('a council draws once, even though every verdict arrives twice', () => {
   assert.equal(late.length, 1, 'a late preview made a second row');
   assert.equal(late[0].decision, 'done', 'a late preview overwrote the fact');
 });
+
+/**
+ * A stream connection that fails is said, not left as an empty panel.
+ *
+ * `openStream` asks `reach` first, so a refused connection here is the daemon going away in the
+ * moment between — rare, and it used to `return` with nothing on screen: the panel that "reads as
+ * broken" the lines above it warn about. Read off the source, like the guards around it.
+ */
+test('a stream connection that fails is said', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf('const s = await Daemon.connect(this.companion.socket)');
+  assert.ok(at > 0, 'the stream connection was not found — this guard is reading nothing');
+  const failed = chat.slice(at, chat.indexOf('\n    }\n', at));
+  assert.ok(/if \(!s\) \{/.test(failed), 'a failed connection is not handled as its own case');
+  assert.ok(/kind: 'note'/.test(failed), 'a failed stream connection leaves the panel empty and says nothing');
+});
