@@ -580,16 +580,4 @@ internal object Look {
         foreground = hue
         border = JBUI.Borders.empty(2, 14, 0, 0)
     }
-
-    /** 헤더 구분선과 거터 레이블이 포함된 섹션 패널 래퍼. */
-    fun titled(name: String, content: JComponent): JBPanel<JBPanel<*>> =
-        JBPanel<JBPanel<*>>(BorderLayout()).apply {
-            val head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
-                isOpaque = false
-                add(gutter(name), BorderLayout.CENTER)
-                add(rule(), BorderLayout.SOUTH)
-            }
-            add(head, BorderLayout.NORTH)
-            add(content, BorderLayout.CENTER)
-        }
 }

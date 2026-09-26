@@ -1811,6 +1811,17 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - **무엇이 바뀌었나 (`DaemonLifecycle.attachOrStart`)**: 기동(`start`)이 던진 예외를 `runCatching` 이 버리고 있었습니다. PATH 에 magi 가 없거나 실행할 수 없는 파일이어서 매번 기동에 실패해도, 사유는 「기동을 N회 시도했고 마지막까지 응답이 없다」였습니다. 데몬이 한 번도 안 떴는데 사람을 데몬 쪽으로 보내는 문장이었고, 기동이 성공한 경우에도 「N회 기동」은 사실이 아니었습니다. 이제 두 경우를 가릅니다.
   - 기동이 끝내 실패: 「데몬을 띄우지 못했다: 소켓 — 기동 예외의 문구」
   - 띄운 뒤 못 붙음: 「데몬에 못 붙었다: 소켓 — 띄운 뒤 N번 기다렸지만 응답이 없다 (마지막 연결 오류)」
+- ⚠ **정정(같은 날): 이 변경은 사용자 화면을 바꾸지 않습니다.** `attachOrStart` 는 제품 코드가 부르지 않습니다 — 제품은 `DaemonLifecycle` 을 상태 판정(`Workspace.kt` 의 `verdict()`)에만 쓰고, 기동은 `ui/StartDaemon.kt` 가 하며 그쪽은 이미 예외 문구와 로그 끝을 함께 알립니다. 제품 쪽 이력에서 `attachOrStart(` 호출은 한 번도 없었습니다. 아래 시험은 쓰이지 않는 경로의 문구를 잽니다.
 - **새 시험 (`DaemonLifecycleTest`)**: `띄우지도 못했으면 그 이유를 말한다`, `띄운 뒤 못 붙었으면 마지막 연결 오류를 싣는다`. 기존 `못 붙으면 빈 화면이 아니라 이유를 말한다`(소켓 경로 포함)는 그대로 통과합니다.
 - **변이 검증**: (1) 기동 예외 문구를 버림 → 실패. (2) 두 경우 구분을 없앰 → 실패. 원복 후 초록.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 410 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과.
+
+---
+
+## 6.52 쓰이지 않는 UI 도우미 하나 걷기, 그리고 쓰이지 않는 경로 목록 (2026-09-26)
+
+- **무엇이 바뀌었나**: `Look.titled` 를 지웠습니다. 플러그인 어디서도 부르지 않았습니다. 그것이 쓰던 `gutter`·`rule` 은 다른 곳에서 계속 쓰입니다.
+- **같은 훑기에서 걸렸지만 지우지 않은 것** — 쓰이지 않는다는 사실만 적습니다. 지우거나 연결하는 것은 설계 결정입니다.
+  - `DaemonLifecycle.attachOrStart`: 시험만 부릅니다(§6.51 정정 참고). README 의 「백오프·지터를 `DaemonLifecycleTest` 로 검증」은 제품이 쓰지 않는 경로에 대한 문장입니다. 제품 기동은 `StartDaemon` 입니다.
+  - `Companion.removeCron`·`Companion.reloadCron`: 문 감싸개만 있고 부르는 화면이 없습니다. VS Code 는 같은 두 문을 명령(`doors.ts`)으로 제공하므로, 지울 코드라기보다 **JetBrains 쪽 기능 차이**입니다.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 410 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 151 통과.
