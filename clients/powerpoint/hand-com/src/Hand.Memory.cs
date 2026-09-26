@@ -92,7 +92,7 @@ public sealed partial class Hand
                 var stored = ops.SetTag(n, a.Str("shape_id"), key, JsonSerializer.Serialize(body)); Mutated();
                 var where = a.Str("shape_id") is string s ? $"도형 {s}" : $"슬라이드 {n}";
                 return (new() { ["slide"] = n, ["shape_id"] = a.Str("shape_id"), ["suggestion"] = stored, ["fixable"] = tool is not null },
-                        new() { $"{where} 에 제안을 붙였습니다 — {what}. **이건 아직 안 고친 것입니다** — 덱 파일에 메모로만 남고, 카드는 365 작업창에서 보입니다(이 손은 창이 없습니다)" });
+                        new() { $"{where} 에 제안을 붙였습니다 — {what}. **이건 아직 안 고친 것입니다** — 덱 파일에 메모로만 남고, 사람이 작업창의 제안 카드에서 「적용」을 눌러야 고쳐집니다" });
             }
             case "read_suggestions":
             {

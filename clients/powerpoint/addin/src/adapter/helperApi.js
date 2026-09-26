@@ -50,6 +50,23 @@ export class HelperApi {
     return res.json();
   }
 
+  /**
+   * 헬퍼의 도구 하나를 부른다 — 모델이 쓰는 그 MCP 문으로. 답은 손(hand.run)과 같은 모양 `{ result, changed }` 로 준다.
+   *
+   * 이 길이 있는 까닭: 2021 의 창은 화면(viewer)이라 제 손이 없고, 제안은 COM 손(magi-ppt-hand)이 덱 태그에 적는다. 창이 제 손만
+   * 믿으면 모델이 붙인 제안이 사람 눈에 영영 안 뜬다 — 그래서 화면 역할일 때는 제안 읽기·적용·떼기를 이 문으로 헬퍼에 맡긴다(main.js).
+   */
+  async tool(name, args = {}) {
+    const out = await this.#send('/mcp', { body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } });
+    if (out?.error) throw new Error(out.error.message ?? JSON.stringify(out.error));
+    const res = out?.result ?? {};
+    const text = (res.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
+    if (res.isError) throw new Error(text || `${name} 을 헬퍼가 거절했습니다`);
+    let parsed = {};
+    try { parsed = JSON.parse(text); } catch { parsed = { text }; }
+    return { result: parsed, changed: parsed.changed ?? [] };
+  }
+
   companions() { return this.#send('/api/companions', { method: 'GET' }); }
   documents() { return this.#send('/api/documents', { method: 'GET' }); }
   status() { return this.#send('/api/status', { method: 'GET' }); }

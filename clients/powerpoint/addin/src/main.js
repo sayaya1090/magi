@@ -155,9 +155,9 @@ async function boot() {
     : new OfficeHand({});
   // **화면도 손을 쓴다.** 덱에 저장된 제안을 읽고, 「적용」이 그 손을 부른다 — 헬퍼를 거치지
   // 않는다. 사람이 누른 것은 모델의 턴이 아니고, 모델의 로그에 남을 일도 아니다.
-  // **손이 아닌 창은 제안도 안 읽는다.** 제안은 덱의 태그(PowerPointApi 1.3)에 사는데, 바닥 아래
+  // **손이 아닌 창은 제 손으로 제안을 안 읽는다.** 제안은 덱의 태그(PowerPointApi 1.3)에 사는데, 바닥 아래
   // 호스트에서 그 읽기는 Office.js 의 날 오류(「'index' 속성을 사용할 수 없습니다」)로 화면에 떴다
-  // (실물 LTSC 2021, 2026-09-06). 사람이 할 일이 없는 문장은 안 띄운다.
+  // (실물 LTSC 2021, 2026-09-06). 화면 역할은 아래 `hello` 에서 헬퍼를 거친 손을 받는다 — COM 손이 태그를 읽는다.
   if (role.role === 'hand') view.useHand(hand);
   // **대화 이름을 우리가 짓지 않는다.** 이름을 가진 쪽은 컴패니언이고(`.sock.session`),
   // `ReadTranscript` 는 남의 대화 이벤트를 신원으로 걸러 낸다 — 여기서 지어낸 이름에 붙이면
@@ -256,6 +256,9 @@ async function boot() {
     if (real) {
       helperStream.on('hello', (d) => {
         api.useDeck(d?.document ?? '');
+        // **화면 역할의 제안은 헬퍼를 거쳐 COM 손이 읽고 고치고 뗀다.** 덱 키를 안 뒤에 붙인다 — 그 전에 부르면 덱이
+        // 둘일 때 허브가 「어느 덱인가」로 거절한다. 다시 붙어 hello 가 또 와도 손을 새로 쥐고 다시 읽을 뿐이다.
+        if (role.role === 'viewer') view.useHand({ run: (op, args) => api.tool(op, args) });
         void (async () => {
           try {
             const mine = await api.companions();

@@ -193,6 +193,22 @@ function spyFetch(answers = {}) {
 }
 
 {
+  // 화면 역할(2021)의 제안 손 — 헬퍼의 MCP 문으로 COM 손에게 맡긴다. 덱 키가 실리고, 손과 같은 모양으로 돌아와야 View 가 그대로 쓴다.
+  const body = { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify({ document: 'd1', suggestions: [{ key: 'k1', what: '제목을 짧게' }], changed: ['읽음'] }) }] } };
+  const { impl, calls } = spyFetch({ '/ppt/mcp': { status: 200, body } });
+  const api = new HelperApi({ token: 'tok', origin: 'https://127.0.0.1:3000/ppt', fetchImpl: impl });
+  api.useDeck('d1');
+  const out = await api.tool('read_suggestions', {});
+  const sent = JSON.parse(calls[0]?.init?.body ?? '{}');
+  ok('제안 읽기가 헬퍼의 MCP 문으로 간다', calls[0]?.url === 'https://127.0.0.1:3000/ppt/mcp?deck=d1' && sent.method === 'tools/call' && sent.params?.name === 'read_suggestions', calls[0]?.url);
+  ok('답은 손과 같은 모양이다', out.result.suggestions?.[0]?.key === 'k1' && out.changed[0] === '읽음', JSON.stringify(out));
+  const refused = spyFetch({ '/ppt/mcp': { status: 200, body: { result: { isError: true, content: [{ type: 'text', text: '그 장이 없습니다' }] } } } });
+  let why = '';
+  try { await new HelperApi({ origin: 'https://127.0.0.1:3000/ppt', fetchImpl: refused.impl }).tool('drop_suggestion', { key: 'k1' }); } catch (e) { why = e.message; }
+  ok('헬퍼의 거절은 던진다 — 사유를 그대로', why === '그 장이 없습니다', why);
+}
+
+{
   const asking = { id: 'c1', kind: 'permission', what: 'mcp__ppt__set_text', args: { a: 1 }, since: '2026-08-31T00:00:00Z' };
   const { impl } = spyFetch({ '/api/status': { status: 200, body: { reachable: true, doing: '읽는 중', asking, session: 's_live' } } });
   const st = await new HelperStatus(new HelperApi({ origin: '', fetchImpl: impl })).status();
