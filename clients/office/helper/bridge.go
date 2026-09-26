@@ -104,6 +104,13 @@ const historyCap = 10000
 
 func (b *Bridge) push(f StreamFrame) {
 	b.mu.Lock()
+	targets := b.recordLocked(f)
+	b.mu.Unlock()
+	b.fanOut(targets, f)
+}
+
+// recordLocked 는 프레임을 기록에 남기고 받을 창들을 돌려준다 — b.mu 를 쥔 채 부른다.
+func (b *Bridge) recordLocked(f StreamFrame) []chan StreamFrame {
 	switch f.Kind {
 	case "event":
 		if len(b.history) >= historyCap {
@@ -117,7 +124,11 @@ func (b *Bridge) push(f StreamFrame) {
 	for ch := range b.listeners {
 		targets = append(targets, ch)
 	}
-	b.mu.Unlock()
+	return targets
+}
+
+// fanOut 은 락 밖에서 나른다.
+func (b *Bridge) fanOut(targets []chan StreamFrame, f StreamFrame) {
 	for _, ch := range targets {
 		select {
 		case ch <- f:
@@ -279,22 +290,41 @@ func (b *Bridge) readOnce(ctx context.Context, socket, sid string, since int64) 
 		// **서버가 커서를 거절하면 이벤트보다 먼저 이 프레임 하나가 온다**(`answerable`).
 		// 안 읽으면 화면에 있던 대화 뒤에 같은 대화의 처음이 붙는다 — 작업창은 PowerPoint 를
 		// 껐다 켤 때마다 새로 붙으므로 이 프레임을 제일 자주 받는 쪽이 우리다(§5.7).
-		b.mu.Lock()
-		b.lastSeq = -1
-		b.mu.Unlock()
-		b.push(StreamFrame{Kind: "restart", Data: json.RawMessage(mustJSON(map[string]any{"why": why}))})
+		b.deliver(ctx, sid, StreamFrame{Kind: "restart", Data: json.RawMessage(mustJSON(map[string]any{"why": why}))}, -1)
 	}, func(ev event.Event) bool {
 		// **커서를 미는 것은 `seq > 0` 인 이벤트뿐이다**(§5.7). 로그에 안 앉는 이벤트는 `Seq`
 		// 가 0 이고, 0 은 이 문의 계약에서 「전부」다 — 그대로 커서에 넣으면 다시 붙을 때 화면이
 		// 두 벌이 되고, 그 사고가 **아무 소리 없이** 일어난다.
-		if ev.Seq > 0 {
-			b.mu.Lock()
-			b.lastSeq = ev.Seq
-			b.mu.Unlock()
-		}
-		b.push(StreamFrame{Kind: "event", Data: json.RawMessage(mustJSON(ev))})
-		return true
+		return b.deliver(ctx, sid, StreamFrame{Kind: "event", Data: json.RawMessage(mustJSON(ev))}, ev.Seq)
 	})
+}
+
+// deliver 는 스트림 하나가 읽은 프레임을 **그 스트림이 아직 지금의 묶음일 때만** 넘긴다. 커서도 그때만 민다.
+//
+// ⚠ 대화를 옮기면(`BindWith`) 옛 스트림은 ctx 가 취소될 뿐이고, 연결은 따로 도는 고루틴이 닫는다 — 그 사이에
+// 옛 대화의 사건이 이미 읽혀 있으면 이 콜백이 **새 대화의 기록(history)에 그것을 섞고, 새 스트림의 커서를 옛
+// 대화의 번호로 덮는다.** 앞의 것은 창에 남의 대화 한 줄을, 뒤의 것은 새 대화를 앞이 빠진 채 읽게 한다. 둘 다
+// 아무 소리 없이 일어난다(#201, 2026-09-26). 확인과 기록은 한 락 안에서 한다: 확인 뒤 기록 전에 묶음이 바뀌는
+// 틈을 남기지 않는다.
+//
+// seq 가 0 보다 크면 커서를 그 값으로, -1 이면 되돌린다(restart), 0 이면 그대로 둔다. 돌려주는 값은 「계속
+// 읽을까」 — 묶음에서 떨어진 스트림은 더 읽을 이유가 없다.
+func (b *Bridge) deliver(ctx context.Context, sid string, f StreamFrame, seq int64) bool {
+	b.mu.Lock()
+	if ctx.Err() != nil || b.session != sid {
+		b.mu.Unlock()
+		return false
+	}
+	switch {
+	case seq > 0:
+		b.lastSeq = seq
+	case seq < 0:
+		b.lastSeq = -1
+	}
+	targets := b.recordLocked(f)
+	b.mu.Unlock()
+	b.fanOut(targets, f)
+	return true
 }
 
 // call 은 **요청용 연결**을 새로 열어 한 왕복을 돈다.

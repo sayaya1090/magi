@@ -23,25 +23,38 @@ type talkEngine struct {
 
 	tmu    sync.Mutex
 	log    []event.Event
-	subs   []chan event.Event
+	subs   []talkSub
 	closed bool
+}
+
+// talkSub 는 구독 하나 — **어느 대화의** 구독인지를 같이 든다.
+type talkSub struct {
+	sid session.SessionID
+	ch  chan event.Event
 }
 
 // Subscribe 는 **ctx 가 끝나면 채널을 닫아야 한다.** 안 닫으면 데몬의 전사 핸들러가
 // `for e := range evs` 에서 영영 서고, 그러면 `Serve` 의 `wg.Wait` 이 안 끝나 시험이 통째로
 // 매달린다 — 실제로 그렇게 45초를 매달렸고, 그 매달림이 이 주석의 근거다. 진짜 스토어는 그
 // 계약을 지키므로, 안 지키는 가짜로 재는 것은 **없는 세상을 재는 것**이다.
-func (e *talkEngine) Subscribe(ctx context.Context, _ session.SessionID, fromSeq int64) (<-chan event.Event, func(), error) {
+//
+// ⚠ **같은 이유로 대화 id 를 본다.** 이 가짜가 id 를 버리고 로그 전체를 되풀이하던 때, 「다른 대화로
+// 옮기면 되풀이할 것도 바뀐다」를 재는 시험이 **옮긴 뒤마다** 옛 대화의 사건을 받았다(실측 2026-09-26: 뒤
+// 검사를 넓히니 20/20). 진짜 스토어는 대화별로 준다 — 가짜만 대화를 섞는 세상에서 재던 것이다(#201).
+func (e *talkEngine) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error) {
 	e.tmu.Lock()
 	ch := make(chan event.Event, 64)
 	for _, ev := range e.log {
+		if ev.SessionID != sid {
+			continue
+		}
 		// 스토어의 규칙 그대로: `fromSeq > 0` 일 때만 자른다. **0 도 음수도 「전부」다.**
 		if fromSeq > 0 && ev.Seq <= fromSeq {
 			continue
 		}
 		ch <- ev
 	}
-	e.subs = append(e.subs, ch)
+	e.subs = append(e.subs, talkSub{sid: sid, ch: ch})
 	e.tmu.Unlock()
 
 	go func() {
@@ -57,12 +70,12 @@ func (e *talkEngine) drop(ch chan event.Event) {
 	e.tmu.Lock()
 	kept := e.subs[:0]
 	found := false
-	for _, c := range e.subs {
-		if c == ch {
+	for _, s := range e.subs {
+		if s.ch == ch {
 			found = true
 			continue
 		}
-		kept = append(kept, c)
+		kept = append(kept, s)
 	}
 	e.subs = kept
 	e.tmu.Unlock()
@@ -71,28 +84,36 @@ func (e *talkEngine) drop(ch chan event.Event) {
 	}
 }
 
-func (e *talkEngine) NewSince(_ context.Context, _ session.SessionID, _ int64) (int64, bool, error) {
+func (e *talkEngine) NewSince(_ context.Context, sid session.SessionID, _ int64) (int64, bool, error) {
 	e.tmu.Lock()
 	defer e.tmu.Unlock()
 	var latest int64
+	known := false
 	for _, ev := range e.log {
+		if ev.SessionID != sid {
+			continue
+		}
+		known = true
 		if ev.Seq > latest {
 			latest = ev.Seq
 		}
 	}
-	return latest, false, nil
+	return latest, known, nil
 }
 
-// emit 은 사실 하나를 로그에 앉히고 흘린다.
+// emit 은 사실 하나를 로그에 앉히고 **그 대화의** 구독에만 흘린다.
 func (e *talkEngine) emit(ev event.Event) {
 	e.tmu.Lock()
 	defer e.tmu.Unlock()
 	if ev.Seq > 0 {
 		e.log = append(e.log, ev)
 	}
-	for _, ch := range e.subs {
+	for _, s := range e.subs {
+		if s.sid != ev.SessionID {
+			continue
+		}
 		select {
-		case ch <- ev:
+		case s.ch <- ev:
 		default:
 		}
 	}
@@ -343,11 +364,69 @@ func TestALateSubscriberGetsTheConversationSoFar(t *testing.T) {
 	again, unsub3 := b.Subscribe()
 	defer unsub3()
 	drain(t, again, "stream", time.Second)
-	select {
-	case f := <-again:
-		if f.Kind == "event" {
-			t.Fatalf("다른 대화로 옮겼는데 옛 대화의 프레임을 되풀이했다: %s", f.Data)
+	// **온 것을 다 본다 — 첫 하나가 아니라.** 이 자리가 프레임 하나만 받고 끝나던 때는, 그 하나가 거의 늘
+	// 「live」 알림이라 그 뒤에 따라오는 옛 대화의 사건을 한 번도 안 봤다. 120번에 한 번 깨진 것은 스케줄이
+	// 사건을 알림보다 앞에 놓은 드문 경우였고, 새는 것 자체는 매번이었다(#201, 2026-09-26).
+	deadline := time.After(300 * time.Millisecond)
+	for {
+		select {
+		case f := <-again:
+			if f.Kind == "event" {
+				t.Fatalf("다른 대화로 옮겼는데 옛 대화의 프레임을 되풀이했다: %s", f.Data)
+			}
+			continue
+		case <-deadline:
 		}
-	case <-time.After(300 * time.Millisecond):
+		break
+	}
+}
+
+// 옮겨 간 뒤에 옛 스트림이 늦게 읽은 것은 새 대화에 안 섞인다 — 기록에도, 창에도, 커서에도.
+//
+// ⚠ 옮기면 옛 스트림은 ctx 가 취소될 뿐이고 연결은 따로 닫힌다. 그 틈에 이미 읽힌 옛 대화의 사건이 콜백을
+// 타면, 막는 자리가 없던 때는 새 대화의 history 에 붙고 **새 스트림의 커서를 옛 번호로 덮었다** — 새 대화를
+// 앞이 빠진 채 읽게 되는 쪽이 더 나쁘다(#201, 2026-09-26). 시간에 기대지 않고 그 틈을 직접 만든다.
+func TestAStreamThatWasReboundAwayDeliversNothing(t *testing.T) {
+	b := NewBridge()
+	b.mu.Lock()
+	b.session, b.lastSeq = "sess-new", -1
+	b.mu.Unlock()
+	ch, unsub := b.Subscribe()
+	defer unsub()
+	drain(t, ch, "stream", time.Second)
+
+	ev := StreamFrame{Kind: "event", Data: json.RawMessage(`{"seq":7,"sessionId":"sess-old"}`)}
+	if b.deliver(context.Background(), "sess-old", ev, 7) {
+		t.Fatal("옛 대화의 스트림이 계속 읽으라는 답을 받았다")
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if b.deliver(cancelled, "sess-new", ev, 7) {
+		t.Fatal("취소된 스트림이 계속 읽으라는 답을 받았다")
+	}
+	b.mu.Lock()
+	seq, hist := b.lastSeq, len(b.history)
+	b.mu.Unlock()
+	if seq != -1 || hist != 0 {
+		t.Fatalf("떨어진 스트림이 새 묶음을 건드렸다: 커서 %d, 기록 %d개", seq, hist)
+	}
+	select {
+	case f := <-ch:
+		t.Fatalf("떨어진 스트림의 프레임이 창에 왔다: %s %s", f.Kind, f.Data)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// 지금의 묶음이면 그대로 간다 — 막는 자리가 전부 막는 것은 아니어야 한다.
+	if !b.deliver(context.Background(), "sess-new", ev, 7) {
+		t.Fatal("지금 묶인 대화의 프레임을 막았다")
+	}
+	if f := drain(t, ch, "event", time.Second); string(f.Data) != string(ev.Data) {
+		t.Fatalf("다른 프레임이 왔다: %s", f.Data)
+	}
+	b.mu.Lock()
+	seq = b.lastSeq
+	b.mu.Unlock()
+	if seq != 7 {
+		t.Fatalf("커서가 안 밀렸다: %d", seq)
 	}
 }
