@@ -52,8 +52,12 @@ await call('read_document', {}, '');
 await call('describe_style', {}, '');
 await call('read_paragraphs', { from: 1, to: Math.min(2, base) }, '1~2');
 await call('read_html', { from: 1, to: 1 }, '1');
-await call('insert_paragraphs', { lines: ['스윕 시작', '스윕 본문 요약입니다', '스윕 셋째'], at: 'end', style: 'Normal' }, '끝에 3');
-const p1 = base + 1, p2 = base + 2, p3 = base + 3;
+const ins = await call('insert_paragraphs', { lines: ['스윕 시작', '스윕 본문 요약입니다', '스윕 셋째'], at: 'end', style: 'Normal' }, '끝에 3');
+// ⚠ **넣은 자리는 손이 말해 준다 — 짐작하지 않는다.** 빈 문서에서 Word 는 비어 있는 마지막 문단을 먼저 채우고
+// 「문단 1–3」이라고 답한다. 여기가 `base + 1` 로 짐작하던 때는(실측 2026-09-26, LTSC 2021 · 빈 문서) 제목 스타일이
+// 둘째 줄에 걸리고, format_text 가 셋째 줄에서 「요약」을 찾다 거절됐고, 뒷정리가 「스윕 시작」 한 줄을 사용자
+// 문서에 남겼다. 제품은 옳게 답했는데 시험이 그 답을 안 읽었다.
+const p1 = ins?.from ?? base + 1, p2 = p1 + 1, p3 = p1 + 2;
 await call('find', { text: '요약' }, '');
 await call('set_style', { from: p1, builtin: 'Heading2' }, `${p1}`);
 await call('format_text', { from: p2, text: '요약', bold: true, color: '#C00000', highlight: 'Yellow' }, `${p2} 요약`);
@@ -132,7 +136,13 @@ await call('clear_advice', {}, '');
 await call('render_page', { page: 1, max_width: 400 }, '');
 if (snapId) await call('restore_paragraphs', { snapshot: snapId }, String(snapId));
 const end = await count('정리 전');
-if (end >= p1) await call('delete_paragraphs', { from: p1, to: end }, `${p1}~${end}`);
+// 빈 문서에서 시작했으면(p1 === 1) 넣은 것이 곧 본문 전부다 — Word 는 마지막 문단을 못 지우므로 「전부 지우기」는
+// 옳게 거절된다(실측 2026-09-26). 그때는 둘째부터 지우고 첫 문단은 비워서, 처음의 빈 문서로 돌려놓는다.
+if (end >= p1 && p1 > 1) await call('delete_paragraphs', { from: p1, to: end }, `${p1}~${end}`);
+else if (end >= p1) {
+  if (end > 1) await call('delete_paragraphs', { from: 2, to: end }, `2~${end}(빈 문서)`);
+  await call('replace_paragraph', { paragraph: 1, text: '' }, '첫 문단 비움(빈 문서)');
+}
 await call('set_header_footer', { which: 'footer', text: '' }, '바닥글 비움');
 await count('정리 후');
 const lst = await (await fetch(`${opt.origin}/mcp?deck=${DECK}`, { method: 'POST', headers: H, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })).json();
