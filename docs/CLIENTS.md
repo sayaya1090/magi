@@ -375,9 +375,14 @@ contracts this page already states.
    (WorkspaceKey — held by goldens) and spawns a daemon when none answers.
 2. **Handshake**: `about` — the reply's `caps` names the doors this daemon answers: `handshake`
    and `roster` are always there (build-level), the rest are engine-gated and may be absent
-   (`transcript`, `sessions`, `session-new`, `children`, `cron`, `cron-set`, `cron-remove`,
-   `job-kill`, `tool-servers`, `settings`, `context` — the last answers how full a conversation's window is and
-   what it is made of, for a screen drawing a meter). Read the advertisement and call; never call an absent
+   (`transcript`, `history`, `sessions`, `session-new`, `children`, `cron`, `cron-set`, `cron-remove`,
+   `job-kill`, `tool-servers`, `tool-servers-detach-if`, `settings`, `context`). `history` rides with
+   `transcript` and says the stream names the end of its replay (`live`), so a reader can take the
+   conversation once and stop — an older daemon has `transcript` without it and never sends the
+   marker. `tool-servers-detach-if` is the conditional detach (`mcp-detach-if`): it removes a tool
+   server only if the URL and credentials still match the ones that attached it, so a late cleanup
+   cannot take away a successor under the same name. `context` answers how full a conversation's
+   window is and what it is made of, for a screen drawing a meter. Read the advertisement and call; never call an absent
    door and read the refusal.
 
    The list is short on purpose, and shorter than the list of gated doors. A capability is for a
@@ -447,7 +452,85 @@ Every screen module keeps exactly one contract (`console-bridge`: register a ren
 context), and the shell opens the one stream and shares it over window bridges — screens multiply,
 lines do not.
 
-## 4. In one sentence again
+## 4. Every door on the control socket
+
+One JSON request per line, one JSON response per line (`{"method": "...", ...}` →
+`{"ok": true, ...}` or `{"ok": false, "error": "..."}`), except the streams below, which take the
+connection over. The daemon's own table is the source of truth
+(`internal/adapter/daemon/doors.go` — `answers` and `acts`; `streams.go` — `streams`); a guard
+fails if a method is in more than one table, or if a gated door neither carries a capability nor
+says why it does not. This page is the index of that table: if a row here and the code disagree,
+the code is right and this row is stale.
+
+**Column "Gate".** *always* — answered by every build (with less in it when the engine cannot fill
+a field). A capability name — advertised in `about.caps`, so a screen decides whether to exist
+before anybody presses anything (§2, "The path a new client walks"). *on press* — gated but
+deliberately not advertised: it refuses in its own words, and the refusal lands on the button that
+asked.
+
+### Acts — they change something and answer only whether it worked
+
+| Door | What it does | Gate |
+|---|---|---|
+| `submit` | Send a prompt to a conversation (`text`, optional `refs` — paths and line ranges, read from disk by the daemon) | always |
+| `steer` | Send the same, but as a steer into the running turn rather than a queued prompt | always |
+| `interrupt` | Stop the running turn | always |
+| `permission` | Answer a pending permission prompt (`callId`, `decision`) | always |
+| `answer` | Answer a pending `ask_user` question (`callId`, `answer`) | always |
+| `rewind` | Rewind the conversation by `n` turns | on press (controller) |
+| `compact` | Fold the conversation's context now | on press (controller) |
+| `set-model` | Put the conversation on another model (`name`) | on press (controller) |
+| `use-backend` | Point the default backend at a base URL for the rest of this run (`name`) | on press (controller) |
+| `set-permission` | Change the approval mode for every later call (`name`: ask, auto, allow, deny) | on press (controller) |
+| `resume` | Move this companion to another conversation of this workspace (`session`, an id `session-new` or `sessions` returned) | on press |
+| `reload-cron` | Re-read the schedule file | on press |
+
+### Queries — they answer with something
+
+| Door | What it answers | Gate |
+|---|---|---|
+| `status` | What the companion is doing now: working, waiting on a person, idle; model, backend, permission | always |
+| `models` | The models this companion's backend offers | always |
+| `tools` | The tools the agent has, with their descriptions | always |
+| `jobs` | Background commands and their state | always |
+| `about` | Who this companion is and what it can be asked to do, plus `caps` | always (the handshake) |
+| `sessions` | This workspace's conversations, newest activity first (id, title, model, label, `for`) | `sessions` |
+| `session-new` | Open a new conversation and move the companion onto it; answers its id | `session-new` |
+| `children` | A conversation's subagent sessions | `children` |
+| `context` | How full a conversation's window is and what fills it (parts are an estimate — draw them as shares) | `context` |
+| `cron` · `cron-set` · `cron-remove` | Read the schedule; add or change one job; remove one | `cron` · `cron-set` · `cron-remove` |
+| `job-kill` | Stop one background command; `removed` says whether it existed | `job-kill` |
+| `config-get` · `config-set` · `profiles` | Read the settings the engine declares; change one; list what a profile-shaped setting may point at | `settings` |
+| `mcp-attach` · `mcp-detach` | Attach an MCP tool server by URL (optionally owned by one conversation); remove one the door attached | `tool-servers` |
+| `mcp-detach-if` | Remove a door-attached tool server only if its URL and credentials still match — a late cleanup cannot remove a successor | `tool-servers-detach-if` |
+| `hand` · `hand-state` | Hand this companion a piece of work under a label and get a receipt; ask what became of a receipt | on press |
+| `tool` | Run one read-only tool here, outside any turn | on press |
+| `edit-file` | Change a file here on a person's behalf (whole content or a unified diff), recorded in the log as their edit | on press |
+| `file-do` | Make, move or remove a file here | on press |
+| `git` · `git-diff` | What git makes of the workspace; one file's diff (staged or not; a new file against nothing) | on press |
+| `git-do` | Run one command from a short, closed list of git commands | on press |
+| `git-msg` | Draft a commit message: for the files in `paths` when given (against HEAD, staged or not; new files whole), otherwise for what is staged. `text` replaces the saved template for this draft only | on press |
+| `pr-facts` · `pr-msg` | What a pull request from this branch would carry (base, commits, diff); a drafted title and body for it | on press |
+| `git-pr` | Push the branch and open the pull request; answers the URL | on press |
+| `look-over` | Read a file somebody is editing and say what is wrong with it (outside the turn) | on press |
+| `complete` | Inline completion at the cursor (prefix and suffix) | on press |
+| `suggest` | Ghost text for the prompt being typed | on press |
+| `open-file` | Record the file the editor has open (and its unsaved buffer) as ambient context for the next turn | on press |
+| `shell` | Run a command where this companion is, rather than where the caller is | on press |
+| `meet-join` · `meet` | Get ready to take part in a meeting (answers what this companion brings); take one speaking turn, with the minutes both ways | on press |
+
+### Streams — the connection is given over
+
+| Door | What it does |
+|---|---|
+| `transcript` | Replay a conversation from a cursor (`since`), then keep sending each event live; with `history` in `caps`, a `live` frame marks where the replay ends |
+| `watch` | Send a frame each time handed-over work changes, until nothing more is coming |
+| `roster` | Who is out there: the companions on this machine and what the fleet has seen, one frame |
+| `shutdown` | Drain and stop this daemon; the reply goes out before it unwinds |
+| `restart` | The same drain, then re-exec onto the binary now on disk |
+| `update` | Update and restart, now or at the next idle moment; the reply says which |
+
+## 5. In one sentence again
 
 **A person sits in a seat (a client), the seat attaches to a companion, the companion runs turns
 as agents — and the web screens each take one of those things (the fleet, one companion, its work,

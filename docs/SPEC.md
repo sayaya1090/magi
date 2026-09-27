@@ -516,7 +516,7 @@ Rules:
   artifact to verify and approve a reasonable report (R9). **The consensus rule is unchanged** (no
   relaxation, no quorum:1): when the deliberation runs, it is always a real consensus. A **failed
   GitDiff** (a non-git workdir) is *not* read as "no changes", so a real write turn is not
-  misjudged. If every member abstains, the no-progress guard ends the turn.
+  misjudged. If every member abstains, the round is *unjudged*, not rejected (R18).
 - R11 **After the independent vote** (each flag on by default): ① **the rebuttal round**
   (`MAGI_COUNCIL_DEBATE`) — when a would-be-done is SPLIT, members are polled once more (each seeing
   the others' verdicts and reasons, free to hold or change) and re-tallied. ② **keep**
@@ -602,6 +602,30 @@ Rules:
   - **It is recorded either way** (`Deliberation.Close`, rendered above the lead in
     `renderCouncilAdvice`, and one stderr line per round saying *agreed with* or *DISAGREED with*):
     an arm that never sees the line cannot tell a conclusion that agreed from one that never ran.
+- R18 **A round nobody voted in is unjudged, not rejected** (`unjudged`, `noteUnjudged`). When no
+  member returns a done or continue — every one abstained or silent — the decision stays continue
+  (R3), but the agent is told the work was not judged and must not be changed on that account, and
+  the round is counted apart from rejections: `councilUnjudgedCap` (3) in a row lands the turn
+  UNVERIFIED with "the council could not judge". The rejection cap never counts these rounds, so its
+  landing reason never claims a rejection nobody made.
+- R19 **What only the person can supply ends the turn with a question** (`needs_person`,
+  `onlyThePersonCan`). A continue may name a gap no further work can close — an input the task
+  presupposed and a thorough search did not find, a credential, a decision that is the person's;
+  never a place unsearched or a command unrun (`needsPersonOf` drops it on a done/abstain and drops
+  filler words). When a strict majority of the members who voted name one **and** `ask_user` is
+  registered (a run someone can answer — the TUI, a daemon; not `-p`), the turn ends UNVERIFIED with
+  "can only come from the person" and the agent's final answer is the question. Otherwise the
+  rejection stands. Each member's `needsPerson` is recorded on `council.verdict`.
+- R20 **BLOCKED: a requirement proven impossible** (`councilCore`, `panelCloseAsk`,
+  `created_inputs.go`). The walk marks each requirement SATISFIED, UNSATISFIED or BLOCKED; every
+  item SATISFIED or BLOCKED is done. BLOCKED requires all five: the requirement depends on something
+  the task **presupposes** (never something it asked the agent to make, fix, install or run); a tool
+  result shows the absence; the search covered the whole workspace, name variants and obvious
+  alternatives; the report says plainly it was not done; nothing was invented to fill the gap. The
+  closing call re-checks every BLOCKED item against the same conditions. Members may not order the
+  agent to create something the task presupposes, and when a file the task names was absent from
+  the turn's baseline index and exists now, "NAMED BY THE TASK, CREATED BY THIS TURN" heads the
+  evidence — a fact, not a verdict: the member decides whether the task asked for it.
 
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue

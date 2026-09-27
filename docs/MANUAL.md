@@ -690,6 +690,8 @@ Flags and environment variables (precedence: flag > env > default):
 | — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
 | — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
+| — | `MAGI_DECOR_WIDTH` | (auto-probe) | `wide`\|`narrow` — force the cell width of the decorative glyphs magi draws (`‹ › ✦ ✻ ⚖ ⇅`) that Unicode tables call one cell and some terminals draw as two |
+| `--fleet-listen` | `MAGI_FLEET_LISTEN` | (off) | address the fleet door listens on for admitted machines (§ below) |
 | — | `MAGI_MOUSE_COMPAT` | (auto) | compensation for terminals reporting mouse columns per character — auto-detected for JetBrains/Apple Terminal; `chars`=force, `off`=disable (see §Mouse) |
 | — | `MAGI_MOUSE_DEBUG` | (off) | `1` toasts each click's coordinate→character mapping (drag-position diagnosis) |
 
@@ -799,6 +801,8 @@ rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | ve
 preset     = "full"        # "light" = 1 verification member (interactive latency; explicit members override)
 # [[council.member]]       # if omitted, the default 3 MAGI members are used
 # name = "Melchior"; lens = "correctness"  # lens: correctness|verification|completeness
+# provider = "strong"; model = "…"          # optional: this member's backend and model (default: the session's)
+# weight = 2                                # optional, counts only under rule = "weighted:θ"; unset or 0 = 1
 
 [theme.dark]               # color theme overrides (per mode). Unspecified roles keep NERV/MAGI defaults
 primary = "#FF7A1A"        # role: primary·accent·muted·outline·error·success·
@@ -969,6 +973,17 @@ role = "viewer"
 ```
 
 Groups are how joiners and leavers stop being your problem: the directory is where somebody is added on their first day and removed on their last, and a console that reads membership needs no list of its own to keep in step. Capabilities and scopes ADD UP across matches — two teams means both, never less. Manage it from the console (an admin sees an access screen, at the foot of the rail) or from a terminal on that machine (`magi --access`, `--grant`, `--revoke`), which is also the way in when a policy has locked its author out. Nothing can leave the file with no admin: that console would refuse to start, with the fix behind the door.
+
+From a terminal on that machine:
+
+```bash
+magi --access                                                   # who may use this console, and what each may do
+magi --grant lee@corp.com --role responder                      # a role: operator, responder, viewer, or one you defined
+magi --grant kim@corp.com --role operator --companions docs,api # narrowed to those companions (empty = all)
+magi --revoke lee@corp.com                                      # take somebody off
+```
+
+These write `[people."<who>"]` in the same file the console's access screen edits.
 
 ⚠ The groups header is trusted exactly as far as the name beside it. A gateway that forwards a header it did not set lets a client claim its own membership — strip both at the proxy.
 
@@ -1408,7 +1423,7 @@ result resolves the same way:
 | `unanimous` | every member who voted said done | it is not counted at all, so the remaining voters decide |
 | `majority` *(default)* | done is a **strict** majority of those who voted — a tie is not | it leaves the vote; 1–1 with one abstaining is *continue* |
 | `quorum:2` | at least k members said done | it neither helps nor blocks; k real accepts are still needed |
-| `weighted:0.6` | done's share of the **voted** weight meets θ | it carries no weight either way |
+| `weighted:0.6` | done's share of the **voted** weight meets θ (each member's `weight`, unset = 1) | it carries no weight either way |
 | `veto:Balthasar` | the named member did not object, **and** the rest are a majority | an abstention from the named member is not an objection |
 
 A member that errored, timed out, or answered unreadably **abstains** rather than blocking the
@@ -1418,6 +1433,16 @@ towards the turn carrying on, because the failure a stalled turn produces is che
 false completion produces.
 
 **Rejection is bounded.** The gate exists to stop a false "done"; unbounded, it also stopped a true "I could not" — measured live, an honest declaration on a task the run's own permission mode made impossible was rejected for eighteen straight rounds until an external kill. After three consecutive rejections with **no file mutation between them** (or eight in one turn regardless), magi lands the turn **UNVERIFIED** with the reason on the record: the work stands, the agent is asked for its honest final account, and nothing pretends the council accepted. Real iteration is unaffected — a declaration separated from the last by actual work gets the longer rope. `MAGI_COUNCIL_REJECT_CAP=0` restores the uncapped loop for A/B.
+
+**A round nobody voted in is not a rejection.** When every member abstains or never answers — a backend down, every reply unreadable, a panel reply cut off before any verdict — the decision is still *continue* (the turn never ends without an affirmative verdict), but the agent is told the work **was not judged**, not that it was turned away with nothing to address, and is asked to declare again without changing anything on that account. These rounds are counted apart from rejections: three in a row land the turn **UNVERIFIED** with the reason "the council could not judge", so a council that cannot answer does not hold a turn open for ever — and the record does not say the council rejected something it never read.
+
+**What only you can supply ends the turn with a question.** A member voting *continue* may also say the gap is one **only the person can fill** (`needs_person`): an input the task presupposed that is not in the workspace after a thorough search, a credential, a decision that is yours. Never for anything the agent could still do or find itself. When a majority of the members who voted says so **and someone can be asked** (the TUI, or a daemon a window is attached to — not a `-p` run), the turn ends there: the agent writes its answer as a question for exactly what is needed, and the record lands UNVERIFIED with the reason "can only come from the person". In a `-p` run the rejection stands and the cap above applies.
+
+**A requirement proven impossible is not a defect.** Each member walks the task's requirements as SATISFIED, UNSATISFIED or **BLOCKED**. BLOCKED means it truly cannot be met here, and only under all of these: it depends on something the task **presupposes** already exists (never something it asked the agent to make, fix, install or run); a tool result shows the absence; the search covered the whole workspace, reasonable variants of the name and any obvious alternative (a member that can name an avenue still untried marks it UNSATISFIED and names it); the report says plainly it was not done; and nothing was invented to fill the gap. Every requirement SATISFIED or BLOCKED is a *done* — an honest, proven "this cannot be done here" is a finished turn. The closing reader re-checks each BLOCKED mark against the same conditions rather than counting it.
+
+**Invented inputs are named as such.** When a file the task names did not exist when the task was given and exists now, magi puts that fact at the head of what the members read ("named by the task, created by this turn"). If the task asked for the file, that is the work; if the task treated it as something to read or use, its contents are the agent's own invention and a result computed from them proves nothing. Members are also told never to order the agent to create or make up something the task presupposes.
+
+**The agent can contest a demand.** A rejection tells the agent how to answer a demand the record already refutes: a line `CONTEST: <the demand> — <the tool output that shows it is met, or that it cannot be met here>`. The members judge the cited evidence next round and, if it holds, drop that one point. A contest never finishes the task, and one with no tool output behind it is ignored.
 
 If the agent never declares, magi reminds it up to three times **per stretch of no progress** — a real file mutation since the last reminder is the evidence that the reminder was answered by working, so the count starts over — and then lands the work as it stands, recorded as ending undeclared instead of finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
 
