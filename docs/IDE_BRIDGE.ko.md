@@ -177,9 +177,10 @@ $ magi ide-bridge --features
 → {"id":2,"method":"daemon","req":{"method":"submit","text":"실패하는 시험 고쳐줘"}}
 ← {"id":2,"ok":true,"resp":{"ok":true,"session":"s_01J..."}}
 
-→ {"id":3,"method":"watch"}
-← {"id":3,"ok":true,"sub":1}
-← {"sub":1,"rows":[{"seq":8,"who":"agent","text":"시험을 봅니다…"}]}
+→ {"id":3,"method":"rows","session":"s_01J...","live":true}
+← {"id":3,"ok":true,"rows":[…],"events":42,"sub":1}
+← {"sub":1,"ops":[{"op":"grow","id":"d:m1:text","text":"시험을 봅니다…"}]}
+→ {"id":4,"method":"stop","sub":1}
 ```
 
 위 3가지 대표 호출의 상호작용 흐름은 다음과 같습니다:
@@ -206,12 +207,14 @@ sequenceDiagram
     end
 
     rect rgb(240, 255, 240)
-    Note over Editor,Daemon: 3. 비동기 스트림 구독 (watch)
-    Editor->>Bridge: {"id":3, "method":"watch"}
-    Bridge->>Daemon: transcript / event 스트림 연결
-    Bridge-->>Editor: {"id":3, "ok":true, "sub":1}
-    Daemon-->>Bridge: 이벤트 발생 (JSONL 로그 스트림)
-    Bridge-->>Editor: {"sub":1, "rows":[{"seq":8, "who":"agent", ...}]}
+    Note over Editor,Daemon: 3. 실시간 행 (rows, live:true)
+    Editor->>Bridge: {"id":3, "method":"rows", "session":"s_…", "live":true}
+    Bridge->>Daemon: transcript (history 를 요구)
+    Daemon-->>Bridge: 재생 … 이어서 live 표시
+    Bridge-->>Editor: {"id":3, "ok":true, "rows":[…], "sub":1}
+    Daemon-->>Bridge: 새 이벤트
+    Bridge-->>Editor: {"sub":1, "ops":[reset · add · grow · patch · drop · move]}
+    Editor->>Bridge: {"method":"stop", "sub":1}  (또는 브리지가 done + why)
     end
 ```
 

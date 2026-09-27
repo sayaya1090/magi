@@ -306,9 +306,10 @@ translated pass-through would be a new contract to keep in step with the old one
 → {"id":2,"method":"daemon","req":{"method":"submit","text":"fix the failing test"}}
 ← {"id":2,"ok":true,"resp":{"ok":true,"session":"s_01J..."}}
 
-→ {"id":3,"method":"watch"}
-← {"id":3,"ok":true,"sub":1}
-← {"sub":1,"rows":[{"seq":8,"who":"agent","text":"Looking at the test…"}]}
+→ {"id":3,"method":"rows","session":"s_01J...","live":true}
+← {"id":3,"ok":true,"rows":[…],"events":42,"sub":1}
+← {"sub":1,"ops":[{"op":"grow","id":"d:m1:text","text":"Looking at the test…"}]}
+→ {"id":4,"method":"stop","sub":1}
 ```
 
 The interaction flow across these three representative patterns:
@@ -335,12 +336,14 @@ sequenceDiagram
     end
 
     rect rgb(240, 255, 240)
-    Note over Editor,Daemon: 3. Async Stream Subscription (watch)
-    Editor->>Bridge: {"id":3, "method":"watch"}
-    Bridge->>Daemon: connect transcript / event stream
-    Bridge-->>Editor: {"id":3, "ok":true, "sub":1}
-    Daemon-->>Bridge: event emitted (JSONL log stream)
-    Bridge-->>Editor: {"sub":1, "rows":[{"seq":8, "who":"agent", ...}]}
+    Note over Editor,Daemon: 3. Live rows (rows with live:true)
+    Editor->>Bridge: {"id":3, "method":"rows", "session":"s_…", "live":true}
+    Bridge->>Daemon: transcript (asks for history)
+    Daemon-->>Bridge: replay … then the live marker
+    Bridge-->>Editor: {"id":3, "ok":true, "rows":[…], "sub":1}
+    Daemon-->>Bridge: new events
+    Bridge-->>Editor: {"sub":1, "ops":[reset · add · grow · patch · drop · move]}
+    Editor->>Bridge: {"method":"stop", "sub":1}  (or the bridge sends done + why)
     end
 ```
 
