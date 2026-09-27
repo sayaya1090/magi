@@ -135,8 +135,12 @@ type sessionState struct {
 	councilRejects     int
 	councilNoProgress  int
 	councilRejectEpoch int
-	perms              map[string]chan string // pending permission decisions by call id
-	questions          map[string]chan string // pending ask_user picks by call id
+	// councilUnjudged counts CONSECUTIVE declarations the council could not judge at all — no
+	// member returned a vote. Kept apart from the rejections because nobody rejected anything, and
+	// a landing that said "the council rejected N declarations" would put words in its mouth.
+	councilUnjudged int
+	perms           map[string]chan string // pending permission decisions by call id
+	questions       map[string]chan string // pending ask_user picks by call id
 	// asking is what those two are waiting FOR, so another process can be told. The channels
 	// above are enough to deliver an answer and say nothing about the question; a viewer in a
 	// different process cannot see the transient event that announced it, because a transient

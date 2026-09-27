@@ -378,6 +378,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		return closingCall(lastText) + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil
 	}
+	if unjudged(delib) {
+		return a.noteUnjudged(sid, delib) + notesTail(a.turnNotesBlock(sid)), nil
+	}
+	a.mu.Lock()
+	a.stateLocked(sid).councilUnjudged = 0
+	a.mu.Unlock()
 	if need := a.onlyThePersonCan(delib); need != "" {
 		reason := "the council found that what is left can only come from the person: " + need
 		a.signalTurnControl(sid, func(tc *turnControl) {
@@ -425,6 +431,59 @@ const councilContestAffordance = "\n\nIf a specific demand is already met by evi
 	"  CONTEST: <the exact demand> — <the tool output that shows it is met, or that it cannot be met here>\n" +
 	"The council re-judges that evidence next round and, if it holds, drops that one point. It does not finish " +
 	"the task, and a CONTEST with no real tool output behind it is ignored."
+
+// unjudged reports a round in which members were asked and none of them voted. It reads the verdicts
+// rather than the breakdown: the verdicts are what was said, and a deliberation assembled without a
+// tally (an adapter that decided on its own) must not read as a round nobody answered. With no
+// verdicts at all there is nothing to say either way, and the ordinary path stands.
+func unjudged(d council.Deliberation) bool {
+	if len(d.Verdicts) == 0 {
+		return false
+	}
+	for _, v := range d.Verdicts {
+		if !v.Silent && (v.Decision == council.Done || v.Decision == council.Continue) {
+			return false
+		}
+	}
+	return true
+}
+
+// councilUnjudgedCap is how many declarations in a row may go unjudged before the turn lands.
+const councilUnjudgedCap = 3
+
+// noteUnjudged answers a declaration the council could not judge: no member returned a vote.
+//
+// The decision is Continue by the council's own invariant — a turn never ends without an affirmative
+// verdict — and that stays. What the agent was TOLD did not: "the council does NOT accept this ...
+// address what follows", followed by nothing, because nothing had been said. Measured live
+// (2026-09-27, a local 80B model as the whole panel): two rounds in which one member returned no
+// decision and two returned nothing, each delivered as a rejection, each counted toward the cap that
+// then lands the turn as "the council rejected N declarations". The truthful message is that the work
+// was not judged; and the valve is kept, counted apart, so a council that cannot answer does not hold
+// a turn open forever.
+func (a *App) noteUnjudged(sid session.SessionID, d council.Deliberation) string {
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.councilUnjudged++
+	n := st.councilUnjudged
+	a.mu.Unlock()
+	silent := d.Breakdown.Silent
+	if n >= councilUnjudgedCap {
+		reason := fmt.Sprintf("the council could not judge %d declarations in a row (no member returned a vote) "+
+			"and the turn was landed UNVERIFIED as it stood", n)
+		a.signalTurnControl(sid, func(tc *turnControl) {
+			tc.finish = true
+			tc.unverifiedReason = reason
+		})
+		return fmt.Sprintf("The council could not judge this declaration either — %d in a row with no vote from any "+
+			"member. magi is landing the turn here, recorded as UNVERIFIED: nobody found anything wrong with the "+
+			"work, and nobody confirmed it. Write your final answer now, stating plainly what was done and that "+
+			"it was not verified.", n)
+	}
+	return fmt.Sprintf("The council could not judge this declaration: no member returned a vote (%d gave no answer "+
+		"at all). This is NOT a rejection — nothing was found wrong with the work — but a turn cannot end on no "+
+		"verdict. Do not change the work on this account; declare completion again.", silent)
+}
 
 // onlyThePersonCan returns what the council says only the person can supply, when a majority of the
 // members who voted says so AND a person can be asked in this run. Empty otherwise.
@@ -526,7 +585,7 @@ func (a *App) noteCouncilRejection(sid session.SessionID, epoch int, feedback st
 func (a *App) resetCouncilRejections(sid session.SessionID) {
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.councilRejects, st.councilNoProgress, st.councilRejectEpoch = 0, 0, 0
+	st.councilRejects, st.councilNoProgress, st.councilRejectEpoch, st.councilUnjudged = 0, 0, 0, 0
 	a.mu.Unlock()
 }
 
