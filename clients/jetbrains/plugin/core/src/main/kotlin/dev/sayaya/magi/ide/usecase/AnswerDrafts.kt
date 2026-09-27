@@ -12,6 +12,7 @@ class AnswerDrafts {
         val version: Long,
         val text: String,
         val reason: String,
+        val archived: ArchivedDraft? = null,
     ) {
         val key: Key get() = Key(session, callId)
         override fun toString(): String {
@@ -34,6 +35,8 @@ class AnswerDrafts {
     private var session: String? = null
     private var serial = 0L
     private var recoverySerial = 0L
+    private val archiveDeletions = mutableMapOf<String, Long>()
+    fun exportedDeletions() = archiveDeletions.map { DeletedDraft(it.key, it.value) }
     private var closed = false
     var question: Key? = null; private set
     var active: Key? = null; private set
@@ -135,6 +138,10 @@ class AnswerDrafts {
     fun deleteRecovery(id: String): Boolean {
         if (closed) return false
         val rec = savedRecoveries.remove(id) ?: return false
+        rec.archived?.let {
+            archiveDeletions[it.id] = maxOf(archiveDeletions[it.id] ?: -1, it.version)
+            return true
+        }
         deletedGenerations.add(Pair(rec.key, rec.version))
         val draft = drafts[rec.key]
         if (draft != null && draft.version == rec.version) {
@@ -200,6 +207,51 @@ class AnswerDrafts {
             }
         }
         return true
+    }
+
+    /** All sessions, including inactive drafts and submitted text distinct from later edits. */
+    fun exportEntries(owner: String, companion: String): List<ArchivedDraft> {
+        val out = mutableListOf<ArchivedDraft>()
+        fun add(kind: String, scope: String, call: String, text: String, version: Long = 0,
+                status: String = "draft", attempt: String = "", title: String = "", reason: String = "", suffix: String = "") {
+            if (text.isEmpty()) return
+            val id = kotlinx.serialization.json.JsonArray(listOf(owner, kind, scope, call, suffix)
+                .map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+            out += ArchivedDraft(id, companion, scope, "", call, kind, status, text, title,
+                reason, version, attempt, 0, 0, 0, emptyList())
+        }
+        general.forEach { (scope, text) -> add("general", scope, "", text) }
+        drafts.forEach { (key, draft) ->
+            if (!deletedGenerations.contains(key to draft.version))
+                add("question", key.session, key.callId, draft.text, draft.version, title = draft.questionText.orEmpty())
+            draft.pending?.let { a ->
+                if (!deletedGenerations.contains(key to a.version))
+                    add("attempt", key.session, key.callId, a.text, a.version, "pending", "$owner:${a.id}",
+                        draft.questionText.orEmpty(), suffix = a.id.toString())
+            }
+        }
+        savedRecoveries.values.forEach { r ->
+            if (!deletedGenerations.contains(r.key to r.version)) {
+                val archived = r.archived
+                if (archived != null) out += archived
+                else add("recovery", r.session, r.callId, r.text, r.version, "failed",
+                    title = r.questionText.orEmpty(), reason = r.reason, suffix = r.id)
+            }
+        }
+        return out
+    }
+
+    /** Import as recovery records only; never bind the active question or restore a busy lock. */
+    fun importArchive(archive: DraftArchive, workspace: String) {
+        val valid = DraftArchive.parse(kotlinx.serialization.json.Json.encodeToString(DraftArchive.serializer(), archive), workspace)
+        valid.deleted.forEach { archiveDeletions[it.id] = maxOf(archiveDeletions[it.id] ?: -1, it.version) }
+        savedRecoveries.values.removeIf { r -> r.archived?.let { (archiveDeletions[it.id] ?: -1) >= it.version } ?: false }
+        for (e in valid.restore()) {
+            if ((archiveDeletions[e.id] ?: -1) >= e.version) continue
+            if (savedRecoveries.containsKey(e.id)) continue
+            savedRecoveries[e.id] = Recovery(e.id, e.sessionId, e.callId, e.title, e.version, e.text,
+                if (e.status == "unknown") "result_unknown" else e.reason.ifEmpty { "restored_draft" }, e)
+        }
     }
 
     fun close() {

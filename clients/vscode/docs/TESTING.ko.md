@@ -1469,3 +1469,5 @@ node --test clients/vscode/out/test/*.property.test.js
 - attach 응답과 종료가 교차하는 동안에는 응답 완료 뒤 정리하며, 정리 요청은 한 번만 보냅니다. 구형 데몬이 조건부 해제를 지원하지 않으면 이름 기반 해제로 대체하지 않고 경고를 남깁니다.
 - 검증 범위: `hand_lifecycle.test.ts`, Go MCP manager/daemon door 테스트, Kotlin `HandRegistration` 컴파일 검증.
 - 브라우저 회귀 확인: `node clients/vscode/tools/transcript-test.mjs` 전체 7개 테스트 통과(레이아웃·질문·자동완성·diff·접근성·markdown 포함).
+
+#202 답변 모델 검증: 비활성 세션을 포함한 일반·질문 초안과 전송 당시 원문을 내보냅니다. 가져오기는 현재 입력·답변 모드·전송 잠금을 바꾸지 않고 복구 목록에 추가합니다. 중복 가져오기와 삭제 후 옛 저장본 재수입, 삭제 기록을 저장한 뒤 재시작한 경우의 부활 방지를 검사합니다. 일반 전송 첨부와 실제 파일 저장소 연결은 이 검증 범위에 포함하지 않습니다.

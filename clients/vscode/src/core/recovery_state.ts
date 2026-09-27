@@ -1,9 +1,12 @@
+import { DraftArchiveEntry } from './draft_archive';
 export type RecoveryItemKind =
+  | 'restored_draft'
   | 'reply_failed'
   | 'session_creation_failed'
   | 'session_creation_conflict';
 
 export interface RecoveryItem {
+  archiveEntry?: DraftArchiveEntry;
   recoveryId: string;
   companionKey: string;
   sessionId?: string;
@@ -39,6 +42,9 @@ export interface RecoveryFilter {
 }
 
 export interface RecoveryStateManager {
+  importEntry(entry: DraftArchiveEntry): void;
+  deletedEntries(): Array<{ id: string; version: number }>;
+  importDeletions(entries: Array<{ id: string; version: number }>): void;
   register(options: RegisterRecoveryOptions): RecoveryItem | undefined;
   listItems(filter?: RecoveryFilter): RecoveryItem[];
   getItem(recoveryId: string): RecoveryItem | undefined;
@@ -50,6 +56,7 @@ export interface RecoveryStateManager {
 
 export function createRecoveryState(): RecoveryStateManager {
   const items: RecoveryItem[] = [];
+  const deleted = new Map<string, number>();
   const consumedEvents = new Set<string>();
   let recoverySeq = 0;
   let globalSeq = 0;
@@ -169,6 +176,8 @@ export function createRecoveryState(): RecoveryStateManager {
   function deleteItem(recoveryId: string): boolean {
     const idx = items.findIndex((it) => it.recoveryId === recoveryId);
     if (idx === -1) return false;
+    const archived = items[idx].archiveEntry;
+    if (archived) deleted.set(archived.id, Math.max(deleted.get(archived.id) ?? 0, archived.version));
     items.splice(idx, 1);
     return true;
   }
@@ -197,6 +206,25 @@ export function createRecoveryState(): RecoveryStateManager {
   }
 
   return {
+    deletedEntries: () => Array.from(deleted, ([id, version]) => ({ id, version })),
+    importDeletions(entries) {
+      for (const d of entries) deleted.set(d.id, Math.max(deleted.get(d.id) ?? -1, d.version));
+      for (let i = items.length - 1; i >= 0; i--) {
+        const e = items[i].archiveEntry;
+        if (e && (deleted.get(e.id) ?? -1) >= e.version) items.splice(i, 1);
+      }
+    },
+    importEntry(entry) {
+      if ((deleted.get(entry.id) ?? -1) >= entry.version) return;
+      if (items.some(it => it.recoveryId === entry.id)) return;
+      items.push({ recoveryId: entry.id, archiveEntry: structuredClone(entry),
+        companionKey: entry.companionKey, sessionId: entry.sessionId || undefined,
+        creationTaskId: entry.creationTaskId || undefined, callId: entry.callId || undefined,
+        kind: 'restored_draft', text: entry.text, title: entry.title,
+        reason: entry.status === 'unknown' ? '결과 미확인 — 자동 재전송하지 않습니다' : (entry.reason || '저장된 초안'),
+        attempts: entry.attempts, seq: entry.seq, createdAt: entry.createdAt });
+      globalSeq = Math.max(globalSeq, entry.seq);
+    },
     register,
     listItems,
     getItem,

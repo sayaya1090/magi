@@ -1,3 +1,4 @@
+import type { DraftArchive, DraftArchiveEntry } from './draft_archive';
 /**
  * Answer and draft state manager for chat webview.
  *
@@ -148,6 +149,8 @@ export type BindSessionResult =
   | { ok: false; reason: 'missing_id' | 'not_found' | 'not_pending' | 'webview_mismatch' };
 
 export interface AnswerStateManager {
+  exportArchive(workspace: string, owner: string, revision: number): DraftArchive;
+  importArchive(archive: DraftArchive, workspace: string): void;
   getState(companionKey?: string, sessionId?: string): AnswerStateSnapshot;
   getPendingQuestion(companionKey?: string, sessionId?: string): string | null;
   getGeneralDraft(companionKey?: string, sessionId?: string): string;
@@ -913,7 +916,55 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
     };
   }
 
+  function exportArchive(workspace: string, owner: string, revision: number): DraftArchive {
+    const entries: DraftArchiveEntry[] = [];
+    function add(parts: unknown[], companionKey: string, sessionId: string, text: string,
+      extra: Partial<DraftArchiveEntry> = {}): void {
+      if (!text.length) return;
+      entries.push({ id: JSON.stringify([owner, ...parts]), companionKey, sessionId,
+        creationTaskId: '', callId: '', kind: 'general', status: 'draft', text,
+        title: '', reason: '', version: 0, attemptId: '', seq: 0, createdAt: 0, attempts: 0, refs: [], ...extra });
+    }
+    for (const [key, state] of contexts) {
+      const [companion, session] = JSON.parse(key) as [string, string];
+      add(['general', key], companion, session, state.generalDraft);
+      for (const [callId, text] of Object.entries(state.questionDrafts)) {
+        add(['question', key, callId], companion, session, text, {
+          kind: 'question', callId, version: state.draftVersions[callId] || 0,
+          title: state.questionTitles[callId] || '' });
+      }
+      for (const [callId, attempt] of Object.entries(state.inFlightReplies)) {
+        add(['attempt', key, attempt.attemptId], companion, session, attempt.text, {
+          kind: 'attempt', status: 'pending', callId, version: attempt.version,
+          attemptId: JSON.stringify([owner, attempt.attemptId]), title: attempt.title || '' });
+      }
+    }
+    for (const [key, task] of creationTasks) {
+      if (task.status === 'pending') add(['creation', key], task.companionKey, '', task.draft,
+        { creationTaskId: task.creationTaskId });
+    }
+    for (const item of recovery.listItems()) {
+      if (item.archiveEntry) entries.push(structuredClone(item.archiveEntry));
+      else add(['recovery', item.recoveryId], item.companionKey, item.sessionId || '', item.text,
+        { creationTaskId: item.creationTaskId || '', callId: item.callId || '', kind: 'recovery',
+          status: 'failed', title: item.title, reason: item.reason, attempts: item.attempts,
+          seq: item.seq, createdAt: item.createdAt });
+    }
+    return { schemaVersion: 1, workspace, owner, revision, entries, deleted: recovery.deletedEntries() };
+  }
+
+  function importArchive(archive: DraftArchive, workspace: string): void {
+    // The host parses the archive before crossing into the state model.
+    if (archive.workspace !== workspace) throw new Error('Draft workspace mismatch');
+    recovery.importDeletions(archive.deleted);
+    for (const entry of archive.entries) {
+      if (archive.deleted.some(d => d.id === entry.id && d.version >= entry.version)) continue;
+      recovery.importEntry({ ...entry, status: entry.status === 'pending' ? 'unknown' : entry.status });
+    }
+  }
+
   return {
+    exportArchive, importArchive,
     getState,
     getPendingQuestion,
     getGeneralDraft,
