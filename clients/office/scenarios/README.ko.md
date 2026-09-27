@@ -102,6 +102,20 @@ node clients/office/scenarios/run.mjs --com
 2021 의 작업창 제안 카드(사람이 누르는 「적용」·「무시」)는 이 실행기가 못 누른다. 그 확인은 `clients/powerpoint/docs/TESTING.ko.md`
 의 「2021 작업창에 제안 카드가 뜬다」 절차대로 사람이 한다.
 
+### COM 전용 셋 — Windows 에서만 (`windowsOnly`)
+
+Office.js 에 길이 없어 헬퍼(Word·Excel)나 COM 손(PowerPoint 2021)이 COM 으로 하는 도구들이다. 다른 OS 에서 실행기는 이 셋을
+**건너뜀**으로 적는다. 만든 PDF 는 임시 폴더에 두고 끝에 지운다.
+
+| id | 흐름 | 재는 것 |
+|---|---|---|
+| XL-2 `xl-com` | 이익 수식 → `goal_seek`(매출이 얼마면 이익 1000?) → 스파크라인 넣기·지우기 → 표 → 슬라이서(없는 열·없는 표 거절) → 넣기·지우기 → 시트 PDF | 찾은 값과 원래 값, 통장에 들어간 값, 스파크라인 칸 수·표식, 슬라이서와 **빈 캐시가 안 남음**, 진짜 PDF(`%PDF`), 덮어쓰기 거절 |
+| WD-2 `word-com` | 오타 든 문단 → `proofread`(제안까지) → 고침 → 다시 검사 → `document_stats` → PDF → 견줄 .docx 를 COM 으로 만들어 `compare_documents` | 짚은 오타·문단 번호·제안, 범위 규칙(to 없으면 from 하나), 고친 뒤 사라짐, 쪽·단어 수, 비교 결과 문서의 변경 수(끝에 그 문서를 닫는다) |
+| PP-2 `ppt-show` | 세 장 → 한 장에 `set_transition`(효과·자동 넘김) → `hide_slide` → `add_section` 둘·이름 바꾸기 → 애니메이션 들어오기·강조·끝내기 → 같은 크기 no-op → PDF | `read_slide` 의 전환, 목차의 숨김·구역, 「기본 구역」이 생긴다는 안내, 세 종류가 다 되읽힘, 숨긴 장이 PDF 에서 빠졌다는 답, COM 으로 전환·숨김 대조, **정리 뒤 구역도 처음대로** |
+
+덱 전체를 바꾸는 호출(`set_transition{all}`, 크기 바꾸기)은 사람의 장까지 건드리므로 PP-2 는 제 장에만 걸고, 크기는 같은 크기
+no-op 과 거절만 잰다.
+
 ## 언제 무엇을
 
 | 고친 곳 | 돌릴 것 |
@@ -126,6 +140,9 @@ node clients/office/scenarios/run.mjs --com
 | 2026-09-27 | Word | 끝 문단을 지우면 글만 비고 문단은 남는데 「지웠습니다(1개)」. 문서 끝에 쓴 것을 치우면 빈 줄이 남음 | `WordHand.js #deleteParagraphs` — 앞 문단의 표시를 지우고 서식을 되입힘, 센 대로 말함 |
 | 2026-09-27 | Word | `edit_table add_columns` 에 평평한 목록을 주면 Office.js 의 InvalidArgument 한 줄 | `WordHand.js #editTable`·`word_com_more.go` — 평평한 목록은 한 열, 개수 불일치는 사유를 대며 거절 |
 | 2026-09-27 | PowerPoint 2021 | `read_slide` 가 표의 칸을 안 실음(`text: ""`) — 모델은 방금 채운 표를 못 읽음 | `hand-com/src/Hand.cs` — 작업창 손과 같은 `rows`·`columns`·`cells` |
+| 2026-09-27 | 헬퍼(COM 도구) | 헬퍼가 답하는 도구의 답에 `changed`·문서 이름이 빠짐, COM 정수(int32)를 0 으로 읽어 스파크라인 「0칸」·있는 표를 「없음」 | `mcp.go` — Local 답에도 싣고, `intOf` 가 COM 정수를 읽음 |
+| 2026-09-27 | Excel | `remove_slicer` 가 지우고 나서 치워진 컬렉션을 만져 「Object required」로 실패를 답함 | `xl_extra_windows.go` — 지우기 전에 세고 뒤에는 안 만짐 |
+| 2026-09-27 | PowerPoint 2021 | 뒤에 구역이 있는 첫 구역을 지우면 COM 의 「Illegal value」 한 줄 | `Hand.Show.cs` — 이유를 대며 거절(뒤 구역을 먼저 지우라고) |
 
 ## 시나리오 더하기
 
@@ -153,6 +170,7 @@ export default {
 |---|---|---|
 | 2026-09-27 | Windows 11 · Office LTSC 2021(Excel·Word 작업창 손, PowerPoint COM 손) · `--com` | 첫 실행: xl 50/53 · word 61/72 · ppt 60/61. 시나리오 쪽 틀림과 제품 버그 5건(위 「잡은 것」)을 가려 고친 뒤 **xl 59/59 · word 81/81 · ppt 61/61 (201/201)**. 같은 판에서 스윕도 회귀 없음(Excel 75/76, 거절 1은 2021 의 resolve_comment 로 알려진 것 · Word 65/66, 오류 0) |
 | 2026-09-27 | macOS · Word 16.113.2 실제 작업창 · `--app word --origin https://127.0.0.1:3000` | 초기 본문+빈 끝 문단에서 75 통과·1 실패(정리 후 2→1문단)를 재현했습니다. 기존 빈 문단 재사용을 구분해 내용·스타일을 복원하도록 실행기를 수정한 뒤 본문만 79/79, 본문+빈 끝 문단 81/81, 빈 문서 81/81 통과했습니다. 기존 본문·문단 스타일과 문단·표 수를 되읽었습니다. COM 검증은 아닙니다. |
+| 2026-09-27 저녁 | Windows 11 · Office LTSC 2021 · `--com` · COM 전용 도구 20개(PowerPoint 여섯 + 애니메이션 확장, Word 넷, Excel 여섯) 추가 뒤 | 새 셋의 첫 실행에서 버그 셋(위 「잡은 것」 아래 셋)을 고친 뒤 **여섯 시나리오 300/300** — xl-report 59 · xl-com 31 · word-contract 81 · word-com 25 · ppt-quarterly 61 · ppt-show 43 |
 
 ### 기존 빈 끝 문단의 복원
 

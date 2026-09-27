@@ -106,7 +106,8 @@ export default {
       await s.call('animate_slide', { slide_id: s2, steps: [{ shape_id: body2.shape_id, effect: 'fade' }] });
       const an = await s.call('read_animation', { slide_id: s2 });
       s.check('애니메이션 한 단계가 읽힌다', (an?.steps ?? an?.effects ?? []).length === 1, JSON.stringify(an).slice(0, 160));
-      await s.refuse('animate_slide', { slide_id: s2, steps: [{ shape_id: body2.shape_id, effect: 'fly' }] }, /./, '없는 효과');
+      // 없는 효과 — 'fly' 는 2021(COM 손)에서 되는 효과가 됐다(2026-09-27). 어느 손에도 없는 이동 경로로 잰다.
+      await s.refuse('animate_slide', { slide_id: s2, steps: [{ shape_id: body2.shape_id, effect: 'motion_path' }] }, /./, '없는 효과');
     }
 
     // 7. 찾기와 제안

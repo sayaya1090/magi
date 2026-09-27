@@ -146,6 +146,8 @@ for (const f of files) {
   if (opt.app !== 'all' && mod.app !== opt.app) continue;
   if (opt.only && mod.id !== opt.only) continue;
   console.log(`\n■ ${mod.id} — ${mod.title}`);
+  // COM 전용 도구(헬퍼가 Windows 에서만 광고한다)를 재는 시나리오는 다른 OS 에서 건너뛴다 — 실패가 아니라 그 도구가 없는 것이다.
+  if (mod.windowsOnly && process.platform !== 'win32') { console.log('  건너뜀: Windows 전용(COM)'); unreachable.push(`${mod.id}: Windows 전용`); continue; }
   const link = await connect(mod.app);
   if (link.why) { console.log(`  건너뜀: ${link.why}`); unreachable.push(`${mod.id}: ${link.why}`); continue; }
   console.log(`  문서 ${link.doc.label || '(저장 안 함)'} · ${link.doc.document}${opt.com ? ' · COM 대조' : ''}`);
