@@ -1996,3 +1996,5 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 ## #202 영구 저장 DTO 계약
 
 `DraftArchiveTest`는 VS Code의 `draft_archive.test.ts`와 같은 `clients/contract/draft-archive-fixtures.json` 21건을 읽습니다. 원문·공백·첨부만 있는 자료, 전송 중 자료의 결과 미확인 복원, 삭제 세대 제외, 새 세대 보존, 손상·미지원 버전·다른 워크스페이스·중복 ID 거부와 직렬화 왕복을 검사합니다. 파일 저장소와 실제 UI 연결 및 IDE 재시작 인수는 아직 포함하지 않습니다.
+
+`DraftArchiveStoreTest`는 실제 파일 저장과 저장소 재생성, 손상 파일 보존, workspace·owner 검증, 오래된 revision 거부 및 쓰기 실패 후 재시도를 검사합니다. 저장소 호출은 EDT 밖에서 수행해야 하며, 다중 창 잠금과 UI 연결은 후속 작업입니다.
