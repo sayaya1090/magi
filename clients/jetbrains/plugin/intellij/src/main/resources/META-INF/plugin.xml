@@ -200,7 +200,9 @@
             (Terminal.OutputContextMenu, Terminal.ReworkedTerminalContextMenu), found in the
             terminal plugin's own plugin.xml rather than guessed.
         -->
-        <action id="magi.draftCommit" class="dev.sayaya.magi.ide.ui.DraftCommitAction">
+        <!-- 아이콘이 없으면 커밋 창 도구 줄에 「...」로 섰다(2026-09-27 사용자 지적). -->
+        <action id="magi.draftCommit" class="dev.sayaya.magi.ide.ui.DraftCommitAction"
+                icon="/icons/magiToolWindow.svg">
             <add-to-group group-id="Vcs.MessageActionGroup" anchor="last"/>
         </action>
         <action id="magi.askConsole" class="dev.sayaya.magi.ide.ui.AskConsoleAction">

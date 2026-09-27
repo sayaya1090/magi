@@ -53,6 +53,11 @@ data class Request(
     val url: String? = null,
     val headers: Map<String, String>? = null,
     /**
+     * git-msg 초안이 다룰 파일들. IntelliJ 커밋 창은 체크한 파일을 커밋하는 순간에야 스테이지하므로,
+     * 메시지를 쓰는 동안 인덱스는 대개 비어 있다 — 그래서 창이 고른 파일을 직접 넘긴다. 비우면 스테이지된 것.
+     */
+    val paths: List<String>? = null,
+    /**
      * 전사 구독의 커서. **없거나 0 이하면 전량**이다 — 지어낸 규칙이 아니라 스토어의 것이다
      * (`jsonl.go` 의 `filterFrom` 은 `fromSeq > 0` 일 때만 자르고 seq 는 1부터 시작한다).
      * 세션이 바뀌면 이 값을 버리고 다시 전량을 받아야 한다(콘솔이 `lastSeq = -1` 로 되돌리는 그 규칙).

@@ -1979,3 +1979,16 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - **변이 검증**: 우선순위를 `(keep ?: got.current)` 로 되돌림 → 54건 중 1건 실패. 원복 후 초록.
 - **실물 확인**: 새 빌드 샌드박스에서 모델을 `gpt-oss:20b` 로 고른 뒤 「새 채팅」 → 데몬은 새 대화를 `qwen3-coder-next:latest` 로 돌렸고 콤보도 `qwen3-coder-next:latest` 를 보였습니다.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 415 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 163 통과.
+
+---
+
+## 6.63 커밋 메시지 생성이 늘 빈 초안이던 것, 단추가 「...」로 서던 것 (2026-09-27)
+
+사용자 신고: 설치한 플러그인으로 커밋 메시지 생성이 안 되고, 단추 아이콘이 「....」입니다.
+
+- **원인**: 코어의 `git-msg` 는 `git diff --cached`(스테이지된 것)로만 초안을 썼습니다. IntelliJ 커밋 창은 체크한 파일을 **커밋하는 순간에야** 스테이지하므로, 메시지를 쓰는 동안 인덱스는 비어 있고 초안도 비었습니다. 사용자 데몬에 `{"method":"git-msg"}` 를 직접 보내 `{"ok":true}`(초안 없음)를 즉시 받는 것으로 확인했습니다. 단추는 아이콘이 등록되지 않아 커밋 창 도구 줄에 「...」로 섰습니다.
+- **바뀐 것**:
+  - 코어: 요청에 `paths` 를 두고(`Request.Paths`, 선택 인터페이스 `PathDrafter`), 경로가 오면 그 파일들의 HEAD 대비 변경(스테이지 여부 무관)과 새 파일 전문으로 초안을 씁니다. 경로는 워크스페이스 안으로 가둡니다. 경로가 없으면 예전처럼 스테이지된 것.
+  - 플러그인: 커밋 창(`VcsDataKeys.COMMIT_WORKFLOW_UI`)에서 체크된 변경의 앞뒤 경로와 새 파일을 모아 `paths` 로 보냅니다. 액션에 magi 아이콘을 달았습니다. 설명·빈 초안 문구를 「스테이지된」에서 「커밋할 파일로 체크한」으로 고쳤습니다.
+- **새 시험**: `CompanionTest` 의 `커밋 창이 고른 파일은 paths 로 간다 — 스테이지 전이라도 초안이 선다`, Go `TestDraftCommitOfPickedPathsNeedsNothingStaged`(스테이지 안 한 수정 파일·새 파일은 들어가고 안 고른 파일은 빠지며, 워크스페이스 밖 경로는 거절).
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 417 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 164 통과. Go 전체 통과(`internal/adapter/llm/openai` 는 한 번 흔들렸다가 재실행에서 통과). 사용자 IDE 실물 확인은 설치 후입니다.

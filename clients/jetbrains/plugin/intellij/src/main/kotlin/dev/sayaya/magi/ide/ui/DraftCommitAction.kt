@@ -33,8 +33,9 @@ class DraftCommitAction : AnAction() {
         val doc = e.getData(VcsDataKeys.COMMIT_MESSAGE_DOCUMENT)
         // 요청 시점의 기존 텍스트 스냅샷. 모델 응답 대기 중 사용자가 입력을 진행한 경우 덮어쓰지 않고 보존한다.
         val before = doc?.text
+        val picked = pickedPaths(e)
         Workspace(project).onDaemon({ why -> tell(project, MagiBundle.msg("draft.notgot", why)) }) { comp ->
-            val r = comp.draftCommit()
+            val r = comp.draftCommit(picked)
             val draft = r.out
             when {
                 !r.ok -> tell(project, MagiBundle.msg("draft.notgot", r.error ?: MagiBundle.msg("common.noreason")))
@@ -58,6 +59,22 @@ class DraftCommitAction : AnAction() {
                 }
             }
         }
+    }
+
+    /**
+     * 커밋 창에서 체크된 파일들 — 변경의 앞뒤 경로(이름 바꿈은 둘 다)와 버전 관리 밖의 새 파일.
+     *
+     * IntelliJ 커밋 창은 체크한 파일을 커밋하는 순간에야 스테이지한다. 스테이지된 것만 읽던 동안
+     * 이 버튼은 메시지를 쓰는 사이 늘 빈 초안을 받았다(실측 2026-09-27: 바뀐 파일 스무 개인 트리에서
+     * 아무 일도 안 일어났다). 창이 고른 것이 곧 커밋될 것이다. 창을 못 읽으면 null — 데몬은 그때
+     * 스테이지된 것으로 쓴다.
+     */
+    private fun pickedPaths(e: AnActionEvent): List<String>? {
+        val ui = e.getData(VcsDataKeys.COMMIT_WORKFLOW_UI) ?: return null
+        return runCatching {
+            (ui.getIncludedChanges().flatMap { c -> listOfNotNull(c.beforeRevision?.file?.path, c.afterRevision?.file?.path) } +
+                ui.getIncludedUnversionedFiles().map { it.path }).distinct()
+        }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
     private fun tell(project: com.intellij.openapi.project.Project, text: String) =

@@ -612,6 +612,10 @@ type Request struct {
 	// Named generically because the alternative is a field per method and a wire format that grows
 	// a column every time the engine gains a knob.
 	Name string `json:"name,omitempty"`
+	// Paths is the files a git-msg draft is about, when the asker knows them: an IDE commit window
+	// picks files with checkboxes and stages them only as it commits, so "what is staged" is empty
+	// while the message is being written. Empty = what is staged.
+	Paths []string `json:"paths,omitempty"`
 	// Looking marks handed-over work the asker says is a question rather than a change: the
 	// receiver runs it read-only, and a read-only turn does not wait for the workspace.
 	Looking bool `json:"looking,omitempty"`
@@ -1164,4 +1168,11 @@ type Identity struct {
 // ConditionalToolServerHost can compare registration identity and remove it atomically.
 type ConditionalToolServerHost interface {
 	DetachToolServerIf(owner, name, url string, headers map[string]string) (bool, error)
+}
+
+// PathDrafter drafts a commit message for named files rather than for the index — see Request.Paths.
+// Separate from Reviewer so an engine without it still answers git-msg the way it always has; a
+// request that names paths to such an engine gets the staged draft, never an error.
+type PathDrafter interface {
+	DraftCommitOf(ctx context.Context, rules string, paths []string) (string, error)
 }

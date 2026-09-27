@@ -480,3 +480,48 @@ func TestCompleteCodeNamesTheOrdinarySilences(t *testing.T) {
 		}
 	})
 }
+
+// An IDE commit window picks files with checkboxes and stages them only as it commits, so while the
+// message is being written nothing is staged. Drafting for the picked paths has to see those files'
+// changes anyway — a modified tracked file against HEAD and a new file in full — and only them.
+// Measured 2026-09-27: the plugin's draft button came back empty on a tree with twenty changes.
+func TestDraftCommitOfPickedPathsNeedsNothingStaged(t *testing.T) {
+	dir := gitRepo(t)
+	for name, body := range map[string]string{"kept.txt": "old\n", "other.txt": "same\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-q", "-m", "init"}} {
+		if out, err := acRun(dir, "git", args...); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(dir, "kept.txt"), []byte("NEW-LINE-IN-KEPT\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "other.txt"), []byte("NOT-PICKED\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "fresh.txt"), []byte("BRAND-NEW-FILE\n"), 0o644)
+
+	store, _ := jsonl.New(t.TempDir())
+	cap := &acCapLLM{text: "update kept, add fresh"}
+	a := closeAfter(t, New(store, cap, builtin.Default(), bus.New(), platform.New(), Config{}))
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	said, err := a.DraftCommitOf(context.Background(), sid, dir, "", []string{"kept.txt", filepath.Join(dir, "fresh.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if said == "" || !cap.called() {
+		t.Fatalf("nothing was drafted for picked, unstaged files (said %q)", said)
+	}
+	sent := cap.request().Messages[0].Parts[0].Text
+	for _, want := range []string{"NEW-LINE-IN-KEPT", "BRAND-NEW-FILE"} {
+		if !strings.Contains(sent, want) {
+			t.Errorf("the diff the model saw lacks %q:\n%s", want, sent)
+		}
+	}
+	if strings.Contains(sent, "NOT-PICKED") {
+		t.Errorf("a file that was not picked went into the draft:\n%s", sent)
+	}
+	if _, err := a.DraftCommitOf(context.Background(), sid, dir, "", []string{"../outside.txt"}); err == nil {
+		t.Error("a path outside the workspace was accepted")
+	}
+}

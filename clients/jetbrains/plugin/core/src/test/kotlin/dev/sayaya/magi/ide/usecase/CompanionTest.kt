@@ -180,6 +180,20 @@ class CompanionTest {
     }
 
     @Test
+    fun `커밋 창이 고른 파일은 paths 로 간다 — 스테이지 전이라도 초안이 선다`() {
+        // IntelliJ 커밋 창은 체크한 파일을 커밋하는 순간에야 스테이지한다(실측 2026-09-27: 빈 초안).
+        val fake = FakeDaemon(listOf("""{"ok":true,"out":"a"}""", """{"ok":true,"out":"b"}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            Companion(c, "s_1").draftCommit(listOf("/ws/a.kt", "/ws/new.md"))
+            Companion(c, "s_1").draftCommit(emptyList())
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""paths":["/ws/a.kt","/ws/new.md"]"""), fake.seen[0])
+        assertFalse(fake.seen[1].contains(""""paths""""), "고른 게 없으면 싣지 않는다 — 데몬은 스테이지된 것으로 쓴다")
+    }
+
+    @Test
     fun `건넨 일의 지금은 넷이 갈라져 온다 — 뭉치면 추락이 빈 답으로 보인다`() {
         // 와이어 양쪽 다 이 4필드를 재는 시험이 없었다(리뷰 F9) — 이름이 어긋나면 조용히 버려진다.
         val fake = FakeDaemon(listOf(

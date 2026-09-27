@@ -202,7 +202,9 @@ class Companion(
      * 트레일러 규칙이 조용히 빠지는 초안을 만들었다(리뷰 실측). session 도 안 싣는다 — 데몬이
      * 안 읽는다(현재 세션 기준으로 짓는다).
      */
-    fun draftCommit(): Response = send(Request(method = "git-msg"))
+    /** [paths] 가 있으면 그 파일들의 변경(스테이지 여부 무관)으로, 없으면 스테이지된 것으로 쓴다. */
+    fun draftCommit(paths: List<String>? = null): Response =
+        send(Request(method = "git-msg", paths = paths?.takeIf { it.isNotEmpty() }))
 
     /** 예약들. 고장 먼저 그다음 임박순 — 차례는 데몬이 정했다. */
     fun cron(): Response = send(Request(method = "cron"))

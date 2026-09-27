@@ -3015,6 +3015,13 @@ func (d daemonEngine) DraftCommit(ctx context.Context, rules string) (string, er
 	return d.App.DraftCommit(rctx, d.handover.at.now(), d.workdir, rules)
 }
 
+// DraftCommitOf is DraftCommit for the files a commit window picked — see app.DraftCommitOf.
+func (d daemonEngine) DraftCommitOf(ctx context.Context, rules string, paths []string) (string, error) {
+	rctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	return d.App.DraftCommitOf(rctx, d.handover.at.now(), d.workdir, rules, paths)
+}
+
 // FileDo makes, moves or removes a file here — see app.FileDo for what each one writes into this
 // companion's log.
 func (d daemonEngine) FileDo(ctx context.Context, what, path, to string, ask bool) error {

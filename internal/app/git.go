@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -332,6 +333,87 @@ func (a *App) DraftCommit(ctx context.Context, sid session.SessionID, workdir, r
 	if err != nil {
 		return "", err
 	}
+	return a.draftCommitFrom(ctx, sid, workdir, rules, diff)
+}
+
+// DraftCommitOf drafts the message for the files the person picked, whether or not they are staged.
+//
+// An IDE commit window does not commit the index. IntelliJ's picks files with checkboxes and stages
+// them itself at the moment of committing, so while the person is writing the message the index is
+// usually empty — and a draft of "what is staged" came back empty every time (measured 2026-09-27:
+// the plugin's draft button did nothing on a tree with twenty modified files). The window knows what
+// is about to be committed; this is the door that lets it say so.
+//
+// Each path's change against HEAD, staged or not, and a new file in full. Paths are confined to the
+// workspace the same way GitDiffOf confines them.
+func (a *App) DraftCommitOf(ctx context.Context, sid session.SessionID, workdir, rules string, paths []string) (string, error) {
+	if len(paths) == 0 {
+		return a.DraftCommit(ctx, sid, workdir, rules)
+	}
+	diff, err := a.diffOfPaths(ctx, workdir, paths)
+	if err != nil {
+		return "", err
+	}
+	return a.draftCommitFrom(ctx, sid, workdir, rules, diff)
+}
+
+// diffOfPaths is what committing exactly these paths would record: tracked ones against HEAD, new
+// ones as whole files.
+func (a *App) diffOfPaths(ctx context.Context, workdir string, paths []string) (string, error) {
+	if a.plat == nil {
+		return "", fmt.Errorf("platform unavailable")
+	}
+	base, err := filepath.Abs(filepath.Clean(workdir))
+	if err != nil {
+		return "", err
+	}
+	var tracked, fresh []string
+	for _, p := range paths {
+		abs, ierr := insideWorkdir(workdir, p)
+		if ierr != nil {
+			return "", ierr
+		}
+		rel, rerr := filepath.Rel(base, abs)
+		if rerr != nil {
+			return "", rerr
+		}
+		res, lerr := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: []string{"ls-files", "--error-unmatch", "--", rel},
+			Dir: workdir, MaxOutput: 4 << 10})
+		if lerr != nil {
+			return "", lerr
+		}
+		if res.ExitCode == 0 {
+			tracked = append(tracked, rel)
+		} else {
+			fresh = append(fresh, rel)
+		}
+	}
+	var b strings.Builder
+	if len(tracked) > 0 {
+		args := append([]string{"diff", "--no-color", "HEAD", "--"}, tracked...)
+		res, derr := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: args, Dir: workdir, MaxOutput: diffCap})
+		if derr != nil {
+			return "", derr
+		}
+		if res.ExitCode != 0 {
+			return "", fmt.Errorf("%s", strings.TrimSpace(string(res.Stderr)))
+		}
+		b.Write(res.Stdout)
+	}
+	for _, rel := range fresh {
+		if b.Len() >= diffCap {
+			break
+		}
+		d, derr := a.GitDiffOf(ctx, workdir, rel, false, true)
+		if derr != nil {
+			return "", derr
+		}
+		b.WriteString(d)
+	}
+	return b.String(), nil
+}
+
+func (a *App) draftCommitFrom(ctx context.Context, sid session.SessionID, workdir, rules, diff string) (string, error) {
 	if strings.TrimSpace(diff) == "" {
 		// Nothing staged is not a failure: it is the answer, and a screen says it better than a
 		// model would.

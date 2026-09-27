@@ -802,6 +802,12 @@ func answerGitMsg(ctx context.Context, eng Engine, req Request) Response {
 	rev, ok := eng.(Reviewer)
 	if !ok {
 		resp = Response{Err: "this daemon cannot draft a commit message"}
+	} else if pd, byPath := eng.(PathDrafter); byPath && len(req.Paths) > 0 {
+		if out, derr := pd.DraftCommitOf(ctx, req.Text, req.Paths); derr != nil {
+			resp = Response{Err: derr.Error()}
+		} else {
+			resp = Response{OK: true, Out: out}
+		}
 	} else if out, derr := rev.DraftCommit(ctx, req.Text); derr != nil {
 		resp = Response{Err: derr.Error()}
 	} else {
