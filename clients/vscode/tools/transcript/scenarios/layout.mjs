@@ -633,12 +633,15 @@ export const layoutScenarios = [
             createStateMessage(st, { text: text || '', offerStart: !!offerStart }));
           const oneRow = [{ who: 'agent', label: 'magi', text: 'turn 1' }];
 
-          // 일반 초안을 작성하고 입력창에 포커스를 둔다
+          // 입력은 debounce된 suggest를 예약한다. 이 합법적인 입력 결과까지 관측한 뒤
+          // 안내 렌더링의 무전송 기준선을 잡는다. FIFO는 타이머 완료를 보장하지 않는다.
+          const inputStart = await page.evaluate(() => window.__posted.length);
           await page.locator('#say').fill('일반 초안 A');
           await page.locator('#say').focus();
-          // 입력 debounce의 suggest 전송을 관측한 뒤 렌더 부작용을 잰다.
-          await page.waitForFunction(() => window.__posted.some(m =>
-            m.kind === 'suggest' && m.text === '일반 초안 A' && m.target === 'general'));
+          await page.waitForFunction((from) => window.__posted.slice(from).some(m =>
+            m.kind === 'suggest' && m.text === '일반 초안 A' && m.target === 'general'), inputStart);
+          const inputMessages = await page.evaluate(from => window.__posted.slice(from), inputStart);
+          assert.deepEqual(inputMessages.map(m => m.kind), ['suggest'], '초안 입력은 자동완성만 요청한다');
           const postedBefore = await page.evaluate(() => window.__posted.length);
 
           // 빈 안내 표시 (attached + 행 0)
