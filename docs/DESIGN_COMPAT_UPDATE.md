@@ -24,7 +24,8 @@ document covers two related additions:
 - **version** — `internal/version` (`Version`/`Commit`/`Date`, ldflags). WAS surfaced
   locally only; NOW travels two ways: the `about` reply's `Version` (A1) and the
   unsigned `Member.Version` in gossip (A3).
-- **relay** — `internal/adapter/daemon/daemon.go`: newline-delimited JSON,
+- **relay** — `internal/adapter/daemon/protocol.go` (the file was `daemon.go` when this was
+  written): newline-delimited JSON,
   `Request{Method, …flat bag}` / `Response{OK, Err, …union}`. WAS un-versioned with no
   handshake; NOW `about` returns `Version`/`Proto`/`Caps`, a client caches them via
   `Hello()` and gates newer sends with `PeerSupports()`. An unknown *method* still
@@ -70,6 +71,31 @@ document covers two related additions:
 
 ## Part A — compatibility, as built
 
+```mermaid
+sequenceDiagram
+    participant C as Client (newer build)
+    participant D as Daemon
+    C->>D: {"method":"about"}
+    alt daemon has the handshake
+        D-->>C: Version, Proto, Caps
+        Note over C: Hello() caches PeerInfo
+        C->>C: PeerSupports(cap)?
+        alt peer advertised it
+            C->>D: the newer request
+        else not advertised
+            C->>D: the old request shape
+        end
+    else pre-handshake daemon
+        D-->>C: none of the three fields
+        Note over C: read as proto 0, no caps:<br/>hold to old behaviour
+    end
+    C->>D: an unknown method
+    D-->>C: a typed Refused, never a crash
+```
+
+The gate matters because the other failure is silent: an unknown **field** is dropped by
+`encoding/json` without a word, so a newer sender never ships one the peer did not advertise.
+
 - **A1. Version + capabilities on `about`.** The `about` response carries
   `Version` (the binary's, via the optional `Versioner` engine capability),
   `Proto` (`ProtoVersion`) and `Caps` (`Caps()`, currently `["handshake"]`). All
@@ -92,6 +118,31 @@ document covers two related additions:
   `Refused` path and the pre-handshake zero-value are pinned.
 
 ## Part B — update, as built (same-machine scope)
+
+```mermaid
+flowchart TD
+    subgraph triggers["Two triggers"]
+        AU["Auto: [update] auto on,<br/>checked every 6h plus a per-socket jitter"]
+        MA["Manual: the console's button<br/>over the local socket, toggle ignored"]
+    end
+    AU --> R
+    MA --> R
+    R["update.RunCommit"] --> D1["download the latest release"]
+    D1 --> D2{"SHA256 matches?"}
+    D2 -->|"no"| X1["stop, nothing replaced"]
+    D2 -->|"yes"| D3{"Verify: new binary<br/>answers --version?"}
+    D3 -->|"no"| X2["Commit restores .prev<br/>the old binary stays"]
+    D3 -->|"yes"| D4["Commit: the new binary is on disk"]
+    D4 --> Q{"which trigger?"}
+    Q -->|"manual"| RS
+    Q -->|"auto"| I{"idle? no turn in flight,<br/>no meeting round"}
+    I -->|"not yet"| I
+    I -->|"yes"| RS["restart: drain connections,<br/>release socket and lock, re-exec"]
+    RS --> RO["reopen the conversation it was on<br/>(MAGI_RESTART_SESSION)"]
+```
+
+Nothing crosses a network but the download: the signal reaches a companion over its own local
+socket, and the binary it restarts into is always one that passed the pre-flight.
 
 Scope is **companions on this machine**, each its own `magi --daemon` on a local unix
 socket. No ssh, no fleet-door `update` verb, no remote authentication: the signal
