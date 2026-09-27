@@ -1960,3 +1960,16 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - 종료가 attach보다 먼저 오면 서버를 닫고 등록 요청을 무시합니다. attach가 이미 시작된 뒤 종료되면 URL과 인증 헤더를 사용한 `mcp-detach-if`만 실행합니다.
 - 같은 이름의 후임 등록은 이전 창의 늦은 정리 요청으로 삭제되지 않습니다. 조건부 해제를 지원하지 않는 구형 데몬에는 위험한 이름 기반 대체를 하지 않습니다.
 - `HandRegistrationTest`: attach 실행 중 종료, 종료 후 설치 거절, attach 예외 뒤 멱등 해제를 검사합니다.
+
+---
+
+## 6.62 모델 콤보가 앞 대화의 모델을 새 대화에도 보이던 것 (2026-09-27)
+
+샌드박스 실물에서 본 것입니다. 모델을 `qwen3-coder-next` 로 바꾸고 「새 채팅」을 누르자 콤보는 `qwen3-coder-next` 에 서 있었는데, 데몬은 새 대화를 기본 모델 `qwen3-coder:30b` 로 돌렸습니다(`status` 문으로 확인). 모델은 대화마다 따로입니다.
+
+- **원인 둘**: 대화를 바꾸는 동사(「새 채팅」, 대화 전환) 뒤에 모델 목록을 다시 읽지 않았습니다. 다시 읽을 때도 `(keep ?: got.current)` 로 화면에 남은 선택이 데몬이 말한 지금 모델보다 앞섰습니다. 전사에서 읽는 모델(`modelNow`)은 새 대화처럼 아직 모델 기록이 없으면 비어 있어 바로잡지 못했습니다.
+- **바뀐 것**: 두 동사가 성공하면 `refreshModels()` 로 모델 목록을 다시 읽고, 다시 읽을 때 `(got.current ?: keep)` — 데몬이 말한 지금 모델이 먼저, 남은 선택은 데몬이 말하지 않았을 때만.
+- **새 시험**: `SourceTextTest` 의 `모델 콤보는 대화를 바꾼 뒤 데몬이 말한 지금 모델을 앞세운다`.
+- **변이 검증**: 우선순위를 `(keep ?: got.current)` 로 되돌림 → 54건 중 1건 실패. 원복 후 초록.
+- **실물 확인**: 새 빌드 샌드박스에서 모델을 `gpt-oss:20b` 로 고른 뒤 「새 채팅」 → 데몬은 새 대화를 `qwen3-coder-next:latest` 로 돌렸고 콤보도 `qwen3-coder-next:latest` 를 보였습니다.
+- **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 415 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 163 통과.

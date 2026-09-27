@@ -162,6 +162,9 @@ class PlanToolWindow : ToolWindowFactory {
         val asked = java.util.Collections.synchronizedList(mutableListOf<Asked>())
         // 내부 함수 순환 참조 연결 핸들러.
         var refreshTalks: () -> Unit = {}
+        // 대화가 바뀌면 모델도 바뀐다 — 모델은 대화마다 따로다. 대화를 바꾸는 동사 뒤에 모델 콤보도
+        // 다시 읽는다(아래 models 의 collect 가 데몬이 말한 지금 모델을 앞세운다).
+        var refreshModels: () -> Unit = {}
         // 인텔리제이 플랫폼의 `ToolWindowFactory`는 애플리케이션 싱글톤이므로,
         // 상태 변수를 클래스 필드로 선언하면 멀티 프로젝트 환경에서 데이터 간섭 및 Project 리소스 누수가 발생합니다(리뷰 F2). 따라서 로컬 변수로 스코프를 제한합니다.
         var askOf: (RosterRow) -> Unit = {}
@@ -187,6 +190,7 @@ class PlanToolWindow : ToolWindowFactory {
                 val r = comp.resume(id)
                 // 갈아타기의 나머지 절반은 대화 창이 한다 — session.moved 를 보고 새 대화에 붙는다.
                 tell(if (r.ok) MagiBundle.msg("plan.session.moved", id.takeLast(6)) else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+                if (r.ok) refreshModels()
             }
         }
         val fresh = JButton(MagiBundle.msg("plan.new")).apply {
@@ -195,7 +199,7 @@ class PlanToolWindow : ToolWindowFactory {
                     val r = comp.newSession()
                     // 턴이 도는 중이면 데몬이 거부한다 — 인터럽트 먼저라는 계약을 그대로 보인다.
                     tell(if (r.ok) MagiBundle.msg("plan.session.new", r.session?.takeLast(6) ?: "") else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
-                    if (r.ok) refreshTalks() // 동사 뒤엔 목록이 낡았다 — 새 대화가 콤보에 서야 한다
+                    if (r.ok) { refreshTalks(); refreshModels() } // 동사 뒤엔 목록이 낡았다 — 새 대화가 콤보에 서야 한다
                 }
             }
         }
@@ -703,7 +707,11 @@ class PlanToolWindow : ToolWindowFactory {
                         val keep = model.selectedItem
                         model.removeAllItems()
                         names.forEach { model.addItem(it) }
-                        (keep ?: got.current)?.let { pick ->
+                        // 데몬이 말한 지금 모델이 먼저다. 화면에 남은 선택이 앞서면, 앞 대화에서 고른
+                        // 모델이 새 대화에도 서 있다 — 실측(2026-09-27): 모델을 바꾸고 「새 채팅」을
+                        // 누르니 콤보는 qwen3-coder-next, 새 대화는 기본 모델 qwen3-coder:30b 로 돌았다.
+                        // 남은 선택은 데몬이 말하지 않았을 때만 쓴다.
+                        (got.current ?: keep)?.let { pick ->
                             if ((0 until model.itemCount).none { model.getItemAt(it) == pick }) model.addItem(pick as String)
                             model.selectedItem = pick
                         }
@@ -801,6 +809,7 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
         refreshTalks = { loadTalks() }
+        refreshModels = { loadModels() }
         // 펼 때마다 목록을 새로 읽는다(다른 창·명령줄에서 생긴 대화가 여기 서도록).
         talk.addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
             override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) = loadTalks()

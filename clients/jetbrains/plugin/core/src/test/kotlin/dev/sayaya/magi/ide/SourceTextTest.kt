@@ -1997,4 +1997,21 @@ class SourceTextTest {
         assertTrue("r.confidence" in block, "확신이 카드에 안 선다 — 표는 보이고 규칙이 그것으로 무엇을 했는지는 가려진다")
     }
 
+    /**
+     * 모델 콤보는 **지금 대화의** 모델을 보인다. 실측(2026-09-27): 모델을 바꾸고 「새 채팅」을 누르니
+     * 콤보는 앞 대화에서 고른 qwen3-coder-next 에 서 있고 새 대화는 기본 qwen3-coder:30b 로 돌았다.
+     * 둘이 같이 있어야 막힌다 — 대화를 바꾸는 동사 뒤에 목록을 다시 읽는 것, 그리고 다시 읽을 때
+     * 데몬이 말한 지금 모델이 화면에 남은 선택보다 앞서는 것.
+     */
+    @Test
+    fun `모델 콤보는 대화를 바꾼 뒤 데몬이 말한 지금 모델을 앞세운다`() {
+        val src = code(sources.first { it.name == "PlanToolWindow.kt" })
+        assertTrue("(got.current ?: keep)" in src,
+            "모델 목록을 다시 읽을 때 화면에 남은 선택이 데몬이 말한 지금 모델보다 앞선다")
+        assertTrue(Regex("""newSession\(\)[\s\S]{0,400}refreshModels\(\)""").containsMatchIn(src),
+            "「새 채팅」 뒤에 모델 콤보를 다시 읽지 않는다")
+        assertTrue(Regex("""resume\(id\)[\s\S]{0,400}refreshModels\(\)""").containsMatchIn(src),
+            "대화를 갈아탄 뒤에 모델 콤보를 다시 읽지 않는다")
+        assertTrue("refreshModels = { loadModels() }" in src, "refreshModels 가 아무것도 안 부른다")
+    }
 }
