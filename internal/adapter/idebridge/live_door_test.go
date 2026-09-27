@@ -82,6 +82,13 @@ func (d *liveDaemon) serve(c net.Conn) {
 			d.followers = append(d.followers, c)
 			d.mu.Unlock()
 		case strings.Contains(raw, `"method":"transcript"`):
+			// The follower is registered under the SAME lock that writes the replay and the live
+			// marker. Registered after them, a test could see the live marker, call push or over,
+			// and reach an empty follower list — the frame went to nobody and the test timed out at
+			// five seconds. That window is a scheduling gap, so it opened only on a loaded runner:
+			// CI failed three different tests here on three days (-race, every package at once),
+			// never locally. Holding the lock also keeps a push from landing inside the replay.
+			d.mu.Lock()
 			for i := range d.replay {
 				frame, _ := json.Marshal(map[string]any{"ok": true, "event": d.replay[i]})
 				io.WriteString(c, string(frame)+"\n")
@@ -92,7 +99,6 @@ func (d *liveDaemon) serve(c net.Conn) {
 			if slices.Contains(d.caps, "history") {
 				io.WriteString(c, `{"ok":true,"live":true}`+"\n")
 			}
-			d.mu.Lock()
 			d.followers = append(d.followers, c)
 			d.mu.Unlock()
 		case strings.Contains(raw, `"method":"boom"`):
