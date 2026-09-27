@@ -335,14 +335,6 @@ func (m *Manager) Attach(ctx context.Context, owner, name, url string, headers m
 	return out, nil
 }
 
-// Detach removes a server the door attached, and says whether there was one.
-//
-// Only what the door attached. Attach is runtime-only by design — nothing it does survives a
-// restart — and detach has to match, or the door becomes a way to take away a server the operator
-// declared in config, with no way to get it back until the daemon is restarted. The lifetime net
-// (Remove, on the client's Done) is deliberately NOT narrowed this way: a config server nobody can
-// reach still has to be cleaned up.
-// owner is whose registration to remove; empty is the daemon-wide one.
 // DetachIf removes only the exact endpoint credentials captured before its handshake.
 // A delayed cleanup must not remove a successor, even if its port was reused.
 func (m *Manager) DetachIf(owner, name, url string, headers map[string]string) (bool, error) {
@@ -352,6 +344,14 @@ func (m *Manager) DetachIf(owner, name, url string, headers map[string]string) (
 	return m.detach(owner, name, &attachmentIdentity{url: url, headers: headers})
 }
 
+// Detach removes a server the door attached, and says whether there was one.
+//
+// Only what the door attached. Attach is runtime-only by design — nothing it does survives a
+// restart — and detach has to match, or the door becomes a way to take away a server the operator
+// declared in config, with no way to get it back until the daemon is restarted. The lifetime net
+// (Remove, on the client's Done) is deliberately NOT narrowed this way: a config server nobody can
+// reach still has to be cleaned up.
+// owner is whose registration to remove; empty is the daemon-wide one.
 func (m *Manager) Detach(owner, name string) (bool, error) {
 	return m.detach(owner, name, nil)
 }
