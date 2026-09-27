@@ -70,15 +70,8 @@ class PlanToolWindow : ToolWindowFactory {
                 super.addImpl(comp, constraints, index)
             }
         }
-        // 섹션 머리: 위 여백 + 가는 선 + 작은 제목. 제목만 있을 때는 여덟 절이 한 덩어리로 붙어 보여
-        // 어디서 한 절이 끝나는지 읽히지 않았다(사용자 지적, 2026-09-26).
-        fun section(title: String): JComponent = stack(0, 0).apply {
-            add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
-                border = JBUI.Borders.empty(10, 12, 0, 12)
-                isOpaque = false
-                add(Look.rule(), BorderLayout.CENTER)
-            })
-            add(Look.gutter(title))
+        fun section(title: String): JComponent = Look.sectionHeading(title).apply {
+            border = JBUI.Borders.emptyTop(10)
         }
         val plan = stack(8, 12)
         val work = stack(0, 12)

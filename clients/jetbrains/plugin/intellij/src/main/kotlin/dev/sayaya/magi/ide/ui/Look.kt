@@ -123,6 +123,19 @@ internal object Look {
         BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10)
     )
 
+    /** Section title and a theme-colored divider share one row. */
+    fun sectionHeading(text: String): JComponent = javax.swing.JPanel(java.awt.GridBagLayout()).apply {
+        isOpaque = false
+        add(gutter(text), java.awt.GridBagConstraints().apply {
+            gridx = 0; anchor = java.awt.GridBagConstraints.LINE_START
+        })
+        add(rule(), java.awt.GridBagConstraints().apply {
+            gridx = 1; weightx = 1.0
+            fill = java.awt.GridBagConstraints.HORIZONTAL
+            insets = java.awt.Insets(0, 0, 0, JBUI.scale(12))
+        })
+    }
+
     /** 구역 분할을 위한 1px 구분선 컴포넌트. */
     fun rule(): JComponent = JBPanel<JBPanel<*>>().apply {
         background = edge

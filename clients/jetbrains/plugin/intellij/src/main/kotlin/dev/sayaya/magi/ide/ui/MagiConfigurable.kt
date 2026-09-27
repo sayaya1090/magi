@@ -32,7 +32,7 @@ import javax.swing.SwingUtilities
  * 상태 가시성:
  * 현재 모델 및 백엔드 프로필은 데몬 `status` 응답 필드를 파싱하여 표시하며, 응답이 누락된 경우에만 미수신으로 안내합니다.
  */
-class MagiConfigurable(private val project: Project) : Configurable {
+class MagiConfigurable(private val project: Project) : Configurable, Configurable.NoMargin {
 
     private val workspace by lazy { Workspace(project) }
 
@@ -87,7 +87,14 @@ class MagiConfigurable(private val project: Project) : Configurable {
     override fun getDisplayName() = MagiBundle.msg("configurable.magi")
 
     override fun createComponent(): JComponent {
-        val p = JBPanel<JBPanel<*>>(GridBagLayout()).apply { border = JBUI.Borders.empty(8, 12) }
+        val p = object : javax.swing.JPanel(GridBagLayout()), javax.swing.Scrollable {
+            override fun getPreferredScrollableViewportSize() = preferredSize
+            override fun getScrollableTracksViewportWidth() = true
+            override fun getScrollableTracksViewportHeight() = false
+            override fun getScrollableUnitIncrement(r: java.awt.Rectangle, orientation: Int, direction: Int) = JBUI.scale(16)
+            override fun getScrollableBlockIncrement(r: java.awt.Rectangle, orientation: Int, direction: Int) =
+                if (orientation == javax.swing.SwingConstants.VERTICAL) r.height else r.width
+        }.apply { border = JBUI.Borders.empty(8, 12) }
         var y = 0
         // 최상단 전폭 알림 배너 배치:
         // 데몬 비연결 시 아래의 설정값들이 유효하지 않음을 사용자가 즉시 인지할 수 있도록 최상단에 전폭(width=2)으로 배치합니다(2026-09-09 사용자 피드백 반영).
@@ -99,9 +106,11 @@ class MagiConfigurable(private val project: Project) : Configurable {
             insets = Insets(0, 0, 8, 0)
         })
         fun head(text: String) {
-            p.add(Look.gutter(text), GridBagConstraints().apply {
+            val heading = Look.sectionHeading(text)
+            p.add(heading, GridBagConstraints().apply {
                 gridx = 0; gridy = y; gridwidth = 2; anchor = GridBagConstraints.LINE_START
-                insets = Insets(if (y == 0) 0 else 14, 0, 2, 0)
+                weightx = 1.0; fill = GridBagConstraints.HORIZONTAL
+                insets = Insets(if (y <= 1) 0 else 14, 0, 2, 0)
             })
             y++
         }
@@ -160,6 +169,32 @@ class MagiConfigurable(private val project: Project) : Configurable {
         row(MagiBundle.msg("set.cron"), Look.note(MagiBundle.msg("set.cron.none"), Look.body))
         row(MagiBundle.msg("set.more"), Look.note(MagiBundle.msg("set.more.none"), Look.body))
         // 플릿·대기 작업은 설정보다 빈번히 조회되므로 도구 창(magi 패널)에서 관리합니다(docs/UI.ko.md §4.2).
+        // Log geometry only: no configuration values, model names, or user input.
+        val log = com.intellij.openapi.diagnostic.Logger.getInstance(MagiConfigurable::class.java)
+        val timer = javax.swing.Timer(250) {
+            if (p.isShowing) {
+                fun geometry(c: java.awt.Component) =
+                    "${c.javaClass.name} bounds=${c.bounds} min=${c.minimumSize} pref=${c.preferredSize}"
+                val ancestors = generateSequence(p as java.awt.Component) { it.parent }.toList()
+                log.info("MAGI_SETTINGS_SIZE ancestors=" + ancestors.joinToString(" <- ") { geometry(it) })
+                fun walk(c: java.awt.Component) {
+                    if (c is JComboBox<*>) log.info("MAGI_SETTINGS_SIZE combo=" + geometry(c))
+                    if (c is java.awt.Container) c.components.forEach(::walk)
+                }
+                walk(p)
+            }
+        }.apply { isRepeats = false }
+        val listener = object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent) { timer.restart() }
+            override fun componentShown(e: java.awt.event.ComponentEvent) { timer.restart() }
+        }
+        var observed = emptyList<java.awt.Component>()
+        p.addHierarchyListener {
+            observed.forEach { it.removeComponentListener(listener) }
+            observed = if (p.isShowing) generateSequence(p as java.awt.Component) { it.parent }.toList() else emptyList()
+            observed.forEach { it.addComponentListener(listener) }
+            if (p.isShowing) timer.restart() else timer.stop()
+        }
         return p
     }
 
@@ -216,13 +251,17 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 javax.swing.JTextField(item.value.orEmpty(), 24)
             }
             doorFields[item.key] = f
-            line(javax.swing.JLabel(item.key), 0, 1, Insets(4, 0, 4, 12))
+            line(Look.wide().apply {
+                text = SettingPresentation.label(item)
+                foreground = Look.faint
+                toolTipText = item.key
+            }, 0, 1, Insets(4, 0, 4, 12))
             line((f.parent as? JComboBox<*>) ?: f, 1, 1, Insets(4, 0, 4, 0))
             dy++
             val why = listOfNotNull(
-                item.doc?.takeIf { it.isNotBlank() },
-                item.applies?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.applies", it) },
-                item.source?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.from", it) },
+                SettingPresentation.description(item),
+                item.applies?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.applies", SettingPresentation.applies(it)) },
+                item.source?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.from", SettingPresentation.source(it)) },
             ).joinToString(" · ")
             if (why.isNotBlank()) { line(Look.note(why, Look.body), 1, 1, Insets(0, 0, 6, 0)); dy++ }
         }

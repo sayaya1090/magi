@@ -18,11 +18,22 @@ import javax.swing.JPanel
 class PlanPanelLayoutTest : BasePlatformTestCase() {
 
     fun `test settings shrink after expansion with long profiles`() {
-        val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/MagiConfigurable.kt").readText()
-        assertTrue("dynamic profile combo uses the width-capped constructor",
-            "val combo = Look.narrowCombo<String>(24).apply" in text)
-        assertTrue("all narrow combos cap their minimum width",
-            "override fun getMinimumSize(): Dimension" in java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/Look.kt").readText())
+        val config = MagiConfigurable(project)
+        val scroll = com.intellij.openapi.options.ex.ConfigurableCardPanel
+            .createConfigurableComponent(config) as javax.swing.JScrollPane
+        val content = scroll.viewport.view
+        fun layout(c: java.awt.Container) {
+            c.doLayout()
+            c.components.filterIsInstance<java.awt.Container>().forEach(::layout)
+        }
+        for (width in listOf(480, 1100, 480, 800, 480)) {
+            scroll.size = Dimension(width, 650)
+            repeat(3) { layout(scroll) }
+            assertEquals("settings must follow viewport after resize to $width",
+                scroll.viewport.extentSize.width, content.width)
+            assertFalse("settings must not need horizontal scrolling at $width",
+                scroll.horizontalScrollBar.isVisible)
+        }
     }
 
     fun `test a long row does not widen the panel past its window`() {
