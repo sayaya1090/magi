@@ -665,8 +665,8 @@ const councilCore = "Judge the agent's REPORT against the TASK and PLAN. Use the
 	"verify that part, or finish honestly by reporting the task as failed/blocked instead of done. The ONE " +
 	"exception is a requirement the record PROVES cannot be met — the BLOCKED mark in the walk below, under " +
 	"every one of its conditions; an excuse that falls short of any of them is still this rule.\n" +
-	"The REPORT leads with a `STATUS:` line and may carry labeled sections. When an `EVIDENCE:` section is " +
-	"present it is where the run-the-check proof should be — but it is still the agent's transcription: accept " +
+	"When the REPORT carries an `EVIDENCE:` section, it is " +
+	"where the run-the-check proof should be — but it is still the agent's transcription: accept " +
 	"it only when the SIGNALS or tool results corroborate that run; an EVIDENCE line that merely restates the " +
 	"claimed output with no tool result showing it is still a claim, not proof. When a `DEVIATIONS:` section is " +
 	"present on a done report, the agent has ITSELF flagged assumptions, workarounds, or boundaries it could " +

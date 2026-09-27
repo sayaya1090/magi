@@ -40,7 +40,9 @@ func TestARejectionSaysAnHonestFailureIsAnAnswer(t *testing.T) {
 	if rejection == "" {
 		t.Fatal("the rejection never reached the agent")
 	}
-	for _, want := range []string{"honest account of what could not", "Never invent data"} {
+	// And how to answer a demand the record refutes: the members have a rule for a CONTEST line, and
+	// this is the only place the agent learns the line exists (lost in e4acdd23, restored here).
+	for _, want := range []string{"honest account of what could not", "Never invent data", "  CONTEST: ", "drops that one point"} {
 		if !strings.Contains(rejection, want) {
 			t.Errorf("the rejection does not say %q:\n%s", want, rejection)
 		}

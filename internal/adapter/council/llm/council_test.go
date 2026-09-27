@@ -1105,3 +1105,16 @@ func TestBlockedIsAWayOutOnlyUnderEveryCondition(t *testing.T) {
 		}
 	}
 }
+
+// Nothing writes a `STATUS:` line into the report any more (the stages that shaped it came out in
+// 8eacf04b). A member told "the REPORT leads with a STATUS: line" reads its absence as something
+// wrong with this report. The conditional clauses for sections the agent may still write stay.
+func TestTheMemberPromptDoesNotPromiseAStatusLine(t *testing.T) {
+	p := memberSystem(council.Member{Name: "x", Lens: "correctness"}, "count the rows", false)
+	if strings.Contains(p, "leads with a `STATUS:` line") {
+		t.Error("the member prompt still says every report leads with a STATUS line")
+	}
+	if !strings.Contains(p, "When the REPORT carries an `EVIDENCE:` section, it is where") {
+		t.Error("the EVIDENCE clause lost its opening")
+	}
+}

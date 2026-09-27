@@ -392,9 +392,26 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		"completion again when you believe it is done. If what they ask for cannot be done with what " +
 		"the workspace actually holds, say so plainly instead — an honest account of what could not " +
 		"be done is a correct outcome. Never invent data, or create or overwrite a file the task did " +
-		"not ask for, to satisfy an objection." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+		"not ask for, to satisfy an objection." + councilContestAffordance + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 		renderCouncilAdvice(delib, "What the members said:"), nil
 }
+
+// councilContestAffordance tells the agent how to answer a demand it can show is wrong.
+//
+// The members have a rule for a `CONTEST:` line — judge the evidence it cites and, if it holds, drop
+// that one point (internal/adapter/council/llm/council.go) — and SPEC R9b promises the agent the
+// affordance. The agent side was lost when the council became a tool (e4acdd23): the rule stayed,
+// the only place that told the agent the line exists went, and a demand the record already refutes
+// was answered by doing whatever made it go away. Measured live (2026-09-27): "add invoices.csv to
+// the project" was answered with a file of invented rows.
+//
+// A contest removes ONE point and never declares done; one with no tool output behind it is ignored.
+const councilContestAffordance = "\n\nIf a specific demand is already met by evidence you have shown, or cannot " +
+	"be met exactly as stated here (what it needs is not in this workspace or environment), do not churn on it " +
+	"— put a line in your answer:\n" +
+	"  CONTEST: <the exact demand> — <the tool output that shows it is met, or that it cannot be met here>\n" +
+	"The council re-judges that evidence next round and, if it holds, drops that one point. It does not finish " +
+	"the task, and a CONTEST with no real tool output behind it is ignored."
 
 // The rejection cap: how many times one turn's completion declarations may be turned away before
 // magi lands the turn UNVERIFIED as it stands.
