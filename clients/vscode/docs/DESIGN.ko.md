@@ -31,6 +31,29 @@ test/           core 계층 테스트 중심 (ide 계층은 §7 참조)
 **아키텍처 규칙 검증: `src/core/**` 내부에 `from 'vscode'` 구문이 존재할 경우 빌드/테스트가 실패합니다.**
 JetBrains의 `ArchitectureTest`와 동일한 계층 규율을 적용하여, 구현 편의를 이유로 core 계층에 IDE API 종속성이 침투하는 현상을 방지합니다.
 
+```mermaid
+flowchart TB
+    EXT["extension.ts — 진입점"] --> IDE
+    subgraph IDE["src/ide — vscode API 를 쓰는 유일한 층"]
+        direction LR
+        CHAT["Chat 웹뷰"]
+        PLAN["Plan 웹뷰"]
+        STAT["상태 표시줄"]
+        HAND["EditorHand"]
+    end
+    IDE --> CORE
+    subgraph CORE["src/core — Node 만으로 도는 층 (from 'vscode' 가 있으면 시험 실패)"]
+        direction LR
+        WS["workspace.ts<br/>소켓 경로"]
+        DM["daemon.ts<br/>줄 단위 JSON"]
+        TR["transcript.ts<br/>이벤트 → 행"]
+        PN["panel.ts · activity.ts<br/>화면 문구"]
+    end
+    CORE <-->|"유닉스 소켓 / Windows 브리지"| D[("magi 데몬")]
+```
+
+화살표는 import 방향입니다. `core` 는 `vscode` 를 모르므로 `node:test` 만으로 시험하고, 화면에 보일 문구와 판단(행 조립, 상태 낱말, 게이지 몫)은 모두 여기서 정합니다.
+
 ### core 계층의 책임 영역
 
 | 파일 | 주요 역할 | 검증 방식 |
@@ -208,6 +231,26 @@ Windows에서는 Node의 경로 기반 연결을 Unix 소켓에 직접 사용하
 
 ## 6. 프로세스 생명주기 — 현행 구현과 안정화 목표
 
+```mermaid
+flowchart TD
+    O(["창이 열림"]) --> F{"소켓에 데몬이 답하나?"}
+    F -->|"예"| OB["관찰자로 붙음"]
+    F -->|"아니오"| B{"magi 바이너리가 있나?<br/>PATH → config/bin"}
+    B -->|"없음"| NB(["설치 안내"])
+    B -->|"있음"| S["기동"]
+    S -->|"30초 안에 PID 공개·연결 확인"| OW["소유 — 이 창이 띄운 프로세스"]
+    S -->|"실패"| R{"예산이 남았나?<br/>15초 간격, 60초 창에 3회"}
+    R -->|"예"| S
+    R -->|"아니오"| ST["멈춤 — 사람이 다시 시도할 때까지"]
+    ST -->|"다시 시도"| S
+    OB -->|"데몬이 사라짐"| F
+    OW -->|"데몬이 사라짐"| F
+    OW -->|"창이 닫힘"| C1(["자기가 띄운 프로세스만 정리"])
+    OB -->|"창이 닫힘"| C2(["남의 데몬은 그대로"])
+```
+
+창이 직접 띄운 데몬(`OwnedCompanion`)만 창과 함께 정리하고, 이미 떠 있던 데몬에는 관찰자로 붙습니다. 시도 예산은 연결 재시도와 새 프로세스 기동을 따로 셉니다(아래 본문).
+
 설치부터 종료까지의 목표 동작과 인수 기준은 [대표 클라이언트 수명주기 설계](../../../docs/CLIENT_LIFECYCLE.ko.md)를 따릅니다. 해당 문서의 신규 인터페이스는 구현 인계 대상이며 현재 지원 기능으로 안내하지 않습니다.
 
 현재 `src/core/binary.ts`는 확장 호스트의 `process.env.PATH`를 먼저 보고 `<config>/bin/<판>/magi`의 기존 파일을 찾습니다. 사용자 로그인 셸의 PATH를 직접 조회하거나 바이너리를 자동 다운로드하지 않습니다. 바이너리가 없을 때 수동 시작 명령은 설치 안내를 제공합니다. 창 간 다운로드 잠금과 거절 상태 공유는 미구현이며, 기존 설계에 있던 `.fetching`·`globalState` 설명은 완료된 기능의 근거로 사용할 수 없습니다.
@@ -244,7 +287,27 @@ JetBrains 클라이언트의 `docs/TESTING.ko.md` 및 `ManualTest` 검증 체계
 
 JetBrains 클라이언트는 루프백 인터페이스에 `HandServer`를 기동하고 해당 주소를 데몬에 등록(`mcp-attach`)하여 편집기 원격 제어를 수행합니다. 포트는 0번(임의 할당)으로 개방한 후 실제 바인딩된 포트를 취득하며, 동일 기기 내 타 프로세스의 무단 접근을 방지하기 위해 토큰 인증을 선행 검증합니다. 알림 처리 시 본문 없이 **HTTP 204** 상태 코드를 응답합니다.
 
-VS Code 확장 역시 동일한 구조로 동작합니다. 초기 도구는 `apply_edit`을 지원하며, 내부적으로 `workspace.applyEdit` API를 호출하여 파일 수정을 적용합니다. 세션 종료 시 `mcp-detach`를 수행합니다.
+VS Code 확장 역시 동일한 구조로 동작합니다. 도구는 `show`·`apply_edit`·`problems` 셋이며, `apply_edit` 은 내부적으로 `workspace.applyEdit` API를 호출하여 파일 수정을 적용합니다. 창이 닫히면 `mcp-detach-if` 로 **자기 등록만** 뗍니다 — URL 과 토큰이 붙일 때와 같을 때만 떼므로, 늦게 도착한 정리가 같은 이름의 새 창 등록을 지우지 못합니다(f04ca3d6).
+
+```mermaid
+sequenceDiagram
+    participant W as VS Code 창 (EditorHand)
+    participant H as HandServer (127.0.0.1:임의 포트)
+    participant D as magi 데몬
+    participant M as 모델
+    W->>H: 포트 0 으로 기동, 토큰 생성
+    W->>D: mcp-attach {url, Authorization 토큰}
+    D->>H: tools/list (토큰 확인)
+    H-->>D: show · apply_edit · problems
+    M->>D: apply_edit 호출
+    D->>H: tools/call apply_edit
+    H->>W: workspace.applyEdit (저장하지 않음)
+    W-->>H: 결과
+    H-->>D: 결과 → 모델
+    Note over W: 수정은 편집기 버퍼에 남고<br/>사람이 보고 되돌릴 수 있음
+    W->>D: 창을 닫을 때 mcp-detach-if {url, 토큰}
+    D-->>W: removed (같을 때만)
+```
 
 - ⚠ **`applyEdit` 호출 시 파일을 즉시 디스크에 저장하지 않습니다.** 수정 사항은 편집기 버퍼(Dirty buffer)에 유지되어야 합니다. 개발자가 변경 내용을 직접 육안으로 확인하고 필요 시 Undo(`Ctrl+Z`)할 수 있도록 제어권을 보장하는 원칙이며, JetBrains 구현과 동일합니다.
 
@@ -318,6 +381,20 @@ VS Code 확장 역시 동일한 구조로 동작합니다. 초기 도구는 `app
 다만 **전송 토큰이 아니라 표시 문구**이므로 §6.7 의 승인 단추와 같은 방식으로 가릅니다.
 
 ### 9-A.4 전이 — 안내가 낡게 남지 않아야 한다
+
+```mermaid
+stateDiagram-v2
+    [*] --> 모름: 창이 열림, 아직 상태를 못 읽음
+    모름 --> 미실행: 데몬이 없음
+    미실행 --> 시작요청: 「컴패니언 시작」 — 안내는 그대로, 단추만 눌림 표시
+    시작요청 --> 빈대화: 연결이 확인됨
+    시작요청 --> 시작실패: 실패
+    시작실패 --> 시작요청: 다시 시도
+    모름 --> 빈대화: 붙었고 행이 0
+    빈대화 --> 안내없음: 첫 행 도착
+    안내없음 --> 빈대화: 행이 0 인 세션으로 바꿈
+    안내없음 --> 안내없음: 끊김 — 안내 대신 #state-note, 다시 붙으면 지움
+```
 
 | 일어난 일 | 안내가 해야 할 일 |
 |---|---|
