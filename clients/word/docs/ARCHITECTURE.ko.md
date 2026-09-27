@@ -6,7 +6,20 @@
 
 ## 0. 한 문장
 
-Word 작업창이 헬퍼 `magi office`(3000, `/word`)에 붙고, 헬퍼가 데몬에 문서마다 대화 하나를 열어 도구 44개(MCP 서버 `word`)를 단다.
+Word 작업창이 헬퍼 `magi office`(3000, `/word`)에 붙고, 헬퍼가 데몬에 문서마다 대화 하나를 열어 도구 70개(MCP 서버 `word`, 2026-09-28 코드 기준 — 그중 4개는 헬퍼가 COM 으로 답하는 Windows 전용)를 단다.
+
+```mermaid
+flowchart LR
+    WD["Word + 작업창<br/>(Office.js, WordApi 1.3 이상이면 손)"] -- "보내기" --> H["헬퍼 magi office<br/>:3000 /word · /mcp"]
+    H -- "submit" --> D["데몬<br/>워크스페이스 word<br/>문서마다 대화 하나"]
+    D <--> M["모델"]
+    D -- "tools/call" --> H
+    H -- "문단 도구 → /hand/stream" --> WD
+    WD -- "/hand/reply" --> H
+    H -- "COM 도구(Windows): export_pdf · proofread<br/>document_stats · compare_documents" --> C["Word COM<br/>(헬퍼가 직접)"]
+```
+
+대부분의 도구는 엑셀 판과 같은 길(작업창이 손)로 돌고, Office.js 에 길이 없는 넷만 Windows 에서 헬퍼가 COM 으로 직접 답합니다. 그 넷은 Windows 가 아니면 도구 목록에서 빠집니다.
 
 ## 1. 프로세스 넷 — 그리고 넷뿐
 
@@ -19,7 +32,7 @@ Word 작업창이 헬퍼 `magi office`(3000, `/word`)에 붙고, 헬퍼가 데�
 | 이름(`app.go` 의 `Word`) | `xl`, `/xl`, `wb-`, 워크스페이스 `excel` | `word`, `/word`, `wd-`, 워크스페이스 `word` — 포트·인증서·바이너리는 셋이 하나(3000, `office-helper-cert`, `magi office`) |
 | 문서 키 | `wb-` | `wd-`(문서의 사용자 지정 속성 `MAGI.DOC`) |
 | 스트림 쿼리 | `?workbook=` | `?doc=` |
-| 도구(`tools.go`) | 61 | 44 — 문단은 `from/to`·`paragraph`(1부터), 표는 번호 |
+| 도구(`*_tools.go`, 2026-09-28) | 82 | 70(Windows 전용 COM 4 포함) — 문단은 `from/to`·`paragraph`(1부터), 표는 번호 |
 | 열거형(`enums.go`) | 차트·표 스타일 60 | 정렬·밑줄·형광·목록·구분·머리글·추적 모드·내장 스타일 28·표 스타일 105 |
 | 인자 검사(`args.go`) | `rows` 목록 예외 | `from`·`limit` 은 1부터; 엑셀의 `move_sheet{to}` 규칙은 없다 |
 | 스킬 | 3벌 | 3벌(`word/skills/`: `document-structure`·`editing`·`tables-and-review`) |
@@ -47,4 +60,4 @@ Word 작업창이 헬퍼 `magi office`(3000, `/word`)에 붙고, 헬퍼가 데�
 
 - 실물 Word 에서 도구 44개는 돌았다(2026-09-06, TESTING §5.1) — 작업창 단추는 아직 사람이 안 눌렀다. 목록 항목 뒤에 넣은 문단이 목록을 물려받는 것, 내장 스타일 이름이 언어별인 것은 손이 안다.
 - 헬퍼가 복사다. Windows 한 줄 설치가 없다.
-- 각주·미주·필드·콘텐츠 컨트롤·도형은 손에 없다. 제안은 2021(1.3)에 없다.
+- 미주는 손에 없다(각주·필드·콘텐츠 컨트롤·도형은 그 뒤 도구가 생겼다). 제안은 2021(1.3)에 없다.

@@ -8,9 +8,29 @@
 ## 0. 한 문장
 
 Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3000 의 `/xl`)에 붙고, 헬퍼가 데몬(`magi --daemon`) 한 개에
-통합 문서마다 **대화** 하나를 열어 그 대화에만 도구 61개(MCP 서버 이름 `xl`)를 단다. 모델이 도구를 부르면
+통합 문서마다 **대화** 하나를 열어 그 대화에만 도구 82개(MCP 서버 이름 `xl`, 2026-09-28 코드 기준 — 그중 6개는 헬퍼가 COM 으로 답하는 Windows 전용)를 단다. 모델이 도구를 부르면
 데몬 → 헬퍼(MCP) → 작업창(SSE `/hand/stream`) → Office.js 순으로 내려가 통합 문서를 고치고, 결과가 같은 길을
 되돌아온다(`/hand/reply`).
+
+```mermaid
+flowchart LR
+    subgraph win["사람의 PC"]
+        XL["Excel + 작업창<br/>(Office.js — 통합 문서를 고치는 유일한 자리)"]
+        H["헬퍼 magi office<br/>https :3000 /xl · MCP 서버 /mcp"]
+        D["데몬 magi --daemon<br/>워크스페이스 excel<br/>통합 문서마다 대화 하나"]
+    end
+    M["모델<br/>(OpenAI 호환 /v1)"]
+    XL -- "① 보내기 /api/submit" --> H
+    H -- "② submit" --> D
+    D <--> M
+    D -- "③ tools/call (MCP)" --> H
+    H -- "④ /hand/stream (SSE)" --> XL
+    XL -- "⑤ 결과 /hand/reply" --> H
+    H -- "⑥ 도구 결과" --> D
+    D -. "전사 스트림" .-> H -. "창의 대화" .-> XL
+```
+
+모델이 도구를 부르면 ③→④→⑤→⑥ 을 한 바퀴 돕니다. 통합 문서를 실제로 만지는 것은 언제나 작업창의 Office.js 이고, 헬퍼와 데몬은 길만 이어 줍니다.
 
 ## 1. 프로세스가 넷이다 — 그리고 넷뿐이다
 
@@ -26,6 +46,15 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3
 를 보고 「이 Excel 판은 ExcelApi 1.7 이 없어 편집을 못 합니다 — Excel 2019 이상에서 여세요」라고 적고 물러선다
 (`HelperStream.js`). 사람이 할 일이 「손을 띄워라」가 아니라 「다른 판에서 열어라」인 것이 파워포인트 판과 다르다.
 
+```mermaid
+flowchart TD
+    O["작업창이 열림"] --> Q{"ExcelApi 1.7 이 있나?"}
+    Q -->|"있음 (Excel 2019 이상, 2021 LTSC 는 1.14)"| HAND["작업창이 손으로 붙음<br/>/hand/stream"]
+    Q -->|"없음 (2016)"| VIEW["role=viewer 로 붙음"]
+    VIEW --> R["헬퍼가 손이 없다고 404"]
+    R --> MSG["「이 Excel 판은 ExcelApi 1.7 이 없어 편집을 못 합니다<br/>— Excel 2019 이상에서 여세요」"]
+```
+
 ## 2. 헬퍼 — 파워포인트 판과 다른 자리
 
 | 자리 | 파워포인트 | 엑셀 |
@@ -33,7 +62,7 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3
 | 이름(`app.go` 의 `XL`) | `ppt`, `/ppt`, `pid-`, 워크스페이스 `powerpoint` | `xl`, `/xl`, `wb-`, 워크스페이스 `excel` — 포트·인증서·바이너리는 셋이 하나(3000, `office-helper-cert`, `magi office`) |
 | 문서 키(`hand.go`) | `pid-<id>` (프레젠테이션 id) | `wb-<id>` (통합 문서의 `MAGI.BOOK` 설정 — 없으면 허브가 짓는다) |
 | 스트림 쿼리 | `?presentation=` | `?workbook=` |
-| 도구(`tools.go`) | 48 | 61 — 시트 인자는 `withSheet`(별칭 `worksheet`), 범위는 `withRange`(별칭 `range`) |
+| 도구(`*_tools.go`, 2026-09-28) | 55 | 82(Windows 전용 COM 6 포함) — 시트 인자는 `withSheet`(별칭 `worksheet`), 범위는 `withRange`(별칭 `range`) |
 | 열거형(`enums.go`) | 도형·글머리·전환… | 차트 21·정렬·테두리·표시/숨김·범례·조건부 서식·유효성·표 스타일 60 |
 | 지침(`instructions.go`) | 덱 브리프 7단계 | 통합 문서 브리프 7단계 |
 | 스킬 | 5벌 | 3벌(`excel/skills/`: `sheet-design`·`formulas`·`charts-and-pivots`) |
@@ -67,6 +96,15 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3
 (`workbook.name` 은 파일 이름이라 겹친다) 첫 부착 때 `MAGI.BOOK` 설정에 `book-…` 을 적고 그 뒤로 그 이름으로
 붙는다(`stableBookId`). 못 적으면 빈 이름으로 가고 허브가 번호를 짓는다 — 그 문서는 창을 껐다 켜면 새 대화다.
 
+```mermaid
+flowchart TD
+    A["첫 부착"] --> B{"MAGI.BOOK 설정이 있나?"}
+    B -->|"있음"| K["그 book-… 이름으로 붙음<br/>→ 같은 대화를 다시 찾음"]
+    B -->|"없음"| W{"설정에 book-… 을 적을 수 있나?"}
+    W -->|"적음"| K
+    W -->|"못 적음"| E["빈 이름으로 붙음 → 허브가 번호를 지음<br/>창을 껐다 켜면 새 대화"]
+```
+
 ## 5. 한 턴이 지나는 길 · 6. 일부러 하지 않는 것
 
 파워포인트 판 §5·§6 과 같다. 엑셀에서 더한 「하지 않는 것」 하나: **셸로 `.xlsx` 를 쓰지 않는다** — 첫 도구
@@ -77,6 +115,6 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3
 - 작업창의 단추(인용·제안 적용·검토 부탁·카운슬)는 아직 실물에서 사람이 안 눌러 봤다(도구 61개는 MCP 로, 보내기·편집은
   Windows 2021 창에서 됐다 — TESTING §5.1·§5.1.1).
 - 헬퍼가 파워포인트 판의 복사다(§2). 공용 패키지로 갈라야 한다.
-- 도형·슬라이서·스파크라인은 손에 없다.
+- 도형은 손에 없다. 슬라이서·스파크라인은 Office.js 에 길이 없어 Windows 에서만 헬퍼가 COM 으로 한다(1db14ca1).
 - Excel 2021 은 신뢰 카탈로그 키를 하나만 받는다 — 설치기 둘이 폴더·키를 같이 쓴다(INSTALL §3.3). 관리 공유로도 키가
   하나면 받는지는 안 쟀다. macOS 설치는 아직 손이다.
