@@ -280,7 +280,9 @@ test('the JetBrains hand reads the same flag the same way', () => {
   const at = kt.indexOf('"apply_edit" ->');
   assert.ok(at > 0, 'the sibling apply_edit branch was not found — this guard is reading nothing');
   const block = kt.slice(at, kt.indexOf('"problems"', at));
-  assert.match(block, /replaceAll[\s\S]{0,80}==\s*"true"/,
+  // The word true, compared as text: `== "true"` once, now `.equals("true", ignoreCase = true)` after
+  // a trim (8c7e2c9b) — the same tolerance this client has. A JSON-only boolean read would match neither.
+  assert.match(block, /replaceAll[\s\S]{0,80}(==\s*"true"|\.equals\("true",\s*ignoreCase\s*=\s*true\))/,
     'the sibling no longer takes the WORD true — the two editors now answer one model differently');
 });
 
