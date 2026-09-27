@@ -9,6 +9,7 @@
 > - **빌드 & 검증**:
 >   - 단위 테스트: `cd clients/jetbrains/plugin && ./gradlew :core:test` (SDK 없이 순수 JVM 고속 검증)
 >   - 플러그인 빌드: `cd clients/jetbrains/plugin && ./gradlew :intellij:buildPlugin`
+>     - 샌드박스(`runIde`)의 IDE 화면 언어를 한국어로 바꿔 두었다면 `buildSearchableOptions` 가 `Locale must be default` 로 실패합니다. 이 작업이 샌드박스 설정(`config/options/ide.general.xml` 의 `selectedLocale`)을 같이 쓰기 때문입니다. 로컬에서는 `-x buildSearchableOptions -x prepareJarSearchableOptions -x jarSearchableOptions` 를 붙여 빌드하세요(설정 창 검색 색인만 빠집니다). CI 는 영어라 해당되지 않습니다.
 >
 > ---
 >
