@@ -238,6 +238,17 @@ class HandServerTest {
         assertEquals(listOf("a.kt", "    ", "\t", "true"), ide.edit)
     }
 
+    @Test
+    fun `replaceAll true is case and whitespace tolerant like VS Code`() {
+        val ide = FakeIde()
+        val a = Hand(ide).call("apply_edit", buildJsonObject {
+            put("path", JsonPrimitive("a.kt")); put("old", JsonPrimitive("x"))
+            put("new", JsonPrimitive("y")); put("replaceAll", JsonPrimitive(" TRUE "))
+        })
+        assertFalse(a.error, a.text)
+        assertEquals(listOf("a.kt", "x", "y", "true"), ide.edit)
+    }
+
     /** 그리고 멀쩡한 `old` 는 그대로 지나간다 — 검사가 문을 닫아 버리면 안 된다. */
     @Test
     fun `멀쩡한 old 는 편집기로 간다`() {
@@ -626,5 +637,4 @@ class HandServerTest {
         }
     }
 }
-
 

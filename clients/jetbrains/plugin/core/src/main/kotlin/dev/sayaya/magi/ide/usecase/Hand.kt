@@ -179,7 +179,7 @@ class Hand(private val ide: Ide) {
                 else Answer(
                     ide.replace(
                         str(args, "path"), old, str(args, "new"),
-                        args["replaceAll"]?.jsonPrimitive?.content == "true",
+                        args["replaceAll"]?.jsonPrimitive?.content?.trim()?.equals("true", ignoreCase = true) == true,
                     )
                 )
             }
