@@ -18,6 +18,22 @@
 > The central pattern is **CQRS-lite** — *Commands* going in, *Events* coming out. That is what makes
 > in-process and remote look the same (D5).
 
+```mermaid
+flowchart LR
+    subgraph Clients["Any client: TUI · web console · IDE · headless -p"]
+        C1["user action"]
+        C2["screen"]
+    end
+    C1 -->|"Command<br/>(actor-tagged)"| APP["Application<br/>(app)"]
+    APP -->|"Append"| ST[("Store<br/>JSONL per session")]
+    APP -->|"Publish"| BUS(("EventBus"))
+    ST -->|"Read from seq<br/>(replay, late joiner)"| C2
+    BUS -->|"live events"| C2
+```
+
+The same arrow shape serves an in-process TUI and a console on another machine: the only thing that
+crosses the boundary is a Command going in and Events coming out.
+
 ---
 
 ## 1. Package layout
@@ -75,6 +91,32 @@ plugins/examples/           # example Lua plugins
 
 **Dependency rule**: `adapter → app → core`, and `app/adapter → port`. `core` imports nothing
 (stdlib and core-internal only). Enforced at compile time.
+
+```mermaid
+flowchart TB
+    subgraph adapters["adapter — port implementations"]
+        A1["llm/openai"]
+        A2["store/jsonl"]
+        A3["tool/builtin"]
+        A4["platform · mcp · plugin/lua · tui"]
+    end
+    subgraph application["app — use cases"]
+        APP["Application · loop · policy · compact"]
+    end
+    PORT["port — interfaces the core defines"]
+    CORE["core — domain types and pure rules<br/>(imports nothing outward)"]
+    CMD["cmd/magi — wiring"]
+    CMD --> APP
+    CMD --> adapters
+    APP --> PORT
+    APP --> CORE
+    adapters -. "implement" .-> PORT
+    adapters --> CORE
+    PORT --> CORE
+```
+
+Arrows point the way imports go. Nothing points out of `core`, and `app` never names an adapter: it
+holds ports, and `cmd/magi` decides which adapter stands behind each one.
 
 ---
 
@@ -143,6 +185,20 @@ type Artifact struct {
 ---
 
 ## 3. Event schema (`core/event`) — the persisted log + the bus
+
+```mermaid
+flowchart LR
+    APP["Application"] --> Q{"persisted type?"}
+    Q -->|"yes: session.created,<br/>prompt.submitted, part.appended,<br/>permission.decided, turn.finished …"| ST[("Store.Append<br/>assigns seq 1, 2, 3 …")]
+    ST --> BUS(("EventBus"))
+    Q -->|"no (transient): part.delta,<br/>tool.progress, permission.requested …"| BUS2(("EventBus only<br/>seq = 0"))
+    BUS --> V["viewers"]
+    BUS2 --> V
+    ST -. "replay from a seq cursor" .-> V
+```
+
+A transient event is seen by whoever is watching and then gone; a persisted one is also what a
+viewer that connects later reads back. That is why a cursor counts only events with `seq > 0`.
 
 **The common envelope** — every event:
 
@@ -420,6 +476,27 @@ type CouncilMember struct { // a themed label plus a lens
 > does not exist. The behavioural reference is [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## 6. The agent loop (`app/loop.go`) — pseudocode
+
+```mermaid
+flowchart TD
+    S["Submit(cmd)<br/>append prompt.submitted"] --> A["assemble context<br/>history · latest compaction · providers"]
+    A --> L["stream the model"]
+    L --> T{"tool calls?"}
+    T -->|"yes"| P{"needs permission?"}
+    P -->|"yes"| W["permission.requested<br/>wait for a decision"]
+    W --> X
+    P -->|"no"| X["execute the tool<br/>append tool-result"]
+    X --> A
+    T -->|"no"| F["finish path (loop_gates.go)"]
+    F --> F1["Stop hooks"]
+    F1 --> F2["empty-result nudge"]
+    F2 --> F3{"declared finished<br/>through the council tool?"}
+    F3 -->|"not yet"| N["ask for the declaration<br/>(bounded)"] --> A
+    F3 -->|"accepted, or a cap landed it"| E["turn.finished<br/>(UNVERIFIED when a cap landed it)"]
+```
+
+As built, a turn does not end the moment the model stops calling tools: it goes through the finish
+path drawn above. The pseudocode below keeps the original shape, with its corrections inline.
 
 ```
 Submit(cmd):

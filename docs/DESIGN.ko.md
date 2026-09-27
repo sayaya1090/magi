@@ -11,6 +11,21 @@
 > PLAN의 결정(D1~D13)을 구현 수준으로 구체화한 사양입니다(이벤트/커맨드 스키마, 포트 시그니처, 패키지 구조).
 > 핵심 패턴: **CQRS-lite** — 내부 입력은 *Command*, 외부 출력은 *Event*로 단일화하여 프로세스 내 호출과 원격 통신의 동등성을 보장합니다(D5).
 
+```mermaid
+flowchart LR
+    subgraph Clients["어느 클라이언트든: TUI · 웹 콘솔 · IDE · 헤드리스 -p"]
+        C1["사용자 동작"]
+        C2["화면"]
+    end
+    C1 -->|"Command<br/>(행위자 표시)"| APP["Application<br/>(app)"]
+    APP -->|"Append"| ST[("Store<br/>세션별 JSONL")]
+    APP -->|"Publish"| BUS(("EventBus"))
+    ST -->|"seq 부터 Read<br/>(재생, 늦게 붙은 쪽)"| C2
+    BUS -->|"실시간 이벤트"| C2
+```
+
+같은 화살표 모양이 프로세스 안의 TUI 에도, 다른 머신의 콘솔에도 쓰입니다. 경계를 넘는 것은 들어가는 Command 와 나오는 Event 뿐입니다.
+
 ---
 
 ## 1. 패키지 구조
@@ -66,6 +81,31 @@ plugins/examples/           # 예제 Lua 플러그인
 ```
 
 **의존 규칙**: `adapter → app → core`, 그리고 `app/adapter → port`. `core`는 무엇도 import 안 함(표준+core 내부만). 컴파일 타임에 강제.
+
+```mermaid
+flowchart TB
+    subgraph adapters["adapter — 포트 구현"]
+        A1["llm/openai"]
+        A2["store/jsonl"]
+        A3["tool/builtin"]
+        A4["platform · mcp · plugin/lua · tui"]
+    end
+    subgraph application["app — 유스케이스"]
+        APP["Application · loop · policy · compact"]
+    end
+    PORT["port — 코어가 정의한 인터페이스"]
+    CORE["core — 도메인 타입과 순수 규칙<br/>(바깥을 import 하지 않음)"]
+    CMD["cmd/magi — 조립"]
+    CMD --> APP
+    CMD --> adapters
+    APP --> PORT
+    APP --> CORE
+    adapters -. "구현" .-> PORT
+    adapters --> CORE
+    PORT --> CORE
+```
+
+화살표는 import 방향입니다. `core` 에서 나가는 화살표는 없고, `app` 은 어댑터 이름을 모릅니다. 포트만 들고 있고, 포트마다 어느 어댑터를 세울지는 `cmd/magi` 가 정합니다.
 
 ---
 
@@ -134,6 +174,19 @@ type Artifact struct {
 ---
 
 ## 3. 이벤트 스키마 (`core/event`) — 영속 로그 + 버스
+
+```mermaid
+flowchart LR
+    APP["Application"] --> Q{"영속 타입인가?"}
+    Q -->|"예: session.created,<br/>prompt.submitted, part.appended,<br/>permission.decided, turn.finished …"| ST[("Store.Append<br/>seq 1, 2, 3 … 부여")]
+    ST --> BUS(("EventBus"))
+    Q -->|"아니오(일시): part.delta,<br/>tool.progress, permission.requested …"| BUS2(("EventBus 만<br/>seq = 0"))
+    BUS --> V["보는 쪽"]
+    BUS2 --> V
+    ST -. "seq 커서부터 재생" .-> V
+```
+
+일시 이벤트는 지금 보고 있는 쪽만 보고 사라지고, 영속 이벤트는 나중에 붙은 쪽도 되읽습니다. 그래서 커서는 `seq > 0` 인 이벤트만 셉니다.
 
 **공통 봉투(envelope)** — 모든 이벤트:
 ```go
@@ -378,6 +431,26 @@ type CouncilMember struct { // 테마명 라벨 + 렌즈 속성
 > 동작 기준은 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## 6. 에이전트 루프 (`app/loop.go`) — 의사코드
+
+```mermaid
+flowchart TD
+    S["Submit(cmd)<br/>prompt.submitted 기록"] --> A["컨텍스트 조립<br/>이력 · 최신 압축 · 제공자"]
+    A --> L["모델 스트리밍"]
+    L --> T{"도구 호출이 있나?"}
+    T -->|"예"| P{"승인이 필요한가?"}
+    P -->|"예"| W["permission.requested<br/>결정 대기"]
+    W --> X
+    P -->|"아니오"| X["도구 실행<br/>tool-result 기록"]
+    X --> A
+    T -->|"아니오"| F["종료 경로(loop_gates.go)"]
+    F --> F1["Stop 훅"]
+    F1 --> F2["빈 결과 재촉"]
+    F2 --> F3{"council 도구로<br/>종료를 선언했나?"}
+    F3 -->|"아직"| N["선언 요청<br/>(횟수 제한)"] --> A
+    F3 -->|"수락, 또는 상한이 착지"| E["turn.finished<br/>(상한이 착지시키면 UNVERIFIED)"]
+```
+
+현재 구현에서 턴은 모델이 도구 호출을 멈춘 순간 끝나지 않고, 위에 그린 종료 경로를 거칩니다. 아래 의사코드는 원래 모양을 두고 정정을 줄마다 달아 두었습니다.
 
 ```
 Submit(cmd):
