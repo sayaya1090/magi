@@ -55,6 +55,22 @@ The third column hides the one rule worth stating: **a client that can open the 
 clients that cannot (JVM, add-in) receive the conversation through the daemon's transcript door**.
 There are not two doors; the reading path differs by seat.
 
+```mermaid
+flowchart LR
+    LOG[("session log<br/>JSONL on disk")]
+    D["daemon<br/>control socket"]
+    T["terminal: magi · magi --attach"]
+    W["web console"]
+    J["JetBrains · VS Code"]
+    O["Office add-ins"]
+    T -- "reads the log itself" --> LOG
+    W -- "reads the log itself" --> LOG
+    J -- "transcript door" --> D
+    O -- "transcript door, through the helper" --> D
+    D -- "appends" --> LOG
+    CMD["every client sends commands<br/>submit · steer · answer … to the daemon"] -.-> D
+```
+
 ## 2. How each client operates
 
 ### The terminal — the engine and the first client
@@ -407,6 +423,24 @@ contracts this page already states.
    own socket; an application that offers tools registers itself with `mcp-attach` (URL only)
    and `mcp-detach`s on the way out.
 
+```mermaid
+sequenceDiagram
+    participant C as New client
+    participant F as Config directory
+    participant D as Daemon (control socket)
+    C->>F: 1. glob daemon-*.sock (or ask any companion's roster)
+    Note over C: an IDE derives its own socket name<br/>and spawns a daemon if none answers
+    C->>D: 2. about
+    D-->>C: caps — decide which panels exist, before anything is pressed
+    C->>D: 3. transcript (since = last seq)
+    D-->>C: replay … then live frames (history: a live marker)
+    loop while the screen is open
+        C->>D: roster · sessions · cron · jobs (polls)
+    end
+    C->>D: 4. submit · steer · interrupt · answer · git · file-do …
+    D-->>C: ok, or err with the reason
+```
+
 A refusal always carries its reason in the `err` string — no door fails in silence. One caution
 for the stream doors (watch, transcript): **do not half-close the write side** — a one-shot
 client that shuts write after sending (the `nc -w` shape) reads as a hang-up and ends with zero
@@ -467,6 +501,19 @@ a field). A capability name — advertised in `about.caps`, so a screen decides 
 before anybody presses anything (§2, "The path a new client walks"). *on press* — gated but
 deliberately not advertised: it refuses in its own words, and the refusal lands on the button that
 asked.
+
+```mermaid
+flowchart LR
+    R["request line<br/>{method, …}"] --> A{"which table?"}
+    A -->|"answers (38)"| Q["query → one response<br/>with the data"]
+    A -->|"acts (12)"| X["act → {ok} or {err}"]
+    A -->|"streams (6)"| S["stream → the connection<br/>is given over"]
+    A -->|"none"| N["Refused — this daemon<br/>does not know the method"]
+    Q & X --> G{"gate"}
+    G -->|"always"| OK["answered"]
+    G -->|"capability in about.caps"| OK
+    G -->|"on press, engine cannot"| RF["refused in its own words<br/>on the button that asked"]
+```
 
 ### Acts — they change something and answer only whether it worked
 
