@@ -145,10 +145,10 @@ func wordExtraRun(x wordExtra, label, name string, args map[string]any) (map[str
 			return nil, nil, err
 		}
 		return map[string]any{
-			"pages": st.Pages, "words": st.Words, "characters": st.Characters, "characters_with_spaces": st.CharactersWithSpaces,
-			"paragraphs": st.Paragraphs, "lines": st.Lines, "east_asian_characters": st.EastAsian,
-		}, []string{fmt.Sprintf("%d쪽 · 단어 %d · 글자 %d(공백 포함 %d) · 문단 %d · 줄 %d", st.Pages, st.Words, st.Characters,
-			st.CharactersWithSpaces, st.Paragraphs, st.Lines)}, nil
+				"pages": st.Pages, "words": st.Words, "characters": st.Characters, "characters_with_spaces": st.CharactersWithSpaces,
+				"paragraphs": st.Paragraphs, "lines": st.Lines, "east_asian_characters": st.EastAsian,
+			}, []string{fmt.Sprintf("%d쪽 · 단어 %d · 글자 %d(공백 포함 %d) · 문단 %d · 줄 %d", st.Pages, st.Words, st.Characters,
+				st.CharactersWithSpaces, st.Paragraphs, st.Lines)}, nil
 
 	case "compare_documents":
 		other := strings.TrimSpace(wcStr(args, "path"))

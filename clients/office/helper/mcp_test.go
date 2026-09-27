@@ -118,8 +118,17 @@ func TestMagisOwnClientAttachesToThisHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("magi 가 못 붙었다: %v", err)
 	}
-	if len(got) != len(Word.Catalogue(true)) {
-		t.Fatalf("도구 %d 개를 올렸는데 %d 개가 등록됐다: %v", len(Word.Catalogue(true)), len(got), got)
+	// 올린 것은 **이 기계에서 보이는 목록**이다. COM 도구(com_local.go)는 Windows 가 아니면 목록에서
+	// 빠진다(1db14ca1) — 목록을 거르는 규칙(hiddenHere)과 같은 것으로 센다. 전체 카탈로그와 대면
+	// Windows 밖에서는 늘 네 개가 모자랐다(CI·macOS).
+	offered := 0
+	for _, tl := range Word.Catalogue(true) {
+		if !Word.hiddenHere(tl.Name, nil) {
+			offered++
+		}
+	}
+	if len(got) != offered {
+		t.Fatalf("도구 %d 개를 올렸는데 %d 개가 등록됐다: %v", offered, len(got), got)
 	}
 	want := "mcp__" + Word.Key + "__list_paragraphs"
 	tool := s.get(want)
