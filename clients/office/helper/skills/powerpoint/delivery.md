@@ -1,0 +1,104 @@
+---
+description: 발표를 준비하는 법 — 화면 전환·애니메이션은 절제해서, 구역으로 흐름을 나누고, 예비 장은 숨기고, 발표자 노트를 쓰고, 나눠 줄 PDF 를 만든다. 「발표 준비」「전환 효과」「애니메이션」「구역」「PDF 로」「노트」가 나오면 deck-design 다음에 읽는다.
+---
+
+# 발표 준비 — 장을 다 지은 뒤
+
+장의 내용과 모양은 `deck-design` 과 가이드가 정한다. 이 문서는 그 **뒤** — 덱을 사람 앞에서 넘기고, 나중에 PDF 로 돌려
+읽히게 하는 일이다. 발표 전문가들의 공통 조언은 하나로 모인다: **효과는 적게, 메시지는 장마다 하나, 장은 말 없이도 읽히게.**
+
+⚠ `set_transition`·`hide_slide`·`add_section`·`remove_section`·`set_slide_size`·`export_pdf` 와 날아오기·강조·끝내기
+애니메이션은 **PowerPoint 2021(COM 손)에서만** 된다. 도구 목록에 없으면 이 호스트에는 없는 것이다 — 사람에게 PowerPoint
+메뉴(전환·구역·다른 이름으로 저장 → PDF)로 하라고 한 줄 안내하고 넘어간다.
+
+## ✔ 체크리스트
+
+| # | 확인 | 지우는 기준 |
+|---|---|---|
+| 1 | 전환은 하나 | 덱 전체에 같은 전환 하나(`fade` 0.3–0.5초) 또는 없음. 장마다 다른 효과 없음 |
+| 2 | 애니메이션은 이유가 있다 | 「한 줄씩 짚으며 말할」 목록·단계 그림에만. 제목·로고에는 없음 |
+| 3 | 흐름이 보인다 | 15장이 넘으면 구역(`add_section`) — 목차의 절과 같은 이름 |
+| 4 | 예비 장은 숨김 | 질의응답용·부록 장은 `hide_slide` 로 숨기고 맨 뒤 「부록」 구역에 |
+| 5 | 노트가 있다 | 본문이 짧은 장마다 발표자 노트(`set_notes`) — 말할 것을 장에 쓰지 않았다 |
+| 6 | 말 없이 읽힌다 | PDF 로 돌려질 덱이면 제목이 주장이고, 핵심 숫자가 장 위에 있다 |
+| 7 | 나눠 줄 판 | `export_pdf` — 숨긴 장은 빠진다. 경로를 답에 적었다 |
+
+## 1. 화면 전환 — 하나만, 짧게
+
+- **덱 전체에 같은 것 하나**: `set_transition{all:true, effect:"fade", duration:0.4}`. 발표 중에 효과가 매번 바뀌면 사람은
+  내용이 아니라 효과를 본다.
+- 구역이 바뀌는 장(간지)에만 조금 다른 것을 줄 수 있다: `set_transition{slide:<간지>, effect:"push", duration:0.6}`.
+- **자동 넘김**은 키오스크·전시용 반복 재생일 때만: `set_transition{all:true, advance_after:8}`. 발표용 덱에 걸지 않는다 —
+  발표자가 말하는 중에 장이 넘어간다.
+- 지우기: `set_transition{all:true, effect:"none"}`.
+- `vortex`·`ripple`·`honeycomb`·`glitter` 같은 화려한 효과는 사람이 이름을 대고 부탁할 때만.
+
+## 2. 애니메이션 — 말하는 순서에 맞춰서만
+
+- 쓰는 곳: **목록을 한 줄씩**(`paragraphs:"each"`), **단계 그림을 순서대로**, **숨겼다가 답을 보이는 퀴즈**.
+- 기본은 `fade`(들어오기). 2021(COM 손)에서는 `fly`·`float`·`split` 등 들어오기, `spin`·`grow_shrink`·`bold_flash` 강조,
+  `fade_out`·`fly_out` 끝내기도 된다 — 강조·끝내기는 「이 숫자를 짚는다」「이 가정은 버린다」처럼 **뜻이 있을 때만**.
+- 한 장에 걸음 5개 이내. 시간은 0.3–0.5초(`duration_ms:400`).
+- `animate_slide` 는 그 장의 효과를 **통째로 바꾼다** — 먼저 `read_animation` 으로 있던 것을 본다.
+
+```
+animate_slide {slide:4, steps:[
+  {shape_id:"3", effect:"fade", paragraphs:"each"},          # 본문 목록을 한 줄씩
+  {shape_id:"5", effect:"bold_flash", start:"on_click"}      # 마지막에 핵심 숫자를 한 번 짚는다 (2021)
+]}
+read_animation {slide:4}                                      # kind: entrance / emphasis 로 되읽기
+```
+
+## 3. 구역 — 긴 덱의 목차
+
+- 구역 이름 = 목차 장의 절 이름(「1. 배경」「2. 분석」「3. 제안」「부록」). 구역은 PowerPoint 의 장 목록에서 접혀서, 발표자가
+  질문을 받고 해당 절로 뛰기 쉽다.
+- `add_section{slide:<절의 첫 장>, name:"2. 분석"}`. 1장보다 뒤에서 첫 구역을 만들면 PowerPoint 가 앞 장들에 「기본 구역」을
+  만든다 — 답이 그렇게 말하면 1장에도 `add_section{slide:1, name:"표지"}` 로 이름을 준다.
+- 구역은 장을 옮기지 않는다. 순서는 `reorder_slide`, 구역은 표시다. `list_slides` 가 장마다 `section` 을 적는다.
+
+## 4. 숨긴 장 — 예비 자료
+
+- 예상 질문 답·세부 표·방법론은 **부록 구역에 숨긴 장**으로: `hide_slide{slide}`. 발표에서는 건너뛰고, 질문이 오면
+  발표자가 그 장으로 간다. PDF 에도 빠진다(보내야 하면 숨김을 풀고 내보낸다: `hide_slide{hidden:false}`).
+- `list_slides` 가 숨긴 장에 `hidden:true` 를 적는다 — 「발표는 몇 장」이라고 답할 때 숨긴 장을 빼고 센다.
+
+## 5. 발표자 노트
+
+- 장에는 주장과 증거만, **말할 문장은 노트에**: `set_notes{slide, text:"첫째… 둘째…"}`. 노트는 3–5문장, 전환 멘트
+  (「다음은 원인입니다」) 한 줄 포함.
+- 숫자의 출처·계산 방법은 노트 끝에 — 질문 대비.
+- ⚠ 작업창 손(365)에서는 `set_notes` 가 장을 다시 지어 **id 가 바뀐다** — 답의 새 id 를 쓴다.
+
+## 6. 슬라이드 크기
+
+- 요즘 화면은 16:9(960×540pt). 4:3 은 옛 프로젝터·인쇄용. 발표장 화면을 모르면 **바꾸지 않는다**.
+- 바꿔야 하면 **장을 짓기 전에**: `set_slide_size{size:"4:3"}`. 다 지은 뒤 바꾸면 PowerPoint 가 도형을 늘리고 줄여서 모든 장을
+  `render_slide` 로 다시 봐야 한다.
+
+## 7. 나눠 줄 PDF
+
+- `export_pdf{}` — 경로를 안 주면 덱 옆에 같은 이름으로, 저장 안 한 덱이면 「문서」 폴더에. 있는 파일은 `overwrite:true` 없이 안 덮는다.
+- 숨긴 장은 빠진다. 애니메이션은 마지막 모습으로 찍힌다 — 한 줄씩 나오던 목록은 다 보인 채다.
+- PDF 로 돌려질 덱은 **말 없이 읽혀야** 한다: 제목이 주장이고(「3분기 매출 12% 증가 — 신규 고객 덕분」), 핵심 숫자가 장 위에 있다.
+
+## 예제 — 「내일 발표할 거니까 마무리해 줘」
+
+```
+list_slides {}                                            # 장 수·제목·숨김·구역 파악
+add_section {slide:1, name:"표지"}
+add_section {slide:3, name:"1. 현황"}
+add_section {slide:7, name:"2. 원인"}
+add_section {slide:11, name:"3. 제안"}
+add_section {slide:15, name:"부록"}
+hide_slide {slide:15}                                      # 부록 장들 숨김
+hide_slide {slide:16}
+set_transition {all:true, effect:"fade", duration:0.4}
+read_animation {slide:8}                                   # 있던 효과 확인 후
+animate_slide {slide:8, steps:[{shape_id:"3", effect:"fade", paragraphs:"each"}]}
+set_notes {slide:8, text:"원인은 셋입니다. 첫째 …. 다음 장에서 대책을 봅니다."}
+export_pdf {}                                              # 나눠 줄 판 — 숨긴 부록은 빠진다
+list_slides {}                                             # 되읽어 구역·숨김을 답에 표로
+```
+
+답에는 구역별 장 번호, 숨긴 장, 전환, PDF 경로를 적는다. 노트를 안 쓴 장이 있으면 그렇다고 적는다.

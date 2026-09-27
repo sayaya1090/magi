@@ -3,6 +3,7 @@ package office
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -88,4 +89,39 @@ func digestOfBundled(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return digest(b)
+}
+
+// 스킬의 예제는 모델이 그대로 따라 부른다 — 예제 블록에 적힌 도구 이름이 그 앱의 카탈로그에 없으면, 모델은 없는 도구를
+// 부르고 「모른다」를 받는다. 예제 코드 블록의 줄머리 `이름 {` 를 모아 카탈로그와 견준다.
+func TestSkillExamplesCallRealTools(t *testing.T) {
+	head := regexp.MustCompile(`^([a-z_]+) {`)
+	for _, app := range Apps {
+		known := map[string]bool{"skill": true, "council": true, "land": true}
+		for _, tl := range app.Catalogue(true) {
+			known[tl.Name] = true
+		}
+		seen := 0
+		for _, name := range app.BundledSkillNames() {
+			body, err := bundledSkills.ReadFile(app.Skills + "/" + name + ".md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			in := false
+			for _, line := range strings.Split(string(body), "\n") {
+				if strings.HasPrefix(line, "```") {
+					in = !in
+					continue
+				}
+				if m := head.FindStringSubmatch(line); in && m != nil {
+					seen++
+					if !known[m[1]] {
+						t.Errorf("%s/%s: 예제가 없는 도구 %q 를 부른다", app.Key, name, m[1])
+					}
+				}
+			}
+		}
+		if seen == 0 {
+			t.Errorf("%s: 스킬 예제에서 도구 호출을 하나도 못 찾았다 — 이 시험은 아무것도 안 쟀다", app.Key)
+		}
+	}
 }
