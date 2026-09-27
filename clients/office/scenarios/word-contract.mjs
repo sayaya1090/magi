@@ -20,6 +20,12 @@ export default {
     const first = await s.call('list_paragraphs', {}, '처음');
     const base = Number(first?.total ?? 0);
     const baseTables = Number(first?.tables ?? 0);
+    if (!first || base < 1) return;
+    const before = await s.call('read_paragraphs', { from: 1, to: base, max_chars: 10000000 }, '원문 보존');
+    if (!before || before.paragraphs?.length !== base || before.paragraphs.some(p => p.truncated)) {
+      s.check('원문 전체를 확보했다', false); return;
+    }
+    const original = before.paragraphs;
     const ins = await s.call('insert_paragraphs', { at: 'end', lines: [T.title, T.h1, T.body, T.h2, T.pay, T.tail] });
     if (!ins) return;
     const p1 = ins.from ?? base + 1; // 빈 문서면 1 — Word 가 빈 마지막 문단을 먼저 채운다
@@ -30,15 +36,19 @@ export default {
       await s.call('set_track_changes', { mode: 'Off' }, '정리');
       if (tableMade) await s.call('delete_table', { table: baseTables + 1 }, '정리');
       const end = Number((await s.call('list_paragraphs', {}, '정리 전'))?.total ?? 0);
-      if (p1 > 1) {
-        if (end >= p1) await s.call('delete_paragraphs', { from: p1, to: end }, '정리');
-      } else {
-        if (end > 1) await s.call('delete_paragraphs', { from: 2, to: end }, '정리(빈 문서)');
-        await s.call('replace_paragraph', { paragraph: 1, text: '' }, '정리(빈 문서)');
-        await s.call('set_style', { from: 1, builtin: 'Normal' }, '정리(빈 문서)');
+      const reused = p1 === base && original[base - 1].text === '';
+      const deleteFrom = reused ? p1 + 1 : p1;
+      if (end >= deleteFrom) await s.call('delete_paragraphs', { from: deleteFrom, to: end }, '정리');
+      if (reused) {
+        const saved = original[base - 1];
+        await s.call('replace_paragraph', { paragraph: p1, text: saved.text }, '기존 빈 문단 복원');
+        await s.call('set_style', { from: p1, style: saved.style }, '기존 문단 스타일 복원');
       }
       const last = await s.call('list_paragraphs', {}, '정리 뒤');
       s.check(`정리 뒤 문단 수가 처음과 같다(${base})`, Number(last?.total) === base && Number(last?.tables) === baseTables, JSON.stringify({ total: last?.total, tables: last?.tables }));
+      const restored = await s.call('read_paragraphs', { from: 1, to: base, max_chars: 10000000 }, '원문 복원 검사');
+      const shape = ps => ps?.map(p => ({ text: p.text, style: p.style, builtin: p.builtin }));
+      s.check('기존 본문과 문단 스타일이 복원됐다', JSON.stringify(shape(restored?.paragraphs)) === JSON.stringify(shape(original)));
     });
     const lastPara = async () => Number((await s.call('list_paragraphs', { from: 1, to: 1 }, '끝 번호'))?.total ?? 0);
     const paras = async () => (await s.call('list_paragraphs', { from: p1 }, '되읽기'))?.paragraphs ?? [];
