@@ -277,6 +277,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private sendQueue: Promise<void> = Promise.resolve();
   private readonly sessionActiveTurns = new Set<string>();
 
+  /** Whether the conversation in view has a turn open, read off the transcript this view streams. */
+  turnIsOpenHere(): boolean {
+    return !!this.sid && turnOpen(this.events);
+  }
+
   private isSessionTurnOpen(sid: string): boolean {
     if (this.sessionActiveTurns.has(sid)) return true;
     if (this.sid === sid && turnOpen(this.events)) return true;

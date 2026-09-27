@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { Companion } from './workspace';
 import { Status } from './status';
+import * as activity from '../core/activity';
 import { Chat } from './chat';
 import { Plan } from './plan';
 import { Looking } from './look';
@@ -47,7 +48,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   ctx.subscriptions.push(
     owner, companion, status, chat, plan, looking, hand, handoff,
-    companion.onChanged((a) => status.draw(a)),
+    companion.onChanged((a) => status.draw(activity.withTurn(a, chat.turnIsOpenHere()))),
     companion.onSetup((s) => status.show(s)),
 
     vscode.window.registerWebviewViewProvider(Chat.viewId, chat, {

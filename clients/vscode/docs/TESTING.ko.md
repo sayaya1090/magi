@@ -1447,6 +1447,13 @@ node --test clients/vscode/out/test/*.property.test.js
 - **변이 검증**: 칠해진 길이를 조각 합/창으로 → 시험 2건 실패. 줄 끝에 옛 전체 문장을 다시 붙임 → 1건 실패. 둘 다 원복 후 초록.
 - **실측**: `npm test` 574 pass / 0 fail. (웹뷰 실물 화면은 아직 안 봤습니다.)
 
+### 6.55 턴 중 도구 사이에 상태 표시줄이 「attached」로 떨어지던 것 (`core/activity.ts` `withTurn`)
+
+- **무엇이 바뀌었나**: 데몬의 `status` 는 도구가 돌 때만 말합니다. 그래서 모델이 생각하거나 카운슬 판결에 답을 쓰는 사이에는 표시줄이 「attached」(쉬는 것처럼)로 떨어졌습니다. JetBrains 표시줄에서 실물로 본 것과 같은 모양입니다(JetBrains TESTING §6.61, 2026-09-27). 채팅 창이 흘려 보는 전사에 답 없는 `prompt.submitted` 가 서 있으면 그 사실로 「attached」만 「working」으로 올립니다. 기다림과 이름 있는 도구는 그대로이고, 연결을 못 한 상태도 그대로입니다. 보고 있는 전사가 없으면 아무것도 안 바꿉니다.
+- **새 시험**: `activity.test.ts` 「an open turn with nothing running reads as working, and never overrides what the daemon said」.
+- **변이 검증**: `withTurn` 이 입력을 그대로 돌려주게 하면 → 1건 실패. 원복 후 초록.
+- **실측**: `npm test` 575 pass / 0 fail, `node tools/transcript-test.mjs` 7 passed. 실물 화면 확인은 아직입니다.
+
 ### Windows 에디터 핸드 경로 회귀
 
 `hand_provider.test.ts`는 `os.tmpdir()` 아래 공백과 #을 포함한 작업 경로를 만들고 `path.join()`으로 모의 문서 키와 기대 경로를 구성합니다. POSIX 절대 경로를 Windows 문서 키로 사용하지 않습니다. 거절 사유와 성공 문구는 해당 네이티브 경로를 포함한 전체 문자열로 비교하며 실제 HTTP tools/call 검사도 유지합니다.

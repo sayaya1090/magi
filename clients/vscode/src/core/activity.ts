@@ -74,6 +74,21 @@ export function of(resp: Response | null): Activity {
   return { state: State.Attached };
 }
 
+/**
+ * Fold in what the conversation view KNOWS: a turn is open in the transcript it streams.
+ *
+ * `status` only speaks up while a tool runs, so between tools — the model thinking, the council's
+ * verdict being answered — the reading falls to Attached and the bar says the companion is resting
+ * in the middle of a turn. The JetBrains bar measured this live (2026-09-27): "attached" for two
+ * minutes of a turn that was still going. An open `prompt.submitted` with no `turn.finished` is not a
+ * guess, so it may lift Attached to Working. It never overrides anything the daemon DID say —
+ * waiting beats it, and a named tool keeps its name — and with no transcript in view it is false and
+ * changes nothing.
+ */
+export function withTurn(a: Activity, turnOpen: boolean): Activity {
+  return turnOpen && a.state === State.Attached ? { state: State.Working } : a;
+}
+
 /** The one-line label every screen shows for a state. One vocabulary, so two screens cannot drift. */
 export function label(a: Activity): string {
   switch (a.state) {
