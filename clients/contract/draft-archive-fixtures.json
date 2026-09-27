@@ -1,0 +1,288 @@
+[
+  {
+    "name": "general",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "session-a",
+        "creationTaskId": "",
+        "callId": "",
+        "kind": "general",
+        "status": "draft",
+        "text": "한글\n  원문\t",
+        "title": "",
+        "reason": "",
+        "version": 1,
+        "attemptId": "",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": []
+      }
+    ]
+  },
+  {
+    "name": "whitespace",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \" \\n\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "session-a",
+        "creationTaskId": "",
+        "callId": "",
+        "kind": "general",
+        "status": "draft",
+        "text": " \n\t",
+        "title": "",
+        "reason": "",
+        "version": 1,
+        "attemptId": "",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": []
+      }
+    ]
+  },
+  {
+    "name": "attachment-only",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": [{\"path\": \"src/a.kt\", \"start\": 2, \"end\": 4}]}], \"deleted\": []}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "session-a",
+        "creationTaskId": "",
+        "callId": "",
+        "kind": "general",
+        "status": "draft",
+        "text": "",
+        "title": "",
+        "reason": "",
+        "version": 1,
+        "attemptId": "",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": [
+          {
+            "path": "src/a.kt",
+            "start": 2,
+            "end": 4
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "question",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"q:a\", \"kind\": \"question\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "session-a",
+        "creationTaskId": "",
+        "callId": "q:a",
+        "kind": "question",
+        "status": "draft",
+        "text": "한글\n  원문\t",
+        "title": "",
+        "reason": "",
+        "version": 1,
+        "attemptId": "",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": []
+      }
+    ]
+  },
+  {
+    "name": "pending",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"attempt\", \"status\": \"pending\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"owner-a:1\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "session-a",
+        "creationTaskId": "",
+        "callId": "",
+        "kind": "attempt",
+        "status": "unknown",
+        "text": "한글\n  원문\t",
+        "title": "",
+        "reason": "",
+        "version": 1,
+        "attemptId": "owner-a:1",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": []
+      }
+    ]
+  },
+  {
+    "name": "creation",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"\", \"creationTaskId\": \"create-a\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "",
+        "creationTaskId": "create-a",
+        "callId": "",
+        "kind": "general",
+        "status": "draft",
+        "text": "한글\n  원문\t",
+        "title": "",
+        "reason": "",
+        "version": 1,
+        "attemptId": "",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": []
+      }
+    ]
+  },
+  {
+    "name": "deleted-generation",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": [{\"id\": \"draft-a\", \"version\": 1}]}",
+    "valid": true,
+    "expected": []
+  },
+  {
+    "name": "newer-generation",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 2, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": [{\"id\": \"draft-a\", \"version\": 1}]}",
+    "valid": true,
+    "expected": [
+      {
+        "id": "draft-a",
+        "companionKey": "/work",
+        "sessionId": "session-a",
+        "creationTaskId": "",
+        "callId": "",
+        "kind": "general",
+        "status": "draft",
+        "text": "한글\n  원문\t",
+        "title": "",
+        "reason": "",
+        "version": 2,
+        "attemptId": "",
+        "seq": 1,
+        "createdAt": 1,
+        "attempts": 0,
+        "refs": []
+      }
+    ]
+  },
+  {
+    "name": "empty",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "negative-generation",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": -1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "missing-context",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "missing-call",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"question\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "missing-attempt",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"attempt\", \"status\": \"pending\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "invalid-ref",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": [{\"path\": \"a\", \"start\": 4, \"end\": 2}]}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "invalid-state",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"pending\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "unsafe-counter",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 9007199254740992, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "future-version",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 2, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "wrong-workspace",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///other\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "unknown-field",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": [], \"surprise\": true}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "duplicate-id",
+    "workspace": "file:///work",
+    "raw": "{\"schemaVersion\": 1, \"workspace\": \"file:///work\", \"owner\": \"owner-a\", \"revision\": 1, \"entries\": [{\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}, {\"id\": \"draft-a\", \"companionKey\": \"/work\", \"sessionId\": \"session-a\", \"creationTaskId\": \"\", \"callId\": \"\", \"kind\": \"general\", \"status\": \"draft\", \"text\": \"한글\\n  원문\\t\", \"title\": \"\", \"reason\": \"\", \"version\": 1, \"attemptId\": \"\", \"seq\": 1, \"createdAt\": 1, \"attempts\": 0, \"refs\": []}], \"deleted\": []}",
+    "valid": false,
+    "expected": null
+  },
+  {
+    "name": "broken-json",
+    "workspace": "file:///work",
+    "raw": "{",
+    "valid": false,
+    "expected": null
+  }
+]

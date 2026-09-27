@@ -1992,3 +1992,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - 플러그인: 커밋 창(`VcsDataKeys.COMMIT_WORKFLOW_UI`)에서 체크된 변경의 앞뒤 경로와 새 파일을 모아 `paths` 로 보냅니다. 액션에 magi 아이콘을 달았습니다. 설명·빈 초안 문구를 「스테이지된」에서 「커밋할 파일로 체크한」으로 고쳤습니다.
 - **새 시험**: `CompanionTest` 의 `커밋 창이 고른 파일은 paths 로 간다 — 스테이지 전이라도 초안이 선다`, Go `TestDraftCommitOfPickedPathsNeedsNothingStaged`(스테이지 안 한 수정 파일·새 파일은 들어가고 안 고른 파일은 빠지며, 워크스페이스 밖 경로는 거절).
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 417 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 164 통과. Go 전체 통과(`internal/adapter/llm/openai` 는 한 번 흔들렸다가 재실행에서 통과). 사용자 IDE 실물 확인은 설치 후입니다.
+
+## #202 영구 저장 DTO 계약
+
+`DraftArchiveTest`는 VS Code의 `draft_archive.test.ts`와 같은 `clients/contract/draft-archive-fixtures.json` 21건을 읽습니다. 원문·공백·첨부만 있는 자료, 전송 중 자료의 결과 미확인 복원, 삭제 세대 제외, 새 세대 보존, 손상·미지원 버전·다른 워크스페이스·중복 ID 거부와 직렬화 왕복을 검사합니다. 파일 저장소와 실제 UI 연결 및 IDE 재시작 인수는 아직 포함하지 않습니다.

@@ -33,6 +33,8 @@ dependencies {
 }
 
 tasks.test {
+    inputs.file(rootProject.file("../../contract/draft-archive-fixtures.json"))
+        .withPropertyName("draftArchiveFixtures").withPathSensitivity(PathSensitivity.RELATIVE)
     useJUnitPlatform()
     // `SourceTextTest` 는 클래스가 아니라 **소스 글자**를 읽는다. 그게 입력으로 안 걸려 있으면
     // gradle 은 딴 모듈의 .kt 가 바뀌어도 이 작업을 UP-TO-DATE 로 건너뛰고, 그러면 검사는
