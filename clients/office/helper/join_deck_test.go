@@ -137,6 +137,9 @@ func TestTheOwnDoorSettlesTheAskingDeck(t *testing.T) {
 		Bolt:   func(string, string, string) ([]string, error) { return []string{"t"}, nil },
 		Fresh:  func(string, string) (string, error) { return "sess-b", nil },
 	}
+	// API.ConfigDir 를 비우면 own 이 스킬·AGENTS.md 를 **패키지 디렉토리의 word/** 에 심는다(go test 의 작업
+	// 디렉토리). 그 심은 사본이 저장소에 한 번 들어가(fd6141da) 원본이 바뀔 때마다 미커밋 변경으로 남았다.
+	api.ConfigDir = t.TempDir()
 	api.Own.Alive = func(string) bool { return true } // 마련해 둔 데몬이 답한다 — 이 시험은 생애만 본다
 	settleOwnWork(t, work)
 	w := httptest.NewRecorder()

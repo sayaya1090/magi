@@ -103,6 +103,9 @@ func TestRestartColumnDaemonRestart(t *testing.T) {
 	work := NewOwnWork()
 	work.Done(OwnReport{Phase: OwnReady, Socket: "/sock", Session: "s_deck", Life: "1@t0"})
 	r.api.Work = work
+	// API.ConfigDir 를 비우면 own 이 스킬·AGENTS.md 를 **패키지 디렉토리의 word/** 에 심는다(go test 의 작업
+	// 디렉토리). 그 심은 사본이 저장소에 한 번 들어가(fd6141da) 원본이 바뀔 때마다 미커밋 변경으로 남았다.
+	r.api.ConfigDir = t.TempDir()
 	r.api.Own = quietOwn(t)
 	r.api.LifeOf = func(string) string { return "2@t1" }
 	r.api.own(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/own?deck=wb-deck-A", nil))
