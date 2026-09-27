@@ -109,7 +109,7 @@ func (c comWordExtra) Stats() (st wordStats, err error) {
 }
 
 // Compare 는 다른 파일을 읽기 전용·숨김으로 열어 Application.CompareDocuments 로 새 문서를 만든다. 연 파일은 닫는다(저장 안 함).
-func (c comWordExtra) Compare(other string, otherIsRevised bool) (name string, revisions int, err error) {
+func (c comWordExtra) Compare(other string, otherIsRevised bool) (name string, revisions int, leftOpen string, err error) {
 	err = c.with(func(doc *ole.IDispatch) error {
 		app := wget(doc, "Application")
 		defer app.Release()
@@ -122,8 +122,17 @@ func (c comWordExtra) Compare(other string, otherIsRevised bool) (name string, r
 			return fmt.Errorf("%s 를 못 열었습니다(%v)", filepath.Base(other), e)
 		}
 		od := v.ToIDispatch()
+		// 숨겨 연 문서는 **꼭 닫는다** — 못 닫으면 사람 눈에 안 보이는 문서가 Word 에 남아, 같은 파일을 다시 열 때 「이미 열려
+		// 있음」이나 잠김으로 나타난다. 한 번 더(저장된 것으로 표시하고) 시도하고, 그래도 안 되면 답에 싣는다(#201 검토 5855089115).
 		defer func() {
-			_, _ = oleutil.CallMethod(od, "Close", 0) // wdDoNotSaveChanges
+			if _, e := oleutil.CallMethod(od, "Close", 0); e != nil { // wdDoNotSaveChanges
+				if _, pe := oleutil.PutProperty(od, "Saved", true); pe == nil {
+					_, e = oleutil.CallMethod(od, "Close")
+				}
+				if e != nil {
+					leftOpen = fmt.Sprintf("비교 대상 %s 를 닫지 못했습니다(%v) — Word 안에 보이지 않는 문서로 열려 있을 수 있습니다. Word 를 끝내면 같이 닫히고, 그 전에 같은 파일을 열면 「이미 열려 있음」이 뜰 수 있습니다", filepath.Base(other), e)
+				}
+			}
 			od.Release()
 		}()
 		orig, rev := doc, od
@@ -144,5 +153,5 @@ func (c comWordExtra) Compare(other string, otherIsRevised bool) (name string, r
 		rs.Release()
 		return nil
 	})
-	return name, revisions, err
+	return name, revisions, leftOpen, err
 }

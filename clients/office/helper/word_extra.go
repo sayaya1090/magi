@@ -33,7 +33,8 @@ type wordExtra interface {
 	Proof(from, to, limit int) (items []wordProof, more bool, err error)
 	Stats() (wordStats, error)
 	// Compare 는 이 문서와 other 파일을 비교해 새 문서를 연다. otherIsRevised 면 other 가 고친 판이다.
-	Compare(other string, otherIsRevised bool) (resultName string, revisions int, err error)
+	// leftOpen 은 비교는 됐는데 숨겨 연 other 를 못 닫았을 때의 사유 — 사람 눈에 안 보이는 문서가 Word 에 남는다.
+	Compare(other string, otherIsRevised bool) (resultName string, revisions int, leftOpen string, err error)
 	Close()
 }
 
@@ -176,9 +177,14 @@ func wordExtraRun(x wordExtra, label, name string, args map[string]any) (map[str
 		if as != "revised" && as != "original" {
 			return nil, nil, fmt.Errorf("as 는 revised(그 파일이 고친 판) 또는 original(그 파일이 원본) — %q", as)
 		}
-		name, n, err := x.Compare(other, as == "revised")
+		name, n, leftOpen, err := x.Compare(other, as == "revised")
 		if err != nil {
 			return nil, nil, err
+		}
+		if leftOpen != "" {
+			// 비교는 됐으니 실패로 답하지 않는다 — 그러나 숨긴 문서가 남은 것은 사람이 알아야 한다(#201 검토 5855089115).
+			return map[string]any{"result_document": name, "revisions": n, "other": other, "other_is": as, "warning": leftOpen},
+				[]string{fmt.Sprintf("비교 결과를 새 문서 「%s」 로 열었습니다 — 변경 %d건", name, n), "⚠ " + leftOpen}, nil
 		}
 		return map[string]any{"result_document": name, "revisions": n, "other": other, "other_is": as},
 			[]string{fmt.Sprintf("비교 결과를 새 문서 「%s」 로 열었습니다 — 변경 %d건(변경 추적으로 표시). 이 문서와 %s 는 그대로입니다", name, n, filepath.Base(other)),

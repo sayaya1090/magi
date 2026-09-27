@@ -1,5 +1,5 @@
 {
-  "total": 116,
+  "total": 115,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -11,7 +11,6 @@
     "clients/office/helper/serve.go": 6,
     "clients/office/helper/skills.go": 1,
     "clients/office/helper/word_enums.go": 1,
-    "clients/office/helper/word_extra_windows.go": 1,
     "clients/office/helper/xl_extra_windows.go": 2,
     "cmd/magi/autoupdate.go": 1,
     "cmd/magi/main.go": 1,

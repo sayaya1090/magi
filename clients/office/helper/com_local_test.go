@@ -18,6 +18,7 @@ type fakeWordExtra struct {
 	exported []string
 	proof    []wordProof
 	compared []string
+	leftOpen string
 }
 
 func (f *fakeWordExtra) Paragraphs() (int, error)  { return f.paras, nil }
@@ -41,9 +42,9 @@ func (f *fakeWordExtra) Proof(from, to, limit int) ([]wordProof, bool, error) {
 func (f *fakeWordExtra) Stats() (wordStats, error) {
 	return wordStats{Pages: 3, Words: 120, Characters: 400, CharactersWithSpaces: 480, Paragraphs: f.paras, Lines: 30}, nil
 }
-func (f *fakeWordExtra) Compare(other string, rev bool) (string, int, error) {
+func (f *fakeWordExtra) Compare(other string, rev bool) (string, int, string, error) {
 	f.compared = append(f.compared, other)
-	return "비교 결과 1", 7, nil
+	return "비교 결과 1", 7, f.leftOpen, nil
 }
 func (f *fakeWordExtra) Close() {}
 
@@ -301,5 +302,21 @@ func TestComIntegersAreRead(t *testing.T) {
 		if intOf(v) != 7 {
 			t.Errorf("%T 를 %d 로 읽었다", v, intOf(v))
 		}
+	}
+}
+
+// 비교 대상을 못 닫으면 비교는 성공으로 두되, 숨긴 문서가 남았다는 것을 답이 말한다(#201 검토 5855089115).
+func TestCompareSaysWhenTheHiddenDocumentStayedOpen(t *testing.T) {
+	dir := t.TempDir()
+	other := filepath.Join(dir, "v2.docx")
+	_ = os.WriteFile(other, []byte("x"), 0o600)
+	x := &fakeWordExtra{paras: 1, leftOpen: "비교 대상 v2.docx 를 닫지 못했습니다"}
+	res, changed, err := wordExtraRun(x, "", "compare_documents", map[string]any{"path": other})
+	if err != nil || res["warning"] == nil || !strings.HasPrefix(changed[len(changed)-1], "⚠ 비교 대상") {
+		t.Fatalf("숨긴 문서가 남은 것을 말하지 않았다: %v %v %v", res, changed, err)
+	}
+	x.leftOpen = ""
+	if res, _, _ = wordExtraRun(x, "", "compare_documents", map[string]any{"path": other}); res["warning"] != nil {
+		t.Errorf("닫았는데 경고를 달았다: %v", res)
 	}
 }
