@@ -1118,3 +1118,32 @@ func TestTheMemberPromptDoesNotPromiseAStatusLine(t *testing.T) {
 		t.Error("the EVIDENCE clause lost its opening")
 	}
 }
+
+// needs_person means "only the person can close this", so it rides only on a continue, and the
+// filler words a model writes into a slot the schema showed it are not a question to anyone.
+func TestNeedsPersonRidesOnlyOnARealContinue(t *testing.T) {
+	q := "invoices.csv is not in the workspace — where is it?"
+	if got := needsPersonOf(council.Continue, "  "+q+" "); got != q {
+		t.Errorf("a continue's question was lost: %q", got)
+	}
+	for _, d := range []council.Decision{council.Done, council.Abstain} {
+		if got := needsPersonOf(d, q); got != "" {
+			t.Errorf("%s carried needs_person %q — only a continue says the work is blocked on someone", d, got)
+		}
+	}
+	for _, filler := range []string{"", "none", "N/A", "없음", "null"} {
+		if got := needsPersonOf(council.Continue, filler); got != "" {
+			t.Errorf("filler %q was taken as a question to the person", filler)
+		}
+	}
+	// And every member is asked for it, with the line that keeps it off the agent's own work.
+	p := memberSystem(council.Member{Name: "x", Lens: "completeness"}, "count the rows", false)
+	for _, want := range []string{`"needs_person":`, "ONLY the person can supply it", "a place not yet searched"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the member prompt lost %q", want)
+		}
+	}
+	if !strings.Contains(panelSchema, `"needs_person":`) {
+		t.Error("the panel schema does not ask for needs_person")
+	}
+}

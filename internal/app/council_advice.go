@@ -378,6 +378,19 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		return closingCall(lastText) + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil
 	}
+	if need := a.onlyThePersonCan(delib); need != "" {
+		reason := "the council found that what is left can only come from the person: " + need
+		a.signalTurnControl(sid, func(tc *turnControl) {
+			tc.finish = true
+			tc.unverifiedReason = reason
+		})
+		return "The council finds the rest of this task cannot be done without the person — what is missing " +
+			"is not something more work can produce:\n" + need + "\n\nYour turn ends here. Write your final " +
+			"answer as a question to them: say briefly what you did and what you found, then ask for exactly " +
+			"what is needed. Do not declare again, and do not make anything up in its place." +
+			notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+			renderCouncilAdvice(delib, "What the members said, for the record:"), nil
+	}
 	if landed, msg := a.noteCouncilRejection(sid, epoch, feedback); landed {
 		return msg + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said, for the record:"), nil
@@ -412,6 +425,39 @@ const councilContestAffordance = "\n\nIf a specific demand is already met by evi
 	"  CONTEST: <the exact demand> — <the tool output that shows it is met, or that it cannot be met here>\n" +
 	"The council re-judges that evidence next round and, if it holds, drops that one point. It does not finish " +
 	"the task, and a CONTEST with no real tool output behind it is ignored."
+
+// onlyThePersonCan returns what the council says only the person can supply, when a majority of the
+// members who voted says so AND a person can be asked in this run. Empty otherwise.
+//
+// A rejection is a message to the agent, and when the gap is a file the workspace does not have or a
+// decision that belongs to somebody else, the agent cannot act on it: measured live (2026-09-27),
+// members wrote "please provide the file" three rounds running — words addressed to the person,
+// delivered to the agent — until the cap landed the turn. When somebody can answer, asking them IS
+// the next step, and it ends the turn now instead of after the cap.
+//
+// Only when a person can be asked: the `ask_user` tool is registered for exactly those runs (a TUI,
+// or a daemon a window attaches to), and withdrawn from a -p run nobody can reach. There the old
+// path stands — the rejection, then the cap's honest landing.
+func (a *App) onlyThePersonCan(d council.Deliberation) string {
+	if _, ok := a.tools.Get("ask_user"); !ok {
+		return ""
+	}
+	voters := 0
+	var needs []string
+	for _, v := range d.Verdicts {
+		if v.Silent || v.Decision == council.Abstain {
+			continue
+		}
+		voters++
+		if n := strings.TrimSpace(v.NeedsPerson); n != "" {
+			needs = append(needs, "- "+n)
+		}
+	}
+	if voters == 0 || len(needs)*2 <= voters {
+		return ""
+	}
+	return strings.Join(needs, "\n")
+}
 
 // The rejection cap: how many times one turn's completion declarations may be turned away before
 // magi lands the turn UNVERIFIED as it stands.

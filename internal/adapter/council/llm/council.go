@@ -400,6 +400,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		v.Rationale = string(r.Rationale)
 		v.Feedback = string(r.Feedback)
 		v.Keep = string(r.Keep)
+		v.NeedsPerson = needsPersonOf(v.Decision, string(r.NeedsPerson))
 		v.Cite = strings.TrimSpace(string(r.Cite))
 	}
 	fill(r)
@@ -484,6 +485,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
+	v.NeedsPerson = needsPersonOf(v.Decision, string(r.NeedsPerson))
 	// Cite travels too. Assigned everywhere else a verdict is built (poll), and forgotten here, so
 	// EVERY member's grounds vanished after a debate round — and an empty cite is itself worth
 	// seeing (council_view), which made "no grounds given" indistinguishable from "grounds
@@ -547,7 +549,9 @@ type memberReply struct {
 	Rationale  jsonx.Text   `json:"rationale"`
 	Feedback   jsonx.Text   `json:"feedback"`
 	Keep       jsonx.Text   `json:"keep"` // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
-	Cite       jsonx.Text   `json:"cite"` // verbatim fragment of the record the verdict rests on, or NO-EVIDENCE
+	// NeedsPerson names what only the person can supply, on a continue whose gap no work can close.
+	NeedsPerson jsonx.Text `json:"needs_person"`
+	Cite        jsonx.Text `json:"cite"` // verbatim fragment of the record the verdict rests on, or NO-EVIDENCE
 	// Checks is the requirements walk the member writes BEFORE its decision. jsonx.Text is the
 	// right type precisely because it never fails: a member that sends the walk as one string, as
 	// a list of strings, or not at all must not lose its vote over the shape of a field that
@@ -684,7 +688,11 @@ const councilCore = "Judge the agent's REPORT against the TASK and PLAN. Use the
 	"cites no concrete tool output (it merely re-asserts completion), disregard it and keep the demand.\n" +
 	"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of " +
 	"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in " +
-	"`feedback`. A missing diff or signal is NOT a defect.\n" +
+	"`feedback`. A missing diff or signal is NOT a defect. If what is missing is something the agent cannot do " +
+	"or get at all — ONLY the person can supply it: an input the task presupposed that is not in the workspace " +
+	"after a thorough search, a credential, a decision that is theirs — also write it in `needs_person`, as the " +
+	"question to put to them. Never for anything the agent could still do or find itself: a place not yet " +
+	"searched, a command not yet run, a file it could write is the agent's work, and `needs_person` stays empty.\n" +
 	"- \"abstain\": your lens genuinely cannot judge from what is given. Excluded from the tally.\n\n" +
 	"Never invent a defect, never demand evidence the task never required, and never continue out of mere " +
 	"uncertainty or a wish for more proof. Never tell the agent to create, add, place or make up something the " +
@@ -775,6 +783,7 @@ func verdictSchemaFor(keep bool) string {
 	s := `{"checks":["<requirement> - SATISFIED|UNSATISFIED|BLOCKED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
 		`"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence",` +
 		`"feedback":"the specific gap (only if continue)",` +
+		`"needs_person":"only if continue AND the gap is something only the person can supply; otherwise empty",` +
 		`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"`
 	if keep {
 		s += `,"keep":"what's already correct through your lens — name it, don't restate it; advisory, optional"`
@@ -1046,4 +1055,19 @@ func parseReply(text string) (memberReply, bool) {
 func noteSalvaged(orig, kept string) {
 	fmt.Fprintf(os.Stderr, "magi: a council reply was malformed and only its prefix could be read "+
 		"(%d of %d bytes kept; fields after the defect are missing): %s\n", len(kept), len(orig), jsonx.Diagnose(orig))
+}
+
+// needsPersonOf keeps the field only where it means something: on a continue, and not as a filler
+// word. A done or an abstain that fills it in has not said the work is blocked on anyone, and a
+// "none"/"n/a" is the model filling the slot the schema showed it.
+func needsPersonOf(d council.Decision, s string) string {
+	s = strings.TrimSpace(s)
+	if d != council.Continue {
+		return ""
+	}
+	switch strings.ToLower(strings.Trim(s, ".- ")) {
+	case "", "none", "n/a", "na", "null", "no", "nothing", "없음", "해당 없음":
+		return ""
+	}
+	return s
 }

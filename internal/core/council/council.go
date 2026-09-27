@@ -69,6 +69,11 @@ type Verdict struct {
 	Rationale  string   `json:"rationale,omitempty"`  // why
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
 	Keep       string   `json:"keep,omitempty"`       // what the report already gets right (advisory, MAGI_COUNCIL_KEEP)
+	// NeedsPerson is set, on a continue, when what is still missing is something ONLY the person can
+	// supply — an input the task presupposed and the workspace does not have, a credential, a
+	// decision — so no further work by the agent can close it. Empty otherwise. When a person can
+	// answer, a majority of these ends the turn with a question instead of another rejection.
+	NeedsPerson string `json:"needsPerson,omitempty"`
 	// Cite is the fragment of the record this verdict rests on, copied verbatim by the member, or
 	// the token NO-EVIDENCE when it rests on the report's substance rather than on anything
 	// observed. Recorded and shown, not checked: magi used to look each fragment up and downgrade

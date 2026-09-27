@@ -43,6 +43,7 @@ const panelSchema = `{"verdicts":[` +
 	`"checks":["<requirement> - SATISFIED|UNSATISFIED|BLOCKED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
 	`"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence",` +
 	`"feedback":"the specific gap (only if continue)",` +
+	`"needs_person":"only if continue AND the gap is something only the person can supply; otherwise empty",` +
 	`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"}` +
 	`, ...one object for EACH lens listed above, in that order...]}`
 
@@ -251,6 +252,8 @@ type panelVerdict struct {
 	Feedback   jsonx.Text   `json:"feedback"`
 	Keep       jsonx.Text   `json:"keep"`
 	Cite       jsonx.Text   `json:"cite"`
+	// NeedsPerson: see memberReply.
+	NeedsPerson jsonx.Text `json:"needs_person"`
 }
 
 type panelReply struct {
@@ -477,6 +480,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		out[i].Rationale = string(v.Rationale)
 		out[i].Feedback = string(v.Feedback)
 		out[i].Keep = string(v.Keep)
+		out[i].NeedsPerson = needsPersonOf(out[i].Decision, string(v.NeedsPerson))
 		out[i].Cite = strings.TrimSpace(string(v.Cite))
 		if w := strings.TrimSpace(string(v.Checks)); w != "" {
 			fmt.Fprintf(os.Stderr, "magi: council %s (%s) walked: %s\n", out[i].Member, out[i].Lens, clipWalk(w))
