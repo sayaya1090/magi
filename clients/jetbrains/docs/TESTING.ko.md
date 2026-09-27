@@ -1961,6 +1961,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - 같은 이름의 후임 등록은 이전 창의 늦은 정리 요청으로 삭제되지 않습니다. 조건부 해제를 지원하지 않는 구형 데몬에는 위험한 이름 기반 대체를 하지 않습니다.
 - `HandRegistrationTest`: attach 실행 중 종료, 종료 후 설치 거절, attach 예외 뒤 멱등 해제를 검사합니다.
 
+## 설정 화면 드롭다운 폭 회귀
+
+- 동적 프로필 설정도 `Look.narrowCombo`를 사용하여 긴 항목이 설정창의 최소 폭을 키우지 않는지 검사합니다.
+- `PlanPanelLayoutTest`의 설정 콤보 회귀 검사는 확대·축소 요구사항을 공통 폭 제한 생성기와 연결된 소스 계약으로 확인합니다.
+- 전체 JetBrains 검증은 `./gradlew :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain`으로 실행합니다.
+
 ---
 
 ## 6.62 모델 콤보가 앞 대화의 모델을 새 대화에도 보이던 것 (2026-09-27)

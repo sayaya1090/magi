@@ -17,6 +17,14 @@ import javax.swing.JPanel
  */
 class PlanPanelLayoutTest : BasePlatformTestCase() {
 
+    fun `test settings shrink after expansion with long profiles`() {
+        val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/MagiConfigurable.kt").readText()
+        assertTrue("dynamic profile combo uses the width-capped constructor",
+            "val combo = Look.narrowCombo<String>(24).apply" in text)
+        assertTrue("all narrow combos cap their minimum width",
+            "override fun getMinimumSize(): Dimension" in java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/Look.kt").readText())
+    }
+
     fun `test a long row does not widen the panel past its window`() {
         val long = JBLabel("x".repeat(400))
         val button = JButton("New")

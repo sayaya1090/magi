@@ -204,7 +204,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
             // 프로필 타입 설정 키의 경우 선택 가능한 후보 목록(ComboBox)을 제공합니다.
             // 데몬 메타데이터(`profile: true`)에 기반하여 렌더링 형태를 결정하므로 클라이언트별 키 하드코딩을 방지합니다.
             val f: javax.swing.text.JTextComponent = if (item.profile) {
-                val combo = JComboBox<String>().apply {
+                val combo = Look.narrowCombo<String>(24).apply {
                     isEditable = true
                     addItem("")
                     choices.forEach(::addItem)
