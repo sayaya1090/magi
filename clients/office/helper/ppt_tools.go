@@ -473,8 +473,11 @@ func pptCatalogue(hasCouncil bool) []tool {
 			Name: "animate_slide",
 			Desc: "Make things appear one at a time on a slide — what people mean by \"애니메이션 넣어 줘\" " +
 				"and \"한 줄씩 나타나게\". Doing it by hand in PowerPoint is fiddly enough that people often " +
-				"give up. ONLY entrance effects: appear, fade, wipe, zoom. No exit, emphasis or motion " +
-				"paths — this host measured those four against real PowerPoint and will not invent the rest. " +
+				"give up. Everywhere: entrance appear, fade, wipe, zoom. On Windows desktop PowerPoint driven by " +
+				"the COM hand (Office 2021) also entrance fly, float, split, wheel, random_bars, grow_turn, bounce, " +
+				"rise_up, swivel; emphasis spin, grow_shrink, teeter, bold_flash, wave, transparency; exit " +
+				"disappear, fade_out, wipe_out, zoom_out, fly_out, float_out, split_out, shrink_turn — the task-pane " +
+				"hand (365, Mac) refuses those and says so. No motion paths anywhere. " +
 				"This REPLACES every effect on the slide (an empty steps array clears them), so read_animation " +
 				"first unless you mean to discard what is there. Because animation cannot be reached through " +
 				"the object model the slide is rebuilt to carry it: the slide KEEPS ITS POSITION but GETS A " +
@@ -484,7 +487,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 					Name: "steps", Type: "array", Items: "object",
 					Desc: "In the order things should happen. Each step is an object: " +
 						"shape_id (required, a shape id from read_slide); " +
-						"effect (\"appear\" | \"fade\" | \"wipe\" | \"zoom\", default fade); " +
+						"effect (see above, default fade; read_animation reports each step's kind: entrance, emphasis, exit); " +
 						"start (\"on_click\" = a click of its own | \"with_previous\" = same click as the " +
 						"step before | \"after_previous\" = starts by itself when the step before ends; " +
 						"default on_click); " +
@@ -495,6 +498,60 @@ func pptCatalogue(hasCouncil bool) []tool {
 				},
 			),
 			Required: []string{"steps"},
+		},
+		// ── 발표 설정 — Office.js 에 길이 없어 COM 손(2021)만 한다. 작업창이 손인 호스트에서는 목록에서 빠진다(hostcaps.go). ──
+		{
+			Name: "set_transition",
+			Desc: "How the show moves INTO a slide (화면 전환): the effect, how long it takes, and whether it waits for a click " +
+				"or advances by itself after some seconds. One slide, or every slide with all: true. Leaving an argument out " +
+				"keeps what the slide has. read_slide shows a slide's transition." + declare,
+			Props: withSlide(
+				property{Name: "all", Type: "boolean", Desc: "Every slide in the deck (instead of slide/slide_id)."},
+				property{Name: "effect", Type: "string", Desc: "none, cut, fade, push, wipe, split, reveal, cover, uncover, random_bars, shape, zoom, dissolve, flash, blinds, checkerboard, clock, vortex, ripple, honeycomb, glitter, shred, switch, flip, gallery, cube, doors, box, orbit, pan, ferris_wheel, conveyor, rotate, window, random."},
+				property{Name: "duration", Type: "number", Desc: "Seconds the effect takes (0.01–60)."},
+				property{Name: "on_click", Type: "boolean", Desc: "Advance on a click (default true). false needs advance_after."},
+				property{Name: "advance_after", Type: "number", Desc: "Advance by itself after this many seconds (kiosk / rehearsed timing). null removes it."},
+			),
+		},
+		{
+			Name: "hide_slide",
+			Desc: "Hide a slide from the show (숨기기) — it stays in the deck and in the editor, the show and PDF export skip it. " +
+				"hidden: false shows it again. list_slides marks hidden slides." + declare,
+			Props: withSlide(property{Name: "hidden", Type: "boolean", Desc: "true hides (default), false shows again."}),
+		},
+		{
+			Name: "set_slide_size",
+			Desc: "Change the slide size of the whole deck — 16:9, 4:3, 16:10, a4, letter, or width/height in points. PowerPoint " +
+				"moves and scales every shape to fit, so render a slide afterwards. list_slides reports the current size." + declare,
+			Props: []property{
+				{Name: "size", Type: "string", Desc: "16:9 (960×540pt), 4:3 (720×540), 16:10 (720×450), a4 (780×540), letter (720×540)."},
+				{Name: "width", Type: "number", Desc: "Points (72–4032), instead of size."},
+				{Name: "height", Type: "number", Desc: "Points (72–4032), instead of size."},
+			},
+		},
+		{
+			Name: "add_section",
+			Desc: "Start a named section (구역) at a slide — the grouping in PowerPoint's slide list. If a section already starts " +
+				"at that slide it is renamed. The first section after slide 1 makes PowerPoint add a default section for the " +
+				"slides before it. list_slides shows each slide's section." + declare,
+			Props:    withSlide(property{Name: "name", Type: "string", Desc: "Section name. Required."}),
+			Required: []string{"name"},
+		},
+		{
+			Name:     "remove_section",
+			Desc:     "Remove a section marker by name — the slides stay and join the section before." + declare,
+			Props:    []property{{Name: "name", Type: "string", Desc: "Section name from list_slides. Required."}},
+			Required: []string{"name"},
+		},
+		{
+			Name: "export_pdf",
+			Desc: "Save the deck as a PDF file (the deck file itself is untouched). Without path it goes next to the deck with " +
+				"the same name, or into the person's Documents folder if it was never saved. Hidden slides are left out. Refuses to overwrite an existing " +
+				"file unless overwrite is true." + declare,
+			Props: []property{
+				{Name: "path", Type: "string", Desc: "Full path ending in .pdf."},
+				{Name: "overwrite", Type: "boolean", Desc: "Replace an existing file."},
+			},
 		},
 		{
 			Name: "read_suggestions",

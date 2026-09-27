@@ -848,6 +848,8 @@ const TOOL_LABELS = new Map(Object.entries({
   add_comment: '메모 달기', reply_comment: '메모 답글', resolve_comment: '메모 해결', add_bookmark: '책갈피 넣기', delete_bookmark: '책갈피 지우기',
   set_track_changes: '변경 추적', review_changes: '변경 수락·거부', set_properties: '문서 속성', restore_paragraphs: '되돌리기',
   set_tag: '기록 남기기', suggest: '제안 붙이기', drop_suggestion: '제안 떼기', land: '끝 신고',
+  // Windows 에서 헬퍼가 COM 으로 하는 것
+  export_pdf: 'PDF로 내보내기', proofread: '맞춤법 검사 읽기', document_stats: '문서 통계', compare_documents: '문서 비교',
 }));
 
 export function toolLabel(name) {

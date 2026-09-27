@@ -8,3 +8,7 @@ import "errors"
 func openWordDocOS(string) (wordDoc, error) {
 	return nil, errors.New("COM 은 Windows 에만 있습니다")
 }
+
+func openWordExtraOS(string) (wordExtra, error) {
+	return nil, errors.New("COM 은 Windows 에만 있습니다")
+}

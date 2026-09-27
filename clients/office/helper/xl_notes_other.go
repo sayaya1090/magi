@@ -8,3 +8,7 @@ import "errors"
 func openXLNoterOS() (xlNoter, error) {
 	return nil, errors.New("COM 은 Windows 에만 있습니다")
 }
+
+func openXLExtraOS() (xlExtra, error) {
+	return nil, errors.New("COM 은 Windows 에만 있습니다")
+}

@@ -5,6 +5,7 @@ package office
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 
 	ole "github.com/go-ole/go-ole"
@@ -95,7 +96,12 @@ func sheetOf(wb *ole.IDispatch, name string) (*ole.IDispatch, error) {
 	}
 	wss := oleutil.MustGetProperty(wb, "Worksheets").ToIDispatch()
 	defer wss.Release()
-	v, err := oleutil.GetProperty(wss, "Item", name)
+	// 시트 칸은 탭 번호(1부터)도 받는다(sheetProp) — 숫자면 번호로, 아니면 이름으로.
+	var key any = name
+	if n, e := strconv.Atoi(name); e == nil {
+		key = n
+	}
+	v, err := oleutil.GetProperty(wss, "Item", key)
 	if err != nil {
 		return nil, fmt.Errorf("시트 %q 이 없습니다", name)
 	}

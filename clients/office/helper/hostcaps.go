@@ -14,7 +14,9 @@ import "fmt"
 //   - 도구 **전체**가 요구하는 것만 본다. `edit_table{merge}` 처럼 인자 하나에 걸린 요구는 도구를 숨기지 않는다(나머지는 된다).
 //   - 헬퍼가 다른 길로 대신할 수 있으면 숨기지 않는다 — Windows 의 Word 는 COM 으로(word_com.go), Excel 의 메모는 노트로(xl_notes.go).
 //
-// PowerPoint 는 거르지 않는다: 2021 에서 손은 작업창이 아니라 COM 어댑터라, 작업창이 잰 값은 손이 무엇을 하는지와 상관이 없다.
+// PowerPoint 는 요구 집합으로 거르지 않는다: 2021 에서 손은 작업창이 아니라 COM 어댑터라, 작업창이 잰 값은 손이 무엇을 하는지와
+// 상관이 없다. 거꾸로 **COM 손만 하는 도구**(pptComHandTools — 화면 전환·숨기기·크기·구역·PDF)는 작업창이 손인 호스트에서 뺀다.
+// 작업창이 손인지는 창이 쓰는 규칙 그대로다: 잰 PowerPointApi 1.8 이 되면 손(usecase/HandRole.js HAND_FLOOR).
 //
 // ⚠ 알려진 틈: 데몬은 도구 목록을 **붙을 때**(AttachMCP) 받아 간다. 창이 잰 값이 그보다 늦게 오면 그 붙음 동안은 거르지 않은
 // 목록이 남는다 — 다음 붙음(대화 바꾸기·데몬 재기동)에서 맞춰진다. 창은 화면을 그리면서 곧바로 보내므로 대개 먼저 온다.
@@ -100,8 +102,50 @@ func hostLacks(caps map[string]any, need apiNeed) bool {
 	return false
 }
 
-// hiddenHere 는 이 도구를 목록에서 뺄 것인가 — 위 규칙 셋.
+// pptComHandTools 는 PowerPoint 의 COM 손(hand-com, 2021)만 하는 도구 — Office.js 에 그 길이 없다(Hand.Show.cs).
+var pptComHandTools = map[string]bool{
+	"set_transition": true, "hide_slide": true, "set_slide_size": true, "add_section": true, "remove_section": true, "export_pdf": true,
+}
+
+// pptPaneFloor 는 작업창이 손 노릇을 하는 바닥 — 창의 HAND_FLOOR 와 같은 값이어야 한다(hostcaps_test 가 소스를 읽어 대조한다).
+var pptPaneFloor = apiNeed{"PowerPointApi", "1.8"}
+
+// hostHas 는 창이 **잰** 값이 그 요구를 채운다고 말하는가. 안 쟀으면 거짓 — 모르는 것을 「된다」로 읽지 않는다.
+func hostHas(caps map[string]any, need apiNeed) bool {
+	if caps == nil {
+		return false
+	}
+	if measured, _ := caps["measured"].(bool); !measured {
+		return false
+	}
+	return !hostLacks(caps, need) && hostListed(caps, need)
+}
+
+// hostListed 는 잰 목록에 그 집합·판이 있는가.
+func hostListed(caps map[string]any, need apiNeed) bool {
+	raw, _ := caps["sets"].([]any)
+	for _, x := range raw {
+		if m, ok := x.(map[string]any); ok && fmt.Sprint(m["name"]) == need.Set && fmt.Sprint(m["version"]) == need.Version {
+			return true
+		}
+	}
+	typed, _ := caps["sets"].([]map[string]any)
+	for _, m := range typed {
+		if fmt.Sprint(m["name"]) == need.Set && fmt.Sprint(m["version"]) == need.Version {
+			return true
+		}
+	}
+	return false
+}
+
+// hiddenHere 는 이 도구를 목록에서 뺄 것인가 — 위 규칙 셋, 그리고 PowerPoint 의 COM 전용 도구.
 func (a *App) hiddenHere(name string, caps map[string]any) bool {
+	if comLocalTools[a.Key][name] {
+		return !comLocalOnThisOS // COM 이 없는 기계에서는 부를 길이 없다(com_local.go)
+	}
+	if a.Key == "ppt" && pptComHandTools[name] {
+		return hostHas(caps, pptPaneFloor) // 작업창이 손이면 이 도구를 할 손이 없다
+	}
 	need, ok := a.toolNeeds()[name]
 	if !ok {
 		return false

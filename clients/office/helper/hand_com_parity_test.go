@@ -52,8 +52,8 @@ func TestTheComHandKnowsExactlyTheCatalogue(t *testing.T) {
 	if len(onlyHere) > 0 || len(onlyThere) > 0 {
 		t.Fatalf("COM 손과 catalogue 가 어긋난다 — 헬퍼에만: %v · COM 손에만: %v", onlyHere, onlyThere)
 	}
-	if len(known) != 48 {
-		t.Fatalf("도구가 %d개다 — 문서(48)를 같이 고쳐라", len(known))
+	if len(known) != 54 {
+		t.Fatalf("도구가 %d개다 — 문서(54 = 48 + 발표 설정 여섯)를 같이 고쳐라", len(known))
 	}
 }
 

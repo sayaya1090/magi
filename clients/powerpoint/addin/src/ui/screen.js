@@ -868,6 +868,9 @@ const TOOL_LABELS = new Map(Object.entries({
   // 덱에 남는 것
   set_notes: '발표자 노트 쓰기', set_tag: '메모 남기기', animate_slide: '애니메이션 걸기',
   suggest: '제안 붙이기', drop_suggestion: '제안 떼기',
+  // 발표 설정 — COM 손(2021)만 한다
+  set_transition: '화면 전환 걸기', hide_slide: '장 숨기기', set_slide_size: '슬라이드 크기 바꾸기',
+  add_section: '구역 나누기', remove_section: '구역 지우기', export_pdf: 'PDF로 내보내기',
   // 덱 밖 — magi 자신의 것
   websearch: '웹 검색', webfetch: '웹 페이지 읽기', todowrite: '계획 세우기',
   bash: '셸 명령', read: '파일 읽기', write: '파일 쓰기', edit: '파일 고치기',

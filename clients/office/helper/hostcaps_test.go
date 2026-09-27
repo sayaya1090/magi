@@ -105,3 +105,38 @@ func TestPowerPointIsNotFilteredByThePanesCaps(t *testing.T) {
 		t.Error("파워포인트의 도구를 창의 잰 값으로 숨겼다")
 	}
 }
+
+// COM 손만 하는 여섯(화면 전환·숨기기·크기·구역 둘·PDF)은 작업창이 손인 호스트에서 빠진다 — 거기서 부르면 「모르는 조작」뿐이다.
+// 2021(바닥 1.8 이 안 됨 → 창은 화면, 손은 COM)과 안 잰 호스트에서는 남는다.
+func TestComOnlySlideToolsHideWhereThePaneIsTheHand(t *testing.T) {
+	pane := &MCPServer{App: PPT, HostCaps: func() map[string]any {
+		return map[string]any{"measured": true, "sets": []any{map[string]any{"name": "PowerPointApi", "version": "1.8", "ok": true}}}
+	}}
+	ltsc := &MCPServer{App: PPT, HostCaps: func() map[string]any {
+		return map[string]any{"measured": true, "sets": []any{map[string]any{"name": "PowerPointApi", "version": "1.8", "ok": false}}}
+	}}
+	unmeasured := &MCPServer{App: PPT}
+	for n := range pptComHandTools {
+		if listed(pane)[n] {
+			t.Errorf("작업창이 손인 호스트에 %s 를 광고했다", n)
+		}
+		if !listed(ltsc)[n] || !listed(unmeasured)[n] {
+			t.Errorf("COM 손이 하는 %s 를 숨겼다", n)
+		}
+	}
+	if got := len(listed(unmeasured)) - len(listed(pane)); got != len(pptComHandTools) {
+		t.Errorf("작업창 손 호스트에서 숨긴 수 %d — COM 전용 %d개만 빠져야 한다", got, len(pptComHandTools))
+	}
+}
+
+// 바닥 값은 창의 HandRole.js 와 한 벌이다 — 갈리면 창은 「화면」인데 헬퍼는 「손」으로 읽어 도구를 뺀다.
+func TestThePaneFloorIsTheAddinsOwn(t *testing.T) {
+	b, err := os.ReadFile("../../powerpoint/addin/src/usecase/HandRole.js")
+	if err != nil {
+		t.Fatalf("창의 소스를 못 읽었다(%v)", err)
+	}
+	m := regexp.MustCompile(`HAND_FLOOR = Object\.freeze\(\{ name: '([A-Za-z]+)', version: '([0-9.]+)' \}\)`).FindStringSubmatch(string(b))
+	if m == nil || (apiNeed{m[1], m[2]}) != pptPaneFloor {
+		t.Fatalf("창의 바닥 %v 와 헬퍼의 바닥 %v 가 다르다", m, pptPaneFloor)
+	}
+}

@@ -975,7 +975,13 @@ async function makeZip(files) {
 {
   const go = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
   const body = go.slice(go.indexOf('return []tool{'));
-  const advertised = [...body.matchAll(/Name:\s+"([a-z_]+)",\n\s*Desc:/g)].map((m) => m[1]);
+  // **COM 손만 하는 도구는 뺀다.** 헬퍼는 작업창이 손인 호스트에서 그것들을 광고하지 않는다(hostcaps.go pptComHandTools) —
+  // 이 손이 몰라야 맞다. 목록은 그 Go 소스에서 읽는다: 손으로 적으면 두 벌이 된다.
+  const hostcaps = readFileSync(new URL('../../../office/helper/hostcaps.go', import.meta.url), 'utf8');
+  const comBlock = hostcaps.slice(hostcaps.indexOf('var pptComHandTools = map[string]bool{'));
+  const comOnly = new Set([...comBlock.slice(0, comBlock.indexOf('}')).matchAll(/"([a-z_]+)": true/g)].map((m) => m[1]));
+  ok('COM 전용 목록을 읽었다', comOnly.size >= 6, [...comOnly].join(', '));
+  const advertised = [...body.matchAll(/Name:\s+"([a-z_]+)",\n\s*Desc:/g)].map((m) => m[1]).filter((n) => !comOnly.has(n));
   // **다 지원하는 손으로 잰다.** `ops()` 는 호스트 요구집합에 따라 줄어들고(1.9/1.10 게이트),
   // 지원 없는 손으로 재면 게이트 뒤의 도구가 전부 「손이 모른다」로 읽힌다 — 오늘 그 위양성을
   // 다섯 건 봤다(2026-09-04). 광고와 손이 어긋났는지를 묻는 자리이므로 **천장에서** 견준다.

@@ -18,7 +18,7 @@ Word 작업창 안에서 magi 컴패니언과 대화하고, **컴패니언이 �
 
 ```
 Word 작업창(애드인)  ←https→  magi office(헬퍼, /word)  ←unix socket→  magi --daemon  →  모델
-     └── 조작 어댑터: Word.js로 문서 수정     └── MCP 서버: 도구 66개를 데몬에 붙인다
+     └── 조작 어댑터: Word.js로 문서 수정     └── MCP 서버: 도구 70개를 데몬에 붙인다
 ```
 
 PowerPoint와 달리 별도의 **COM 어댑터가 필요하지 않습니다.** Word 2019, 2021, Microsoft 365는 모두 `WordApi 1.3` 이상을 지원하므로 웹 작업창 애드인이 직접 문서를 수정합니다. 2016 이하 버전에서는 작업창이 뜨더라도 편집이 제한되며 안내 문구가 표시됩니다(§3.1). 메모·책갈피·변경 추적(`WordApi 1.4`), 각주·스타일 서식(`WordApi 1.5`), 변경 검토(`WordApi 1.6`), 쪽 설정(`WordApiDesktop 1.1`) API는 Microsoft 365 및 Word 2024에서만 작업창에 있습니다.
@@ -78,7 +78,7 @@ magi --daemon
 
 ### 3.2 브랜드 줄 · 3.3 대화 줄 · 3.4~3.9
 
-엑셀 판 [`MANUAL.ko.md`](../../excel/docs/MANUAL.ko.md) §3.2~§3.9 와 같다. 붙는 과정은 **「준비됐습니다 — 도구 66 개.」** 로
+엑셀 판 [`MANUAL.ko.md`](../../excel/docs/MANUAL.ko.md) §3.2~§3.9 와 같다. 붙는 과정은 **「준비됐습니다 — 도구 70 개.」** 로
 끝난다. 가이드는 워드 것 셋(`document-structure`·`editing`·`tables-and-review`).
 
 ---
@@ -106,9 +106,9 @@ magi --daemon
 
 ## 6. 무엇을 시킬 수 있나
 
-### 6.1 도구 66개
+### 6.1 도구 70개
 
-**읽는 것 (19) — 안 물어보고 도는 무리**
+**읽는 것 (21) — 안 물어보고 도는 무리**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -131,8 +131,10 @@ magi --daemon
 | `read_suggestions` | 붙어 있는 제안(1.4) |
 | `advise` | 작업창에 안내 포스트잇 — 문서는 안 고친다 |
 | `clear_advice` | 포스트잇을 지운다 |
+| `proofread` | Word 가 **밑줄 친 맞춤법·문법** 목록 — 문단 번호와 맞춤법 제안까지. 그 언어의 교정 도구가 없으면 비어 있다. **Windows 만**(COM) |
+| `document_stats` | **쪽 수**·단어·글자·문단·줄 — Word 의 「단어 개수」와 같은 값. 쪽 수는 이 길로만 안다. **Windows 만** |
 
-**문서를 고치는 것 (47) — 권한을 묻는 무리**
+**문서를 고치는 것 (49) — 권한을 묻는 무리**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -167,6 +169,10 @@ magi --daemon
 | `restore_paragraphs` | 스냅숏으로 되돌린다 — 그 사이 위쪽 번호가 밀렸으면 먼저 확인 |
 | `set_tag` | 기록 남기기(255자까지 — Word 의 한계) |
 | `suggest` · `drop_suggestion` | **수정 제안** — 즉시 수정하지 않고 카드로 제시. 실행 가능한 도구는 replace_paragraph·format_text·format_paragraph·set_style·replace_all·insert_paragraphs(1.4) 6종 |
+| `export_pdf` | 문서를 **PDF 로** 내보낸다(문서는 그대로). 경로를 안 주면 문서 옆에, 저장 안 한 문서면 「문서」 폴더에. 있는 파일은 `overwrite` 없이 안 덮는다. **Windows 만** |
+| `compare_documents` | 다른 .docx 와 **비교**해 차이를 변경 추적으로 표시한 **새 문서**를 연다(두 파일은 그대로). **Windows 만** |
+
+**「Windows 만」인 넷은 Office.js 에 길이 없고 COM 에만 있는 기능이다**(2026-09-27). 헬퍼가 창에게 문서 표식만 묻고 COM 으로 한다 — Windows 가 아닌 기계에서는 모델에게 안 보인다(`hostcaps.go`).
 
 `land` 도구는 이 표에 포함되지 않습니다 — 카운슬이 비활성화된 대화에서 턴을 종료할 때 사용하는 선언 도구입니다.
 
@@ -184,17 +190,19 @@ Word.js API에는 문단에 부여되는 불변 고유 ID가 없습니다. `list
 
 ## 7. 권한
 
-조회(읽기) 도구 19종은 사용자 확인 없이 즉시 실행됩니다. 규칙 목록은 `./magi office -allow-rules=word` 명령으로 생성되며, 아래는 해당 설정 내용입니다:
+조회(읽기) 도구 21종은 사용자 확인 없이 즉시 실행됩니다. 규칙 목록은 `./magi office -allow-rules=word` 명령으로 생성되며, 아래는 해당 설정 내용입니다:
 
 ```toml
 allow = [
   "mcp__word__advise(**)",
   "mcp__word__clear_advice(**)",
   "mcp__word__describe_style(**)",
+  "mcp__word__document_stats(**)",
   "mcp__word__find(**)",
   "mcp__word__list_images(**)",
   "mcp__word__list_paragraphs(**)",
   "mcp__word__list_shapes(**)",
+  "mcp__word__proofread(**)",
   "mcp__word__read_comments(**)",
   "mcp__word__read_content_controls(**)",
   "mcp__word__read_document(**)",
@@ -244,5 +252,5 @@ Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 �
 ## 11. 이 문서와 시험의 관계
 
 이름 대는 도구는 전부 카탈로그에 있어야 하고(`TestTheManualNamesEveryTool`), §7 의 규칙은 코드가 만드는 것과 글자까지 같아야
-하며(`TestTheManualQuotesTheRulesWeGenerate`), 「도구 66개」「읽는 것 19」「고치는 것 47」「준비됐습니다 — 도구 66 개」는 수를
+하며(`TestTheManualQuotesTheRulesWeGenerate`), 「도구 70개」「읽는 것 21」「고치는 것 49」「준비됐습니다 — 도구 70 개」는 수를
 세는 시험이 문다(`TestTheDocsCountTheToolsWeAdvertise`).

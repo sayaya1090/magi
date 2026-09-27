@@ -25,6 +25,8 @@ public sealed partial class Hand
         "add_chart", "add_image", "set_notes", "format_table_cells", "set_background", "set_theme_colors", "set_tag", "animate_slide", "suggest",
         "drop_suggestion", "delete_shape", "apply_layout", "reorder_slide", "set_hyperlink", "add_table", "replace_table", "set_table_cells", "edit_table",
         "format_text", "group_shapes", "ungroup_shapes", "restore_slide",
+        // 발표 설정 — COM 에만 길이 있다(Hand.Show.cs)
+        "set_transition", "hide_slide", "set_slide_size", "add_section", "remove_section", "export_pdf",
     };
 
     public HandReply Handle(HandCall call)
@@ -49,7 +51,19 @@ public sealed partial class Hand
             case "list_slides":
             {
                 var slides = ops.ListSlides();
-                return (new() { ["slides"] = slides.Select(s => new Dictionary<string, object?> { ["slide"] = s.Slide, ["slide_id"] = s.SlideId, ["layout"] = s.Layout, ["shapes"] = s.Shapes, ["title"] = s.Title }).ToList(), ["count"] = slides.Count },
+                // 구역·숨김은 사람이 발표 흐름을 잡는 표시다 — 목차에서 안 보이면 모델은 숨긴 장을 발표에 있는 것으로 말한다.
+                var sections = ops.Sections();
+                string? SectionOf(int n) => sections.LastOrDefault(x => x.First > 0 && x.First <= n)?.Name;
+                var rows = slides.Select(s =>
+                {
+                    var row = new Dictionary<string, object?> { ["slide"] = s.Slide, ["slide_id"] = s.SlideId, ["layout"] = s.Layout, ["shapes"] = s.Shapes, ["title"] = s.Title };
+                    if (ops.IsHidden(s.Slide)) row["hidden"] = true;
+                    if (SectionOf(s.Slide) is string sec) row["section"] = sec;
+                    return row;
+                }).ToList();
+                var size = ops.SlideSize();
+                return (new() { ["slides"] = rows, ["count"] = slides.Count, ["slide_size"] = new Dictionary<string, object?> { ["width"] = size.Width, ["height"] = size.Height },
+                        ["sections"] = sections.Count == 0 ? null : SectionRows(sections) },
                         new() { $"장 {slides.Count}개" });
             }
             case "read_slide":
@@ -59,7 +73,9 @@ public sealed partial class Hand
                 // 표는 격자다 — 칸의 글을 안 실으면 모델은 「표가 있다」까지만 안다. 작업창 손은 2026-09-02 부터 싣는데 이 손은 빠져
                 // 있었다: 방금 채운 표를 되읽으니 text "" 만 왔다(실물 2021, 2026-09-27 시나리오 PP-1). 같은 칸 이름(rows·columns·cells)으로 싣는다.
                 var grids = d.Shapes.Any(s => s.Type == "Table") ? ops.TablesOn(n).ToDictionary(t => t.ShapeId) : new Dictionary<string, TableInfo>();
-                return (new() { ["slide"] = d.Slide, ["slide_id"] = d.SlideId, ["layout"] = d.Layout, ["notes"] = d.Notes,
+                var tr = ops.ReadTransition(n);
+                return (new() { ["slide"] = d.Slide, ["slide_id"] = d.SlideId, ["layout"] = d.Layout, ["notes"] = d.Notes, ["hidden"] = ops.IsHidden(n),
+                        ["transition"] = tr.Effect == "none" && tr.OnClick && tr.AdvanceAfter is null ? null : new Dictionary<string, object?> { ["effect"] = tr.Effect, ["duration"] = tr.Duration, ["on_click"] = tr.OnClick, ["advance_after"] = tr.AdvanceAfter },
                         ["shapes"] = d.Shapes.Select(s =>
                         {
                             var row = new Dictionary<string, object?> { ["shape_id"] = s.ShapeId, ["name"] = s.Name, ["type"] = s.Type, ["placeholder"] = s.Placeholder, ["text"] = s.Text, ["left"] = s.Left, ["top"] = s.Top, ["width"] = s.Width, ["height"] = s.Height };
@@ -182,7 +198,7 @@ public sealed partial class Hand
                 return (new() { ["styled"] = n }, new() { $"장 {n}개의 제목·본문 서식을 맞췄습니다" + (a.Str("ea_font") is not null ? $" · 한글 글꼴 {a.Str("ea_font")}" : "") });
             }
             default:
-                return Shapes(op, a) ?? Tables(op, a) ?? Deck(op, a) ?? Memory(op, a)
+                return Shapes(op, a) ?? Tables(op, a) ?? Deck(op, a) ?? Memory(op, a) ?? Show(op, a)
                     ?? throw new HandError($"이 손(COM, Office 2021)은 {op} 를 모릅니다 — 아는 것: {string.Join(", ", Known)}");
         }
     }

@@ -31,6 +31,10 @@ public sealed record BackgroundSpec(string Kind, string? Color, double? Transpar
 /// <summary>애니메이션 한 걸음. Effect 는 appear/fade/wipe/zoom, Start 는 on_click/with_previous/after_previous.</summary>
 public sealed record AnimStep(string ShapeId, string Effect, string Start, int DurationMs, bool EachParagraph);
 public sealed record AnimRead(IReadOnlyList<AnimStep> Steps, int Unreadable);
+/// <summary>장 넘김(화면 전환). Effect 는 Hand.TransitionEffects 의 이름, AdvanceAfter 는 초(null = 자동으로 안 넘김).</summary>
+public sealed record Transition(string Effect, double Duration, bool OnClick, double? AdvanceAfter);
+/// <summary>구역 하나 — First 는 첫 장 번호(1부터), 빈 구역이면 0.</summary>
+public sealed record SectionInfo(string Name, int First, int Count);
 
 /// <summary>
 /// 덱에 닿는 손의 동작. COM(InteropOps)이 실물이고 FakeOps 는 시험·mac 개발용이다. 판단(⚠·문구·정렬 계산)은
@@ -100,4 +104,20 @@ public interface IOps
     string? SetTag(int slide, string? shapeId, string key, string? value);
     AnimRead ReadAnimation(int slide);
     void SetAnimation(int slide, IReadOnlyList<AnimStep> steps);
+
+    // ── 발표 설정 — Office.js 에는 길이 없어 이 손(COM)만 한다 ──
+    Transition ReadTransition(int slide);
+    void SetTransition(int slide, Transition t);
+    bool IsHidden(int slide);
+    void SetHidden(int slide, bool hidden);
+    (double Width, double Height) SlideSize();
+    void SetSlideSize(double width, double height);
+    IReadOnlyList<SectionInfo> Sections();
+    /// <summary>slide 에서 시작하는 구역을 만든다. 그 장에서 이미 구역이 시작하면 이름만 바꾼다. 돌려주는 값은 「새로 만들었나」.</summary>
+    bool AddSection(int slide, string name);
+    /// <summary>구역 표시만 지운다 — 장은 그대로 앞 구역에 붙는다. index 는 1부터.</summary>
+    void DeleteSection(int index);
+    /// <summary>덱 파일의 경로. 저장 안 한 덱이면 null.</summary>
+    string? FilePath { get; }
+    void ExportPdf(string path);
 }

@@ -25,6 +25,7 @@ public sealed class FakeOps : IOps
         public int Id; public string Layout = "제목 및 내용"; public List<Shape> Shapes = new(); public string Notes = "";
         public Dictionary<string, string> Tags = new(StringComparer.OrdinalIgnoreCase);
         public List<AnimStep> Anim = new(); public BackgroundSpec? Background;
+        public Transition Transition = new("none", 0, true, null); public bool Hidden;
         public Dictionary<string, string> Theme = new(DefaultTheme, StringComparer.OrdinalIgnoreCase);
     }
     internal static readonly Dictionary<string, string> DefaultTheme = new(StringComparer.OrdinalIgnoreCase)
@@ -242,6 +243,45 @@ public sealed class FakeOps : IOps
     }
     public AnimRead ReadAnimation(int n) => new(At(n).Anim, 0);
     public void SetAnimation(int n, IReadOnlyList<AnimStep> steps) { foreach (var st in steps) ShapeAt(n, st.ShapeId); At(n).Anim = steps.ToList(); }
+
+    // ── 발표 설정 ──
+    // 구역은 「그 구역이 시작하는 장의 id」로 둔다 — 장을 옮기고 지워도 PowerPoint 처럼 구역이 장을 따라간다. 시작 장이 사라진 구역은
+    // PowerPoint 도 다음 장부터 잇게 두므로, 여기서는 그 구역을 비운 채 남긴다(0장).
+    private readonly List<(string Name, int FirstId)> sections = new();
+    private double slideWidth = 960, slideHeight = 540;
+    public string? FilePath { get; set; }
+    public readonly List<string> Exported = new();
+    public Transition ReadTransition(int n) => At(n).Transition;
+    public void SetTransition(int n, Transition t) => At(n).Transition = t.Effect.StartsWith("other:", StringComparison.Ordinal) ? At(n).Transition with { Duration = t.Duration, OnClick = t.OnClick, AdvanceAfter = t.AdvanceAfter } : t;
+    public bool IsHidden(int n) => At(n).Hidden;
+    public void SetHidden(int n, bool hidden) => At(n).Hidden = hidden;
+    public (double Width, double Height) SlideSize() => (slideWidth, slideHeight);
+    public void SetSlideSize(double width, double height) { slideWidth = width; slideHeight = height; }
+    public IReadOnlyList<SectionInfo> Sections()
+    {
+        var starts = sections.Select(s => (s.Name, At: slides.FindIndex(x => x.Id == s.FirstId) + 1)).ToList();
+        var ordered = starts.Where(s => s.At > 0).OrderBy(s => s.At).ToList();
+        return starts.Select(s =>
+        {
+            if (s.At == 0) return new SectionInfo(s.Name, 0, 0);
+            var next = ordered.FirstOrDefault(o => o.At > s.At).At;
+            return new SectionInfo(s.Name, s.At, (next == 0 ? slides.Count + 1 : next) - s.At);
+        }).OrderBy(x => x.First == 0 ? int.MaxValue : x.First).ToList();
+    }
+    public bool AddSection(int n, string name)
+    {
+        var id = At(n).Id; var i = sections.FindIndex(s => s.FirstId == id);
+        if (i >= 0) { sections[i] = (name, id); return false; }
+        // PowerPoint 처럼: 첫 구역이 1장보다 뒤에서 시작하면 앞 장들을 담는 「기본 구역」이 저절로 생긴다.
+        if (sections.Count == 0 && n > 1) sections.Add(("기본 구역", slides[0].Id));
+        sections.Add((name, id)); return true;
+    }
+    public void DeleteSection(int index)
+    {
+        var list = Sections(); if (index < 1 || index > list.Count) throw new HandError($"구역 {index} 이 없습니다");
+        var name = list[index - 1].Name; sections.RemoveAt(sections.FindIndex(s => s.Name == name));
+    }
+    public void ExportPdf(string path) => Exported.Add(path);
 
     internal Slide At(int n) => slides[ResolveSlide(n, null) - 1];
     internal Shape ShapeAt(int n, string id) => At(n).Shapes.FirstOrDefault(x => x.Id.ToString() == id) ?? throw new HandError($"슬라이드 {n} 에 도형 {id} 이 없습니다 — 이 장의 도형: {string.Join(", ", At(n).Shapes.Select(x => x.Id))}");

@@ -10,7 +10,12 @@ public sealed partial class Hand
 {
     internal const string FixPrefix = "MAGI.FIX.";
     private static readonly string[] Fixable = { "set_text", "format_shape", "move_shape", "align_shapes", "delete_shape", "set_notes", "set_hyperlink" };
-    private static readonly string[] Effects = { "appear", "fade", "wipe", "zoom" };
+    /// <summary>애니메이션 이름 — 들어오기·강조·끝내기. InteropOps.AnimMap 의 열쇠와 같아야 한다(시험이 대조한다). 365 작업창 손은 앞의 넷만 한다.</summary>
+    public static readonly string[] Entrance = { "appear", "fade", "wipe", "zoom", "fly", "float", "split", "wheel", "random_bars", "grow_turn", "bounce", "rise_up", "swivel" };
+    public static readonly string[] Emphasis = { "spin", "grow_shrink", "teeter", "bold_flash", "wave", "transparency" };
+    public static readonly string[] Exit = { "disappear", "fade_out", "wipe_out", "zoom_out", "fly_out", "float_out", "split_out", "shrink_turn" };
+    public static readonly string[] Effects = Entrance.Concat(Emphasis).Concat(Exit).ToArray();
+    private static string KindOf(string effect) => Emphasis.Contains(effect) ? "emphasis" : Exit.Contains(effect) ? "exit" : "entrance";
     private static readonly string[] Starts = { "on_click", "with_previous", "after_previous" };
 
     private static List<Dictionary<string, object?>> Pairs(IReadOnlyDictionary<string, string> tags) => tags.Select(kv => new Dictionary<string, object?> { ["key"] = kv.Key, ["value"] = kv.Value }).ToList();
@@ -55,7 +60,7 @@ public sealed partial class Hand
             case "read_animation":
             {
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var r = ops.ReadAnimation(n);
-                var steps = r.Steps.Select(s => new Dictionary<string, object?> { ["shape_id"] = s.ShapeId, ["effect"] = s.Effect, ["start"] = s.Start, ["duration_ms"] = s.DurationMs, ["paragraphs"] = s.EachParagraph ? "each" : "all" }).ToList();
+                var steps = r.Steps.Select(s => new Dictionary<string, object?> { ["shape_id"] = s.ShapeId, ["effect"] = s.Effect, ["kind"] = KindOf(s.Effect), ["start"] = s.Start, ["duration_ms"] = s.DurationMs, ["paragraphs"] = s.EachParagraph ? "each" : "all" }).ToList();
                 return (new() { ["slide"] = n, ["has_animation"] = steps.Count > 0 || r.Unreadable > 0, ["steps"] = steps, ["unreadable"] = r.Unreadable, ["all_known"] = r.Unreadable == 0, ["effects_known"] = Effects },
                         new() { steps.Count == 0 && r.Unreadable == 0 ? $"슬라이드 {n}: 애니메이션 없음" : $"슬라이드 {n}: 걸음 {steps.Count}개" + (r.Unreadable > 0 ? $" · 못 읽는 효과 {r.Unreadable}개(덮어쓰면 사라집니다)" : "") });
             }
@@ -67,7 +72,7 @@ public sealed partial class Hand
                 foreach (var s in a.Objects("steps"))
                 {
                     var id = s.Str("shape_id") ?? throw new HandError("steps 의 항목마다 shape_id 가 있어야 합니다"); ShapeOn(n, id);
-                    var effect = (s.Str("effect") ?? "fade").ToLowerInvariant(); if (!Effects.Contains(effect)) throw new HandError($"effect 는 {string.Join(", ", Effects)} 중 하나입니다 — '{effect}'. 나가기·강조·이동 경로는 이 손이 안 합니다");
+                    var effect = (s.Str("effect") ?? "fade").ToLowerInvariant(); if (!Effects.Contains(effect)) throw new HandError($"effect 는 들어오기 {string.Join(", ", Entrance)} · 강조 {string.Join(", ", Emphasis)} · 끝내기 {string.Join(", ", Exit)} 중 하나입니다 — '{effect}'. 이동 경로는 이 손이 안 합니다");
                     var start = (s.Str("start") ?? "on_click").ToLowerInvariant(); if (!Starts.Contains(start)) throw new HandError($"start 는 {string.Join(", ", Starts)} 중 하나입니다 — '{start}'");
                     steps.Add(new AnimStep(id, effect, start, Math.Max(1, s.Int("duration_ms") ?? 500), string.Equals(s.Str("paragraphs"), "each", StringComparison.OrdinalIgnoreCase)));
                 }

@@ -11,7 +11,7 @@ func withFromTo(rest ...property) []property {
 
 func wordCatalogue(hasCouncil bool) []tool {
 	declare := councilDeclaration(hasCouncil)
-	return []tool{
+	return append([]tool{
 		{
 			Name: "list_paragraphs",
 			Desc: "A DOCUMENT IS ALREADY OPEN IN WORD AND THESE TOOLS ARE ATTACHED TO IT. You do not " +
@@ -78,8 +78,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_comments",
 			Desc: "Every comment thread on the body: id, author, date, the commented text, the comment, its " +
-				"replies, and whether it is resolved. Needs WordApi 1.4 (Microsoft 365 / 2024) — on 2019/2021 " +
-				"this refuses by name." + declare,
+				"replies, and whether it is resolved. Needs WordApi 1.4 in the pane; " +
+				"on Windows the helper does it through COM when the pane cannot (Word 2019·2021)." + declare,
 			Props:    withFromTo(),
 			ReadOnly: true,
 		},
@@ -93,7 +93,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_footnotes",
 			Desc: "Every footnote and endnote: number, kind, the paragraph it hangs on, the referenced text, and the note. " +
-				"Needs WordApi 1.5 — refused by name on 2019/2021." + declare,
+				"Needs WordApi 1.5 in the pane; on Windows the helper does it through COM when the pane cannot (Word 2019·2021)." + declare,
 			Props:    withFromTo(),
 			ReadOnly: true,
 		},
@@ -393,7 +393,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 				"document property — that Word keeps up to date. Goes into the body after/before a paragraph, or into a " +
 				"section's header or footer (`which`). `template` writes text around fields: \"{page} / {pages}\" in a footer, " +
 				"\"작성일 {date}\" in the body. A table of contents needs heading styles (set_style builtin Heading1…) to " +
-				"list anything. Needs WordApi 1.5 (Word 2021 is 1.3 — refused there, nothing changed).",
+				"list anything. Needs WordApi 1.5 in the pane; on Windows the helper does it through COM when the pane cannot (Word 2019·2021).",
 			Props: []property{
 				property{Name: "field", Type: "string", Desc: "toc, page, num_pages, date, time, title, author, file_name. Omit when template names them.", Enum: wordFieldKinds},
 				property{Name: "template", Type: "string", Desc: "Text with {page} {pages} {date} {time} {title} {author} {file} placeholders, e.g. \"{page} / {pages}\"."},
@@ -521,7 +521,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Desc: "Change a paragraph STYLE itself — font, size, bold, italic, colour, alignment, spacing, indents — so every " +
 				"paragraph in that style changes at once, now and later. `style` is a built-in name (Heading1, Normal, " +
 				"ListParagraph — language-independent) or the name the document shows (describe_style). `create: true` makes a " +
-				"new paragraph style of that name when none exists. Needs WordApi 1.5 — refused by name on 2019/2021.",
+				"new paragraph style of that name when none exists. Needs WordApi 1.5 in the pane; on Windows the helper does it through COM when the pane cannot (Word 2019·2021).",
 			Props: []property{
 				property{Name: "style", Type: "string", Desc: "Built-in (Heading2) or the document's own style name. Required."},
 				property{Name: "font", Type: "string", Desc: "Typeface, e.g. \"맑은 고딕\"."},
@@ -542,7 +542,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "insert_footnote",
 			Desc: "Add a footnote (default) or an endnote at a place in a paragraph: after `text` inside it, or at the " +
-				"paragraph's end when text is omitted. Needs WordApi 1.5 — refused by name on 2019/2021.",
+				"paragraph's end when text is omitted. Needs WordApi 1.5 in the pane; on Windows the helper does it through COM when the pane cannot (Word 2019·2021).",
 			Props: []property{
 				property{Name: "paragraph", Type: "integer", Topic: true, Desc: "The paragraph the note hangs on, 1-based. Required.", Also: []string{"from"}},
 				property{Name: "text", Type: "string", Desc: "Word(s) inside the paragraph the mark goes after. Omit for the paragraph's end."},
@@ -678,7 +678,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Props:    []property{property{Name: "key", Type: "string", Desc: "Required."}},
 			Required: []string{"key"},
 		},
-	}
+	}, wordComLocalTools(declare)...)
 }
 
 var wordDocumentProp = property{

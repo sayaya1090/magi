@@ -14,7 +14,7 @@ func withRange(rest ...property) []property {
 // 이유: magi 의 MCP 클라이언트는 핸드셰이크의 instructions 를 버려서 설명문이 유일한 자리다).
 func xlCatalogue(hasCouncil bool) []tool {
 	declare := councilDeclaration(hasCouncil)
-	return []tool{
+	return append([]tool{
 		// ── 읽기 ────────────────────────────────────────────────────────────────────
 		{
 			Name: "list_sheets",
@@ -828,7 +828,7 @@ func xlCatalogue(hasCouncil bool) []tool {
 			Props:    []property{{Name: "key", Type: "string", Desc: "The suggestion's key, from read_suggestions. Required."}},
 			Required: []string{"key"},
 		},
-	}
+	}, xlComLocalTools(declare)...)
 }
 
 // xlDocumentProp 는 모든 도구가 같이 받는 칸이다(MCP 에 scope 개념이 없으니 인자로 받는다).

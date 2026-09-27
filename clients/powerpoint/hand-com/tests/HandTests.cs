@@ -121,7 +121,7 @@ public class HandTests
     [Fact]
     public void KnowsEveryTool()
     {
-        Assert.Equal(48, Hand.Known.Count);
+        Assert.Equal(54, Hand.Known.Count); // 48 + 발표 설정 여섯(Hand.Show.cs)
         var hand = new Hand(new FakeOps(), 1);
         foreach (var op in Hand.Known)
         {
@@ -257,7 +257,7 @@ public class HandTests
         Assert.Null(r.Error); Assert.Equal(2, r.Result!["steps"]); Assert.Equal(1, r.Result["clicks"]);
         var read = hand.Handle(Call("read_animation", "{\"slide\":1}"));
         Assert.Equal(true, read.Result!["has_animation"]); Assert.Equal(true, read.Result["all_known"]);
-        Assert.Contains("effect 는 appear, fade, wipe, zoom", hand.Handle(Call("animate_slide", "{\"slide\":1,\"steps\":[{\"shape_id\":\"1\",\"effect\":\"fly\"}]}")).Error);
+        Assert.Contains("effect 는 들어오기 appear, fade, wipe, zoom", hand.Handle(Call("animate_slide", "{\"slide\":1,\"steps\":[{\"shape_id\":\"1\",\"effect\":\"motion_path\"}]}")).Error);
         var cleared = hand.Handle(Call("animate_slide", "{\"slide\":1,\"steps\":[]}"));
         Assert.Contains("전부 지웠습니다(2개)", cleared.Changed![0]);
     }
@@ -275,6 +275,97 @@ public class HandTests
         var shapes = (List<Dictionary<string, object?>>)hand.Handle(Call("read_slide", "{\"slide\":1}")).Result!["shapes"]!;
         Assert.Equal("원본", shapes.First(s => (string?)s["placeholder"] == "CenterTitle")["text"]);
         Assert.Contains("그런 스냅숏이 없습니다", hand.Handle(Call("restore_slide", "{\"snapshot\":\"snap-9\"}")).Error);
+    }
+
+    [Fact]
+    public void TheComNamesAndTheHandNamesAreTheSameList()
+    {
+        // 손이 받아 주는 이름과 COM 이 아는 이름이 갈리면, 받아 놓고 엉뚱한 효과(기본값)를 거는 거짓 성공이 된다.
+        if (!OperatingSystem.IsWindows()) return;
+        Assert.Equal(Hand.TransitionEffects.OrderBy(x => x), InteropOps.TransitionMap.Keys.OrderBy(x => x));
+        Assert.Equal(Hand.Effects.OrderBy(x => x), InteropOps.AnimMap.Keys.OrderBy(x => x));
+        Assert.Equal(Hand.Effects.Length, Hand.Effects.Distinct().Count());
+    }
+
+    [Fact]
+    public void TransitionsAreSetReadAndRefusedWithReasons()
+    {
+        var ops = new FakeOps(); var hand = new Hand(ops, 1);
+        hand.Handle(Call("add_slide", "{\"title\":\"둘\"}"));
+        var one = hand.Handle(Call("set_transition", "{\"slide\":1,\"effect\":\"push\",\"duration\":0.8}"));
+        Assert.Null(one.Error); Assert.Contains("push 0.8초", one.Changed![0]); Assert.Contains("클릭으로 넘김", one.Changed[0]);
+        var read = hand.Handle(Call("read_slide", "{\"slide\":1}")).Result!;
+        Assert.Equal("push", ((Dictionary<string, object?>)read["transition"]!)["effect"]);
+        Assert.Null(hand.Handle(Call("read_slide", "{\"slide\":2}")).Result!["transition"]); // 안 건 장은 싣지 않는다
+        var all = hand.Handle(Call("set_transition", "{\"all\":true,\"advance_after\":5}"));
+        Assert.Null(all.Error); Assert.Contains("장 2개 전부", all.Changed![0]);
+        Assert.Equal("push", ops.ReadTransition(1).Effect); Assert.Equal(5, ops.ReadTransition(2).AdvanceAfter); // 효과를 안 주면 있던 것을 둔다
+        Assert.Contains("중 하나입니다", hand.Handle(Call("set_transition", "{\"slide\":1,\"effect\":\"morph\"}")).Error);
+        Assert.Contains("advance_after", hand.Handle(Call("set_transition", "{\"slide\":1,\"on_click\":false}")).Error);
+        Assert.Contains("바꿀 것이 없습니다", hand.Handle(Call("set_transition", "{\"slide\":1}")).Error);
+        Assert.Contains("하나만", hand.Handle(Call("set_transition", "{\"all\":true,\"slide\":1,\"effect\":\"fade\"}")).Error);
+    }
+
+    [Fact]
+    public void HiddenSlidesAndSectionsShowInTheListing()
+    {
+        var ops = new FakeOps(); var hand = new Hand(ops, 1);
+        hand.Handle(Call("add_slide", "{\"title\":\"둘\"}")); hand.Handle(Call("add_slide", "{\"title\":\"셋\"}"));
+        Assert.Contains("숨겼습니다", hand.Handle(Call("hide_slide", "{\"slide\":2}")).Changed![0]);
+        Assert.Contains("이미 숨겨져", hand.Handle(Call("hide_slide", "{\"slide\":2}")).Changed![0]);
+        var made = hand.Handle(Call("add_section", "{\"slide\":2,\"name\":\"본론\"}"));
+        Assert.Null(made.Error); Assert.Contains("기본 구역", made.Changed![1]); // 첫 구역이 1장 뒤면 앞 장들의 구역이 저절로 생긴다
+        Assert.Contains("이름을 「결론」", hand.Handle(Call("add_section", "{\"slide\":2,\"name\":\"결론\"}")).Changed![0]);
+        var rows = (List<Dictionary<string, object?>>)hand.Handle(Call("list_slides")).Result!["slides"]!;
+        Assert.Equal(true, rows[1]["hidden"]); Assert.False(rows[0].ContainsKey("hidden"));
+        Assert.Equal("기본 구역", rows[0]["section"]); Assert.Equal("결론", rows[2]["section"]);
+        Assert.Contains("없습니다 — 있는 구역", hand.Handle(Call("remove_section", "{\"name\":\"본론\"}")).Error);
+        Assert.Contains("뒤에 구역이 있는 동안", hand.Handle(Call("remove_section", "{\"name\":\"기본 구역\"}")).Error); // 첫 구역은 뒤가 있으면 못 지운다
+        Assert.Null(hand.Handle(Call("remove_section", "{\"name\":\"결론\"}")).Error);
+        Assert.Single(ops.Sections());
+        Assert.Contains("다시 보이게", hand.Handle(Call("hide_slide", "{\"slide\":2,\"hidden\":false}")).Changed![0]);
+    }
+
+    [Fact]
+    public void SlideSizeTakesNamesOrPoints()
+    {
+        var ops = new FakeOps(); var hand = new Hand(ops, 1);
+        var r = hand.Handle(Call("set_slide_size", "{\"size\":\"4:3\"}"));
+        Assert.Null(r.Error); Assert.Equal((720d, 540d), ops.SlideSize()); Assert.Contains("render_slide", r.Changed![1]);
+        Assert.Contains("이미", hand.Handle(Call("set_slide_size", "{\"size\":\"standard\"}")).Changed![0]);
+        Assert.Contains("중 하나입니다", hand.Handle(Call("set_slide_size", "{\"size\":\"21:9\"}")).Error);
+        Assert.Contains("72–4032", hand.Handle(Call("set_slide_size", "{\"width\":10,\"height\":10}")).Error);
+        Assert.Null(hand.Handle(Call("set_slide_size", "{\"width\":1000,\"height\":600}")).Error); Assert.Equal((1000d, 600d), ops.SlideSize());
+    }
+
+    [Fact]
+    public void PdfGoesNextToTheDeckOrWhereAsked()
+    {
+        var ops = new FakeOps(); var hand = new Hand(ops, 1);
+        var dir = System.IO.Path.GetTempPath();
+        var was = Hand.DocumentsDir; Hand.DocumentsDir = () => dir;
+        try { Assert.Null(hand.Handle(Call("export_pdf")).Error); } finally { Hand.DocumentsDir = was; }
+        Assert.Equal(System.IO.Path.Combine(dir, "fake.pdf"), ops.Exported.Single()); ops.Exported.Clear(); // 저장 안 한 덱은 「문서」 폴더에 덱 이름으로
+        ops.FilePath = System.IO.Path.Combine(dir, "보고.pptx");
+        var r = hand.Handle(Call("export_pdf"));
+        Assert.Null(r.Error); Assert.Equal(System.IO.Path.Combine(dir, "보고.pdf"), ops.Exported.Single());
+        Assert.Contains(".pdf 로 끝나야", hand.Handle(Call("export_pdf", "{\"path\":\"C:/x/a.txt\"}")).Error);
+        Assert.Contains("전체 경로", hand.Handle(Call("export_pdf", "{\"path\":\"a.pdf\"}")).Error);
+        var exists = System.IO.Path.Combine(dir, $"magi-{Guid.NewGuid():N}.pdf"); System.IO.File.WriteAllText(exists, "x");
+        try { Assert.Contains("overwrite", hand.Handle(Call("export_pdf", $"{{\"path\":{System.Text.Json.JsonSerializer.Serialize(exists)}}}")).Error); }
+        finally { System.IO.File.Delete(exists); }
+    }
+
+    [Fact]
+    public void AnimationTakesEmphasisAndExitAndSaysWhichKind()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        var id = ((List<Dictionary<string, object?>>)hand.Handle(Call("read_slide", "{\"slide\":1}")).Result!["shapes"]!)[0]["shape_id"];
+        var r = hand.Handle(Call("animate_slide", $"{{\"slide\":1,\"steps\":[{{\"shape_id\":\"{id}\",\"effect\":\"fly\"}},{{\"shape_id\":\"{id}\",\"effect\":\"spin\"}},{{\"shape_id\":\"{id}\",\"effect\":\"fade_out\"}}]}}"));
+        Assert.Null(r.Error);
+        var steps = (List<Dictionary<string, object?>>)hand.Handle(Call("read_animation", "{\"slide\":1}")).Result!["steps"]!;
+        Assert.Equal(new[] { "entrance", "emphasis", "exit" }, steps.Select(s => (string)s["kind"]!));
+        Assert.Contains("끝내기", hand.Handle(Call("animate_slide", $"{{\"slide\":1,\"steps\":[{{\"shape_id\":\"{id}\",\"effect\":\"motion_path\"}}]}}")).Error);
     }
 
     [Fact]

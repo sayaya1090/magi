@@ -221,6 +221,14 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 		for k, v := range res.Result {
 			body[k] = v
 		}
+		// 헬퍼가 COM 으로 한 도구(com_local.go)도 손의 답처럼 **무엇을 했는지**와 문서 이름을 싣는다 — 앞 판은 여기서 둘을 버려,
+		// 목표값을 찾고도 답에 「무엇을 넣었다」가 없었다(실물 2026-09-27).
+		if res.Label != "" {
+			body["document_label"] = res.Label
+		}
+		if len(res.Changed) > 0 {
+			body["changed"] = res.Changed
+		}
 		text, merr := json.MarshalIndent(body, "", "  ")
 		if merr != nil {
 			return errorResult("could not render the result: " + merr.Error())
@@ -572,6 +580,14 @@ func intOf(v any) int {
 	case int:
 		return x
 	case int64:
+		return int(x)
+	case int32: // COM(VT_I4) — Excel·Word 의 Count 와 ComputeStatistics 가 이것으로 온다
+		return int(x)
+	case int16:
+		return int(x)
+	case uint8:
+		return int(x)
+	case uint32:
 		return int(x)
 	case json.Number:
 		n, _ := x.Int64()

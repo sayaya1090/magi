@@ -356,14 +356,34 @@ public sealed partial class InteropOps
         for (var i = 1; i <= tags.Count; i++) if (string.Equals(tags.Name(i), key, StringComparison.OrdinalIgnoreCase)) return tags.Name(i);
         throw new HandError("메모를 붙였는데 되읽으니 없습니다 — 이 덱이 메모를 못 받는 모양입니다");
     }
+    /// <summary>애니메이션 이름 → (PowerPoint 효과, 끝내기인가). 들어오기·강조·끝내기가 한 표에 있다 — Hand.AnimEffects 와 같은 이름들(시험이 대조한다).
+    /// 끝내기는 들어오기와 같은 효과에 Exit 를 켠 것이다. 365 작업창 손은 앞의 넷만 한다(Office.js 에 애니메이션 길이 없어 장을 다시 짓는다).</summary>
+    internal static readonly IReadOnlyDictionary<string, (PowerPoint.MsoAnimEffect Effect, bool Exit)> AnimMap = new Dictionary<string, (PowerPoint.MsoAnimEffect, bool)>
+    {
+        ["appear"] = (PowerPoint.MsoAnimEffect.msoAnimEffectAppear, false), ["fade"] = (PowerPoint.MsoAnimEffect.msoAnimEffectFade, false),
+        ["wipe"] = (PowerPoint.MsoAnimEffect.msoAnimEffectWipe, false), ["zoom"] = (PowerPoint.MsoAnimEffect.msoAnimEffectZoom, false),
+        ["fly"] = (PowerPoint.MsoAnimEffect.msoAnimEffectFly, false), ["float"] = (PowerPoint.MsoAnimEffect.msoAnimEffectFloat, false),
+        ["split"] = (PowerPoint.MsoAnimEffect.msoAnimEffectSplit, false), ["wheel"] = (PowerPoint.MsoAnimEffect.msoAnimEffectWheel, false),
+        ["random_bars"] = (PowerPoint.MsoAnimEffect.msoAnimEffectRandomBars, false), ["grow_turn"] = (PowerPoint.MsoAnimEffect.msoAnimEffectGrowAndTurn, false),
+        ["bounce"] = (PowerPoint.MsoAnimEffect.msoAnimEffectBounce, false), ["rise_up"] = (PowerPoint.MsoAnimEffect.msoAnimEffectRiseUp, false),
+        ["swivel"] = (PowerPoint.MsoAnimEffect.msoAnimEffectSwivel, false),
+        ["spin"] = (PowerPoint.MsoAnimEffect.msoAnimEffectSpin, false), ["grow_shrink"] = (PowerPoint.MsoAnimEffect.msoAnimEffectGrowShrink, false),
+        ["teeter"] = (PowerPoint.MsoAnimEffect.msoAnimEffectTeeter, false), ["bold_flash"] = (PowerPoint.MsoAnimEffect.msoAnimEffectBoldFlash, false),
+        ["wave"] = (PowerPoint.MsoAnimEffect.msoAnimEffectWave, false), ["transparency"] = (PowerPoint.MsoAnimEffect.msoAnimEffectTransparency, false),
+        ["disappear"] = (PowerPoint.MsoAnimEffect.msoAnimEffectAppear, true), ["fade_out"] = (PowerPoint.MsoAnimEffect.msoAnimEffectFade, true),
+        ["wipe_out"] = (PowerPoint.MsoAnimEffect.msoAnimEffectWipe, true), ["zoom_out"] = (PowerPoint.MsoAnimEffect.msoAnimEffectZoom, true),
+        ["fly_out"] = (PowerPoint.MsoAnimEffect.msoAnimEffectFly, true), ["float_out"] = (PowerPoint.MsoAnimEffect.msoAnimEffectFloat, true),
+        ["split_out"] = (PowerPoint.MsoAnimEffect.msoAnimEffectSplit, true), ["shrink_turn"] = (PowerPoint.MsoAnimEffect.msoAnimEffectGrowAndTurn, true),
+    };
     public AnimRead ReadAnimation(int n)
     {
         var seq = pres.Slides[n].TimeLine.MainSequence; var steps = new List<AnimStep>(); var unreadable = 0;
         for (var i = 1; i <= seq.Count; i++)
         {
             var e = seq[i];
-            var effect = e.EffectType switch { PowerPoint.MsoAnimEffect.msoAnimEffectAppear => "appear", PowerPoint.MsoAnimEffect.msoAnimEffectFade => "fade", PowerPoint.MsoAnimEffect.msoAnimEffectWipe => "wipe", PowerPoint.MsoAnimEffect.msoAnimEffectZoom => "zoom", _ => null };
-            if (effect is null || e.Exit == Office.MsoTriState.msoTrue) { unreadable++; continue; }
+            var exit = e.Exit == Office.MsoTriState.msoTrue;
+            var effect = AnimMap.FirstOrDefault(kv => kv.Value.Effect == e.EffectType && kv.Value.Exit == exit).Key;
+            if (effect is null) { unreadable++; continue; }
             var start = e.Timing.TriggerType switch { PowerPoint.MsoAnimTriggerType.msoAnimTriggerWithPrevious => "with_previous", PowerPoint.MsoAnimTriggerType.msoAnimTriggerAfterPrevious => "after_previous", _ => "on_click" };
             steps.Add(new AnimStep(e.Shape.Id.ToString(), effect, start, (int)Math.Round(e.Timing.Duration * 1000), e.EffectInformation.BuildByLevelEffect != PowerPoint.MsoAnimateByLevel.msoAnimateLevelNone));
         }
@@ -376,10 +396,11 @@ public sealed partial class InteropOps
         foreach (var st in steps)
         {
             var sh = Find(n, st.ShapeId);
-            var effect = st.Effect switch { "appear" => PowerPoint.MsoAnimEffect.msoAnimEffectAppear, "wipe" => PowerPoint.MsoAnimEffect.msoAnimEffectWipe, "zoom" => PowerPoint.MsoAnimEffect.msoAnimEffectZoom, _ => PowerPoint.MsoAnimEffect.msoAnimEffectFade };
+            var (effect, exit) = AnimMap.TryGetValue(st.Effect, out var m) ? m : (PowerPoint.MsoAnimEffect.msoAnimEffectFade, false);
             var trigger = st.Start switch { "with_previous" => PowerPoint.MsoAnimTriggerType.msoAnimTriggerWithPrevious, "after_previous" => PowerPoint.MsoAnimTriggerType.msoAnimTriggerAfterPrevious, _ => PowerPoint.MsoAnimTriggerType.msoAnimTriggerOnPageClick };
             var level = st.EachParagraph ? PowerPoint.MsoAnimateByLevel.msoAnimateTextByFirstLevel : PowerPoint.MsoAnimateByLevel.msoAnimateLevelNone;
             var e = seq.AddEffect(sh, effect, level, trigger, -1);
+            if (exit) e.Exit = Office.MsoTriState.msoTrue;
             e.Timing.Duration = st.DurationMs / 1000f;
         }
     }
