@@ -6,9 +6,11 @@
 
 ## 0. 한 문장
 
-PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3000 의 `/ppt`)에 붙고, 헬퍼가 machine 의 **데몬**(`magi --daemon`) 한 개에 덱마다 **대화(session)** 하나를 열어 그 대화에만 덱 도구 48개를 달아 줍니다. 모델이 도구를 부르면 데몬 → 헬퍼(MCP) → 작업창(SSE) → Office.js 순으로 내려가 덱을 고치고, 결과가 같은 길로 돌아옵니다.
+PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3000 의 `/ppt`)에 붙고, 헬퍼가 machine 의 **데몬**(`magi --daemon`) 한 개에 덱마다 **대화(session)** 하나를 열어 그 대화에만 덱 도구를 달아 줍니다(2026-09-28 코드 기준 55개 — 아래 본문의 「48개」는 2026-09-05 실측 당시 수입니다). 모델이 도구를 부르면 데몬 → 헬퍼(MCP) → 작업창(SSE) → Office.js 순으로 내려가 덱을 고치고, 결과가 같은 길로 돌아옵니다.
 
 ## 1. 프로세스가 넷이다
+
+> 그림: [DIAGRAMS L0 — 프로세스 넷과 그 경계](DIAGRAMS.ko.md#l0--프로세스-넷과-그-경계)
 
 | 프로세스 | 몇 개 | 무엇 | 소스 |
 |---|---|---|---|
@@ -23,7 +25,7 @@ PowerPointApi 1.2 까지라 손이 아니라 **화면**으로만 붙고(`/hand/s
 
 | 프로세스 | 몇 개 | 무엇 | 소스 |
 |---|---|---|---|
-| COM 손 `magi-ppt-hand` | PowerPoint 당 하나 | 떠 있는 PowerPoint 에 COM 으로 붙어 같은 48개 도구를 수행 — 헬퍼에는 작업창과 같은 손으로 보인다 | `hand-com/` (.NET 9) |
+| COM 손 `magi-ppt-hand` | PowerPoint 당 하나 | 떠 있는 PowerPoint 에 COM 으로 붙어 같은 도구를 수행(작업창에 없는 화면 전환·숨기기·크기·구역·PDF 는 COM 손만) — 헬퍼에는 작업창과 같은 손으로 보인다 | `hand-com/` (.NET 9) |
 | 편집 어댑터 `magi-ppt-hand.exe` | 사용자당 하나(열린 덱 전부를 맡는다) | PowerPoint 가 떠 있으면 **헬퍼가** 띄우고(`helper/adapter.go`), PowerPoint 가 끝나면 스스로 끝난다 — 어댑터는 뜰 때 한 번만 붙는다 | `hand-watch.ps1` |
 
 넷(또는 여섯)을 한 번에 놓는 것이 `install.ps1` 입니다 — Office 판을 읽어 어느 쪽인지 고릅니다.
@@ -33,6 +35,8 @@ PowerPointApi 1.2 까지라 손이 아니라 **화면**으로만 붙고(`/hand/s
 **왜 헬퍼가 따로 있는가**(DESIGN §5.1). Office 는 애드인을 https 로만 받고, 애드인은 밖으로 소켓을 열 수 없습니다. 유닉스 소켓으로 데몬에 닿고 인증서를 쥐는 프로세스가 하나 있어야 하고, 그것이 창마다가 아니라 **사용자당 하나**여야 창 둘이 같은 데몬을 봅니다(§5.2).
 
 ## 2. 헬퍼 — 얼굴이 셋
+
+> 그림: [DIAGRAMS L4 — 헬퍼 안](DIAGRAMS.ko.md#l4--헬퍼-안), 마련의 상태는 [L6](DIAGRAMS.ko.md#l6--마련의-상태-기계)
 
 `names.go` 첫 줄 그대로, 헬퍼는 얼굴이 셋입니다. 한 파일이 한 얼굴을 맡고, `main.go` 는 조립만 합니다(`main.go` 머리 주석: "무엇이 무엇인지 아는 자리는 이 파일뿐").
 
@@ -69,6 +73,8 @@ PowerPointApi 1.2 까지라 손이 아니라 **화면**으로만 붙고(`/hand/s
 
 ## 3. 작업창 — 네 층
 
+> 그림: [DIAGRAMS L5 — 작업창 안](DIAGRAMS.ko.md#l5--작업창-안)
+
 `addin/src` 는 클린 아키텍처 네 층입니다. 안쪽은 바깥을 모릅니다.
 
 | 층 | 파일 | 줄 |
@@ -93,6 +99,8 @@ Fake 어댑터 다섯(`FakeHand` 1,038줄 포함)은 브라우저만으로 창�
 4. `stale` 이 서면 컴패니언이 재기동된 것이므로 2 로 돌아갑니다.
 
 ## 4. 덱 하나에 대화 하나 — 여섯 이름과 네 사건
+
+> 그림: [DIAGRAMS L2 — 붙는 순서](DIAGRAMS.ko.md#l2--덱-하나에-대화-하나--붙는-순서), [L3 — 재기동 네 사건](DIAGRAMS.ko.md#l3--재기동-네-사건)
 
 DESIGN §5.9 의 결론을 지은 것이 `bridges.go`·`ownstate.go`·`main.go settle` 입니다.
 
@@ -123,6 +131,8 @@ DESIGN §5.9 의 결론을 지은 것이 `bridges.go`·`ownstate.go`·`main.go s
 데몬은 원래 대화 N개입니다(`App.states`, `Submit` 이 요청의 세션으로 갈래). 이번에 더한 것은 **도구 서버의 주인**뿐입니다 — `Attach(ctx, owner, name, url, headers)`: 주인이 비면 데몬 전체, 주인이 있으면 그 대화에만 광고(`port.Owned.VisibleTo`)하고 남의 대화가 부르면 거절합니다. 자세한 선택과 남은 일은 `internal/adapter/mcp/SESSION_SCOPE.md`.
 
 ## 5. 한 턴이 지나는 길
+
+> 그림: [DIAGRAMS L1 — 한 턴이 지나는 길](DIAGRAMS.ko.md#l1--한-턴이-지나는-길)
 
 사용자가 창에 "IR 자료 만들어" 를 넣으면:
 
