@@ -73,6 +73,22 @@ An independent daemon explicitly started through the web is managed with an expl
 
 ### Discovery and launch
 
+```mermaid
+flowchart TD
+    A["resolve config, socket and executable<br/>in the same environment"] --> H{"bounded handshake<br/>(≤ 5 s)"}
+    H -->|"answers, same workspace"| OBS["attach as an observer"]
+    H -->|"refused / no socket:<br/>absence established"| S{"startup enabled?"}
+    H -->|"permission error, invalid path,<br/>unsupported feature — ambiguous"| DIAG["report the cause<br/>do NOT launch"]
+    S -->|"no"| DIAG
+    S -->|"yes"| L{"single-flight in this window,<br/>workspace lock between windows"}
+    L -->|"lost the race"| OBS
+    L -->|"won"| SP["spawn magi --daemon --client-owned"]
+    SP --> R{"publication and about name<br/>this PID + generation?"}
+    R -->|"yes, within 30 s"| OWN["ready — owned"]
+    R -->|"no"| F["a failure against the launch budget (§5)"]
+```
+
+
 1. Establish execution location and workspace. Resolve configuration, socket and executable paths in the same environment. Diagnostics record the selected executable's absolute path and version. Unconditionally launching every shell to augment PATH is not required.
 2. Use a bounded handshake, not socket-file existence alone. Connection refusal, permission errors, invalid paths and unsupported features are distinct outcomes. Do not launch a daemon on an ambiguous failure.
 3. Launch only when startup is enabled and absence is established. Use single-flight within a window and the existing core workspace lock between windows. A losing launcher attaches to the winner as an observer.
@@ -89,6 +105,29 @@ With `owned-daemon-v1`, an IDE launches `magi --daemon --client-owned` and exclu
 Initial readiness requires the launched child PID, workspace and matching generation in publication and `about`. Reject a generation ID present on only one side; use the PID fallback only when both sides lack it. Retain the confirmed owner to identify later replacements. Unobserved exit reasons remain unknown.
 
 ### Successor and failure recovery
+
+```mermaid
+sequenceDiagram
+    participant I as IDE (holds the pipe's write end)
+    participant P as Predecessor daemon
+    participant S as Successor
+    P->>P: stop admission, release listener and workspace lock
+    P->>S: launch (Windows: hand over the same pipe read end and owner)
+    loop up to 30 s
+        P->>S: publication names successor PID, workspace, lineage?<br/>handshake generation matches?
+    end
+    alt ready
+        P->>P: exit
+    else exits before ready (not code 0, not another daemon)
+        P->>P: SuccessorFailed → roll back, refuse the candidate
+    else cannot start
+        P->>P: same recovery with successor PID 0 — never report success
+    else alive but unready after 30 s
+        P->>P: report NotReady, leave it running, exit
+    end
+    I-->>S: closing the write end → EOF → the successor stops within 5 s
+```
+
 
 Windows transfers the same pipe read end and owner to its successor. The predecessor stops admission and releases its listener and workspace lock before launching. For up to 30s, verify that publication names the successor PID, workspace and lineage and that the handshake's generation matches.
 
@@ -115,6 +154,22 @@ If VS Code cannot create its independent ownership channel, clean partial resour
 Allow connections to older daemons and disable unsupported features. Never silently switch to detached execution. Separate initial installation automation from installed-core updates, which follow §9.
 
 ## 5. Recovery and shutdown policy
+
+```mermaid
+stateDiagram-v2
+    [*] --> Connected
+    Connected --> Backoff: disconnected
+    Backoff --> Connected: handshake succeeds
+    Backoff --> Backoff: retry 1, 2, 4, 8, 16, 30 s … (±20%)
+    Backoff --> Spawning: owner, absence established, past the 5 s grace
+    Spawning --> Connected: ready within 30 s
+    Spawning --> Backoff: failure — counted
+    Backoff --> Blocked: third consecutive spawn failure
+    Blocked --> Spawning: explicit retry
+    Connected --> Blocked: the user shut the owned daemon down
+    note right of Connected: 60 s continuously connected<br/>resets the launch budget
+```
+
 
 These are shared target values, implemented as injectable policy for virtual-clock tests.
 
@@ -205,6 +260,22 @@ Respect existing `[update] auto` and update-check opt-outs. Disabling automatic 
 Do not duplicate core settings in each client. Distinguish running version, next-launch version on disk, candidate version, automatic setting, last check, deferral reason, failure and rollback outcome. Status must exclude authentication secrets. Advertise any additional status interface through core capabilities; older clients retain existing connections and work.
 
 ### 9.3 Update transaction
+
+```mermaid
+flowchart TD
+    C["check<br/>6 h + jitter,<br/>one coordinator"] --> D["download<br/>≤ 10 min"]
+    D --> V{"verify<br/>SHA-256 +<br/>preflight"}
+    V -->|"fails"| KEEP["installed file kept"]
+    V -->|"ok"| SP{"safe point?<br/>no turn, tool, council,<br/>approval or queued work"}
+    SP -->|"not yet"| SP
+    SP -->|"yes (atomically stop<br/>taking new work)"| RP["replace atomically<br/>keep the previous"]
+    RP --> RD{"successor ready<br/>in 30 s?"}
+    RD -->|"yes"| ST{"stable<br/>60 s?"}
+    ST -->|"yes"| CM["commit"]
+    RD -->|"no"| RB["roll back, block this<br/>candidate here"]
+    ST -->|"no"| RB
+```
+
 
 The sequence is **check → download → verify → await safe point → replace → verify readiness → verify stability → commit**. Record failures with their transaction stage.
 
