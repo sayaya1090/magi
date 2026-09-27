@@ -95,6 +95,36 @@ func TestWhatOnlyThePersonCanSupplyEndsTheTurnWithAQuestion(t *testing.T) {
 	}
 }
 
+// The words that ended the turn are on the record, per member — a finish that says "can only come
+// from the person" has to show whose reading that was.
+func TestWhoSaidItNeedsThePersonIsRecorded(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{needsPersonRound(2)}}
+	llm := workingLLM(toolStep("council", `{"complete":true}`), textStep("where is invoices.csv?"))
+	a, wd := appAnswerable(t, llm, Config{Council: fc, Permission: "allow"}, true)
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	a.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: "count the rows of invoices.csv"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+	})
+	waitForTerminal(t, a, sid)
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := 0
+	for _, e := range evs {
+		var v event.CouncilVerdictData
+		if e.Type == event.TypeCouncilVerdict && json.Unmarshal(e.Data, &v) == nil && v.NeedsPerson != "" {
+			said++
+		}
+	}
+	if said != 2 {
+		t.Errorf("%d recorded verdicts carry needs_person; the two members who said it should", said)
+	}
+}
+
 // Nobody to ask — a -p run — keeps the old path: the rejection stands, and the agent declares again.
 func TestWithNobodyToAskTheRejectionStands(t *testing.T) {
 	calls, fin, _ := runOnce(t, needsPersonRound(3), false)

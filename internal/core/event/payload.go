@@ -366,6 +366,11 @@ type CouncilVerdictData struct {
 	// Decision: an approving member's keep is precisely what a rewrite forced by another member's
 	// objection would otherwise drop.
 	Keep string `json:"keep,omitempty"`
+	// NeedsPerson is what this member said only the person can supply, on a continue. Recorded because
+	// it can decide the turn: a majority of these, where a person can be asked, ends it with a
+	// question — and a run whose finish says "can only come from the person" has to show whose words
+	// that was.
+	NeedsPerson string `json:"needsPerson,omitempty"`
 	// Silent marks a verdict nobody gave — backend down, deadline, or a reply that could not be
 	// read. It rides beside decision "abstain" so a surface can say "no answer" where a member
 	// never spoke, instead of reporting a failure as a considered abstention.
