@@ -117,6 +117,17 @@ list-2: (no path)                         → list{path:"nope"}  ⇒ ERR("not fo
 
 ## F-STORE — 이벤트소싱 영속 (jsonl 어댑터)
 
+```mermaid
+flowchart LR
+    A["Append(event)"] --> Q{"영속 타입인가?"}
+    Q -->|"예"| S["seq n+1 부여<br/>JSONL 한 줄"]
+    Q -->|"아니오"| B["버스만, seq 0"]
+    S --> F[("s_….jsonl<br/>1 · 2 · 3 · … n")]
+    F -->|"Read(s, fromSeq)"| R["seq > fromSeq 인 이벤트<br/>(0 이면 전부)"]
+    F -->|"Compact(s, upTo, snapshot)"| C[("새 파일:<br/>snapshot + upTo 이후<br/>원본 → .archive")]
+```
+
+
 ### F-STORE-APPEND — append + seq 부여
 규칙:
 - R1 세션별 **단조증가 seq**(1부터) 부여해 반환.
@@ -296,6 +307,19 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 
 ### F-LOOP-STEER — 실행 중 사용자 개입 라우팅 + 자발적 replan
 규칙: `turnTask`(넛지·council 앵커)는 step 0에 1회 동결됩니다. 이에 따라 실행 *중* 도착한 2번째 사용자 요청이 앵커에 반영되지 않아 에이전트가 이미 완료한 1번을 재실행하는 병목 현상을 방지하도록 개선되었습니다.
+```mermaid
+flowchart TD
+    P["실행 중(step > 0)에 사용자 프롬프트 도착"] --> D{"오케스트레이터가<br/>route_interjection 을 부르나?"}
+    D -->|"아니오(기본)"| Q["대기열에 넣음(pendingInterject FIFO)<br/>에이전트에게: 지금 일을 계속"]
+    D -->|"redirect"| R["turnTask 를 그것으로 다시 잡고 재정렬"]
+    D -->|"append"| A["지금 일에 합치고 재정렬"]
+    D -->|"queue"| Q
+    R & A --> X["대기열에서 뺌<br/>(다시 떠오르지 않음)"]
+    Q --> E{"턴이 어떻게 끝나나?"}
+    E -->|"정상"| N["자기 턴으로 다시 떠오름"]
+    E -->|"백엔드 오류·취소"| L["답 없는 프롬프트로 기록<br/>다음 실행이 집어 감"]
+```
+
 - R1 **기본=큐잉**: step>0에서 새 `ActorUser` 프롬프트 감지 시(≠현재 turnTask) `pendingInterject` FIFO에 적재 + "요청은 현재 과업 종료 후 처리되도록 큐잉됐으니 현재 과업에 집중" 결정론적 지시 1회 주입. 턴 종료 시 `startRun`이 큐를 드레인해 자기 턴으로 재부상. depth 0·비워크플로만 적용됩니다.
 - R2 **`route_interjection`**(orchestrator 전용): `redirect`=개입으로 `turnTask` 재앵커 + reground, `append`=현재 과업에 합류(A∪개입) + reground, `queue`=명시적 유지. 흡수(redirect/append)된 개입은 큐에서 제거(`consumeInterject`)되어 재부상하지 않습니다.
 - R4 툴 Execute 콜백은 loop-local(`turnTask`/`guard`)을 직접 변경할 수 없으므로 세션별 `turnControl` 신호만 기록하고 루프가 매 스텝 최상단에서 드레인합니다.
@@ -312,6 +336,21 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 - R4b 샤드는 호출이 지정한 식별자를 기준으로 분할합니다: 파일 경로(모든 도구)와 도구가 **주제라고 선언한** 인자 — 스키마 속성의 `"x-magi-topic": true` — 값마다 샤드 하나(「sheet 매출」「slides 7」)가 생성됩니다. Office 헬퍼는 sheet·slide/slides·paragraph를 선언하도록 구성되었습니다(2026-09-07).
 - R5 접기는 비용이 저렴한 계층부터 단계적으로 진행됩니다(2026-09-07). 요약 이전에: 어시스턴트가 이미 설명한 큰 도구 결과를 최신 것부터 스텁으로 축약하고, 여전히 용량이 부족하면 **읽기 전용 도구**(내장 읽기 도구 및 `annotations.readOnlyHint`를 보유한 MCP 도구)의 결과를 오래된 순서대로(최신 3개는 보존) 스텁화합니다. 다시 조회할 수 있는 정보이므로 스텁에 재조회 경로를 명시합니다. 텍스트 요약은 이러한 단계적 축약 후에도 여전히 임계치를 초과할 때만 수행됩니다.
 - R6 접을 때 보존하는 후미 컨텍스트는 토큰 단위로 측정합니다 — 예산의 `[limits] compact_keep`(기본 0.25), 최소 사건 6개 기준 — 그리고 브리프는 **누적**됩니다: 기존 브리프는 유지한 채 신규 턴만 요약하여 덧붙이며, 누적 크기가 예산의 1/10을 초과할 때 전체를 한 번에 재압축합니다. 브리프는 정형화된 틀(요청·결정·수행내역·잔여과업·식별자)을 갖추어 작성하며, 「현재 상태가 아닌 수행된 작업의 기록」임을 서두에 명시합니다. `[limits] compact_model`을 통해 별도의 요약 전용 모델을 지정할 수 있습니다.
+
+```mermaid
+flowchart TD
+    O["컨텍스트가 창의 [limits] compact_ratio<br/>(기본 0.8)를 넘음"] --> T1["1. 어시스턴트가 이미 설명한 큰 도구 결과를<br/>최신부터 덜어냄"]
+    T1 --> C1{"충분한가?"}
+    C1 -->|"예"| DONE["요약 안 씀"]
+    C1 -->|"아니오"| T2["2. 읽기 전용 결과(readOnlyHint)를<br/>오래된 것부터 덜어냄, 최신 셋은 둠"]
+    T2 --> C2{"충분한가?"}
+    C2 -->|"예"| DONE
+    C2 -->|"아니오"| T3["3. 접기: 토큰 꼬리(compact_keep, 6개 이상) 남기고<br/>새 턴을 누적 브리프 뒤에 붙임"]
+    T3 --> C3{"브리프가 예산의<br/>1/10 을 넘나?"}
+    C3 -->|"예"| T4["브리프 전체를 한 번 응축"]
+    C3 -->|"아니오"| EV["compaction 이벤트 기록<br/>(원본 보존 — recall_context)"]
+    T4 --> EV
+```
 
 ```
 compact-ctx-1: history over threshold → next turn       ⇒ 1 compaction event, request message count drops
@@ -346,6 +385,24 @@ headless-6: 장문 피드백                    ⇒ 12줄에서 절단 + "feedba
 > 지금 과도 명세 금지(설계 변동 위험). 진입 시 규칙+예시 추가.
 
 ## F-COUNCIL — 에이전트가 부르는 카운슬(D14)
+
+```mermaid
+flowchart TD
+    DEC["에이전트: council {complete: true}"] --> EV["증거 조립: 기록, 워크스페이스 새로 읽기,<br/>배너(이전부터 더러운 파일, 이번 턴이 만든 이름 댄 파일)"]
+    EV --> W["위원 셋이 요구사항을 짚음<br/>SATISFIED · UNSATISFIED · BLOCKED"]
+    W --> CL["종결 호출이 세 점검을 함께 읽음<br/>(한 모델 패널일 때 — 조이기만 가능: done → continue)"]
+    CL --> V{"표를 낸 위원이 있나?"}
+    V -->|"없음 — 전원 기권·무응답"| UJ["판정 없음(R18): 거부 아님<br/>연속 3번 → UNVERIFIED"]
+    V -->|"있음"| T{"규칙 충족?"}
+    T -->|"done"| ACC["수락 — 턴 종료"]
+    T -->|"continue"| NP{"과반이 needs_person 을 적고<br/>물어볼 사람이 있나?"}
+    NP -->|"예(R19)"| ASK["질문으로 턴 종료<br/>UNVERIFIED: 사람에게서만 올 수 있음"]
+    NP -->|"아니오"| REJ["거부: 피드백이 에이전트에게<br/>(요구에 CONTEST 하는 법 포함)"]
+    REJ --> CAP{"변경 없는 연속 3번,<br/>또는 이번 턴 8번?"}
+    CAP -->|"예"| LAND["UNVERIFIED 착지"]
+    CAP -->|"아니오"| WORK["에이전트가 계속 일함"] --> DEC
+```
+
 핵심 차별화 기능입니다. 3인의 카운슬 위원이 동일한 실행 기록을 서로 다른 렌즈로 교차 검토하여 판단합니다. **기본값 활성** 상태이며, `[council] enabled=false` 설정을 통해 비활성화할 수 있습니다.
 
 > ⛔ **설계 전환 내역:** 과거에는 루프의 자연종료 시점을 카운슬이 **스스로 가로채는 게이트 방식**이었습니다. 그러나 해당 구조는 카운슬이 객관적으로 결정할 수 없는 두 가지 문제 — **질의 시점**(에이전트가 이미 판단을 내린 순간에 강제 개입)과 **답변 수신 가능성**(헤드리스 모드에서 자문 주입과 `turn.finished`가 동일 틱에 발생하여 미수신) — 를 유발했습니다. 현재는 **에이전트가 `council` 도구를 통해 자발적으로 호출**합니다: `{question}`은 중간 자문, `{complete:true}`는 **종료 선언**이며 카운슬 위원들이 승인하면 루프에 완료 신호가 전달됩니다. 아래 R5, R6, R8은 해당 설계에 맞춰 정립되었습니다.

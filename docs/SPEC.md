@@ -132,6 +132,17 @@ list-2: (no path)                         → list{path:"nope"}  ⇒ ERR("not fo
 
 ## F-STORE — event-sourced persistence (the jsonl adapter)
 
+```mermaid
+flowchart LR
+    A["Append(event)"] --> Q{"persisted type?"}
+    Q -->|"yes"| S["assign seq n+1<br/>one JSONL line"]
+    Q -->|"no"| B["bus only, seq 0"]
+    S --> F[("s_….jsonl<br/>1 · 2 · 3 · … n")]
+    F -->|"Read(s, fromSeq)"| R["events with seq > fromSeq<br/>(0 = everything)"]
+    F -->|"Compact(s, upTo, snapshot)"| C[("new file:<br/>snapshot + events after upTo<br/>original → .archive")]
+```
+
+
 ### F-STORE-APPEND — append and seq assignment
 Rules:
 - R1 Assigns and returns a **monotonic per-session seq** (from 1).
@@ -365,6 +376,19 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 Rule: `turnTask` (the anchor for nudges and the council) is frozen once at step 0. A second user
 request arriving *mid-run* therefore never reached the anchor, and the agent oscillated, re-running
 the first request it had already finished.
+```mermaid
+flowchart TD
+    P["a user prompt arrives mid-run (step > 0)"] --> D{"the orchestrator calls<br/>route_interjection?"}
+    D -->|"no (the default)"| Q["queue it (pendingInterject FIFO)<br/>tell the agent: stay on the current task"]
+    D -->|"redirect"| R["re-anchor turnTask to it, reground"]
+    D -->|"append"| A["join it to the current task, reground"]
+    D -->|"queue"| Q
+    R & A --> X["removed from the queue<br/>(cannot resurface)"]
+    Q --> E{"how does the turn end?"}
+    E -->|"normally"| N["it resurfaces as its own turn"]
+    E -->|"backend error / cancel"| L["persisted as an unanswered prompt<br/>picked up on the next run"]
+```
+
 - R1 **The default is queueing**: a new `ActorUser` prompt seen at step>0 (and different from the
   current turnTask) goes into the `pendingInterject` FIFO, with one deterministic instruction
   injected — "your request is queued for after the current task; stay on the current task". At the
@@ -410,6 +434,21 @@ Rules:
   records what was done, not the state now. `[limits] compact_model` may name the model that
   writes it.
 
+```mermaid
+flowchart TD
+    O["context over [limits] compact_ratio<br/>of the window (default 0.8)"] --> T1["1. stub bulky tool results the assistant<br/>already narrated, newest first"]
+    T1 --> C1{"enough?"}
+    C1 -->|"yes"| DONE["no summary written"]
+    C1 -->|"no"| T2["2. stub READ-ONLY results (readOnlyHint),<br/>oldest first, newest three spared"]
+    T2 --> C2{"enough?"}
+    C2 -->|"yes"| DONE
+    C2 -->|"no"| T3["3. fold: keep a token tail (compact_keep, ≥ 6 events),<br/>append the new turns to the running brief"]
+    T3 --> C3{"brief over a tenth<br/>of the budget?"}
+    C3 -->|"yes"| T4["condense the whole brief once"]
+    C3 -->|"no"| EV["compaction event appended<br/>(originals kept — recall_context)"]
+    T4 --> EV
+```
+
 ```
 compact-ctx-1: history over threshold → next turn       ⇒ 1 compaction event, request message count drops
 compact-ctx-2: after compaction       → Read(s,0)       ⇒ full history still retrievable (preserved)
@@ -451,6 +490,24 @@ headless-6: very long feedback             ⇒ cut at 12 lines + "feedback conti
 > Do not over-specify now (the design still moves). Add rules and examples on entry.
 
 ## F-COUNCIL — the council the agent calls (D14)
+
+```mermaid
+flowchart TD
+    DEC["agent: council {complete: true}"] --> EV["evidence assembled: the record,<br/>a fresh read of the workspace, banners<br/>(pre-existing dirt, named files this turn created)"]
+    EV --> W["three members walk the requirements<br/>SATISFIED · UNSATISFIED · BLOCKED"]
+    W --> CL["closing call reads the three walks together<br/>(panel shape — members on one model;<br/>may only tighten: done → continue)"]
+    CL --> V{"any member voted?"}
+    V -->|"no — all abstained or silent"| UJ["unjudged (R18): not a rejection<br/>3 in a row → UNVERIFIED"]
+    V -->|"yes"| T{"rule satisfied?"}
+    T -->|"done"| ACC["accepted — the turn ends"]
+    T -->|"continue"| NP{"majority named needs_person<br/>and someone can be asked?"}
+    NP -->|"yes (R19)"| ASK["the turn ends with a question<br/>UNVERIFIED: can only come from the person"]
+    NP -->|"no"| REJ["rejected: feedback back to the agent<br/>(with how to CONTEST a demand)"]
+    REJ --> CAP{"3 in a row with no file change,<br/>or 8 this turn?"}
+    CAP -->|"yes"| LAND["lands UNVERIFIED"]
+    CAP -->|"no"| WORK["the agent keeps working"] --> DEC
+```
+
 The signature feature. Three members read the same record through different lenses and answer. **On
 by default** — turn it off with `[council] enabled=false`.
 
