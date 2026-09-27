@@ -1954,3 +1954,9 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 - **새 시험**: `ActivityTest` 의 `열린 턴에 도는 툴이 없으면 생각 중이다`.
 - **변이 검증**: `turnOpen -> Thinking` 줄 삭제 → 4건 중 1건 실패. 원복 후 초록.
 - **실측**: `./gradlew --no-daemon :core:test :intellij:test :intellij:compileKotlin --rerun-tasks --console=plain` 종료 0, core 411 중 5 건너뜀·나머지 통과, 헤드리스 IntelliJ 163 통과. 실물 화면 확인은 아직입니다.
+## Hand 등록과 창 종료의 교차 검증
+
+- `HandRegistration`은 서버 설치, 비동기 attach, 창 종료를 하나의 수명으로 묶습니다.
+- 종료가 attach보다 먼저 오면 서버를 닫고 등록 요청을 무시합니다. attach가 이미 시작된 뒤 종료되면 URL과 인증 헤더를 사용한 `mcp-detach-if`만 실행합니다.
+- 같은 이름의 후임 등록은 이전 창의 늦은 정리 요청으로 삭제되지 않습니다. 조건부 해제를 지원하지 않는 구형 데몬에는 위험한 이름 기반 대체를 하지 않습니다.
+- `HandRegistrationTest`: attach 실행 중 종료, 종료 후 설치 거절, attach 예외 뒤 멱등 해제를 검사합니다.

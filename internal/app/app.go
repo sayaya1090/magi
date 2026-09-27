@@ -1222,3 +1222,14 @@ func modelFromEvents(evs []event.Event) string {
 	}
 	return ""
 }
+
+// DetachToolServerIf leaves a newer registration under the same name untouched.
+func (a *App) DetachToolServerIf(owner, name, url string, headers map[string]string) (bool, error) {
+	h, ok := a.toolServers.(interface {
+		DetachIf(string, string, string, map[string]string) (bool, error)
+	})
+	if !ok {
+		return false, fmt.Errorf("this build cannot conditionally detach tool servers")
+	}
+	return h.DetachIf(owner, name, url, headers)
+}

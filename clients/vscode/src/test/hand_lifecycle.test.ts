@@ -39,7 +39,7 @@ function setup() {
         assert.deepEqual(args, { name: 'vscode', url: server.url, headers: server.headers });
         return { ok: true, tools: ['show'] };
       }
-      assert.equal(method, 'mcp-detach');
+      assert.equal(method, 'mcp-detach-if');
       calls.detach++;
       return { ok: true };
     },
@@ -184,7 +184,7 @@ test('refused registration keeps its reason and reuses the server on retry', asy
   const hand = new EditorHand({
     caps: async () => new Set(['tool-servers']),
     ask: async (method: string) => {
-      if (method === 'mcp-detach') { detaches++; return { ok: true }; }
+      if (method === 'mcp-detach-if') { detaches++; return { ok: true }; }
       return ++attaches === 1 ? { ok: false, error: 'already owned' } : { ok: true, tools: ['problems'] };
     },
   } as unknown as Companion, '/workspace', async () => {
@@ -204,4 +204,31 @@ test('refused registration keeps its reason and reuses the server on retry', asy
   }
   assert.equal(detaches, 1);
   assert.equal(closes, 1);
+});
+
+test('dispose during attach waits for reply then conditionally releases captured identity once', async () => {
+  const entered = deferred<void>();
+  const answer = deferred<{ ok: boolean }>();
+  const calls: string[] = [];
+  const server = { url: 'http://127.0.0.1:12345/mcp', headers: { 'X-Magi-Hand': 'old-token' }, close() { calls.push('close'); } };
+  const companion = {
+    async caps() { return new Set(['tool-servers']); },
+    async ask(method: string, args: unknown) {
+      calls.push(method);
+      assert.deepEqual(args, { name: 'vscode', url: server.url, headers: server.headers });
+      if (method === 'mcp-attach') { entered.resolve(); return answer.promise; }
+      assert.equal(method, 'mcp-detach-if');
+      return { ok: true, removed: false };
+    },
+  } as unknown as Companion;
+  const hand = new EditorHand(companion, '/workspace', async () => server);
+  const offering = hand.offer();
+  await entered.promise;
+  hand.dispose();
+  hand.dispose();
+  assert.deepEqual(calls, ['mcp-attach', 'close']);
+  answer.resolve({ ok: true });
+  await offering;
+  await Promise.resolve();
+  assert.deepEqual(calls, ['mcp-attach', 'close', 'mcp-detach-if']);
 });

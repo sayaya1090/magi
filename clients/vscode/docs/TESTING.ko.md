@@ -1452,3 +1452,11 @@ node --test clients/vscode/out/test/*.property.test.js
 `hand_provider.test.ts`는 `os.tmpdir()` 아래 공백과 #을 포함한 작업 경로를 만들고 `path.join()`으로 모의 문서 키와 기대 경로를 구성합니다. POSIX 절대 경로를 Windows 문서 키로 사용하지 않습니다. 거절 사유와 성공 문구는 해당 네이티브 경로를 포함한 전체 문자열로 비교하며 실제 HTTP tools/call 검사도 유지합니다.
 
 `test-vscode`의 `windows-hand` 작업은 Windows 러너에서 빌드 후 `hand_provider.test.js`와 `hand_lifecycle.test.js`를 실행합니다. Ubuntu 전체 테스트는 그대로 유지합니다. 이 Windows 검증은 Node 호스트 모의 테스트이며 VS Code GUI나 IME 실물 검증이 아닙니다.
+
+## 조건부 IDE 도구 등록 해제 수명 검증
+
+- `EditorHand`는 `mcp-attach`가 전송된 뒤 종료되어도 서버의 URL과 인증 헤더를 함께 기억합니다.
+- 종료 시 `mcp-detach-if`를 사용하여 같은 등록일 때만 제거합니다. 같은 이름으로 후임 서버가 등록된 경우에는 후임을 보존합니다.
+- attach 응답과 종료가 교차하는 동안에는 응답 완료 뒤 정리하며, 정리 요청은 한 번만 보냅니다. 구형 데몬이 조건부 해제를 지원하지 않으면 이름 기반 해제로 대체하지 않고 경고를 남깁니다.
+- 검증 범위: `hand_lifecycle.test.ts`, Go MCP manager/daemon door 테스트, Kotlin `HandRegistration` 컴파일 검증.
+- 브라우저 회귀 확인: `node clients/vscode/tools/transcript-test.mjs` 전체 7개 테스트 통과(레이아웃·질문·자동완성·diff·접근성·markdown 포함).

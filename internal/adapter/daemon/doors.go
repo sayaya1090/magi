@@ -180,19 +180,20 @@ func init() {
 		"shell":      {run: answerShell, needs: (*ShellRunner)(nil), why: "this daemon cannot run commands"},
 
 		// Advertised. Each of these decides whether a screen exists, which is what the handshake is for.
-		"config-get":  {run: answerConfigGet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot read out its settings", cap: "settings"},
-		"config-set":  {run: answerConfigSet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot change its settings", cap: "settings"},
-		"profiles":    {run: answerProfiles, needs: (*ConfigKeeper)(nil), why: "this daemon cannot list its backends", cap: "settings"},
-		"mcp-attach":  {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
-		"mcp-detach":  {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
-		"sessions":    {run: answerSessions, needs: (*ConversationKeeper)(nil), why: "this daemon cannot list its conversations", cap: "sessions"},
-		"context":     {run: answerContext, needs: (*ContextTeller)(nil), why: "this daemon cannot say what fills its context window", cap: "context"},
-		"session-new": {run: answerSessionNew, needs: (*ConversationKeeper)(nil), why: "this daemon cannot open a new conversation", cap: "session-new"},
-		"children":    {run: answerChildren, needs: (*ChildLister)(nil), why: "this daemon cannot list a conversation's subagents", cap: "children"},
-		"cron":        {run: answerCron, needs: (*CronTeller)(nil), why: "this daemon cannot read its schedule", cap: "cron"},
-		"cron-set":    {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-set"},
-		"cron-remove": {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-remove"},
-		"job-kill":    {run: answerJobKill, needs: (*JobKiller)(nil), why: "this daemon cannot stop background commands", cap: "job-kill"},
+		"config-get":    {run: answerConfigGet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot read out its settings", cap: "settings"},
+		"config-set":    {run: answerConfigSet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot change its settings", cap: "settings"},
+		"profiles":      {run: answerProfiles, needs: (*ConfigKeeper)(nil), why: "this daemon cannot list its backends", cap: "settings"},
+		"mcp-attach":    {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
+		"mcp-detach":    {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
+		"mcp-detach-if": {run: answerMCPDetachIf, needs: (*ConditionalToolServerHost)(nil), why: "this daemon cannot conditionally detach tool servers", cap: "tool-servers-detach-if"},
+		"sessions":      {run: answerSessions, needs: (*ConversationKeeper)(nil), why: "this daemon cannot list its conversations", cap: "sessions"},
+		"context":       {run: answerContext, needs: (*ContextTeller)(nil), why: "this daemon cannot say what fills its context window", cap: "context"},
+		"session-new":   {run: answerSessionNew, needs: (*ConversationKeeper)(nil), why: "this daemon cannot open a new conversation", cap: "session-new"},
+		"children":      {run: answerChildren, needs: (*ChildLister)(nil), why: "this daemon cannot list a conversation's subagents", cap: "children"},
+		"cron":          {run: answerCron, needs: (*CronTeller)(nil), why: "this daemon cannot read its schedule", cap: "cron"},
+		"cron-set":      {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-set"},
+		"cron-remove":   {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-remove"},
+		"job-kill":      {run: answerJobKill, needs: (*JobKiller)(nil), why: "this daemon cannot stop background commands", cap: "job-kill"},
 	}
 }
 
@@ -1043,4 +1044,19 @@ func textOf(parts []session.Part) string {
 		}
 	}
 	return b.String()
+}
+
+func answerMCPDetachIf(ctx context.Context, eng Engine, req Request) Response {
+	h, ok := eng.(ConditionalToolServerHost)
+	if !ok {
+		return Response{Err: "this daemon cannot conditionally detach tool servers"}
+	}
+	if strings.TrimSpace(req.URL) == "" || len(req.Headers) == 0 {
+		return Response{Err: "conditional detach needs url and credentials"}
+	}
+	removed, err := h.DetachToolServerIf(req.Owner, req.Name, req.URL, req.Headers)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Removed: removed}
 }

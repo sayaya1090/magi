@@ -636,6 +636,9 @@ export const layoutScenarios = [
           // 일반 초안을 작성하고 입력창에 포커스를 둔다
           await page.locator('#say').fill('일반 초안 A');
           await page.locator('#say').focus();
+          // 입력 debounce의 suggest 전송을 관측한 뒤 렌더 부작용을 잰다.
+          await page.waitForFunction(() => window.__posted.some(m =>
+            m.kind === 'suggest' && m.text === '일반 초안 A' && m.target === 'general'));
           const postedBefore = await page.evaluate(() => window.__posted.length);
 
           // 빈 안내 표시 (attached + 행 0)

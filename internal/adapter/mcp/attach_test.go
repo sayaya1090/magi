@@ -592,3 +592,46 @@ func TestReadOnlyHintRidesTheTool(t *testing.T) {
 		t.Error("an unhinted tool answered read-only — absent must mean not declared")
 	}
 }
+
+func TestConditionalDetachPreservesSuccessorAndOwner(t *testing.T) {
+	srv := mcpHTTP(t, "render")
+	defer srv.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+	a := map[string]string{"X-Magi-Hand": "A"}
+	b := map[string]string{"X-Magi-Hand": "B"}
+	if _, err := m.Attach(context.Background(), "", "ide", srv.URL, a); err != nil {
+		t.Fatal(err)
+	}
+	a["X-Magi-Hand"] = "mutated"
+	if removed, err := m.DetachIf("", "ide", srv.URL, map[string]string{"X-Magi-Hand": "A"}); !removed || err != nil {
+		t.Fatalf("snapshot not preserved: %v %v", removed, err)
+	}
+	if _, err := m.Attach(context.Background(), "", "ide", srv.URL, b); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []struct {
+		owner, url string
+		headers    map[string]string
+	}{
+		{"", srv.URL, map[string]string{"X-Magi-Hand": "A"}},
+		{"other", srv.URL, b}, {"", srv.URL + "/other", b},
+	} {
+		if removed, err := m.DetachIf(req.owner, "ide", req.url, req.headers); removed || err != nil {
+			t.Fatalf("stale removed successor: %v %v", removed, err)
+		}
+	}
+	if !sink.has("mcp__ide__render") {
+		t.Fatal("successor tools removed")
+	}
+	if removed, err := m.DetachIf("", "ide", srv.URL, nil); removed || err == nil {
+		t.Fatal("missing credentials accepted")
+	}
+	if removed, err := m.DetachIf("", "ide", srv.URL, b); !removed || err != nil {
+		t.Fatalf("current owner refused: %v %v", removed, err)
+	}
+	if removed, err := m.DetachIf("", "ide", srv.URL, b); removed || err != nil {
+		t.Fatal("not idempotent")
+	}
+}

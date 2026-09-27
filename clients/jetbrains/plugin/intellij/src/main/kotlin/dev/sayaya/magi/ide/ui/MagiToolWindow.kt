@@ -450,7 +450,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 에서 서 있으면 데몬은 붙었다고 믿고 에이전트는 매번 거절을 받는다. 창이 있다는 것이
          * 곧 프로젝트가 열려 있다는 것이라 그 자리에 맨다.
          */
-        private var hand: HandServer? = null
+        private val handRegistration = dev.sayaya.magi.ide.usecase.HandRegistration()
 
         /**
          * 전사를 화면으로 옮기는 자리. **연결에 안 매인다** — 다시 붙을 때마다 새로 만들면
@@ -803,11 +803,8 @@ class MagiToolWindow : ToolWindowFactory {
             inputGate.dispose()
             runCatching { following?.close() }
             following = null
-            val server = hand ?: return
-            hand = null
-            runCatching { server.close() }
-            // 데몬 측 어댑터 해제 요청은 Best-effort 방식으로 처리합니다.
-            if (pinned == null) runCatching { workspace.onDaemon({ }, { it.detachHand() }) }
+            runCatching { handRegistration.close() }
+
         }
 
         /**
@@ -820,9 +817,22 @@ class MagiToolWindow : ToolWindowFactory {
         private fun offerHand() {
             val server = runCatching { HandServer.start(Hand(IdeHand(project))) }.getOrNull()
                 ?: return report(MagiBundle.msg("hand.noport"))
-            hand = server
+            if (!handRegistration.install(server)) return
             onDaemon { comp ->
-                val r = comp.attachHand(server.url, mapOf("X-Magi-Hand" to server.token))
+                val headers = mapOf("X-Magi-Hand" to server.token)
+                val r = handRegistration.attach(
+                    detach = {
+                        workspace.onDaemonWithoutChat({ why ->
+                            com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).warn(why)
+                        }) { owner ->
+                            val result = owner.detachHand(server.url, headers)
+                            if (!result.ok) com.intellij.openapi.diagnostic.Logger.getInstance(javaClass)
+                                .warn("conditional hand cleanup failed: ${result.error}")
+                        }
+                    },
+                    work = { comp.attachHand(server.url, headers) },
+                ) ?: return@onDaemon
+                if (closing.get()) return@onDaemon
                 // 성공 시 별도 알림 없이 인디케이터 툴팁에 표시하며, 거절 시 사유를 사용자에게 보고합니다.
                 if (r.ok) {
                     clearNotice()

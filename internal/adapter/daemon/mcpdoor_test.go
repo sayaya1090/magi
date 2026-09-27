@@ -142,3 +142,36 @@ func TestTheHandshakeAdvertisesTheDoor(t *testing.T) {
 		t.Error("the build-level floor went missing with it")
 	}
 }
+
+type conditionalEngine struct {
+	attachEngine
+	conditional bool
+}
+
+func (e *conditionalEngine) DetachToolServerIf(owner, name, url string, headers map[string]string) (bool, error) {
+	e.conditional = true
+	e.owner = owner
+	e.gotName = name
+	e.gotURL = url
+	e.gotHeaders = headers
+	return e.hadIt, e.detachErr
+}
+func TestConditionalDetachNeverFallsBackToNameOnly(t *testing.T) {
+	old := &attachEngine{}
+	req := Request{Name: "ide", Owner: "session", URL: "http://localhost:1", Headers: map[string]string{"X-Magi-Hand": "token"}}
+	if r := answerMCPDetachIf(context.Background(), old, req); r.OK || old.detached {
+		t.Fatal("unsafe fallback")
+	}
+	current := &conditionalEngine{attachEngine: attachEngine{hadIt: true}}
+	if r := answerMCPDetachIf(context.Background(), current, req); !r.OK || !r.Removed {
+		t.Fatalf("%+v", r)
+	}
+	if !current.conditional || current.detached || current.owner != req.Owner || current.gotURL != req.URL || current.gotHeaders["X-Magi-Hand"] != "token" {
+		t.Fatal("identity lost")
+	}
+	req.Headers = nil
+	current.conditional = false
+	if r := answerMCPDetachIf(context.Background(), current, req); r.OK || current.conditional {
+		t.Fatal("empty guard accepted")
+	}
+}

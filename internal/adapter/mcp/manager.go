@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os/exec"
 	"strings"
 	"sync"
@@ -65,7 +66,13 @@ type serverConn struct {
 	// serverConn: it holds the name while the handshake runs, and the SAME object is filled in and
 	// published when the handshake wins, so the pointer is this server's identity for its whole
 	// life. Everything that removes compares it, because a name outlives the server that held it.
-	viaDoor bool
+	viaDoor  bool
+	identity attachmentIdentity
+}
+
+type attachmentIdentity struct {
+	url     string
+	headers map[string]string
 }
 
 // NewManager returns a manager that registers tools into sink.
@@ -135,7 +142,7 @@ const mcpProbeTimeout = 2 * time.Second
 // name — by then the name may be someone else's.
 // owner is the conversation these tools belong to; empty means the whole daemon. Config-declared
 // servers pass empty, which is the only thing they ever meant.
-func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd, viaDoor bool, owner string) (*serverConn, error) {
+func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd, viaDoor bool, owner string, identity ...attachmentIdentity) (*serverConn, error) {
 	// One name, one server — and the name is claimed BEFORE the handshake, which takes up to
 	// mcpRegisterTimeout. Checking and then releasing the lock let two attaches under one name both
 	// pass the check and both succeed: the loser stayed out of the map, never closed, its
@@ -155,6 +162,9 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		held, taken := m.servers[key]
 		if !taken {
 			sc = &serverConn{name: name, cmd: cmd, viaDoor: viaDoor, owner: owner}
+			if len(identity) != 0 {
+				sc.identity = identity[0]
+			}
 			m.servers[key] = sc
 			m.mu.Unlock()
 			break
@@ -305,7 +315,7 @@ func (m *Manager) Attach(ctx context.Context, owner, name, url string, headers m
 		return nil, fmt.Errorf("mcp: attach needs a name and a url")
 	}
 	client := newHTTPClient(url, headers, nil)
-	sc, err := m.registerClient(ctx, name, client, nil, true, owner)
+	sc, err := m.registerClient(ctx, name, client, nil, true, owner, attachmentIdentity{url: url, headers: maps.Clone(headers)})
 	if err != nil {
 		return nil, err
 	}
@@ -333,13 +343,30 @@ func (m *Manager) Attach(ctx context.Context, owner, name, url string, headers m
 // (Remove, on the client's Done) is deliberately NOT narrowed this way: a config server nobody can
 // reach still has to be cleaned up.
 // owner is whose registration to remove; empty is the daemon-wide one.
+// DetachIf removes only the exact endpoint credentials captured before its handshake.
+// A delayed cleanup must not remove a successor, even if its port was reused.
+func (m *Manager) DetachIf(owner, name, url string, headers map[string]string) (bool, error) {
+	if strings.TrimSpace(url) == "" || len(headers) == 0 {
+		return false, fmt.Errorf("conditional detach needs url and credentials")
+	}
+	return m.detach(owner, name, &attachmentIdentity{url: url, headers: headers})
+}
+
 func (m *Manager) Detach(owner, name string) (bool, error) {
+	return m.detach(owner, name, nil)
+}
+
+func (m *Manager) detach(owner, name string, expected *attachmentIdentity) (bool, error) {
 	key := serverKey(sanitizeToolPart(name), owner)
 	m.mu.Lock()
 	sc := m.servers[key]
 	if sc == nil {
 		m.mu.Unlock()
 		return false, nil // already clean, which is not an error to a caller reconnecting
+	}
+	if expected != nil && (sc.identity.url != expected.url || !maps.Equal(sc.identity.headers, expected.headers)) {
+		m.mu.Unlock()
+		return false, nil
 	}
 	if !sc.viaDoor {
 		m.mu.Unlock()

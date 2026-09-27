@@ -16,6 +16,8 @@ export class EditorHand implements Ide, vscode.Disposable {
   private attached = false;
   private disposed = false;
   private offering: Promise<void> | null = null;
+  private attachSent = false;
+  private cleanupStarted = false;
 
   constructor(
     private readonly companion: Companion,
@@ -71,9 +73,15 @@ export class EditorHand implements Ide, vscode.Disposable {
       }
     }
     if (this.disposed) return;
+    const server = this.server;
+    this.attachSent = true;
     const r = await this.companion.ask('mcp-attach', {
-      name: HAND_NAME, url: this.server.url, headers: this.server.headers,
+      name: HAND_NAME, url: server.url, headers: server.headers,
     });
+    if (this.disposed) {
+      await this.detachIfOwned(server);
+      return;
+    }
     this.attached = r?.ok === true;
     this.why = this.attached
       ? `attached — ${r?.tools?.join(', ') || 'this editor answers for its own files'}`
@@ -177,13 +185,32 @@ export class EditorHand implements Ide, vscode.Disposable {
     return vscode.Uri.file(resolvePath(this.workdir, path));
   }
 
+  private async detachIfOwned(server: Pick<Hand, 'url' | 'headers'>): Promise<void> {
+    if (this.cleanupStarted) return;
+    this.cleanupStarted = true;
+    try {
+      const result = await this.companion.ask('mcp-detach-if', {
+        name: HAND_NAME, url: server.url, headers: server.headers,
+      });
+      if (!result?.ok) console.warn('magi: conditional editor hand cleanup failed —', result?.error ?? 'no answer');
+    } catch (error) {
+      console.warn('magi: conditional editor hand cleanup failed —', error);
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    // Detach BEFORE the server goes, or the daemon holds an address that answers nothing until it
-    // next tries to call it.
-    if (this.attached) void this.companion.ask('mcp-detach', { name: HAND_NAME });
-    this.server?.close();
+    const server = this.server;
     this.server = null;
+    server?.close();
+    if (!server || !this.attachSent) return;
+    // Wait for an in-flight attach to settle before cleanup: otherwise it could reserve the
+    // name after an early detach. The endpoint credentials isolate us from any successor.
+    if (this.offering) {
+      void this.offering.then(() => this.detachIfOwned(server), () => this.detachIfOwned(server));
+    } else {
+      void this.detachIfOwned(server);
+    }
   }
 }

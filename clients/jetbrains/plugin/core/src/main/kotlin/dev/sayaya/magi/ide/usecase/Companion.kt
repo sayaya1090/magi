@@ -90,8 +90,8 @@ class Companion(
         send(Request(method = "mcp-attach", name = McpName.VALUE, url = url, headers = headers))
 
     /** 손을 뗀다. 창이 닫히거나 IDE 가 나갈 때 — 안 떼면 데몬이 죽은 주소를 계속 들고 있는다. */
-    fun detachHand(): Response =
-        send(Request(method = "mcp-detach", name = McpName.VALUE))
+    fun detachHand(url: String, headers: Map<String, String>): Response =
+        send(Request(method = "mcp-detach-if", name = McpName.VALUE, url = url, headers = headers))
 
     private fun status(): Response = send(Request(method = "status", session = session))
 

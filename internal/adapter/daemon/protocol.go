@@ -1160,3 +1160,8 @@ type Identity struct {
 	Can  int      // how many things it can do — skills plus tool servers; a tie-break in an election
 	Does []string // and what they are called, capped at cluster.MaxDoes
 }
+
+// ConditionalToolServerHost can compare registration identity and remove it atomically.
+type ConditionalToolServerHost interface {
+	DetachToolServerIf(owner, name, url string, headers map[string]string) (bool, error)
+}
