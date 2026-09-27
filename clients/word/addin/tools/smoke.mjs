@@ -1440,9 +1440,12 @@ const point = new PointAtAdvice(book);
   const m = contextMeter(st);
   ok('띠는 퍼센트와 토큰을 k 단위로 적는다', m.hidden === false && m.pct === 24 && m.text.startsWith('31k / 131k 토큰 · 24%'), m.text);
   ok('다섯 조각이 요청에 실리는 순서로 선다', m.segments.map((s) => s.kind).join(',') === CONTEXT_PARTS.map(([k]) => k).join(','));
-  ok('조각의 폭은 모델 창에 대한 몫이다 — 안 찬 자리는 빈다', Math.round(m.segments[1].pct) === 4 && Math.round(m.segments.reduce((a, s) => a + s.pct, 0)) === 8 && m.keys[1].text === '도구 목록 5.7k', JSON.stringify(m.segments.map((s) => s.pct)));
-  ok('창을 모르면 합에 맞춘다 — 가득 찬 띠가 「모른다」의 모양', Math.round(contextMeter({ used: 100, window: 0, parts: { system: 25, tools: 75 } }).segments[1].pct) === 75);
-  ok('접은 기록을 적는다', m.note === '접기 1회 · 4k 토큰 덜어냄' && m.title.includes('시스템 · 2.4k'), m.note + ' | ' + m.title);
+  // 조각 합(10,107)은 잰 used(30,861)와 다르다 — 이 자료라야 「조각을 창에 대어 그리기」와 「used 를 조각 몫으로 나누기」가 갈린다(#201).
+  ok('칠해진 길이는 잰 used 다 — 조각 어림 합이 아니다', Math.round(m.segments.reduce((a, s) => a + s.pct, 0)) === 24, JSON.stringify(m.segments.map((s) => s.pct)));
+  ok('조각은 그 길이를 제 합에 대한 몫으로 나눈다', Math.round(m.segments[1].pct * 10) === Math.round(30861 / 131072 * 5703 / 10107 * 1000) && m.segments[1].share === 56, JSON.stringify(m.segments[1]));
+  ok('범례는 토큰 수가 아니라 몫이고, 추정이라고 말한다', m.keys[1].text === '도구 목록 56%' && m.mix === '조각은 비율 · 추정' && !m.keys.some((k) => /k$/.test(k.text)), JSON.stringify(m.keys));
+  ok('창을 모르면 가득 — 가득 찬 띠가 「모른다」의 모양이고 조각은 여전히 몫이다', Math.round(contextMeter({ used: 100, window: 0, parts: { system: 20, tools: 60 } }).segments[1].pct) === 75);
+  ok('접은 기록을 적는다', m.note === '접기 1회 · 4k 토큰 덜어냄' && m.title.includes('시스템 · 약 24%'), m.note + ' | ' + m.title);
   ok('추정치는 물결로', contextMeter({ ...st, estimated: true }).text.startsWith('~31k'));
   ok('창을 모르면 퍼센트를 안 짓는다', contextMeter({ used: 500, window: 0 }).pct === null && contextMeter({ used: 500, window: 0 }).text === '500 토큰');
   ok('다섯 조각이 없으면 띠 조각도 없다 — 모름은 0이 아니다', contextMeter({ used: 500, window: 1000 }).segments.length === 0);

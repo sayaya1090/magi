@@ -1145,6 +1145,7 @@ export class View {
     const text = $('#ctx-text'); if (text) { text.textContent = m.text; text.title = m.title; }
     const keys = $('#ctx-keys'); if (keys) {
       keys.replaceChildren(...m.keys.map((k) => { const el = document.createElement('span'); el.className = `ctx-key p-${k.kind}`; el.textContent = k.text; return el; }));
+      if (m.mix) { const el = document.createElement('span'); el.className = 'ctx-note'; el.textContent = m.mix; keys.appendChild(el); }
       if (m.note) { const el = document.createElement('span'); el.className = 'ctx-note'; el.textContent = m.note; keys.appendChild(el); }
     }
     const btn = $('#compact'); if (btn) btn.disabled = m.compactDisabled;

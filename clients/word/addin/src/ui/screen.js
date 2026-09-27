@@ -894,22 +894,27 @@ export function contextMeter(st) {
   const pct = window > 0 ? Math.min(100, Math.round(used * 100 / window)) : null;
   const parts = st.parts && typeof st.parts === 'object' ? st.parts : {};
   const sum = CONTEXT_PARTS.reduce((a, [k]) => a + (Number(parts[k]) || 0), 0);
-  // **눈금은 모델의 창이다.** 조각을 합에 맞춰 늘이면 띠가 늘 가득 차 보여 「얼마나 남았나」가 안 보인다
-  // (사용자 지적 2026-09-06). 창을 알면 창이 100% 고 안 찬 자리는 빈 채로 둔다; 창을 모르면 합(또는
-  // 제공자가 센 값 중 큰 쪽)에 맞춘다 — 그때는 가득 찬 띠가 「모른다」의 모양이다.
-  const scale = window > 0 ? window : Math.max(sum, used);
-  const segments = sum > 0 && scale > 0
-    ? CONTEXT_PARTS.filter(([k]) => (Number(parts[k]) || 0) > 0)
-      .map(([k, label]) => ({ kind: k, label, tokens: Number(parts[k]), pct: Math.min(100, Number(parts[k]) * 100 / scale), title: `${label} · ${kilo(parts[k])}` }))
+  // **칠해진 길이는 잰 값(used)이다** — 창을 알면 `min(1, used / window)`, 모르면 가득(그 모양이 「모른다」다).
+  // **조각은 그 길이를 나누는 몫이다.** 조각(parts)은 글자 수/4 어림이라 잰 used 와 더해지지 않는다 — 코어가 「비율로는
+  // 정직하고 총량으로는 거짓」이라 적은 값이다(internal/app/context_state.go). 앞 판은 조각마다 parts/window 로 그려서
+  // 칠해진 길이가 어림 합이 되었고, 옆 글자(used · %)와 서로 다른 값을 말했다. 범례도 조각을 토큰 수로 적었다(#201,
+  // 2026-09-27 — VS Code·JetBrains 는 이미 이렇게 맞췄다).
+  const filled = window > 0 ? Math.min(1, used / window) : 1;
+  const segments = sum > 0
+    ? CONTEXT_PARTS.filter(([k]) => (Number(parts[k]) || 0) > 0).map(([k, label]) => {
+      const share = Math.round(Number(parts[k]) * 100 / sum);
+      return { kind: k, label, share, pct: filled * 100 * Number(parts[k]) / sum, title: `${label} · 약 ${share}%` };
+    })
     : [];
-  const keys = segments.map((s) => ({ kind: s.kind, text: `${s.label} ${kilo(s.tokens)}` }));
+  const keys = segments.map((s) => ({ kind: s.kind, text: `${s.label} ${s.share}%` }));
+  const mix = segments.length ? '조각은 비율 · 추정' : '';
   const text = `${st.estimated ? '~' : ''}${kilo(used)}${window > 0 ? ` / ${kilo(window)}` : ''} 토큰`
     + (pct != null ? ` · ${pct}%` : '') + (Number(st.messages) > 0 ? ` · 메시지 ${commas(st.messages)}` : '');
   const folds = Number(st.compactions) || 0;
   const note = folds > 0 ? `접기 ${folds}회 · ${kilo(st.shed)} 토큰 덜어냄` : '';
   return {
-    hidden: false, pct, text, note, segments, keys,
-    title: [text, ...segments.map((s) => s.title), note].filter(Boolean).join(' · '),
+    hidden: false, pct, text, note, mix, segments, keys,
+    title: [text, ...segments.map((s) => s.title), mix, note].filter(Boolean).join(' · '),
     // 도구 목록·시스템은 접어도 안 준다 — 대화가 없으면 접을 것이 없다.
     compactDisabled: (Number(parts.talk) || 0) + (Number(parts.calls) || 0) + (Number(parts.results) || 0) === 0 && sum > 0,
   };
