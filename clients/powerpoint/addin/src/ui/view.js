@@ -814,18 +814,31 @@ export class View {
 
   /** 접는 동안 진행 막대를 돌리고 접기 단추를 잠근다 — 데몬의 compact 문은 접기가 끝나야 답한다. */
   folding(on) {
-    const bar = $('#busy'); if (bar) bar.hidden = !on;
-    const btn = $('#compact'); if (btn) btn.disabled = on;
+    this._folding = Boolean(on);
+    this.renderActivity();
   }
 
-  /** 도는 중이라는 것 하나. 판정은 `turnRunning` 이 한다 — 화면 밖이라야 잰다. */
-  renderBusy(rows) {
-    const running = turnRunning(rows);
-    const el = $('#busy');
-    if (el) el.hidden = !running;
-    // **세우는 손은 세울 것이 있을 때만.** 그리고 부를 문이 있을 때만 — 가짜 갈래에는 없다.
+  renderActivity() {
+    const folding = Boolean(this._folding);
+    const running = Boolean(this._turnRunning);
+    const bar = $('#busy');
+    if (bar) {
+      bar.hidden = !(folding || running);
+      bar.setAttribute('aria-label', folding ? '컨텍스트 압축 중' : '답변 생성 중');
+      bar.title = folding ? '컨텍스트 압축 중' : '답변 생성 중';
+    }
+    const btn = $('#compact');
+    if (btn) {
+      btn.disabled = folding || Boolean(this._compactUnavailable);
+      btn.setAttribute('aria-busy', String(folding));
+    }
     const stop = $('#stop');
     if (stop) stop.hidden = !(running && this.canStop);
+  }
+
+  renderBusy(rows) {
+    this._turnRunning = turnRunning(rows);
+    this.renderActivity();
   }
 
   /** 처음 뜰 때 이 창이 어느 대화인지 적는다. 첫 줄이 서면 사라진다 — 그때부턴 대화가 증거다. */
@@ -1136,6 +1149,8 @@ export class View {
     const wrap = $('#ctx'); if (!wrap) return;
     const m = contextMeter(st);
     wrap.hidden = m.hidden;
+    this._compactUnavailable = m.compactDisabled;
+    this.renderActivity();
     if (m.hidden) return;
     const bar = $('#ctx-bar'); bar.replaceChildren();
     for (const s of m.segments) {
@@ -1148,7 +1163,6 @@ export class View {
       if (m.mix) { const el = document.createElement('span'); el.className = 'ctx-note'; el.textContent = m.mix; keys.appendChild(el); }
       if (m.note) { const el = document.createElement('span'); el.className = 'ctx-note'; el.textContent = m.note; keys.appendChild(el); }
     }
-    const btn = $('#compact'); if (btn) btn.disabled = m.compactDisabled;
   }
 
   /** 프로바이더·모델 고르기. 목록과 지금 것은 `modelPicker`(screen.js)가 정한다. */

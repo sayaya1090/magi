@@ -188,7 +188,7 @@ func (a *API) setModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"did": did, "note": strings.Join(did, " · ") + " — 다음 턴부터입니다"})
 }
 
-// POST /api/compact — 압축은 데몬이 한다. 던지고 202; 결과는 전사의 compaction 사건과 /api/context 로 온다.
+// POST /api/compact waits for the daemon to finish compaction before replying.
 func (a *API) compact(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeStatus(w, http.StatusMethodNotAllowed, map[string]any{"error": "POST 로"})
@@ -202,5 +202,5 @@ func (a *API) compact(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, http.StatusBadGateway, map[string]any{"error": "압축을 못 시켰습니다: " + err.Error()})
 		return
 	}
-	writeStatus(w, http.StatusAccepted, map[string]any{"note": "압축을 시켰습니다 — 끝나면 창의 구성이 바뀝니다"})
+	writeJSON(w, map[string]any{"note": "컨텍스트 압축 요청을 완료했습니다. 압축할 대화가 없으면 내용은 바뀌지 않습니다."})
 }
