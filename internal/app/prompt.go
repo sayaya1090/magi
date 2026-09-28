@@ -82,16 +82,15 @@ func (a *App) toolSpecs(sid session.SessionID, agent AgentSpec) []port.ToolSpec 
 // systemFor builds the system prompt for an agent: durable project memory (AGENTS.md) + the
 // agent's own prompt + what the runtime environment is.
 func (a *App) systemFor(agent AgentSpec, workdir string) string {
-	sys := agent.System
+	var parts []contextFragment
 	if mem := a.projectMemory(workdir); mem != "" {
-		sys = "# Project memory\n" + mem + "\n\n" + sys
+		parts = append(parts, contextFragment{id: "system/project-memory", source: "projectMemory", lane: turnSystem, text: "# Project memory\n" + mem + "\n\n"})
 	}
-	// Tell the agent its runtime environment so it picks correct shell commands (GNU vs
-	// BSD flags, package manager, path style) instead of guessing.
-	sys += "\n\n" + envInfo(workdir)
-	// Static, so it doesn't perturb the prefix (KV) cache across steps. Applies to every
-	// agent: markdown tables render/align well everywhere and never hurt in raw text.
-	sys += outputFormatGuide
+	parts = append(parts,
+		contextFragment{id: "system/agent", source: "agent", lane: turnSystem, text: agent.System},
+		contextFragment{id: "system/environment", source: "envInfo", lane: turnSystem, text: "\n\n" + envInfo(workdir)},
+		contextFragment{id: "system/output", source: "outputFormatGuide", lane: turnSystem, text: outputFormatGuide})
+	sys, _ := assembleContext(parts, nil)
 	return sys
 }
 
@@ -125,10 +124,14 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// Then a call re-writes only what genuinely differs from the last one instead of the lot.
 	// Sections are assembled separately and joined, so each carries no leading blank line of its
 	// own and moving one cannot silently glue it to its neighbour.
-	var sections []string
+	var sections []contextFragment
+	lane := volatileStable
 	add := func(v string) {
 		if v = strings.TrimSpace(v); v != "" {
-			sections = append(sections, v)
+			if len(sections) > 0 {
+				v = "\n\n" + v
+			}
+			sections = append(sections, contextFragment{id: fmt.Sprintf("tail/%d", len(sections)), source: "volatileContext", lane: lane, text: v})
 		}
 	}
 
@@ -201,6 +204,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	//
 	// It grows by a line per call. Below the constant tier so that tier stays cached; above the
 	// stopwatch so its own earlier lines can be cached too, for as long as it only ever appends.
+	lane = volatileRun
 	add(a.runState(evs))
 
 	// ── 3. changes every step ────────────────────────────────────────────────
@@ -226,9 +230,11 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 			last.WriteString(fmt.Sprintf("The user asked for this to finish within %s (about %s remaining).", fmtElapsed(tb), fmtElapsed(rem)))
 		}
 	}
+	lane = volatileClock
 	add(last.String())
 
-	return strings.Join(sections, "\n\n")
+	out, _ := assembleContext(sections, nil)
+	return out
 }
 
 // experiencePointerCached memoizes the shared-experience pointer per (session, query).

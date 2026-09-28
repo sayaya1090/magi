@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -73,22 +74,23 @@ func (a *App) gatherContext(ctx context.Context, q port.ContextQuery) string {
 	}
 
 	var b strings.Builder
-	for _, p := range providers {
+	for pi, p := range providers {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		chunks, err := p.Provide(cctx, q)
 		cancel()
 		if err != nil {
 			continue // a failing provider must not break the turn
 		}
-		for _, c := range chunks {
+		for ci, c := range chunks {
 			text := strings.TrimSpace(c.Text)
 			if text == "" {
 				continue
 			}
 			if c.Source != "" {
-				b.WriteString("## " + c.Source + "\n")
+				text = "## " + c.Source + "\n" + text
 			}
-			b.WriteString(text + "\n\n")
+			piece, _ := assembleContext([]contextFragment{{id: fmt.Sprintf("tail/retrieved/%d/%d", pi, ci), source: c.Source, lane: volatileStable, text: text + "\n\n"}}, nil)
+			b.WriteString(piece)
 			if b.Len() >= contextBudget {
 				return strings.TrimSpace(b.String()[:contextBudget])
 			}
