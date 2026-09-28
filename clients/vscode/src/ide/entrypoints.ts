@@ -97,7 +97,9 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
       chat.reveal();
     }),
 
-    vscode.commands.registerCommand('magi.draftCommit', async () => {
+    // Sits in the Source Control title bar. It used to sit in `scm/inputBox`, which is a proposed menu:
+    // VS Code refused it with an error toast and drew no button at all (seen 2026-09-28).
+    vscode.commands.registerCommand('magi.draftCommit', async (source?: { rootUri?: vscode.Uri }) => {
       const resp = await companion.ask('git-msg');
       if (!resp?.ok || !(resp.out ?? '').trim()) {
         void vscode.window.showWarningMessage(`magi: ${resp?.error ?? 'no commit message came back'}`);
@@ -105,7 +107,9 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
       }
       const scm = vscode.extensions.getExtension<{ getAPI(v: number): GitLike }>('vscode.git');
       const api = scm?.isActive ? scm.exports.getAPI(1) : (await scm?.activate())?.getAPI(1);
-      const repo = api?.repositories?.[0];
+      // The title bar says which repository it belongs to; the first one is only a guess.
+      const repos = api?.repositories ?? [];
+      const repo = repos.find(r => source?.rootUri && r.rootUri?.toString() === source.rootUri.toString()) ?? repos[0];
       if (!repo) { void vscode.window.showWarningMessage('magi: no git repository here.'); return; }
       // Never overwrite. If they started typing, the draft goes to a notification instead — the
       // box is theirs.
@@ -142,7 +146,7 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
   ];
 }
 
-interface GitLike { repositories: { inputBox: { value: string } }[] }
+interface GitLike { repositories: { rootUri?: vscode.Uri; inputBox: { value: string } }[] }
 
 function clip(s: string): string { return s.length > 40 ? s.slice(0, 40) + '…' : s; }
 

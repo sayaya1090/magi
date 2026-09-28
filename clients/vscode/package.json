@@ -336,9 +336,11 @@
           "group": "7_magi"
         }
       ],
-      "scm/inputBox": [
+      "scm/title": [
         {
-          "command": "magi.draftCommit"
+          "command": "magi.draftCommit",
+          "when": "scmProvider == git",
+          "group": "navigation"
         }
       ],
       "commandPalette": [

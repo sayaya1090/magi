@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Companion } from './workspace';
 import { Chat } from './chat';
+import * as activity from '../core/activity';
 
 /**
  * The settings whose values only the daemon knows.
@@ -23,8 +24,17 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
           `magi: ${resp?.error ?? resp?.why ?? 'the companion did not say which models it has'}`);
         return;
       }
-      const pick = await vscode.window.showQuickPick(names, { title: 'magi — model' });
-      if (!pick) return;
+      // Say which one is in force, and put it first. The list used to come bare, so choosing
+      // started from "which of these is it now?" with nothing on screen to answer it (the JetBrains
+      // settings combo had the same fault, 2026-09-28).
+      // A status that does not come back only costs the mark; the list itself still stands.
+      const now = activity.setupOf(
+        (await companion.ask('status', chat.session ? { session: chat.session } : {})) ?? null).model;
+      const items = [...names].sort((a, b) => Number(b === now) - Number(a === now))
+        .map((label) => ({ label, description: label === now ? 'current' : undefined }));
+      const picked = await vscode.window.showQuickPick(items, { title: 'magi — model' });
+      const pick = picked?.label;
+      if (!pick || pick === now) return;
       const set = await companion.ask('set-model', {
         name: pick,
         ...(chat.session ? { session: chat.session } : {}),

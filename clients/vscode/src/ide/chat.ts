@@ -109,7 +109,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!sid) {
       // Not an error. Type and the daemon opens one — so say that, rather than leaving an empty
       // panel that reads as broken.
-      this.post({ kind: 'note', text: 'No conversation here yet. Type below and one starts.' });
+      this.post({ kind: 'note', text: '아직 대화가 없습니다. 아래에 적으면 대화가 시작됩니다.' });
       return;
     }
     // A dedicated connection: this one is turned into a stream and answers nothing else, so
@@ -200,7 +200,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
          that waited for it would be worse than the ambiguity it was meant to fix. */
       else if (r.over) ended();
       else if (r.live && this.events.length === 0) {
-        this.post({ kind: 'note', text: 'Caught up — nothing has been said in this conversation yet.' });
+        // Korean like the empty-state line right above it — the two said the same thing in two languages.
+        this.post({ kind: 'note', text: '최신까지 받았습니다.' });
       }
     });
   }
