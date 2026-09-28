@@ -64,12 +64,7 @@ func contractFor(env port.ToolEnv) report.Contract {
 	if !ok {
 		return report.Default
 	}
-	if c := report.Parse(body); len(c) > 0 {
-		return c
-	}
-	// The skill exists and declares no sections. That is a skill somebody is still writing, not an
-	// instruction that a decision needs no grounds.
-	return report.Default
+	return report.Resolve(body)
 }
 
 func (AskUser) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {

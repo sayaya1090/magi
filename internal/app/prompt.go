@@ -12,6 +12,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/lang"
+	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
@@ -139,6 +140,12 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 		}
 	}
 
+	// The question contract is operator-editable and validated at call time.
+	// Advertise the same current contract before the model makes its first call.
+	if available["ask_user"] {
+		body, _ := a.skillBody(s.Workdir, report.SkillName)
+		add("question-contract", "# Required ask_user report fields\nEach question's report must contain nonempty strings for these keys:"+report.Resolve(body).Spec())
+	}
 	// ── 1. constant within a turn ────────────────────────────────────────────
 	if td := a.Todos(s.ID); len(td) > 0 {
 		add("plan", "# Current plan (TODOs)\n"+formatTodos(td))

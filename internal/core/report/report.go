@@ -171,3 +171,11 @@ func (c Contract) Spec() string {
 	}
 	return b.String()
 }
+
+// Resolve is the shared advertised/executed contract, with the same default fallback.
+func Resolve(body string) Contract {
+	if c := Parse(body); len(c) > 0 {
+		return c
+	}
+	return Default
+}
