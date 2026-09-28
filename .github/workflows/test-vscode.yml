@@ -20,10 +20,30 @@ on:
     branches: [main]
     paths:
       - "clients/vscode/**"
+      # The tests here also read files outside this tree — the core's doors, events and wire
+      # types, the shared lifecycle contract, the JetBrains sibling's rules and its manual — to
+      # keep the two clients and the core in lockstep. A change to any of those can turn this lane
+      # red, and without these lines it did so silently, only on the next VS Code push
+      # (2026-09-28: three features added to the JetBrains manual in efb581a6).
+      - "internal/**"
+      - "cmd/magi/**"
+      - "clients/contract/**"
+      - "clients/jetbrains/plugin/core/src/**"
+      - "clients/jetbrains/docs/MANUAL.ko.md"
       - ".github/workflows/test-vscode.yml"
   pull_request:
     paths:
       - "clients/vscode/**"
+      # The tests here also read files outside this tree — the core's doors, events and wire
+      # types, the shared lifecycle contract, the JetBrains sibling's rules and its manual — to
+      # keep the two clients and the core in lockstep. A change to any of those can turn this lane
+      # red, and without these lines it did so silently, only on the next VS Code push
+      # (2026-09-28: three features added to the JetBrains manual in efb581a6).
+      - "internal/**"
+      - "cmd/magi/**"
+      - "clients/contract/**"
+      - "clients/jetbrains/plugin/core/src/**"
+      - "clients/jetbrains/docs/MANUAL.ko.md"
       - ".github/workflows/test-vscode.yml"
 
 permissions:
