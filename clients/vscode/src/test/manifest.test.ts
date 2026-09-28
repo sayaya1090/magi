@@ -11,7 +11,8 @@ const manifest = JSON.parse(
   contributes: {
     viewsContainers: Record<string, { id: string }[]>;
     views: Record<string, { id: string; type?: string }[]>;
-    commands?: { command: string }[];
+    commands?: { command: string; icon?: unknown }[];
+    menus?: Record<string, { command: string; group?: string }[]>;
   };
 };
 
@@ -111,6 +112,22 @@ test('every view names a container that is declared', () => {
   for (const k of keys) {
     assert.ok(declared.has(k), `views."${k}" has no container by that id (declared: ${[...declared]})`);
   }
+});
+
+/**
+ * A title-bar button has an icon.
+ *
+ * A `navigation` item whose command has no icon is drawn as its whole title, in text. Four were:
+ * the chat panel's title said "Show what magi is running" and the plan panel's title ran
+ * "…eduled work  Ask another companion to do something" off its edge (seen 2026-09-28).
+ */
+test('every title-bar button has an icon', () => {
+  const icons = new Map((manifest.contributes.commands ?? []).map((c) => [c.command, c.icon]));
+  const nav = (manifest.contributes.menus?.['view/title'] ?? [])
+    .filter((m) => (m.group ?? '').startsWith('navigation'));
+  assert.ok(nav.length > 0, 'no navigation items found — this guard is reading nothing');
+  const bare = nav.filter((m) => !icons.get(m.command)).map((m) => m.command);
+  assert.deepEqual(bare, [], 'these title-bar buttons would be drawn as text: ' + bare.join(', '));
 });
 
 /**

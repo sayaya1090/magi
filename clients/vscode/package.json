@@ -146,6 +146,7 @@
       {
         "command": "magi.setup",
         "title": "Show what magi is running",
+        "icon": "$(server-process)",
         "category": "magi"
       },
       {
@@ -176,6 +177,7 @@
       {
         "command": "magi.stopJob",
         "title": "Stop a background job",
+        "icon": "$(stop-circle)",
         "category": "magi"
       },
       {
@@ -186,11 +188,13 @@
       {
         "command": "magi.schedules",
         "title": "Scheduled work",
+        "icon": "$(calendar)",
         "category": "magi"
       },
       {
         "command": "magi.handOff",
         "title": "Ask another companion to do something",
+        "icon": "$(send)",
         "category": "magi"
       }
     ],
