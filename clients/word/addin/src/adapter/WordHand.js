@@ -142,7 +142,7 @@ export class WordHand extends HandPort {
   }
 
   async #route(op, a) {
-    if (!ALL_OPS.includes(op)) refuse(`모르는 조작입니다: ${op} — 아는 것: ${ALL_OPS.join(', ')}`);
+    if (!ALL_OPS.includes(op)) refuse(`모르는 조작입니다: ${op} — 지원 값: ${ALL_OPS.join(', ')}`);
     switch (op) {
       case 'list_paragraphs': return this.#listParagraphs(a);
       case 'read_paragraphs': return this.#readParagraphs(a);
@@ -1191,7 +1191,7 @@ export class WordHand extends HandPort {
   async #suggest(a) {
     this.#need('WordApi', '1.4', 'suggest');
     const what = String(need(a, 'what')); const fix = a.fix && typeof a.fix === 'object' ? a.fix : null;
-    if (fix && !FIX_TOOLS.includes(String(fix.tool))) refuse(`제안으로 누를 수 있는 손은 ${FIX_TOOLS.join(', ')} 뿐입니다 — ${fix.tool}`);
+    if (fix && !FIX_TOOLS.includes(String(fix.tool))) refuse(`제안에서 자동 실행할 수 있는 도구는 ${FIX_TOOLS.join(', ')} 뿐입니다 — ${fix.tool}`);
     const key = `${FIX_PREFIX}${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const body = { what, why: str(a, 'why') ?? '', paragraph: int(a, 'paragraph'), fix };
     return this.runner(async (context) => { context.document.settings.add(key, JSON.stringify(body)); await context.sync(); this.#mutated(); return this.#envelope({ suggestion: key, paragraph: body.paragraph }, [`${body.paragraph ? `문단 ${body.paragraph} 에` : '문서에'} 제안을 붙였습니다 — ${clip(what, 60)}. **이건 아직 안 고친 것입니다** — 작업창의 「적용」을 누르기 전까지 문서는 그대로입니다`]); });

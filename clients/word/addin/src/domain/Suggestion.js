@@ -70,11 +70,11 @@ const styleWords = (a) => [a.bold != null && (a.bold ? '굵게' : '굵게 해제
  * 아는 손이 아니면 **이름을 그대로** 적는다. 지어내면 사람은 그것을 우리가 아는 일로 읽는다.
  */
 export function fixLabel(fix) {
-  if (!fix || !fix.tool) return { text: '고칠 손이 안 달렸습니다 — 읽고 직접 고치세요', can: false };
+  if (!fix || !fix.tool) return { text: '자동 적용할 작업이 없는 제안입니다. 내용을 확인한 뒤 직접 수정해 주세요.', can: false };
   const make = FIXABLE.get(fix.tool);
   if (!make) {
     return {
-      text: `이 제안은 '${fix.tool}' 을 부르려 합니다 — 제안으로 누를 수 있는 손이 아닙니다`,
+      text: `이 제안은 '${fix.tool}' 을 부르려 합니다 — 제안에서 자동 실행할 수 없는 도구입니다`,
       can: false,
     };
   }

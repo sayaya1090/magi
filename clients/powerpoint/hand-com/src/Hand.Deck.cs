@@ -135,7 +135,7 @@ public sealed partial class Hand
             {
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var sid = ops.ListSlides()[n - 1].SlideId;
                 var (id, bytes) = ops.SnapshotSlide(n);
-                return (new() { ["snapshot"] = id, ["slide"] = n, ["slide_id"] = sid, ["bytes"] = bytes }, new() { $"슬라이드 {n} 를 {id} 로 찍어 두었습니다({bytes} 바이트) — 이 손이 떠 있는 동안만 압니다" });
+                return (new() { ["snapshot"] = id, ["slide"] = n, ["slide_id"] = sid, ["bytes"] = bytes }, new() { $"슬라이드 {n} 를 {id} 로 찍어 두었습니다({bytes} 바이트) — 연동 프로그램을 종료하면 이 스냅샷은 삭제됩니다" });
             }
             case "restore_slide":
             {

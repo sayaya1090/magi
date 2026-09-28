@@ -169,7 +169,7 @@ func TestDefaultInstructionsAreSeededOnceAndNeverOverwritten(t *testing.T) {
 		t.Fatalf("빈 워크스페이스에 안 심었다: %v %v", seeded, err)
 	}
 	got, _ := ReadInstructions(Word, dir)
-	for _, must := range []string{"document", "list_paragraphs", "read_html", "land", "document-structure"} {
+	for _, must := range []string{"document", "list_paragraphs", "read_html", "제공되지 않은 도구는 호출하지 않습니다", "document-structure"} {
 		if !strings.Contains(got, must) {
 			t.Fatalf("심은 지침에 %q 가 없다:\n%s", must, got)
 		}

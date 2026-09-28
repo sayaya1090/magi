@@ -79,7 +79,7 @@ public class HandTests
         Assert.Contains("마지막 장은 지울 수 없습니다", hand.Handle(Call("delete_slide", "{\"slide\":1}")).Error);
         Assert.Contains("slide 나 slide_id 로 정확히", hand.Handle(Call("delete_slide")).Error);
         var unknown = hand.Handle(Call("fly", "{}"));
-        Assert.Contains("모릅니다", unknown.Error);
+        Assert.Contains("연동 프로그램(COM)이 도구", unknown.Error);
         Assert.Contains("list_slides", unknown.Error);
     }
 
@@ -126,7 +126,7 @@ public class HandTests
         foreach (var op in Hand.Known)
         {
             var r = hand.Handle(Call(op, "{}"));
-            Assert.False(r.Error?.Contains("모릅니다") == true, $"{op}: {r.Error}");
+            Assert.False(r.Error?.Contains("연동 프로그램(COM)이 도구") == true, $"{op}: {r.Error}");
         }
     }
 
@@ -225,7 +225,7 @@ public class HandTests
         Assert.Contains("표가 2개라 어느 것인지", hand.Handle(Call("replace_table", "{\"slide\":1,\"rows\":1,\"columns\":1}")).Error);
         var rep = hand.Handle(Call("replace_table", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"rows\":1,\"columns\":2}}"));
         Assert.Null(rep.Error); Assert.NotEqual(id, rep.Result!["shape_id"]); Assert.Contains("id 가 바뀌었습니다", rep.Changed![0]);
-        Assert.Contains("아는 표 스타일이 아닙니다", hand.Handle(Call("add_table", "{\"slide\":1,\"rows\":1,\"columns\":1,\"table_style\":\"Fancy\"}")).Error);
+        Assert.Contains("지원하지 않는 표 스타일입니다", hand.Handle(Call("add_table", "{\"slide\":1,\"rows\":1,\"columns\":1,\"table_style\":\"Fancy\"}")).Error);
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public class HandTests
         var s = hand.Handle(Call("suggest", "{\"slide\":1,\"what\":\"제목을 줄이세요\",\"why\":\"두 줄로 접힙니다\",\"fix\":{\"tool\":\"set_text\",\"args\":{\"placeholder\":\"title\",\"text\":\"짧게\"}}}"));
         Assert.Null(s.Error); var key = (string)s.Result!["suggestion"]!;
         Assert.StartsWith("MAGI.FIX.", key); Assert.Contains("아직 안 고친 것", s.Changed![0]);
-        Assert.Contains("누를 수 있는 손이 아닙니다", hand.Handle(Call("suggest", "{\"slide\":1,\"what\":\"x\",\"fix\":{\"tool\":\"delete_slide\"}}")).Error);
+        Assert.Contains("자동 실행할 수 없는 도구입니다", hand.Handle(Call("suggest", "{\"slide\":1,\"what\":\"x\",\"fix\":{\"tool\":\"delete_slide\"}}")).Error);
         var read = hand.Handle(Call("read_suggestions", "{}"));
         Assert.Equal(1, read.Result!["count"]);
         var row = ((List<Dictionary<string, object?>>)read.Result["suggestions"]!)[0];
@@ -349,7 +349,7 @@ public class HandTests
         ops.FilePath = System.IO.Path.Combine(dir, "보고.pptx");
         var r = hand.Handle(Call("export_pdf"));
         Assert.Null(r.Error); Assert.Equal(System.IO.Path.Combine(dir, "보고.pdf"), ops.Exported.Single());
-        Assert.Contains(".pdf 로 끝나야", hand.Handle(Call("export_pdf", "{\"path\":\"C:/x/a.txt\"}")).Error);
+        Assert.Contains(".pdf 로 끝나야", hand.Handle(Call("export_pdf", $"{{\"path\":{System.Text.Json.JsonSerializer.Serialize(System.IO.Path.Combine(dir, "a.txt"))}}}")).Error);
         Assert.Contains("전체 경로", hand.Handle(Call("export_pdf", "{\"path\":\"a.pdf\"}")).Error);
         var exists = System.IO.Path.Combine(dir, $"magi-{Guid.NewGuid():N}.pdf"); System.IO.File.WriteAllText(exists, "x");
         try { Assert.Contains("overwrite", hand.Handle(Call("export_pdf", $"{{\"path\":{System.Text.Json.JsonSerializer.Serialize(exists)}}}")).Error); }
@@ -489,7 +489,7 @@ public class HandTests
         // 모르는 이름은 목록을 대고 거절한다. 네모를 대신 세우지 않는다.
         var no = hand.Handle(Call("add_shape", "{\"slide\":1,\"kind\":\"우주선\"}"));
         Assert.NotNull(no.Error);
-        Assert.Contains("아는 도형이 아닙니다", no.Error);
+        Assert.Contains("지원하지 않는 도형입니다", no.Error);
         Assert.Contains("star5", no.Error);
     }
 

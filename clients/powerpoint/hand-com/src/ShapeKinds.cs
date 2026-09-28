@@ -218,8 +218,8 @@ public static class ShapeKinds
             return f.Contains(key) || key.Contains(f)
                 || f.StartsWith(key[..Math.Min(5, key.Length)]) || key.StartsWith(f[..Math.Min(5, f.Length)]); })
             .Take(5).ToList();
-        throw new HandError($"{raw} 는 이 손이 아는 도형이 아닙니다"
+        throw new HandError($"{raw} 는 지원하지 않는 도형입니다"
             + (near.Count > 0 ? $" — 혹시 {string.Join(" · ", near)} 입니까?" : "")
-            + " — 아는 것: " + string.Join(", ", Names));
+            + " — 지원 값: " + string.Join(", ", Names));
     }
 }

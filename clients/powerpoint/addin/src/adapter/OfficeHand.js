@@ -384,7 +384,7 @@ export class OfficeHand extends HandPort {
         // 「받았다」뿐이고, `changed` 를 안 싣는 것이 계약이다 — 안내는 한 일이 아니라 할 말이다.
         return this.#envelope({ pinned: op === 'advise' ? (args.items?.length ?? 0) : 0 });
       default:
-        throw new Error(`이 손은 ${op} 을 모릅니다`);
+        throw new Error(`현재 실행 중인 Office 연동 프로그램이 도구 '${op}'을 지원하지 않습니다. Magi를 업데이트한 뒤 Office와 연동 프로그램을 다시 시작해 주세요.`);
     }
   }
 
@@ -1034,7 +1034,7 @@ export class OfficeHand extends HandPort {
     return this.runner(async (context) => {
       const how = String(args.how ?? '').toLowerCase().replace(/[\s-]/g, '_');
       if (!ALIGNMENTS.has(how)) {
-        throw new Error(`${args.how} 는 이 손이 아는 정렬이 아닙니다 — 아는 것: `
+        throw new Error(`${args.how} 는 지원하지 않는 정렬 방식입니다 — 지원 값: `
           + [...ALIGNMENTS].join(', '));
       }
       const slide = await this.#slide(context, args);
@@ -2954,7 +2954,7 @@ export class OfficeHand extends HandPort {
         const spec = effectSpec(one.effect ?? 'fade');
         const start = String(one.start ?? 'on_click');
         if (!START_KINDS.includes(start)) {
-          throw new Error(`${start} 는 아는 시작이 아닙니다 — 아는 것: ${START_KINDS.join(', ')}`);
+          throw new Error(`${start} 는 아는 시작이 아닙니다 — 지원 값: ${START_KINDS.join(', ')}`);
         }
         const duration = Math.max(1, Math.round(Number(one.duration_ms ?? 500)));
         if (one.paragraphs === 'each') {
@@ -3107,8 +3107,8 @@ export class OfficeHand extends HandPort {
       const fix = args.fix && args.fix.tool ? args.fix : null;
       if (fix) {
         if (!FIXABLE.has(String(fix.tool))) {
-          throw new Error(`제안으로 누를 수 있는 손이 아닙니다 — '${fix.tool}'. `
-            + `누를 수 있는 것: ${[...FIXABLE.keys()].join(', ')}`);
+          throw new Error(`제안에서 자동 실행할 수 없는 도구입니다 — '${fix.tool}'. `
+            + `자동 실행 가능한 도구: ${[...FIXABLE.keys()].join(', ')}`);
         }
         const said = fixLabel(fix);
         if (!said.can) {
@@ -4474,9 +4474,9 @@ export function geometryOf(kind) {
       return flat.includes(key) || key.includes(flat)
         || flat.startsWith(key.slice(0, 5)) || key.startsWith(flat.slice(0, 5));
     }).slice(0, 5);
-    throw new Error(`${raw} 는 이 손이 아는 도형이 아닙니다`
+    throw new Error(`${raw} 는 지원하지 않는 도형입니다`
       + (near.length ? ` — 혹시 ${near.join(' · ')} 입니까?` : '')
-      + ' — 아는 것: ' + geometryNames().join(', '));
+      + ' — 지원 값: ' + geometryNames().join(', '));
   }
   return got;
 }

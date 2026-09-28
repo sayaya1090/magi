@@ -191,7 +191,7 @@ export class ExcelHand extends HandPort {
       case 'set_tag': return this.#setTag(a);
       case 'suggest': return this.#suggest(a);
       case 'drop_suggestion': return this.#dropSuggestion(a);
-      default: throw new Error(`이 손은 ${op} 을 모릅니다 — 아는 것: ${ALL_OPS.join(', ')}`);
+      default: throw new Error(`현재 실행 중인 Office 연동 프로그램이 도구 '${op}'을 지원하지 않습니다. Magi를 업데이트한 뒤 Office와 연동 프로그램을 다시 시작해 주세요. — 지원 값: ${ALL_OPS.join(', ')}`);
     }
   }
 
@@ -1415,7 +1415,7 @@ export class ExcelHand extends HandPort {
   async #suggest(a) {
     this.#need('ExcelApi', '1.4', 'suggest');
     const what = String(need(a, 'what')).trim(); const why = str(a, 'why'); const fix = a.fix && typeof a.fix === 'object' ? a.fix : null;
-    if (fix && !FIX_TOOLS.includes(String(fix.tool))) refuse(`제안으로 누를 수 있는 손이 아닙니다 — '${fix.tool}'. 누를 수 있는 것: ${FIX_TOOLS.join(', ')}`);
+    if (fix && !FIX_TOOLS.includes(String(fix.tool))) refuse(`제안에서 자동 실행할 수 없는 도구입니다 — '${fix.tool}'. 자동 실행 가능한 도구: ${FIX_TOOLS.join(', ')}`);
     const sheet = str(a, 'sheet'); const address = str(a, 'address');
     return this.runner(async (context) => {
       const settings = context.workbook.settings; settings.load('items/key'); await context.sync();
@@ -1448,7 +1448,7 @@ export function decodeSuggestion(key, value) {
     return { ...base, what: '읽을 수 없는 제안입니다', why: '', fix: null, broken: true, does: '', appliable: false };
   }
   const fix = body.fix && typeof body.fix === 'object' && body.fix.tool ? { tool: String(body.fix.tool), args: body.fix.args ?? {} } : null;
-  const does = fix ? (FIX_TOOLS.includes(fix.tool) ? `${fix.tool} 을 부릅니다` : `'${fix.tool}' 은 제안으로 누를 수 없습니다`) : '고칠 손이 안 달렸습니다 — 읽고 직접 고치세요';
+  const does = fix ? (FIX_TOOLS.includes(fix.tool) ? `${fix.tool} 을 부릅니다` : `'${fix.tool}' 은 제안으로 누를 수 없습니다`) : '자동 적용할 작업이 없는 제안입니다. 내용을 확인한 뒤 직접 수정해 주세요.';
   return { ...base, sheet: body.sheet ?? null, address: body.address ?? null, what: body.what.trim(), why: typeof body.why === 'string' ? body.why.trim() : '', fix, broken: false, does, appliable: Boolean(fix && FIX_TOOLS.includes(fix.tool)) };
 }
 

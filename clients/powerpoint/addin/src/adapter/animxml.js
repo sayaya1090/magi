@@ -46,7 +46,7 @@ export function effectSpec(name) {
   const want = String(name ?? 'fade').trim().toLowerCase();
   const hit = ANIM_EFFECTS.find((s) => s.id === want || s.ko === String(name ?? '').trim());
   if (!hit) {
-    throw new Error(`${name} 는 이 손이 아는 효과가 아닙니다 — 아는 것: `
+    throw new Error(`${name} 는 지원하지 않는 효과입니다 — 지원 값: `
       + `${ANIM_EFFECTS.map((s) => `${s.id}(${s.ko})`).join(', ')}. `
       + '들어오기 효과만 있습니다 — 나가기·강조·이동 경로는 못 겁니다');
   }

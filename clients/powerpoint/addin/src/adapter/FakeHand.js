@@ -223,11 +223,11 @@ export class FakeHand extends HandPort {
         // 가짜는 픽셀을 지어내지 않는다. **못 한다고 말한다** — 없는 증거를 있는 척하는 것이
         // 이 제품이 제일 피하려는 것이다(§7).
         throw new Error(
-          `이 손은 가짜라 슬라이드 ${slide.id} 를 렌더할 수 없습니다 — PowerPoint 에 붙어야 나옵니다`);
+          `테스트 모드에서는 슬라이드 ${slide.id}를 렌더링할 수 없습니다. 실제 PowerPoint에 연결해 주세요.`);
       }
       case 'export_slide_ooxml': {
         const slide = this.#slide(args);
-        throw new Error(`이 손은 가짜라 슬라이드 ${slide.id} 의 OOXML 을 못 냅니다`);
+        throw new Error(`테스트 모드에서는 슬라이드 ${slide.id}의 OOXML을 내보낼 수 없습니다.`);
       }
       case 'set_text': {
         const slide = this.#slide(args);
@@ -416,7 +416,7 @@ export class FakeHand extends HandPort {
         // 브라우저에서 맞춰 본 배치가 실물에서 다르게 선다.
         const how = String(args.how ?? '').toLowerCase().replace(/[\s-]/g, '_');
         if (!ALIGNMENTS.has(how)) {
-          throw new Error(`${args.how} 는 이 손이 아는 정렬이 아닙니다 — 아는 것: `
+          throw new Error(`${args.how} 는 지원하지 않는 정렬 방식입니다 — 지원 값: `
             + [...ALIGNMENTS].join(', '));
         }
         const slide = this.#slide(args);
@@ -795,7 +795,7 @@ export class FakeHand extends HandPort {
           const spec = effectSpec(one.effect ?? 'fade');
           const start = String(one.start ?? 'on_click');
           if (!START_KINDS.includes(start)) {
-            throw new Error(`${start} 는 아는 시작이 아닙니다 — 아는 것: ${START_KINDS.join(', ')}`);
+            throw new Error(`${start} 는 아는 시작이 아닙니다 — 지원 값: ${START_KINDS.join(', ')}`);
           }
           // **\r 로도 갈린다.** 진짜 손은 이제 문단을 \r 로 쓰는데(asParagraphs) 여기는
           // `/\r?\n/` 이라 홀로 선 \r 이 안 갈렸다 — 같은 글에 실물은 걸음 셋, 이 화면은 하나였다
@@ -844,8 +844,8 @@ export class FakeHand extends HandPort {
         // **거절은 두 손이 같아야 한다** — 브라우저에서 통과한 것이 실물에서 거절당하면
         // 이 화면에서 배운 것이 거짓이 된다.
         if (fix && !FIXABLE.has(String(fix.tool))) {
-          throw new Error(`제안으로 누를 수 있는 손이 아닙니다 — '${fix.tool}'. `
-            + `누를 수 있는 것: ${[...FIXABLE.keys()].join(', ')}`);
+          throw new Error(`제안에서 자동 실행할 수 없는 도구입니다 — '${fix.tool}'. `
+            + `자동 실행 가능한 도구: ${[...FIXABLE.keys()].join(', ')}`);
         }
         if (fix && !fixLabel(fix).can) {
           throw new Error(`이 제안은 카드에 적을 말이 안 만들어집니다 — ${fixLabel(fix).text}. `
@@ -1094,7 +1094,7 @@ export class FakeHand extends HandPort {
       default:
         // 헬퍼 목록에 있는데 손이 모르는 조작. **던진다** — 광고와 실행이 어긋난 것을
         // 조용히 성공으로 답하면 그게 §2.3 의 최악이다.
-        throw new Error(`이 손은 ${op} 을 모릅니다`);
+        throw new Error(`현재 실행 중인 Office 연동 프로그램이 도구 '${op}'을 지원하지 않습니다. Magi를 업데이트한 뒤 Office와 연동 프로그램을 다시 시작해 주세요.`);
     }
   }
 }

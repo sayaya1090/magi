@@ -42,6 +42,6 @@ export function quoteNote({ reason } = {}) {
       return { sticky: false, text: '잡힌 범위가 없습니다 — 시트에서 셀이나 범위를 고른 뒤 다시 눌러 주세요.' };
     default:
       return { sticky: true,
-        text: `선택을 못 인용했는데 이 창이 사유를 모릅니다(${reason}). 이 창을 고쳐야 합니다.` };
+        text: `선택한 내용을 인용하지 못했습니다. 오류 코드: ${reason}. 문제가 계속되면 이 코드를 포함해 문의해 주세요.` };
   }
 }

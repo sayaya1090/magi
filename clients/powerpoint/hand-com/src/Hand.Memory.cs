@@ -72,14 +72,14 @@ public sealed partial class Hand
                 foreach (var s in a.Objects("steps"))
                 {
                     var id = s.Str("shape_id") ?? throw new HandError("steps 의 항목마다 shape_id 가 있어야 합니다"); ShapeOn(n, id);
-                    var effect = (s.Str("effect") ?? "fade").ToLowerInvariant(); if (!Effects.Contains(effect)) throw new HandError($"effect 는 들어오기 {string.Join(", ", Entrance)} · 강조 {string.Join(", ", Emphasis)} · 끝내기 {string.Join(", ", Exit)} 중 하나입니다 — '{effect}'. 이동 경로는 이 손이 안 합니다");
+                    var effect = (s.Str("effect") ?? "fade").ToLowerInvariant(); if (!Effects.Contains(effect)) throw new HandError($"effect 는 들어오기 {string.Join(", ", Entrance)} · 강조 {string.Join(", ", Emphasis)} · 끝내기 {string.Join(", ", Exit)} 중 하나입니다 — '{effect}'. 이동 경로 애니메이션은 지원하지 않습니다");
                     var start = (s.Str("start") ?? "on_click").ToLowerInvariant(); if (!Starts.Contains(start)) throw new HandError($"start 는 {string.Join(", ", Starts)} 중 하나입니다 — '{start}'");
                     steps.Add(new AnimStep(id, effect, start, Math.Max(1, s.Int("duration_ms") ?? 500), string.Equals(s.Str("paragraphs"), "each", StringComparison.OrdinalIgnoreCase)));
                 }
                 var was = ops.ReadAnimation(n); ops.SetAnimation(n, steps); Mutated();
                 var clicks = steps.Count(s => s.Start == "on_click");
                 var lines = new List<string> { steps.Count == 0 ? $"슬라이드 {n} 의 애니메이션을 전부 지웠습니다({was.Steps.Count + was.Unreadable}개)" : $"슬라이드 {n}: 걸음 {steps.Count}개 · 클릭 {clicks}번" + (was.Steps.Count + was.Unreadable > 0 ? $" — 있던 효과 {was.Steps.Count + was.Unreadable}개는 지웠습니다" : "") };
-                if (was.Unreadable > 0) lines.Add($"⚠ 이 손이 못 읽던 효과 {was.Unreadable}개가 함께 사라졌습니다 — 되살릴 수 없습니다");
+                if (was.Unreadable > 0) lines.Add($"⚠ 연동 프로그램이 읽을 수 없었던 효과 {was.Unreadable}개가 함께 사라졌습니다 — 되살릴 수 없습니다");
                 return (new() { ["slide"] = n, ["steps"] = steps.Count, ["clicks"] = clicks, ["removed"] = was.Steps.Count + was.Unreadable }, lines);
             }
             case "suggest":
@@ -87,7 +87,7 @@ public sealed partial class Hand
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var what = a.Str("what")?.Trim(); if (string.IsNullOrEmpty(what)) throw new HandError("무엇을 고치자는 말이 없습니다 — what 을 주세요");
                 var fix = a.Object("fix"); string? tool = fix?.Str("tool");
                 if (fix is not null && tool is null) throw new HandError("fix 에 tool 이 없습니다 — {tool, args}");
-                if (tool is not null && !Fixable.Contains(tool)) throw new HandError($"제안으로 누를 수 있는 손이 아닙니다 — '{tool}'. 누를 수 있는 것: {string.Join(", ", Fixable)}");
+                if (tool is not null && !Fixable.Contains(tool)) throw new HandError($"제안에서 자동 실행할 수 없는 도구입니다 — '{tool}'. 자동 실행 가능한 도구: {string.Join(", ", Fixable)}");
                 if (a.Str("shape_id") is string sid0) ShapeOn(n, sid0);
                 var taken = ops.ReadTags(n, a.Str("shape_id")).Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var seed = FixPrefix + Base36(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) + Base36(Random.Shared.Next(1_000_000));
@@ -126,7 +126,7 @@ public sealed partial class Hand
             {
                 var items = op == "advise" ? a.Objects("items").Count() : 0;
                 if (op == "advise" && items == 0) throw new HandError("items 가 비었습니다 — [{message, why, slide_id?, shape_ids?}]");
-                return (new() { ["pinned"] = items, ["shown"] = false, ["note"] = "이 손(COM, 2021)은 작업창이 없어 안내를 꽂을 자리가 없습니다 — 안내는 답글로만 전합니다" }, new());
+                return (new() { ["pinned"] = items, ["shown"] = false, ["note"] = "PowerPoint COM 연동에서는 작업창에 안내를 표시할 수 없습니다. 안내 내용은 도구 응답으로만 반환됩니다" }, new());
             }
         }
         return null;

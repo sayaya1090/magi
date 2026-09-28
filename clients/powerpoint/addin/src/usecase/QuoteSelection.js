@@ -143,6 +143,6 @@ export function quoteNote({ reason, beforeCount } = {}) {
     // 다섯째 사유. 사람 탓으로 접지 않고 **모른다고 적는다** — 창을 고쳐야 하는 자리다.
     default:
       return { sticky: true,
-        text: `선택을 못 인용했는데 이 창이 사유를 모릅니다(${reason}). 이 창을 고쳐야 합니다.` };
+        text: `선택한 내용을 인용하지 못했습니다. 오류 코드: ${reason}. 문제가 계속되면 이 코드를 포함해 문의해 주세요.` };
   }
 }

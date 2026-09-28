@@ -125,3 +125,32 @@ func TestSkillExamplesCallRealTools(t *testing.T) {
 		}
 	}
 }
+
+// Static instructions cannot know whether the companion exposes a completion tool.
+// Naming one here previously caused calls to an unavailable council tool.
+func TestStaticOfficeGuidanceDoesNotPrescribeCompletionTools(t *testing.T) {
+	call := regexp.MustCompile("(?i)\\b(council|land)\\s*\\{")
+	check := func(name, body string) {
+		t.Helper()
+		if call.MatchString(body) || strings.Contains(body, "`land`") {
+			t.Errorf("%s prescribes a completion tool without runtime availability", name)
+		}
+	}
+	for name, body := range map[string]string{"ppt": pptInstructions, "word": wordInstructions, "xl": xlInstructions} {
+		check(name, body)
+	}
+	for _, app := range []string{"powerpoint", "word", "excel"} {
+		files, err := bundledSkills.ReadDir("skills/" + app)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			path := "skills/" + app + "/" + f.Name()
+			body, err := bundledSkills.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(path, string(body))
+		}
+	}
+}

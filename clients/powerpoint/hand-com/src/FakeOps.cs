@@ -92,7 +92,7 @@ public sealed class FakeOps : IOps
     }
     public (int, string) RestoreSlide(string id, int? n)
     {
-        if (!snapshots.TryGetValue(id, out var json)) throw new HandError($"그런 스냅숏이 없습니다: {id} — snapshot_slide 가 준 id 를 주세요(이 손이 뜬 뒤 찍은 것만 압니다)");
+        if (!snapshots.TryGetValue(id, out var json)) throw new HandError($"그런 스냅숏이 없습니다: {id} — snapshot_slide 가 준 id 를 주세요(현재 연동 프로그램을 실행한 뒤 저장한 스냅샷만 복원할 수 있습니다)");
         var at = n ?? slides.Count;
         var doc = JsonDocument.Parse(json).RootElement;
         var c = new Slide { Id = nextSlide++, Layout = doc.GetProperty("Layout").GetString() ?? "", Notes = doc.GetProperty("Notes").GetString() ?? "" };
@@ -185,7 +185,7 @@ public sealed class FakeOps : IOps
     public IReadOnlyList<TableInfo> TablesOn(int n) => At(n).Shapes.Where(x => x.Cells is not null).Select(Table).ToList();
     public string AddTable(int n, TableSpec t)
     {
-        if (t.TableStyle is not null && !TableStyles.ById.ContainsKey(t.TableStyle)) throw new HandError($"이 손이 아는 표 스타일이 아닙니다: {t.TableStyle} — 아는 것: {string.Join(", ", TableStyles.ById.Keys)}");
+        if (t.TableStyle is not null && !TableStyles.ById.ContainsKey(t.TableStyle)) throw new HandError($"지원하지 않는 표 스타일입니다: {t.TableStyle} — 지원 값: {string.Join(", ", TableStyles.ById.Keys)}");
         var cells = Enumerable.Range(0, t.Rows).Select(r => Enumerable.Range(0, t.Columns).Select(c => t.Values is not null && r < t.Values.Count && c < t.Values[r].Count ? t.Values[r][c] : "").ToList()).ToList();
         var sh = new Shape { Id = nextShape++, Name = "표", Type = "Table", L = t.Left ?? 60, T = t.Top ?? 120, W = t.Width ?? 600, H = t.Height ?? 40 * t.Rows, Cells = cells, Font = t.Font, Size = t.Size, Bold = t.HeaderBold };
         At(n).Shapes.Add(sh); return sh.Id.ToString();
@@ -209,7 +209,7 @@ public sealed class FakeOps : IOps
         var cols = sh.Cells.Count > 0 ? sh.Cells[0].Count : 0;
         for (var i = 0; i < e.AddRows; i++) sh.Cells.Insert(Math.Clamp(e.AddRowsAt ?? sh.Cells.Count, 0, sh.Cells.Count), Enumerable.Repeat("", cols).ToList());
         for (var i = 0; i < e.AddColumns; i++) foreach (var row in sh.Cells) row.Insert(Math.Clamp(e.AddColumnsAt ?? row.Count, 0, row.Count), "");
-        if (e.TableStyle is not null && !TableStyles.ById.ContainsKey(e.TableStyle)) throw new HandError($"이 손이 아는 표 스타일이 아닙니다: {e.TableStyle} — 아는 것: {string.Join(", ", TableStyles.ById.Keys)}");
+        if (e.TableStyle is not null && !TableStyles.ById.ContainsKey(e.TableStyle)) throw new HandError($"지원하지 않는 표 스타일입니다: {e.TableStyle} — 지원 값: {string.Join(", ", TableStyles.ById.Keys)}");
     }
     public (int, string, string) AddChart(int n, ChartSpec c)
     {

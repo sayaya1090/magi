@@ -59,7 +59,7 @@ export function chartKind(name) {
   if (!got) {
     // 아는 이름을 한 번씩만 보여 준다 — 별명을 다 늘어놓으면 읽히지 않는다.
     const shown = [...new Set([...CHART_KINDS.values()].map((v) => v.ko))].join(', ');
-    throw new Error(`${name} 는 이 손이 아는 차트가 아닙니다 — 아는 것: ${shown}`
+    throw new Error(`${name} 는 지원하지 않는 차트입니다 — 지원 값: ${shown}`
       + ' (bar/column·hbar·line·pie 로도 부를 수 있습니다)');
   }
   return got;

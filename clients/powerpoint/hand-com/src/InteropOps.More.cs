@@ -17,7 +17,7 @@ public sealed partial class InteropOps
         throw new HandError($"슬라이드 {n} 에 도형 {id} 이 없습니다");
     }
     private static T EnumOf<T>(string prefix, string name, string what) where T : struct, Enum
-        => Enum.TryParse<T>(prefix + name, true, out var v) ? v : throw new HandError($"{what} 값을 이 손이 모릅니다: {name}");
+        => Enum.TryParse<T>(prefix + name, true, out var v) ? v : throw new HandError($"{what}에 지원하지 않는 값이 지정됐습니다: {name}");
 
     /// <summary>format_shape 의 underline(Single·Double·Wavy …)을 Office 열거로 — 이름은 msoUnderline〈X〉Line 꼴이다. 접두를 mso 로만 붙여
     /// 「underline 값을 이 손이 모릅니다: SingleLine」로 죽던 것을 봤다(2021 실물, 2026-09-07).</summary>
@@ -86,7 +86,7 @@ public sealed partial class InteropOps
     }
     public (int, string) RestoreSlide(string id, int? n)
     {
-        if (!snapshots.TryGetValue(id, out var snap)) throw new HandError($"그런 스냅숏이 없습니다: {id} — snapshot_slide 가 준 id 를 주세요(이 손이 뜬 뒤 찍은 것만 압니다)");
+        if (!snapshots.TryGetValue(id, out var snap)) throw new HandError($"그런 스냅숏이 없습니다: {id} — snapshot_slide 가 준 id 를 주세요(현재 연동 프로그램을 실행한 뒤 저장한 스냅샷만 복원할 수 있습니다)");
         var at = n ?? pres.Slides.Count + 1;
         // InsertFromFile 의 Index 는 「그 뒤에」다 — at 자리에 넣으려면 at-1.
         pres.Slides.InsertFromFile(snap.Path, at - 1, snap.Index, snap.Index);
@@ -235,7 +235,7 @@ public sealed partial class InteropOps
     }
     private static void Style(PowerPoint.Table table, string? style, bool? header, bool? bandedRows, bool? bandedCols, bool? firstCol, IReadOnlyList<double>? widths, IReadOnlyList<double>? heights, IReadOnlyList<(int Row, int Column, int Rows, int Columns)>? merge)
     {
-        if (style is not null) table.ApplyStyle(TableStyles.ById.TryGetValue(style, out var guid) ? guid : throw new HandError($"이 손이 아는 표 스타일이 아닙니다: {style} — 아는 것: {string.Join(", ", TableStyles.ById.Keys)}"), true);
+        if (style is not null) table.ApplyStyle(TableStyles.ById.TryGetValue(style, out var guid) ? guid : throw new HandError($"지원하지 않는 표 스타일입니다: {style} — 지원 값: {string.Join(", ", TableStyles.ById.Keys)}"), true);
         if (header is bool h) table.FirstRow = h; if (bandedRows is bool br) table.HorizBanding = br; if (bandedCols is bool bc) table.VertBanding = bc; if (firstCol is bool fc) table.FirstCol = fc;
         if (widths is not null) for (var c = 0; c < widths.Count && c < table.Columns.Count; c++) table.Columns[c + 1].Width = (float)widths[c];
         if (heights is not null) for (var r = 0; r < heights.Count && r < table.Rows.Count; r++) table.Rows[r + 1].Height = (float)heights[r];

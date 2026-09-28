@@ -199,7 +199,7 @@ public sealed partial class Hand
             }
             default:
                 return Shapes(op, a) ?? Tables(op, a) ?? Deck(op, a) ?? Memory(op, a) ?? Show(op, a)
-                    ?? throw new HandError($"이 손(COM, Office 2021)은 {op} 를 모릅니다 — 아는 것: {string.Join(", ", Known)}");
+                    ?? throw new HandError($"현재 실행 중인 PowerPoint 연동 프로그램(COM)이 도구 '{op}'을 지원하지 않습니다. Magi를 업데이트한 뒤 PowerPoint와 연동 프로그램을 다시 시작해 주세요. 지원 도구: {string.Join(", ", Known)}");
         }
     }
 
