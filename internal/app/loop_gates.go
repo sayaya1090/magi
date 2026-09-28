@@ -120,7 +120,7 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 		msg = "Still no concrete progress since the last note — same advice stands: finish via the " +
 			"`council` tool if the work is complete, otherwise take a DIFFERENT concrete action or say " +
 			"exactly what is blocking you."
-		if !a.HasCouncil() {
+		if !contextToolNames(a.sessionToolSpecs(sid, tc.agent))["council"] {
 			msg = "Still no concrete progress since the last note — same advice stands: if the work " +
 				"is complete, say what you changed and stop; otherwise take a DIFFERENT concrete " +
 				"action or say exactly what is blocking you."
@@ -142,6 +142,10 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 			"the real state) rather than trying values blindly. Re-read the original task:\n" +
 			clipSpec(task, 1500)
 	}
+	if kind == "stalled" && tc.guard.stallNudges <= 1 && !contextToolNames(a.sessionToolSpecs(sid, tc.agent))["council"] {
+		msg = "No concrete progress was recorded. If the work is complete, report what changed, what was verified, and anything unfinished. Otherwise take a different concrete action or explain the blocker.\n" + clipSpec(task, 1500)
+	}
+
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
@@ -291,7 +295,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	if tc.depth != 0 {
 		return 0, false
 	}
-	if _, ok := a.tools.Get("council"); !ok || !tc.agent.allows("council") {
+	if !contextToolNames(a.sessionToolSpecs(tc.s.ID, tc.agent))["council"] {
 		return 0, false
 	}
 	// The budget is per STRETCH of no progress, not per turn. It counted for the whole turn and

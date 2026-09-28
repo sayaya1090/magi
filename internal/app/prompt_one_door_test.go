@@ -63,7 +63,7 @@ func TestPrefixBuildersHaveOneDoor(t *testing.T) {
 func TestStepSystemIsFrozenWithinATurn(t *testing.T) {
 	work := t.TempDir()
 	a := &App{states: map[session.SessionID]*sessionState{}}
-	first := a.stepSystemFor("s1", AgentSpec{}, work, nil)
+	first := a.stepSystemFor("s1", AgentSpec{}, work, nil, map[string]bool{"skill": true})
 
 	// A skill landing mid-turn moves neither the skill head (frozen) nor the turn system.
 	sk := filepath.Join(work, ".magi", "skills")
@@ -73,12 +73,12 @@ func TestStepSystemIsFrozenWithinATurn(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sk, "late.md"), []byte("arrives late\nbody\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if again := a.stepSystemFor("s1", AgentSpec{}, work, nil); again != first {
+	if again := a.stepSystemFor("s1", AgentSpec{}, work, nil, map[string]bool{"skill": true}); again != first {
 		t.Fatalf("the turn's system prompt moved mid-turn:\n was %q\n now %q", first, again)
 	}
 
 	a.resetTurnPrompt("s1")
-	next := a.stepSystemFor("s1", AgentSpec{}, work, nil)
+	next := a.stepSystemFor("s1", AgentSpec{}, work, nil, map[string]bool{"skill": true})
 	// The skill head is frozen for the SESSION, not the turn — so the new turn's head is
 	// byte-identical too, and the late skill reaches the model as an announcement instead.
 	if next != first {

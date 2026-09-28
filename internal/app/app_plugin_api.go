@@ -57,14 +57,14 @@ func (a *App) RegisterContextProvider(p port.ContextProvider) {
 	}
 }
 
-// contextBudget caps the characters of provider-injected context per turn so a
+// contextBudget caps the bytes of provider-injected context per turn so a
 // chatty RAG source can't blow the window.
 const contextBudget = 8000
 
 // gatherContext queries every registered context provider for the current
 // request and returns their chunks formatted for the system prompt (empty if
-// none). Each provider is bounded by a short timeout so a slow or hung source
-// degrades to "no extra context" instead of stalling the turn.
+// none). Providers receive a five-second cancellation deadline and must cooperate
+// with context cancellation. Collection is sequential.
 func (a *App) gatherContext(ctx context.Context, q port.ContextQuery) string {
 	a.mu.Lock()
 	providers := append([]port.ContextProvider(nil), a.contextProviders...)
@@ -74,11 +74,18 @@ func (a *App) gatherContext(ctx context.Context, q port.ContextQuery) string {
 	}
 
 	var b strings.Builder
+	var decisions []contextDecision
+	defer func() {
+		a.mu.Lock()
+		a.stateLocked(q.SessionID).ragDecisions = decisions
+		a.mu.Unlock()
+	}()
 	for pi, p := range providers {
 		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		chunks, err := p.Provide(cctx, q)
 		cancel()
 		if err != nil {
+			decisions = append(decisions, contextDecision{ID: fmt.Sprintf("tail/retrieved/%d", pi), Lane: volatileStable, State: "skipped", Reason: "provider_error"})
 			continue // a failing provider must not break the turn
 		}
 		for ci, c := range chunks {
@@ -89,10 +96,15 @@ func (a *App) gatherContext(ctx context.Context, q port.ContextQuery) string {
 			if c.Source != "" {
 				text = "## " + c.Source + "\n" + text
 			}
-			piece, _ := assembleContext([]contextFragment{{id: fmt.Sprintf("tail/retrieved/%d/%d", pi, ci), source: c.Source, lane: volatileStable, text: text + "\n\n"}}, nil)
+			piece, ds := assembleContext([]contextFragment{{id: fmt.Sprintf("tail/retrieved/%d/%d", pi, ci), source: c.Source, lane: volatileStable, text: text + "\n\n"}}, nil)
+			decisions = append(decisions, ds...)
+			if b.Len()+len(piece) > contextBudget {
+				decisions[len(decisions)-1].State = "truncated"
+				decisions[len(decisions)-1].Reason = "byte_budget"
+			}
 			b.WriteString(piece)
 			if b.Len() >= contextBudget {
-				return strings.TrimSpace(b.String()[:contextBudget])
+				return strings.TrimSpace(truncateContextBytes(b.String(), contextBudget))
 			}
 		}
 	}

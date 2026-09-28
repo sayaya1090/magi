@@ -91,8 +91,12 @@ type sessionState struct {
 	memBaselined bool
 	memPending   []string
 	// The frozen prefix pieces — see prompt_frozen.go for why these are the only doors.
-	turnSys    string
-	turnSysSet bool
+	turnSys          string
+	turnSysSet       bool
+	contextDecisions []contextDecision
+	systemDecisions  []contextDecision
+	arrivalDecisions []contextDecision
+	ragDecisions     []contextDecision
 	// What the last assembled request was made of. Only this process can measure it — the system
 	// prompt and the tool catalog are built here and never written to the log — so it is kept here
 	// and recorded on the turn.finished fact, where every other surface can read it back.
@@ -445,6 +449,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.expPtrQ, st.expPtr = "", ""
 	st.turnNotes = nil
 	st.doing, st.doingCall = "", ""
+	st.ragDecisions, st.contextDecisions, st.systemDecisions, st.arrivalDecisions = nil, nil, nil, nil
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	st.liveTurnTask = ""
 	st.councilRejects, st.councilNoProgress, st.councilRejectEpoch = 0, 0, 0 // a new turn gets a fresh gate

@@ -35,8 +35,8 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 // level only), and the static list of available skills. Kept byte-stable within
 // a turn so the backend's prefix (KV) cache survives across steps — per-step
 // volatile context (plan/experience/RAG) is injected separately, never here.
-func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event) string {
-	sys := a.systemFor(agent, workdir)
+func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event, available map[string]bool) string {
+	parts := a.systemFragments(agent, workdir)
 	// Language lock: weak models ignore a "reply in the user's language" rule buried in a long
 	// prompt, so detect the user's script and put a short, forceful directive FIRST (primacy). Lock
 	// to the genuine user's language, NOT the latest user-role message — council/hook/auto feedback
@@ -47,12 +47,19 @@ func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir st
 	// the turn task — still flipped this directive: the reply language was locked by a message the
 	// model could not see, and the flip at position 0 invalidated the whole KV prefix mid-turn.
 	if dir := langDirective(lastUserPromptText(evs)); dir != "" {
-		sys = dir + "\n\n" + sys
+		parts = append([]contextFragment{{id: "system/language", source: "langDirective", lane: turnSystem, text: dir + "\n\n"}}, parts...)
 	}
 	// Available skills (model loads one via the skill tool when relevant). FROZEN per session —
 	// see skillBlock, and skillArrivals for what happens to one that shows up later.
-	sys += a.skillBlockFor(sid, workdir)
-	return sys
+	skill := contextFragment{id: "system/skills", source: "skillBlockFor", lane: turnSystem, requires: []string{"skill"}}
+	if available["skill"] {
+		skill.text = a.skillBlockFor(sid, workdir)
+	}
+	block, decisions := assembleContext(append(parts, skill), available)
+	a.mu.Lock()
+	a.stateLocked(sid).systemDecisions = decisions
+	a.mu.Unlock()
+	return block
 }
 
 // skillBlockFor renders the skill list ONCE per session and hands back the same bytes every time
@@ -825,16 +832,32 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	// What this step's interjection scan has already seen. Every re-read below is filtered
 	// against it — see rereadWithoutUnscannedSteers.
 	scanned := highestSeq(evs)
+	specs := a.sessionToolSpecs(sid, agent)
+	available := contextToolNames(specs)
+	a.mu.Lock()
+	a.stateLocked(sid).arrivalDecisions = nil
+	a.mu.Unlock()
+	for _, name := range []string{"skill", "recall_memory"} {
+		if !available[name] {
+			a.mu.Lock()
+			a.stateLocked(sid).arrivalDecisions = append(a.stateLocked(sid).arrivalDecisions, contextDecision{ID: "arrivals/" + name, Lane: volatileStable, State: "skipped", Reason: "missing_tool"})
+			a.mu.Unlock()
+		}
+	}
 	arrivals := make([]string, 0, 4)
-	for _, line := range a.skillArrivals(sid, s.Workdir) {
-		arrivals = append(arrivals,
-			"A skill became available since this conversation started (use the skill tool to load it):\n"+line)
+	if available["skill"] {
+		for _, line := range a.skillArrivals(sid, s.Workdir) {
+			arrivals = append(arrivals,
+				"A skill became available since this conversation started (use the skill tool to load it):\n"+line)
+		}
 	}
 	// Memories arriving by a side door get the same treatment, capped per step so a busy fleet
 	// feeding the shared store cannot turn a step into a bulletin board.
-	for _, line := range a.takeMemoryArrivals(sid, 3) {
-		arrivals = append(arrivals,
-			"A team memory matching this task became available (use recall_memory to read it):\n"+line)
+	if available["recall_memory"] {
+		for _, line := range a.takeMemoryArrivals(sid, 3) {
+			arrivals = append(arrivals,
+				"A team memory matching this task became available (use recall_memory to read it):\n"+line)
+		}
 	}
 	for _, text := range arrivals {
 		pd, _ := json.Marshal(event.PromptSubmittedData{
@@ -846,7 +869,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			evs = a.rereadWithoutUnscannedSteers(ctx, sid, scanned)
 		}
 	}
-	sys := a.stepSystemFor(sid, agent, s.Workdir, a.liveEvents(sid, evs))
+	sys := a.stepSystemFor(sid, agent, s.Workdir, a.liveEvents(sid, evs), available)
 
 	// Unfiltered reconstruction of the whole log, built ONCE per step and shared by the
 	// volatile-context retrieval query and the compaction sizing check below — reconstruct
@@ -873,7 +896,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		}
 		return v + "\n\n" + note
 	}
-	vol := withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
+	vol := withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart), available))
 
 	// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
 	// window budget, summarize older turns and re-read. Measure against sys+vol so the
@@ -884,7 +907,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		tc.guard.forgetRecalledTopics()
 		evs = a.rereadWithoutUnscannedSteers(ctx, sid, scanned)
 		raw = reconstruct(evs) // refresh after compaction
-		vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
+		vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart), available))
 	}
 
 	msgs := reconstruct(a.liveEvents(sid, evs))
@@ -900,7 +923,6 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			Text: "# Runtime context (your live plan and any retrieved references — not a new user instruction)\n" + vol,
 		}}})
 	}
-	specs := a.sessionToolSpecs(sid, agent)
 	a.notePromptShape(sid, s.Model.Model, sys, msgs, specs)
 	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, specs, cumOut)
 

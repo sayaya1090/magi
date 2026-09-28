@@ -18,7 +18,7 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 		"s1": {todos: []session.Todo{{Content: "implement X", Status: "in_progress"}}},
 	}}
 	s := session.Session{ID: "s1"}
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 0, 0, 0)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 0, 0, 0, nil)
 	if !strings.Contains(out, "# Current plan (TODOs)") || !strings.Contains(out, "implement X") {
 		t.Fatalf("volatileContext should carry the plan, got %q", out)
 	}
@@ -30,11 +30,11 @@ func TestVolatileContextElapsed(t *testing.T) {
 	a := &App{}
 	s := session.Session{ID: "s1"}
 	// Under a minute: nothing.
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 30*time.Second); strings.Contains(out, "wall-clock") {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 30*time.Second, nil); strings.Contains(out, "wall-clock") {
 		t.Fatalf("sub-minute elapsed should not be shown, got %q", out)
 	}
 	// Over a minute: shown.
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 11*time.Minute)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 11*time.Minute, nil)
 	if !strings.Contains(out, "working for 11m") || !strings.Contains(out, "wall-clock") {
 		t.Fatalf("elapsed line should report self-measured wall clock, got %q", out)
 	}
@@ -45,14 +45,14 @@ func TestVolatileContextElapsed(t *testing.T) {
 func TestVolatileContextTimeBudget(t *testing.T) {
 	s := session.Session{ID: "s1"}
 	off := &App{}
-	if out := off.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 5*time.Minute); strings.Contains(out, "asked for this to finish") {
+	if out := off.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 5*time.Minute, nil); strings.Contains(out, "asked for this to finish") {
 		t.Fatalf("time budget off by default should emit no budget line, got %q", out)
 	}
 	on := &App{cfg: Config{TimeBudget: 30 * time.Minute}}
-	if out := on.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 10*time.Minute); !strings.Contains(out, "within 30m") || !strings.Contains(out, "remaining") {
+	if out := on.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 10*time.Minute, nil); !strings.Contains(out, "within 30m") || !strings.Contains(out, "remaining") {
 		t.Fatalf("time budget should state remaining, got %q", out)
 	}
-	if out := on.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 40*time.Minute); !strings.Contains(out, "EXCEEDED") {
+	if out := on.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 40*time.Minute, nil); !strings.Contains(out, "EXCEEDED") {
 		t.Fatalf("elapsed past the budget should read EXCEEDED, got %q", out)
 	}
 }
@@ -62,7 +62,7 @@ func TestVolatileContextTimeBudget(t *testing.T) {
 func TestVolatileContextEmpty(t *testing.T) {
 	a := &App{}
 	s := session.Session{ID: "s1"}
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 0, 0, 0); out != "" {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 0, 0, 0, nil); out != "" {
 		t.Fatalf("expected empty volatile context, got %q", out)
 	}
 }
@@ -546,8 +546,8 @@ func TestVolatileContextPrefixSurvivesTheClock(t *testing.T) {
 		"s1": {todos: []session.Todo{{Content: "implement X", Status: "in_progress"}}},
 	}}
 	s := session.Session{ID: "s1"}
-	early := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 1, 0, 2*time.Minute)
-	later := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 9, 0, 47*time.Minute)
+	early := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 1, 0, 2*time.Minute, nil)
+	later := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 9, 0, 47*time.Minute, nil)
 	if early == later {
 		t.Fatal("the clock did not move at all — this test proves nothing as written")
 	}

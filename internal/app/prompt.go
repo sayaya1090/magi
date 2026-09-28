@@ -82,6 +82,11 @@ func (a *App) toolSpecs(sid session.SessionID, agent AgentSpec) []port.ToolSpec 
 // systemFor builds the system prompt for an agent: durable project memory (AGENTS.md) + the
 // agent's own prompt + what the runtime environment is.
 func (a *App) systemFor(agent AgentSpec, workdir string) string {
+	out, _ := assembleContext(a.systemFragments(agent, workdir), nil)
+	return out
+}
+
+func (a *App) systemFragments(agent AgentSpec, workdir string) []contextFragment {
 	var parts []contextFragment
 	if mem := a.projectMemory(workdir); mem != "" {
 		parts = append(parts, contextFragment{id: "system/project-memory", source: "projectMemory", lane: turnSystem, text: "# Project memory\n" + mem + "\n\n"})
@@ -90,8 +95,7 @@ func (a *App) systemFor(agent AgentSpec, workdir string) string {
 		contextFragment{id: "system/agent", source: "agent", lane: turnSystem, text: agent.System},
 		contextFragment{id: "system/environment", source: "envInfo", lane: turnSystem, text: "\n\n" + envInfo(workdir)},
 		contextFragment{id: "system/output", source: "outputFormatGuide", lane: turnSystem, text: outputFormatGuide})
-	sys, _ := assembleContext(parts, nil)
-	return sys
+	return parts
 }
 
 // volatileContext builds the per-step changing context — the current plan (TODOs), shared
@@ -99,11 +103,11 @@ func (a *App) systemFor(agent AgentSpec, workdir string) string {
 // prompt. It is now injected as an ephemeral trailing message instead, so the system prompt
 // stays byte-stable within a turn and the backend's prefix (KV) cache survives across steps.
 // Returns "" when there is nothing to inject. Gating matches the old in-`sys` behavior:
-// experience applies to subagents too, RAG is top-level only.
+// experience and registered retrieval follow the existing caller scope.
 // raw is reconstruct(evs) computed by the caller — the step loop already needs it for
 // compaction sizing, and reconstruct is O(events), so it is built once per step and
 // shared rather than re-derived here for the retrieval query.
-func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, evs []event.Event, raw []session.Message, step, maxSteps int, elapsed time.Duration) string {
+func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, evs []event.Event, raw []session.Message, step, maxSteps int, elapsed time.Duration, available map[string]bool) string {
 	// ORDER IS THE POINT, and it is a cache decision rather than a stylistic one.
 	//
 	// This block rides at the TAIL of every request (buildStepRequest), so the conversation ahead
@@ -126,18 +130,18 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// own and moving one cannot silently glue it to its neighbour.
 	var sections []contextFragment
 	lane := volatileStable
-	add := func(v string) {
+	add := func(id, v string) {
 		if v = strings.TrimSpace(v); v != "" {
 			if len(sections) > 0 {
 				v = "\n\n" + v
 			}
-			sections = append(sections, contextFragment{id: fmt.Sprintf("tail/%d", len(sections)), source: "volatileContext", lane: lane, text: v})
+			sections = append(sections, contextFragment{id: "tail/" + id, source: "volatileContext", lane: lane, text: v})
 		}
 	}
 
 	// ── 1. constant within a turn ────────────────────────────────────────────
 	if td := a.Todos(s.ID); len(td) > 0 {
-		add("# Current plan (TODOs)\n" + formatTodos(td))
+		add("plan", "# Current plan (TODOs)\n"+formatTodos(td))
 	}
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
@@ -146,8 +150,8 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// not merely wasted context: it is an instruction the agent cannot carry out, and a model
 	// told to call something reads that as available and calls it — then gets a refusal, and
 	// repeats, because nothing in its window says the tool is gone. See gateAllowlist.
-	if agent.allows("recall_context") {
-		add(shardHints(evs, currentTaskText(evs)))
+	if agent.allows("recall_context") && available["recall_context"] {
+		add("recall-context", shardHints(evs, currentTaskText(evs)))
 	}
 	// Both retrieval hooks below key on the last user prompt, which is constant across a
 	// turn; the per-turn caches absorb the (identical) lookups the remaining steps repeat.
@@ -166,15 +170,15 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// allowlist HAS recall_memory. A restricted agent (the read-only spec-mine explorer, a
 	// workflow phase, a delegate with a narrowed set) was being handed the pointer anyway and
 	// then refused when it followed it.
-	if a.cfg.Experience != nil && retrievalQ != "" && agent.allows("recall_memory") {
+	if a.cfg.Experience != nil && retrievalQ != "" && agent.allows("recall_memory") && available["recall_memory"] {
 		if p := a.experiencePointerCached(ctx, s.ID, retrievalQ, agent.Groups); p != "" {
-			add("# Shared experience\n" + p)
+			add("recall-memory", "# Shared experience\n"+p)
 		}
 	}
 	// Plugin-registered context providers (RAG).
 	if q := retrievalQ; q != "" {
 		if c := a.gatherContextCached(ctx, s, q); c != "" {
-			add("# Retrieved context\n" + c)
+			add("retrieved", "# Retrieved context\n"+c)
 		}
 	}
 	// The file the person has open in the console editor, unsaved. On by default ([autocomplete]
@@ -189,8 +193,8 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 			if len(txt) > ambientCap {
 				txt = text.Cut(txt, ambientCap) + "\n… (the rest of this file is not shown)"
 			}
-			add("# File open in the editor (unsaved)\nThe user has " + f.path +
-				" open and is editing it; this is their current buffer, which may differ from disk:\n" + txt)
+			add("editor", "# File open in the editor (unsaved)\nThe user has "+f.path+
+				" open and is editing it; this is their current buffer, which may differ from disk:\n"+txt)
 		}
 	}
 
@@ -205,7 +209,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// It grows by a line per call. Below the constant tier so that tier stays cached; above the
 	// stopwatch so its own earlier lines can be cached too, for as long as it only ever appends.
 	lane = volatileRun
-	add(a.runState(evs))
+	add("run", a.runState(evs))
 
 	// ── 3. changes every step ────────────────────────────────────────────────
 	// There is no step ceiling any more, so there is no budget to report. What is left is the one
@@ -231,9 +235,17 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 		}
 	}
 	lane = volatileClock
-	add(last.String())
+	add("clock", last.String())
 
-	out, _ := assembleContext(sections, nil)
+	for _, need := range []struct{ id, tool string }{{"recall-context", "recall_context"}, {"recall-memory", "recall_memory"}} {
+		if !available[need.tool] {
+			sections = append(sections, contextFragment{id: "tail/" + need.id, lane: volatileStable, requires: []string{need.tool}})
+		}
+	}
+	out, decisions := assembleContext(sections, available)
+	a.mu.Lock()
+	a.stateLocked(s.ID).contextDecisions = decisions
+	a.mu.Unlock()
 	return out
 }
 

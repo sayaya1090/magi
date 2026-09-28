@@ -33,7 +33,7 @@ import (
 // stepSystemFor returns the session's system prompt for the CURRENT TURN, building it on first
 // use and returning the same bytes for every step after that. resetTurnPrompt opens the next
 // window at turn start.
-func (a *App) stepSystemFor(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event) string {
+func (a *App) stepSystemFor(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event, available map[string]bool) string {
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	if st.turnSysSet {
@@ -42,7 +42,7 @@ func (a *App) stepSystemFor(sid session.SessionID, agent AgentSpec, workdir stri
 		return sys
 	}
 	a.mu.Unlock()
-	sys := a.buildStepSystem(sid, agent, workdir, evs)
+	sys := a.buildStepSystem(sid, agent, workdir, evs, available)
 	a.mu.Lock()
 	st = a.stateLocked(sid)
 	// First writer wins: two racing steps of one turn must agree, and the second build would be

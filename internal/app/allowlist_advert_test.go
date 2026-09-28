@@ -90,7 +90,7 @@ func TestExperiencePointerOnlyForAgentsThatMayCallRecallMemory(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			vol := a.volatileContext(context.Background(), s, AgentSpec{Name: "a", Tools: c.tools},
-				nil, raw, 1, 30, 0)
+				nil, raw, 1, 30, 0, map[string]bool{"recall_memory": c.want})
 			if got := strings.Contains(vol, "recall_memory"); got != c.want {
 				t.Errorf("advertises recall_memory=%t, want %t — the prompt must promise only what "+
 					"the allowlist permits\n%s", got, c.want, vol)

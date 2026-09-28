@@ -277,7 +277,7 @@ func TestAmbientOpenFileEntersContext(t *testing.T) {
 	a.SetOpenFile(sid, "/w/foo.go", "package main\n\nvar X = brokenHere")
 	s := a.sessionInfo(context.Background(), sid)
 	ctx := func(a *App) string {
-		return a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 1, 0, 0)
+		return a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 1, 0, 0, map[string]bool{"read": true})
 	}
 	if vc := ctx(a); !strings.Contains(vc, "foo.go") || !strings.Contains(vc, "brokenHere") {
 		t.Errorf("the open buffer did not enter the context:\n%s", vc)
