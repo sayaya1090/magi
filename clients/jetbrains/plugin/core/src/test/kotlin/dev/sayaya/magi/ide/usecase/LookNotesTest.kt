@@ -34,4 +34,10 @@ class LookNotesTest {
         // 번호만 있고 말이 없으면 걸 수 없다.
         assertEquals(emptyList<Pair<Int, String>>(), LookNotes.split("42").anchored)
     }
+
+    @Test
+    fun `검토 탭 줄 — 번호를 맞춰 세우고 줄 없는 말은 번호 없이 뒤에`() {
+        val rows = LookNotes.listing(LookNotes.split("9\t짧다\n116\t길다\n파일 전체가 길다"))
+        assertEquals(listOf(9 to "  9  짧다", 116 to "116  길다", null to "파일 전체가 길다"), rows)
+    }
 }

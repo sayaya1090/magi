@@ -21,16 +21,27 @@ class ProblemsTest {
 
     private fun json(s: String): JsonElement = Wire.json.parseToJsonElement(s)
 
-    private fun result(content: String, isError: Boolean, advisory: Boolean = false, tool: String = "edit") =
+    // 결과 파트는 이름을 안 싣는다 — 이름은 앞선 호출 파트에 있고 같은 callId 로 잇는다.
+    private fun call(tool: String = "edit", id: String = "c1") = LogEvent(
+        seq = 6, type = "part.appended",
+        data = json("""{"part":{"kind":"toolCall","toolCall":{"callId":"$id","name":"$tool","args":{}}}}"""),
+    )
+
+    private fun result(content: String, isError: Boolean, advisory: Boolean = false, id: String = "c1") =
         LogEvent(
             seq = 7, type = "part.appended", ts = "2026-08-28T10:00:00Z",
             data = json(
                 """{"part":{"kind":"toolResult",
-                    "toolCall":{"name":"$tool"},
-                    "toolResult":{"content":${Wire.json.encodeToString(kotlinx.serialization.serializer(), content)},
+                    "toolResult":{"callId":"$id","content":${Wire.json.encodeToString(kotlinx.serialization.serializer(), content)},
                                   "isError":$isError,"advisory":$advisory}}}"""
             ),
         )
+
+    /** 화면이 하듯 호출을 먼저 보고 이름을 기억한 채 결과를 고른다. */
+    private fun pick(content: String, isError: Boolean = true, advisory: Boolean = false): Problems.Problem? {
+        val names = listOfNotNull(Problems.callOf(call())).toMap()
+        return Problems.of(result(content, isError, advisory), names::get)
+    }
 
     @Test
     fun `성공한 호출은 문제가 아니다`() {
@@ -39,7 +50,7 @@ class ProblemsTest {
 
     @Test
     fun `앵커를 읽으면 어디인지가 붙는다`() {
-        val p = Problems.of(result("\n  internal/app/guard.go:441:9: error: undefined: foo", isError = true))
+        val p = pick("\n  internal/app/guard.go:441:9: error: undefined: foo")
         assertNotNull(p)
         assertEquals("internal/app/guard.go", p!!.where?.path)
         assertEquals(441, p.where?.line)
@@ -82,6 +93,15 @@ class ProblemsTest {
         // 반대도 같은 줄에 `#<seq>  <ts>` 를 달고 나간다.
         assertEquals(9L, d.seq)
         assertEquals("2026-08-28T10:01:00Z", d.at)
+    }
+
+    @Test
+    fun `seq 0 프리뷰 판정은 안 고른다 — 뒤따르는 사실과 두 번 서던 것`() {
+        // 2026-09-28 스크린샷: 지적 사항 탭에 같은 반대가 `#0` 과 `#17` 로 두 번 섰다.
+        // 라이브 버스는 반박 전 프리뷰를 seq 0 으로 싣고, 사실은 반박 뒤 세트로 따로 온다
+        // (Transcript.echoesFact 의 주석). 전사는 이미 프리뷰를 건너뛰었다.
+        val preview = LogEvent(seq = 0, type = "council.verdict", data = json("""{"member":"casper","decision":"continue"}"""))
+        assertNull(Problems.dissentOf(preview))
     }
 
     @Test

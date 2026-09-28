@@ -36,4 +36,16 @@ object LookNotes {
         }
         return Split(anchored, loose.joinToString("\n"))
     }
+
+    /**
+     * 검토 결과 탭의 줄들. 줄에 걸리는 말은 번호를 오른쪽 맞춰 앞에 세우고 그 번호를 같이 돌려준다 —
+     * 탭이 그 줄을 누르면 편집기의 그 줄로 간다. 줄 없는 말은 뒤에 번호 없이 선다.
+     *
+     * 예전 탭은 답을 받은 그대로 적어 `11\t…` 의 번호가 눌리지 않는 글자였다(2026-09-28 스크린샷).
+     */
+    fun listing(split: Split): List<Pair<Int?, String>> {
+        val width = split.anchored.maxOfOrNull { it.first.toString().length } ?: 0
+        return split.anchored.map { (n, t) -> n to n.toString().padStart(width) + "  " + t } +
+            split.loose.lines().filter { it.isNotBlank() }.map { null to it }
+    }
 }

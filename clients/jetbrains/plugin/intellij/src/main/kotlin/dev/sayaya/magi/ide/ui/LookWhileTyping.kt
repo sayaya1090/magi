@@ -70,7 +70,7 @@ internal object LookWhileTyping {
     /** 상단 배너의 '전체 보기' 클릭 시 전체 검토 피드백 원문을 다이얼로그로 표시한다. */
     fun showFull(project: Project, file: VirtualFile) {
         val note = full[key(project, file)] ?: said[key(project, file)] ?: return
-        LookOverAction.show(project, note)
+        LookOverAction.show(project, note, file)
     }
 
     private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance(LookWhileTyping::class.java)

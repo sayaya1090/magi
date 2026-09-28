@@ -304,7 +304,7 @@ internal object Look {
      * columns=46을 지정하여 초기 선호 폭을 글자 수 기준으로 제한하고, 세로 방향으로 자연스럽게 확장되도록 한다.
      */
     fun note(text: String, hue: Color = faint): JComponent =
-        javax.swing.JTextArea(text).apply {
+        WordArea(text).apply {
             minimumSize = Dimension(FLOOR, 0)
             isEditable = false
             isOpaque = false

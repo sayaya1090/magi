@@ -151,6 +151,14 @@ class RowTextTest {
         assertTrue(t.indexOf("물음") < t.indexOf("답"))
     }
 
+    @Test
+    fun `데몬 사건 시각(오프셋·마이크로초)도 지역 시각으로 읽는다`() {
+        // 지적 사항 탭이 이 모양을 원문 그대로 적어 줄이 길었다(2026-09-28 스크린샷).
+        val t = RowText.clock("2026-09-28T12:02:19.425376+09:00")
+        assertTrue(Regex("""\d{2}:\d{2}(:\d{2})?""").matches(t), "시각이 안 읽혔다: '$t'")
+    }
+
+    @Test // 이 시험엔 @Test 가 없어 한 번도 안 돌았다(2026-09-28 발견)
     fun `못 읽는 시각은 빈 글자다 — 지어내지 않는다`() {
         assertEquals("", RowText.clock(null))
         assertEquals("", RowText.clock(""))

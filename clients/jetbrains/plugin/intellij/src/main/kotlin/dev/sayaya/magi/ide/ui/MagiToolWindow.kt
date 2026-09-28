@@ -438,6 +438,9 @@ class MagiToolWindow : ToolWindowFactory {
          * 모르는 것을 아는 척하지 않는 것이 §5-5 의 규칙이다.
          */
         val authors = Authorship()
+
+        /** 호출 이름 — 결과 파트엔 이름이 없어 지적 사항이 「실패  #9」로 섰다([Problems.callOf]). */
+        private val callNames = java.util.concurrent.ConcurrentHashMap<String, String>()
         private var following: java.io.Closeable? = null
 
         /** 창이 닫히는 중인가. 서면 재접속이 멈춘다 — 닫은 창이 스스로 되살아나면 안 된다. */
@@ -532,7 +535,8 @@ class MagiToolWindow : ToolWindowFactory {
                     // 지적 사항(Problems)은 트랜스크립트 스트림에서 파생 추출합니다.
                     // 설계 문서 §3 원칙("도구 창당 단일 스트림 점유")에 따라 별도 스트림을 개설하지 않고 동일 프레임 중복 파싱을 방지합니다.
                     authors.feed(e)
-                    Problems.of(e)?.let { note(it) }
+                    Problems.callOf(e)?.let { (id, name) -> callNames[id] = name }
+                    Problems.of(e, callNames::get)?.let { note(it) }
                     // 프롬프트 및 승인 상태 갱신 신호 처리:
                     // 질문 요청(`*.requested`)은 과도기적 전이 이벤트이므로 로그에 영속화되지 않습니다.
                     // 이 신호를 수신할 때 프롬프트를 갱신하지 않으면 창 오픈 후 유입된 질문의 승인 버튼이 생성되지 않습니다(사유: `Transcript.movesPrompt`).
@@ -550,6 +554,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 계약에 따라 기존 렌더링 버퍼를 클리어하고 전체 로그를 재생받는 상태로 전환합니다.
                     lastSeq = 0
                     authors.forget()
+                    callNames.clear()
                     shaper.clear()
                     SwingUtilities.invokeLater { problems.text = "" }
                     // ↻ 글리프는 '재연결 중' 상태를 의미하므로, 소켓은 연결되어 있으나 커서만 거절된 현재 상태에서는
@@ -891,6 +896,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 것이 없고, 이 갈림을 아는 자리는 여기뿐이다(비움이 began 에 있던 사유는 그때의
                 // 「커서를 안 보낸다」였다).
                 authors.forget()
+                callNames.clear()
                 shaper.clear()
                 SwingUtilities.invokeLater { problems.text = "" }
             }
@@ -1418,11 +1424,14 @@ class MagiToolWindow : ToolWindowFactory {
          * `where` 가 없으면 그대로 둔다. 못 읽은 앵커를 지어내면 엉뚱한 줄을 가리키고, 그건 항목이
          * 안 눌리는 것보다 나쁘다.
          */
+        /** 전사 행과 같은 지역 시각 — 원문 ISO(마이크로초·오프셋까지)를 그대로 적어 줄이 길었다(2026-09-28 스크린샷). */
+        private fun at(ts: String?): String = RowText.clock(ts).ifEmpty { ts.orEmpty() }
+
         private fun note(p: Problems.Problem) = SwingUtilities.invokeLater {
             val head = MagiBundle.msg(if (p.advisory) "problems.did" else "problems.failed")
             push(problems, head, if (p.advisory) Look.warn else Look.error, bold = true)
             push(problems, " ${p.tool.orEmpty()}", Look.body)
-            push(problems, "  #${p.seq}  ${p.at.orEmpty()}", Look.muted)
+            push(problems, "  #${p.seq}  ${at(p.at)}", Look.muted)
             p.where?.let { push(problems, "  ${it.path}:${it.line}", Look.accent) }
             push(problems, "\n    " + p.text.trim().lines().firstOrNull().orEmpty().take(160) + "\n",
                 Look.faint)
@@ -1438,7 +1447,7 @@ class MagiToolWindow : ToolWindowFactory {
             push(problems, MagiBundle.msg("problems.council"), Look.faint)
             push(problems, d.member, Look.seat(d.member) ?: Look.faint, bold = true)
             push(problems, " " + MagiBundle.msg("problems.against"), Look.body)
-            push(problems, "  #${d.seq}  ${d.at.orEmpty()}", Look.muted)
+            push(problems, "  #${d.seq}  ${at(d.at)}", Look.muted)
             push(problems, "\n    ${d.why}\n", Look.faint)
             problems.caretPosition = problems.document.length
         }

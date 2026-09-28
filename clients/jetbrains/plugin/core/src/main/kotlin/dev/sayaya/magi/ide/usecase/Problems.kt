@@ -53,8 +53,22 @@ object Problems {
      */
     private val anchor = Regex("""(?m)^\s*([^\s:][^:\n]*\.[A-Za-z0-9]+):(\d+)(?::(\d+))?:""")
 
-    /** 이 이벤트가 문제인가. 아니면 null. */
-    fun of(e: LogEvent): Problem? {
+    /**
+     * 이 이벤트가 호출이면 `callId` 와 도구 이름. 결과 파트에는 이름이 없다 — 코어의 `session.Part` 는
+     * 한 가지 종류만 싣는다(호출 파트와 결과 파트가 따로 온다). 그래서 화면이 호출을 보며 이름을
+     * 기억해 두고 [of] 에 [nameOf] 로 건넨다. 예전엔 결과 파트의 `toolCall` 을 읽어 이름이 늘 비었고
+     * (「실패  #9」), 시험은 코어가 안 내는 모양(결과 파트 안의 toolCall)으로 초록이었다(2026-09-28).
+     */
+    fun callOf(e: LogEvent): Pair<String, String>? {
+        if (e.type != "part.appended") return null
+        val call = e.data?.jsonObject?.get("part")?.jsonObject?.get("toolCall")?.jsonObject ?: return null
+        val id = call["callId"]?.jsonPrimitive?.content ?: return null
+        val name = call["name"]?.jsonPrimitive?.content ?: return null
+        return id to name
+    }
+
+    /** 이 이벤트가 문제인가. 아니면 null. [nameOf] 는 `callId` 로 도구 이름을 찾는다([callOf]). */
+    fun of(e: LogEvent, nameOf: (String) -> String? = { null }): Problem? {
         if (e.type != "part.appended") return null
         val part = e.data?.jsonObject?.get("part")?.jsonObject ?: return null
         val res = part["toolResult"]?.jsonObject ?: return null
@@ -69,7 +83,7 @@ object Problems {
         return Problem(
             seq = e.seq,
             at = e.ts,
-            tool = part["toolCall"]?.jsonObject?.get("name")?.jsonPrimitive?.content,
+            tool = res["callId"]?.jsonPrimitive?.content?.let(nameOf),
             advisory = res["advisory"]?.jsonPrimitive?.content == "true",
             text = text,
             where = m?.let {
@@ -86,6 +100,9 @@ object Problems {
 
     fun dissentOf(e: LogEvent): Dissent? {
         if (e.type != "council.verdict") return null
+        // seq 0 은 반박 전 프리뷰다 — 사실이 반박 뒤 세트로 뒤따르고 내용이 다를 수 있다
+        // ([Transcript.echoesFact]). 이것까지 고르면 같은 반대가 `#0` 과 `#<seq>` 로 두 번 선다.
+        if (e.seq == 0L) return null
         val d = e.data?.jsonObject ?: return null
         if (d["decision"]?.jsonPrimitive?.content != "continue") return null // 반대만
         return Dissent(

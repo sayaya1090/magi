@@ -45,7 +45,7 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
      * 현재 활성화된 모델 및 요청 대상 백엔드 정보.
      * 데몬 `status` 응답에서 추출하여 변경 대상의 기준점을 사용자에게 명확히 제시합니다.
      */
-    private val completeWhy = Look.note("", Look.faint) as javax.swing.JTextArea
+    private val completeWhy = (Look.note("", Look.faint) as javax.swing.JTextArea).apply { isVisible = false }
     private val modelNow = Look.wide()
     private val backendNow = Look.wide()
     private val outside = Look.flow(Look.warn)
@@ -75,6 +75,12 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
     private var read: String? = null
 
     /**
+     * 데몬이 댄 지금 모델. 콤보는 이것을 골라 둔 채 선다 — 예전엔 늘 빈 칸으로 서서 「모델이
+     * 안 골라졌다」로 읽혔다(2026-09-28 스크린샷). 바뀜 판정과 적용은 이것과 다를 때만이다.
+     */
+    private var modelRead: String? = null
+
+    /**
      * 데몬이 `config-get` 엔드포인트로 열거한 설정 키와 동적 입력 컴포넌트 맵.
      * 설정 키를 클라이언트에 하드코딩하지 않고 데몬 동적 메타데이터를 기반으로 UI를 생성하여 신규 설정 항목을 자동 지원합니다.
      */
@@ -82,6 +88,20 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
     private var choices: List<String> = emptyList()
     private val doorFields = LinkedHashMap<String, javax.swing.text.JTextComponent>()
     private val doorPane = javax.swing.JPanel(GridBagLayout())
+
+    /**
+     * 이름 칸들. 데몬이 대는 칸은 따로 짠 판([doorPane])에 서서 이름 칸 폭을 제 이름들로 정했고,
+     * 그래서 그 아래 칸들만 열 위치가 어긋나 섰다(2026-09-28 스크린샷). 두 판의 이름 칸을 한 폭으로 맞춘다.
+     */
+    private val outerNames = mutableListOf<JComponent>()
+    private val doorNames = mutableListOf<JComponent>()
+
+    private fun alignNames() {
+        val all = outerNames + doorNames
+        all.forEach { it.preferredSize = null }
+        val w = all.maxOfOrNull { it.preferredSize.width } ?: return
+        all.forEach { it.preferredSize = java.awt.Dimension(w, it.preferredSize.height) }
+    }
 
     // 표시 이름은 번들 리소스에서 단일 참조합니다.
     override fun getDisplayName() = MagiBundle.msg("configurable.magi")
@@ -116,8 +136,15 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
         }
         fun row(name: String, c: JComponent) {
             // 이름 칸도 폭을 요구하지 않는다 — 칸을 다 줄여 놔도 이름이 안 줄면 판이 안 좁혀진다.
-            p.add(Look.wide().apply { text = name; foreground = Look.faint }, GridBagConstraints().apply {
+            val label = Look.wide().apply { text = name; foreground = Look.faint; isVisible = c.isVisible }
+            outerNames += label
+            p.add(label, GridBagConstraints().apply {
                 gridx = 0; gridy = y; anchor = GridBagConstraints.LINE_START; insets = Insets(4, 0, 4, 12)
+            })
+            // 칸이 접히면 이름도 접힌다 — 이름만 남으면 그 줄 높이만큼 틈이 선다.
+            c.addComponentListener(object : java.awt.event.ComponentAdapter() {
+                override fun componentShown(e: java.awt.event.ComponentEvent) { label.isVisible = true }
+                override fun componentHidden(e: java.awt.event.ComponentEvent) { label.isVisible = false }
             })
             p.add(c, GridBagConstraints().apply {
                 gridx = 1; gridy = y; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL
@@ -203,7 +230,7 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
         // 미연결 상태에서 기본 선택값(`ask`)과 null을 비교하여 항상 변경된 것으로 오판정되어,
         // 단순 설정창 조회 후 저장 시 원치 않는 `ask` 권한이 전송되는 결함을 방지합니다.
         (read != null && (permission.selectedItem as? String) != read) ||
-            (model.selectedItem as? String).orEmpty().isNotBlank() ||
+            (model.selectedItem as? String).orEmpty().trim().let { it.isNotBlank() && it != modelRead } ||
             backend.text.isNotBlank() ||
             // 모든 동적 및 로컬 설정 항목의 변경 여부를 검사합니다.
             // IntelliJ 플랫폼은 isModified()가 true를 반환할 때만 apply()를 호출하므로,
@@ -222,6 +249,7 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
      */
     private fun paintDoor() {
         doorPane.removeAll()
+        doorNames.clear()
         doorFields.clear()
         var dy = 0
         fun line(c: java.awt.Component, x: Int, w: Int, ins: Insets) {
@@ -255,7 +283,7 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
                 text = SettingPresentation.label(item)
                 foreground = Look.faint
                 toolTipText = item.key
-            }, 0, 1, Insets(4, 0, 4, 12))
+            }.also { doorNames += it }, 0, 1, Insets(4, 0, 4, 12))
             line((f.parent as? JComboBox<*>) ?: f, 1, 1, Insets(4, 0, 4, 0))
             dy++
             val why = listOfNotNull(
@@ -263,8 +291,10 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
                 item.applies?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.applies", SettingPresentation.applies(it)) },
                 item.source?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.from", SettingPresentation.source(it)) },
             ).joinToString(" · ")
-            if (why.isNotBlank()) { line(Look.note(why, Look.body), 1, 1, Insets(0, 0, 6, 0)); dy++ }
+            // 설명은 위 판의 설명과 같은 모양으로 — 여기만 본문 색이라 값처럼 읽혔다.
+            if (why.isNotBlank()) { line(Look.note(why), 1, 1, Insets(0, 0, 8, 0)); dy++ }
         }
+        alignNames()
         doorPane.revalidate(); doorPane.repaint()
     }
 
@@ -277,7 +307,7 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
             if (mode != null && read != null && mode != read) comp.setPermission(mode).also {
                 if (!it.ok) gripes += MagiBundle.msg("chat.notsent", MagiBundle.msg("set.gripe.permission"), it.error ?: MagiBundle.msg("set.noreason"))
             }
-            if (pick.isNotBlank()) comp.setModel(pick).also {
+            if (pick.isNotBlank() && pick != modelRead) comp.setModel(pick).also {
                 if (!it.ok) gripes += MagiBundle.msg("chat.notsent", MagiBundle.msg("set.gripe.model"), it.error ?: MagiBundle.msg("set.noreason"))
             }
             if (prof.isNotBlank()) comp.useBackend(prof).also {
@@ -299,7 +329,7 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
             LocalPrefs.setAutostart(project, autostart.isSelected)
             if (gripes.isEmpty()) tell(MagiBundle.msg("set.applied"))
             else tell(gripes.joinToString(" · "), trouble = true)
-            SwingUtilities.invokeLater { model.selectedItem = ""; backend.text = "" }
+            SwingUtilities.invokeLater { backend.text = "" } // 모델 칸은 위 pull 이 지금 모델로 되돌린다
         }
     }
 
@@ -328,6 +358,8 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
      */
     private fun sayOutside() {
         val out = workspace.rootsOutsideWorkspace()
+        // 밖의 루트가 없으면 칸을 접는다 — 빈 칸이 「상태」와 「설정」 사이에 틈을 냈다(2026-09-28 스크린샷).
+        SwingUtilities.invokeLater { outside.isVisible = out.isNotEmpty() }
         if (out.isEmpty()) return say(outside, " ")
         say(outside, MagiBundle.msg("status.outside", out.size) + " — " +
             MagiBundle.msg("set.outside.what") + "\n" + out.joinToString("\n"))
@@ -367,6 +399,8 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
                     val key = dev.sayaya.magi.ide.usecase.Assist.emptyKey(code)
                     if (key != null) MagiBundle.msg(key, code) else code
                 }.orEmpty()
+            // 사유가 없으면 칸을 접는다 — 빈 칸이 줄 하나만큼 틈을 내 「채팅 입력 제안」이 떨어져 섰다(2026-09-28 스크린샷).
+            completeWhy.isVisible = completeWhy.text.isNotBlank()
             modelNow.text = f.model ?: MagiBundle.msg("set.unsaid")
             backendNow.text = f.backend ?: MagiBundle.msg("set.unsaid")
             // 데몬이 반환한 권한 모드가 표준 토큰 목록(`Perms.TOKENS`)에 없는 경우 콤보박스 모델에 동적으로 추가합니다.
@@ -379,13 +413,16 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
         }
         val m = comp.models()
         SwingUtilities.invokeLater {
+            m.why?.let { tell(MagiBundle.msg("set.models.why", it)) }
             read = f.permission
             if (f.permission != null) permission.selectedItem = f.permission
+            modelRead = f.model
             model.removeAllItems()
             model.addItem("")
             m.models?.forEach { model.addItem(it) }
-            model.selectedItem = ""
-            m.why?.let { tell(MagiBundle.msg("set.models.why", it)) }
+            // 목록에 없는 지금 모델(직접 적어 바꾼 것)도 고른 채 설 수 있게 넣는다.
+            f.model?.takeIf { it.isNotBlank() && (m.models?.contains(it) != true) }?.let { model.addItem(it) }
+            model.selectedItem = f.model.orEmpty()
         }
     }
 
