@@ -1829,6 +1829,26 @@ class SourceTextTest {
      * 있었다. 간격이 필요하면 붙이는 코드가 붙인다.
      */
     @Test
+    fun `번들이 따옴표로 이름 대는 액션은 그 번들에 있는 이름이다`() {
+        // 한국어 번들이 「magi: Start the companion」을 실행하라고 했다 — 한국어 IDE 의 메뉴에는
+        // 「magi: 컴패니언 띄우기」만 있다. 사람은 없는 이름을 Find Action 에 친다(2026-09-28 로그).
+        val res = File(File(System.getProperty("user.dir")).parentFile, "intellij/src/main/resources/messages")
+        for (name in listOf("MagiBundle.properties", "MagiBundle_ko.properties")) {
+            val props = java.util.Properties().apply {
+                File(res, name).reader(Charsets.UTF_8).use { load(it) }
+            }
+            val actions = props.stringPropertyNames().filter { it.startsWith("action.") && it.endsWith(".text") }
+                .map { props.getProperty(it) }.toSet()
+            val quoted = props.stringPropertyNames().flatMap { k ->
+                Regex("""\u300c(magi: [^\u300d]+)\u300d""").findAll(props.getProperty(k)).map { k to it.groupValues[1] }
+            }
+            assertTrue(quoted.isNotEmpty(), "$name 에서 따옴표 친 액션 이름을 하나도 못 찾았다 — 이 시험이 아무것도 안 잰다")
+            val stray = quoted.filter { it.second !in actions }
+            assertTrue(stray.isEmpty(), "$name 이 없는 액션 이름을 댄다: $stray")
+        }
+    }
+
+    @Test
     fun `번들 값은 앞 공백에 기대지 않는다`() {
         val res = File(File(System.getProperty("user.dir")).parentFile, "intellij/src/main/resources/messages")
         for (name in listOf("MagiBundle.properties", "MagiBundle_ko.properties")) {

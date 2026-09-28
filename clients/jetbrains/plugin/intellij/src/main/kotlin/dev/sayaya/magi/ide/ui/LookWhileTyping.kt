@@ -78,6 +78,9 @@ internal object LookWhileTyping {
     /** 검토 완료 시점에 에디터 배너 알림을 즉시 갱신하여 UI 상태를 동기화한다. */
     internal fun refreshIcons(project: Project) {
         EditorNotifications.getInstance(project).updateAllNotifications()
+        // 툴바의 「지금 검토」 스피너도 다시 그리게 한다. 툴바는 사용자 입력이 있을 때만 update 를
+        // 돌아, 검토가 끝난 뒤에도 마우스가 툴바에 닿기 전까지 스피너가 섰다(2026-09-28 스크린샷).
+        com.intellij.ide.ActivityTracker.getInstance().inc()
     }
 
     fun forget(project: Project, file: VirtualFile) {
@@ -121,12 +124,15 @@ internal object LookWhileTyping {
         fun ask(file: VirtualFile, force: Boolean = false) {
             if (!force && !enabled(project)) return
             val k = key(project, file)
-            if (!running.add(k)) return // 중복 실행 방지
             val sock = Workspace(project).socket() ?: return
             val text = runReadActionBlocking {
                 FileDocumentManager.getInstance().getDocument(file)?.text
             } ?: return
             val base = project.basePath ?: return
+            // 표시는 나갈 것이 확실해진 뒤에 단다 — 위의 이른 반환이 표시를 남기면 스피너가 영영 돌고
+            // 그 파일은 다시 검토되지 않는다.
+            if (!running.add(k)) return // 중복 실행 방지
+            ApplicationManager.getApplication().invokeLater { refreshIcons(project) }
             val rel = file.path.removePrefix(base + "/")
             val mine = gen.incrementAndGet()
             ApplicationManager.getApplication().executeOnPooledThread {
