@@ -788,7 +788,9 @@ func (a *API) instructions(w http.ResponseWriter, r *http.Request) {
 //
 // **덱은 안 건드린다.** 지우는 것은 대화뿐이고, 슬라이드는 그대로다 — 답이 그렇게 적는다.
 func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
-	socket, _, _ := a.chat(r).Bound()
+	a.settling.Lock()
+	defer a.settling.Unlock()
+	socket, _, life, _ := a.chat(r).BoundTo()
 	if socket == "" {
 		writeStatus(w, http.StatusConflict, map[string]any{
 			"error": "아직 아무 컴패니언에도 안 붙어 있어서 새 대화를 열 자리가 없습니다",
@@ -807,7 +809,8 @@ func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
 	// `document` 를 생략한 호출이 「덱이 둘이라 못 고른다」로 죽고, 모델은 사람에게 「어느 덱에
 	// 만들까요」를 묻는다. 실물에서 그 화면을 봤다(2026-09-05: 사람이 그 질문을 그대로 옮겨 물었다.
 	// "플러그인 통해서 요청하면 저런거 안 떠?" — 안 떠야 맞고, 이 자리가 빠져 있었다).
-	if _, err := a.boltOf(socket, a.App.MCPURL(a.Port, deckOf(r)), a.Token, sid); err != nil {
+	tools, err := a.boltOf(socket, a.App.MCPURL(a.Port, deckOf(r)), a.Token, sid)
+	if err != nil {
 		// 못 붙였으면 대화는 열렸고 도구만 옛 것이다. **등급이 다른 둘을 한 칸으로 안 합친다.**
 		defer func() {
 			writeJSON(w, map[string]any{"session": sid, "socket": socket,
@@ -820,7 +823,7 @@ func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
 	// 남의 것으로 걸러진다 — 실물에서 그 화면을 봤던 자리다(§5.7).
 	out := map[string]any{"session": sid, "socket": socket,
 		"note": "새 대화를 열었습니다. " + a.App.PartKo + " 그대로입니다 — 지운 것은 대화뿐입니다."}
-	if err := a.chat(r).Bind(socket, sid); err != nil {
+	if err := a.chat(r).BindWith(socket, sid, life, tools); err != nil {
 		out["chat"] = err.Error()
 	}
 	// 마련해 둔 기록도 새 이름으로 고친다. 안 고치면 다음 `/api/own` 이 옛 이름을 도로 물린다.

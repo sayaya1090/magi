@@ -848,3 +848,20 @@ func quietOwn(t *testing.T) *OwnCompanion {
 		Alive:     func(string) bool { return false },
 	}
 }
+
+func TestFreshSessionSurvivesAutomaticSettle(t *testing.T) {
+	rig := freshRig(t, nil)
+	socket, _, _, tools := rig.api.Bridge.BoundTo()
+	if err := rig.api.Bridge.BindWith(socket, "s_old", "same-daemon", tools); err != nil {
+		t.Fatal(err)
+	}
+	rig.api.Resume = func(string, string) (string, bool) { return "s_old", true }
+	if code, _ := rig.askFresh(t); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	rep := rig.api.settle("", OwnReport{Phase: OwnReady, Socket: socket, Session: "s_old", Life: "same-daemon"})
+	_, sid, life, gotTools := rig.api.Bridge.BoundTo()
+	if rep.Session != "s_fresh" || sid != "s_fresh" || life != "same-daemon" || len(gotTools) == 0 {
+		t.Fatalf("fresh session was lost: report=%+v bound=%s life=%s tools=%v", rep, sid, life, gotTools)
+	}
+}
