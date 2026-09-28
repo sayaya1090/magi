@@ -2575,9 +2575,8 @@ func (d daemonEngine) ScheduledHere() []app.ScheduledJobInfo {
 //   - the one it is already in, which is not an error and is not a write either: rewriting the
 //     record readers poll to say what it already says wakes every one of them for nothing.
 //
-// The order matters. The mark goes into the old conversation BEFORE the record moves, so a reader
-// that notices the record change and comes back to read the old log finds the reason already
-// written; the other order leaves a window where the transcript simply stops.
+// Publish the new session before notifying subscribers of the old one. Clients resolve
+// the published record when SessionMoved arrives; it must already name the destination.
 func (d daemonEngine) Resume(ctx context.Context, sid session.SessionID) error {
 	if sid == "" {
 		return errors.New("no conversation named")
@@ -2610,18 +2609,18 @@ func (d daemonEngine) moveTo(ctx context.Context, sid session.SessionID, mustExi
 				return "", fmt.Errorf("%s is not a conversation of this workspace", sid)
 			}
 		}
-		if nerr := d.App.NoteSessionMoved(ctx, from, sid); nerr != nil {
-			// Said, not swallowed, and the move still happens: a reader left without the reason
-			// its transcript stopped is a smaller wrong than a console whose button did nothing.
-			fmt.Fprintln(os.Stderr, "magi: could not mark the conversation it left:", nerr)
-		}
 		if d.republish != nil {
 			if rerr := d.republish(sid); rerr != nil {
 				// The record is what every reader believes. Unwritten, the move did not happen as
 				// far as anything outside this process is concerned, so it must not happen inside
-				// it either — the mark above stays, which is true: it was left.
+				// it either. Do not announce a departure that did not happen.
 				return "", fmt.Errorf("this companion could not say where it went: %w", rerr)
 			}
+		}
+		if nerr := d.App.NoteSessionMoved(ctx, from, sid); nerr != nil {
+			// Said, not swallowed, and the move still happens: a reader left without the reason
+			// its transcript stopped is a smaller wrong than a console whose button did nothing.
+			fmt.Fprintln(os.Stderr, "magi: could not mark the conversation it left:", nerr)
 		}
 		return sid, nil
 	})

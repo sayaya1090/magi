@@ -3,6 +3,8 @@ import * as assert from 'node:assert/strict';
 const Module = require('module');
 
 // Stub 'vscode' module before loading Chat
+const hostCommands = new Map<string, () => Promise<void>>();
+let modelPick: { label: string } | undefined;
 const origLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: any, isMain: boolean) {
   if (request === 'vscode') {
@@ -32,9 +34,15 @@ const origLoad = (Module as any)._load;
         getConfiguration: () => ({ get: () => true }),
       },
       commands: {
+        registerCommand: (id: string, run: () => Promise<void>) => {
+          hostCommands.set(id, run);
+          return { dispose() {} };
+        },
         executeCommand: async () => {},
       },
       window: {
+        showQuickPick: async () => modelPick,
+        showWarningMessage: async () => {},
         createTextEditorDecorationType: () => ({ dispose() {} }),
         visibleTextEditors: [],
       },
@@ -675,4 +683,73 @@ test('Chat: open/diff requests resolve against this conversation as it is now (a
   o.postNote('no such file');
   assert.deepEqual(mockView.messages.filter((x) => x.kind === 'note' && x.text === 'no such file').length, 1,
     'postNote must reach the page as a note');
+});
+
+
+test('switching sessions clears old rows immediately even if the daemon cannot be reached', async () => {
+  const companion = createMockCompanion();
+  const chat = new Chat(companion as any, { fsPath: '/ext' } as any);
+  const { view, messages } = createMockWebviewView();
+  (chat as any).view = view;
+  (chat as any).events = [{ seq: 1, type: 'irrelevant-old-event' }];
+  chat.showSession('new-session');
+  const cleared = messages.find(m => m.kind === 'rows');
+  assert.equal(cleared?.session, 'new-session');
+  assert.deepEqual(cleared?.rows, []);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(messages.filter(m => m.kind === 'rows').length, 1);
+  chat.dispose();
+});
+
+test('a stale status poll still schedules another poll after a concurrent refresh', async () => {
+  const { Companion } = require('../ide/workspace');
+  const companion = new Companion('/workspace');
+  // socketThere accepts a readable path; no real daemon or socket is involved.
+  Object.defineProperty(companion, 'socket', { get: () => __filename });
+  let resolvePoll!: (value: any) => void;
+  let count = 0;
+  let nextPoll!: () => void;
+  const polledAgain = new Promise<void>(resolve => { nextPoll = resolve; });
+  companion.ask = async () => {
+    count++;
+    if (count === 1) return new Promise(resolve => { resolvePoll = resolve; });
+    if (count >= 3) nextPoll();
+    return { ok: true, model: 'new' };
+  };
+  try {
+    companion.watch(1);
+    await companion.refresh();
+    resolvePoll({ ok: true, model: 'old' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(companion.facts.model, 'new');
+    await Promise.race([
+      polledAgain,
+      new Promise((_, reject) => {
+        const timeout = setTimeout(() => reject(new Error('poll did not resume')), 500);
+        timeout.unref();
+      }),
+    ]);
+    assert.ok(count >= 3);
+  } finally { companion.dispose(); }
+});
+
+test('successful model selection immediately refreshes status', async () => {
+  const { chooseCommands } = require('../ide/choose');
+  const calls: string[] = [];
+  const companion = {
+    ask: async (method: string, payload: any) => {
+      calls.push(method);
+      if (method === 'models') return { ok: true, models: ['old', 'new'] };
+      if (method === 'status') return { ok: true, model: 'old' };
+      assert.deepEqual(payload, { name: 'new', session: 'session' });
+      return { ok: true };
+    },
+    refresh: async () => { calls.push('refresh'); },
+  };
+  modelPick = { label: 'new' };
+  try {
+    chooseCommands(companion, { session: 'session' });
+    await hostCommands.get('magi.chooseModel')!();
+    assert.deepEqual(calls, ['models', 'status', 'set-model', 'refresh']);
+  } finally { modelPick = undefined; hostCommands.clear(); }
 });

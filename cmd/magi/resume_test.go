@@ -51,7 +51,7 @@ func (m *movable) said() []session.SessionID {
 // resume is the production decision with the production locking, over this fixture.
 //
 // It mirrors daemonEngine.Resume deliberately: the sequence — refuse inside the lock, mark the
-// conversation being left, then say where it went — is the thing under test, and a fixture that
+// destination before notifying the conversation being left — is the thing under test; a fixture that
 // reordered it would be testing a different program.
 func (m *movable) resume(ctx context.Context, ar *arrival, sid session.SessionID) error {
 	return m.at.move(func(from session.SessionID) (session.SessionID, error) {
@@ -70,10 +70,10 @@ func (m *movable) resume(ctx context.Context, ar *arrival, sid session.SessionID
 		if !found {
 			return "", errUnknown{sid}
 		}
-		if err := ar.reader.NoteSessionMoved(ctx, from, sid); err != nil {
+		if err := m.record(sid); err != nil {
 			return "", err
 		}
-		if err := m.record(sid); err != nil {
+		if err := ar.reader.NoteSessionMoved(ctx, from, sid); err != nil {
 			return "", err
 		}
 		return sid, nil
@@ -383,5 +383,83 @@ func TestTheQueueDepthAndTheSessionDoNotLoseEachOther(t *testing.T) {
 	}
 	if !strings.Contains(in.Name, "api") {
 		t.Errorf("a field nobody touched was lost: %+v", in)
+	}
+}
+
+// Exercise the real moveTo: event-driven IDE clients read Published as soon as
+// SessionMoved arrives, rather than waiting for their next roster poll.
+func TestDaemonEnginePublishesBeforeSessionMoved(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("publish-fails=%t", fail), func(t *testing.T) {
+			ctx := context.Background()
+			ar := newArrival(t)
+			for _, sid := range []string{"a1", "a7"} {
+				ar.append(sid, ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: "/w"}))
+			}
+			sock := shortSockDir(t) + "/daemon-move.sock"
+			undo, err := daemon.Publish(sock, "/w", "a1", daemon.Identity{Name: "move"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer undo()
+			live, cancel := ar.bus.Subscribe(ctx, "a1")
+			defer cancel()
+			engine := daemonEngine{App: ar.reader, workdir: "/w", handover: handover{at: newWhere("a1")}}
+			engine.republish = func(sid session.SessionID) error {
+				// Bus publication is synchronous. This assertion deterministically catches
+				// an event sent before the record write, without a scheduling race.
+				select {
+				case e := <-live:
+					t.Fatalf("event %s arrived before publishing destination", e.Type)
+				default:
+				}
+				if fail {
+					return errors.New("record write failed")
+				}
+				return daemon.Moved(sock, sid)
+			}
+			err = engine.moveTo(ctx, "a7", true)
+			want := "a7"
+			if fail {
+				want = "a1"
+			}
+			if (err != nil) != fail {
+				t.Fatalf("move error = %v", err)
+			}
+			if string(engine.handover.at.now()) != want {
+				t.Fatalf("internal session = %s", engine.handover.at.now())
+			}
+			info, err := daemon.Published(sock)
+			if err != nil || info.Session != want {
+				t.Fatalf("published = %#v, %v", info, err)
+			}
+			select {
+			case e := <-live:
+				if fail || e.Type != event.TypeSessionMoved {
+					t.Fatalf("unexpected event: %#v", e)
+				}
+				var data event.SessionMovedData
+				if err := json.Unmarshal(e.Data, &data); err != nil || string(data.To) != info.Session {
+					t.Fatalf("event destination = %#v, %v", data, err)
+				}
+			default:
+				if !fail {
+					t.Fatal("missing SessionMoved notification")
+				}
+			}
+			events, err := ar.store.Read(ctx, "a1", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			marks := 0
+			for _, e := range events {
+				if e.Type == event.TypeSessionMoved {
+					marks++
+				}
+			}
+			if (!fail && marks != 1) || (fail && marks != 0) {
+				t.Fatalf("persisted departure count = %d", marks)
+			}
+		})
 	}
 }

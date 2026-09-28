@@ -215,14 +215,14 @@ test('a status answer that a newer one overtook is not drawn', () => {
   // Both askers take a number and both check it. One without the other is the defect with a note.
   const takes = [...src.matchAll(/\+\+this\.asked/g)].length;
   assert.equal(takes, 2, `${takes} askers take a sequence — the poll and refresh must both take one`);
-  const checks = [...src.matchAll(/mine !== this\.asked/g)].length;
+  const checks = [...src.matchAll(/mine (?:!==|===) this\.asked/g)].length;
   assert.equal(checks, 2, `${checks} askers check it — one that takes a number and ignores it guards nothing`);
 
   // The check must sit BETWEEN the await and the write, or it guards nothing.
   for (const m of src.matchAll(/const mine = \+\+this\.asked;([\s\S]{0,400}?)this\.set\(/g)) {
     const between = m[1];
     assert.ok(/await this\.ask\('status'/.test(between), 'the number is taken but nothing is awaited after it');
-    assert.ok(/mine !== this\.asked[\s\S]*?return/.test(between),
+    assert.ok(/mine !== this\.asked[\s\S]*?return|mine === this\.asked/.test(between),
       'the answer is written without asking whether a newer reading already landed');
   }
 });

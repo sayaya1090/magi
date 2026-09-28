@@ -156,9 +156,10 @@ export class Companion implements vscode.Disposable {
       } else {
         const mine = ++this.asked;
         const st = await this.ask('status', this.session ? { session: this.session } : {});
-        if (mine !== this.asked) return;   // a newer reading already landed — no old pictures
-        this.set(activity.of(st));
-        this.setSetup(activity.setupOf(st));
+        if (!this.gone && mine === this.asked) {
+          this.set(activity.of(st));
+          this.setSetup(activity.setupOf(st));
+        } // A stale reading must still schedule the next poll.
       }
       if (!this.gone) this.timer = setTimeout(tick, next);
     };

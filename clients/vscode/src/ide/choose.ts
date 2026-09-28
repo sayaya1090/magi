@@ -40,6 +40,7 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
         ...(chat.session ? { session: chat.session } : {}),
       });
       if (!set?.ok) void vscode.window.showWarningMessage(`magi: ${set?.error ?? 'the model did not change'}`);
+      else await companion.refresh();
     }),
 
     vscode.commands.registerCommand('magi.choosePermission', async () => {

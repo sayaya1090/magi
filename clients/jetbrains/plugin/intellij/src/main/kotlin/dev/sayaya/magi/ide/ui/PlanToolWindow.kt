@@ -164,11 +164,23 @@ class PlanToolWindow : ToolWindowFactory {
         var paintAsked: (Long) -> Unit = {}
         /** 세션 표시 문자열("제목 (s_…id6)")에서 실제 세션 ID를 매핑하는 역조회 테이블. */
 
+        val modelRevision = java.util.concurrent.atomic.AtomicLong()
+        val modelChanging = java.util.concurrent.atomic.AtomicBoolean()
         model.addActionListener {
             if (painting) return@addActionListener
             val pick = model.selectedItem as? String ?: return@addActionListener
-            workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
+            modelChanging.set(true)
+            modelRevision.incrementAndGet()
+            workspace.onDaemon({
+                modelChanging.set(false)
+                modelRevision.incrementAndGet()
+                refreshModels()
+                tell(MagiBundle.msg("common.failed", it))
+            }) { comp ->
                 val r = comp.setModel(pick)
+                modelChanging.set(false)
+                modelRevision.incrementAndGet()
+                refreshModels()
                 tell(if (r.ok) MagiBundle.msg("plan.model.changed", pick) else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
             }
         }
@@ -358,12 +370,8 @@ class PlanToolWindow : ToolWindowFactory {
                     ?.let { MagiBundle.msg("plan.usage.kept", it.joinToString(", ")) }.orEmpty(),
             ).filter { it.isNotBlank() }.joinToString("\n")
             ctxParts.isVisible = ctxParts.text.isNotBlank()
-            v?.modelNow()?.let { now ->
-                painting = true
-                if ((0 until model.itemCount).none { model.getItemAt(it) == now }) model.addItem(now)
-                model.selectedItem = now
-                painting = false
-            }
+            // 모델 선택은 status 응답으로만 갱신한다. 전사에 남은 이전 모델을
+            // 주기적으로 다시 칠하면 인증 실패 뒤 변경한 선택까지 되돌아간다.
             plan.revalidate(); plan.repaint()
         }
 
@@ -380,8 +388,12 @@ class PlanToolWindow : ToolWindowFactory {
             val r: dev.sayaya.magi.ide.model.Response,
             val cr: dev.sayaya.magi.ide.model.Response,
             val past: List<dev.sayaya.magi.ide.model.SessionRow>,
+            val currentModel: String?,
+            val revision: Long,
         )
         fun readPoll(comp: dev.sayaya.magi.ide.usecase.Companion): PollRead {
+            val revision = modelRevision.get()
+            val currentModel = comp.facts().model
             val jr = comp.jobs()
             val r = comp.roster()
             val cr = comp.cron()
@@ -407,9 +419,17 @@ class PlanToolWindow : ToolWindowFactory {
             }
             // 완료된 서브에이전트 목록 조회 (하위 호환성: 해당 엔드포인트를 미지원하는 구버전 데몬에서는 실행 중인 작업만 표시).
             val past = comp.children().children.orEmpty()
-            return PollRead(jr, r, cr, past)
+            return PollRead(jr, r, cr, past, currentModel, revision)
         }
         fun paintPoll(p: PollRead) {
+                if (!modelChanging.get() && p.revision == modelRevision.get()) {
+                    p.currentModel?.let { now ->
+                        painting = true
+                        if ((0 until model.itemCount).none { model.getItemAt(it) == now }) model.addItem(now)
+                        model.selectedItem = now
+                        painting = false
+                    }
+                }
                 val jr = p.jr; val j = jr.jobs; val r = p.r; val cr = p.cr; val past = p.past
                 stale.isVisible = false
                 work.removeAll()
@@ -626,7 +646,7 @@ class PlanToolWindow : ToolWindowFactory {
         /** 대화 목록 한 번의 답. [rows] 가 null 이면 이 데몬에 목록 문이 없다(재시도할 일이 아니다). */
         class TalkList(val rows: List<dev.sayaya.magi.ide.model.SessionRow>?, val why: String?, val now: String?)
         /** 모델 목록 한 번의 답. [names] 가 null 이면 문이 없거나 비었다 — [why] 가 그 사유다. */
-        class ModelList(val names: List<String>?, val why: String?, val current: String?)
+        class ModelList(val names: List<String>?, val why: String?, val current: String?, val revision: Long)
 
         val talks = DaemonList(lists) {
             workspace.askWithoutChat { comp ->
@@ -641,15 +661,16 @@ class PlanToolWindow : ToolWindowFactory {
             // 모델 목록은 대화가 없어도 묻는다 — 대화를 요구하는 통로로 물었을 때는 첫 말 전의 새 대화에서
             // 「대화 없음」으로 실패해 모델 콤보가 빈 칸이었다.
             workspace.askWithoutChat { comp ->
+                val revision = modelRevision.get()
                 val mr = comp.models()
                 // why 는 백엔드가 잠깐 죽었다는 말 — 그때의 목록은 못 믿으므로 던져서 다시 읽게 한다.
                 mr.why?.let { throw IllegalStateException(MagiBundle.msg("plan.models.failed", it.lineSequence().first().take(80))) }
                 when {
                     !mr.ok -> ModelList(null, MagiBundle.msg("plan.models.nodoor") +
-                        (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""), null)
-                    mr.models.isNullOrEmpty() -> ModelList(null, MagiBundle.msg("plan.models.empty"), null)
+                        (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""), null, revision)
+                    mr.models.isNullOrEmpty() -> ModelList(null, MagiBundle.msg("plan.models.empty"), null, revision)
                     // 지금 모델은 턴이 돌 때 스트림으로만 들어왔다 — 막 연 창은 턴 전까지 빈 칸이었다. 한 번 묻는다.
-                    else -> ModelList(mr.models, null, runCatching { comp.facts().model }.getOrNull()?.takeIf { it.isNotBlank() })
+                    else -> ModelList(mr.models, null, runCatching { comp.facts().model }.getOrNull()?.takeIf { it.isNotBlank() }, revision)
                 }
             }
         }
@@ -693,6 +714,7 @@ class PlanToolWindow : ToolWindowFactory {
                     is DaemonList.State.Failed -> off(model, MagiBundle.msg("common.failed", st.why))
                     is DaemonList.State.Ready -> {
                         val got = st.value
+                        if (modelChanging.get() || got.revision != modelRevision.get()) return@collect
                         val names = got.names ?: return@collect off(model, got.why.orEmpty())
                         model.isEnabled = true
                         model.toolTipText = null

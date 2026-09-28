@@ -298,6 +298,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.sid = sid;
     this.companion.session = sid;
     this.sessionCreating = null;
+    this.draw(); // The new session is visible even when its connection fails.
     void this.openStream();
   }
 
