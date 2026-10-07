@@ -148,12 +148,17 @@ func fingerprintOf(der []byte) string {
 }
 
 // CertInstallHint 는 사람에게 알려 줄 한 줄. 우리가 대신 심지 않는 이유가 §5.5 에 있다.
+//
+// macOS 줄에 `-d` 를 붙이지 않는다 — `-d` 는 관리자(System) 신뢰 설정이라 `-k login.keychain-db` 와
+// 어긋나고, Mac 에서 잰 길은 이 계정 저장소다(파워포인트 매뉴얼 §9.2). 경로는 따옴표로 감싼다 —
+// 기본 설정 디렉토리가 `~/Library/Application Support/magi` 라 공백이 있어, 그대로 붙여 넣으면
+// 명령이 경로 중간에서 끊겼다(2026-10-07 실측).
 func CertInstallHint(configDir string) string {
 	certPath, _ := CertPaths(configDir)
 	return fmt.Sprintf(
 		"Office 는 애드인을 https 로만 받습니다. 이 인증서 하나를 이 계정의 신뢰 저장소에 넣어 주세요(파워포인트·엑셀·워드 공용):\n"+
 			"  %s\n"+
-			"  macOS:   security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db %s\n"+
+			"  macOS:   security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db \"%s\"\n"+
 			"  Windows: certutil -user -addstore Root \"%s\"\n"+
 			"직접 넣는 일이라 헬퍼가 대신 하지 않습니다 — 신뢰 저장소를 남이 고치는 것은 가볍게 볼 일이 아닙니다.",
 		certPath, certPath, certPath)
