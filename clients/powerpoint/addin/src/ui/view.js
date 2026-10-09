@@ -956,7 +956,12 @@ export class View {
    */
   keepingEnd(draw) {
     this.watchEnd();
-    const stick = this._followingEnd ?? this.atEnd();
+    const scroll = this.scroller();
+    // 직접 스크롤한 직후에는 scroll 이벤트가 아직 오지 않았을 수 있다.
+    // 그리기 전 실제 위치를 우선해 사용자가 방금 선택한 바닥을 보존한다.
+    const moved = scroll && scroll.scrollTop !== this._endTop;
+    const stick = moved ? this.atEnd() : (this._followingEnd ?? this.atEnd());
+    this._followingEnd = stick;
     draw();
     if (stick) this.toEnd();
   }

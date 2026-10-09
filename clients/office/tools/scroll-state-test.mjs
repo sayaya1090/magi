@@ -43,7 +43,16 @@ try {
   await page.waitForTimeout(100);
   const top=await page.evaluate(()=>document.querySelector('#scroll').scrollTop);
   if(top!==400)throw Error(`${app}: reading position lost ${top}`);
-  await page.evaluate(()=>v.toEnd());
+  // Scroll and redraw in one event turn: the native scroll event has not fired yet.
+  await page.evaluate(() => {
+    const scroll = document.querySelector('#scroll');
+    scroll.scrollTop = scroll.scrollHeight;
+    v.keepingEnd(() => {
+      document.querySelector('#turns').replaceChildren();
+      document.querySelector('#turns').innerHTML = '<div></div>'.repeat(100);
+    });
+  });
+  await page.waitForFunction(() => v.atEnd());
   await page.waitForFunction(()=>v._followingEnd===true);
   await page.evaluate(()=>document.querySelector('#scroll').style.height='150px');
   await page.waitForFunction(()=>v.atEnd());
