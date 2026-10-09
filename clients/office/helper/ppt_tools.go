@@ -313,11 +313,15 @@ func pptCatalogue(hasCouncil bool) []tool {
 		},
 		{
 			Name: "read_notes",
-			Desc: "The speaker notes on one slide. read_slide cannot see these — notes live outside the " +
-				"object model — so this is the only way to know what a slide already says off-screen. It costs " +
-				"a round trip more than read_slide (the whole slide is exported), so ask for it when notes are " +
-				"the point, not on every read. \"has_notes\": false means the slide has none; an empty string " +
-				"means it has a notes page with nothing written on it. Those are different." + declare,
+			Desc: "Read the full speaker notes on one slide. Potentially large output: use only when " +
+				"the task explicitly involves existing speaker notes, narration, or information known to be " +
+				"stored in notes, or when preserving existing notes before editing them. Do not call for " +
+				"routine slide inspection, formatting, layout, or general verification; use read_slide or " +
+				"render_slide for visible content. Read only the specific slides needed, not the entire deck " +
+				"by default. Reuse notes already read in this conversation; read again only after notes " +
+				"changed or when the earlier result is unavailable. Creating or fully replacing notes does " +
+				"not require reading them first. has_notes:false means no notes page; an empty notes string " +
+				"means an existing page has no text." + declare,
 			Props:    withSlide(),
 			Required: []string{},
 			ReadOnly: true,

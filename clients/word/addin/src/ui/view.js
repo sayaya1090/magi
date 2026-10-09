@@ -941,7 +941,10 @@ export class View {
 
   toEnd() {
     const s = this.scroller();
-    if (s) s.scrollTop = s.scrollHeight;
+    if (s) {
+      s.scrollTop = s.scrollHeight;
+      this._endTop = s.scrollTop;
+    }
   }
 
   /**
@@ -952,9 +955,36 @@ export class View {
    * 싸다.
    */
   keepingEnd(draw) {
-    const stick = this.atEnd();
+    this.watchEnd();
+    const stick = this._followingEnd ?? this.atEnd();
     draw();
     if (stick) this.toEnd();
+  }
+
+  // 노트·접힌 도구 결과·폰트가 뒤늦게 높이를 바꿔도 바닥을 유지한다.
+  watchEnd() {
+    const scroll = this.scroller();
+    if (!scroll || this._endScroll === scroll) return;
+    this._endObserver?.disconnect();
+    this._endScroll = scroll;
+    this._followingEnd = this.atEnd();
+    this._endTop = scroll.scrollTop;
+    scroll.addEventListener('scroll', () => {
+      if (this._endScroll !== scroll) return;
+      // 이전 toEnd의 scroll 이벤트가 늦게 도착할 때 새 높이로
+      // atEnd를 다시 재면 자동 추적을 잘못 해제한다.
+      if (this.atEnd()) this._followingEnd = true;
+      else if (scroll.scrollTop < this._endTop) this._followingEnd = false;
+      this._endTop = scroll.scrollTop;
+    }, { passive: true });
+    if (typeof ResizeObserver === 'undefined') return;
+    this._endObserver = new ResizeObserver(() => {
+      if (this._followingEnd) this.toEnd();
+    });
+    this._endObserver.observe(scroll);
+    // flex 자식은 높이가 각각 달라질 수 있다. 스크롤 상자만 관찰하면
+    // 상자 높이는 같은 채 내용만 늘어난 경우를 놓친다.
+    for (const child of scroll.children) this._endObserver.observe(child);
   }
 
   rowEl(r) {

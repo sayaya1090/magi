@@ -688,6 +688,7 @@ button:disabled { cursor: default; opacity: .5; }
 */
 #pane > .scroll {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  overflow-anchor: none;
   display: flex; flex-direction: column;
   /* `View.reveal` 이 `offsetTop` 으로 민다 — 이 상자가 offsetParent 라야 그 값이 맞다. */
   position: relative;
