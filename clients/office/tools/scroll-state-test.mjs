@@ -37,7 +37,10 @@ try {
   await page.waitForFunction(()=>v.atEnd());
   await page.evaluate(()=>{document.querySelector('#turns').lastElementChild.style.height='6000px';});
   await page.waitForFunction(()=>v.atEnd());
-  await page.evaluate(()=>{document.querySelector('#scroll').scrollTop=400;});
+  await page.locator('#scroll').hover();
+  await page.mouse.wheel(0, -10000);
+  await page.waitForFunction(() => document.querySelector('#scroll').scrollTop === 0);
+  await page.evaluate(() => { document.querySelector('#scroll').scrollTop = 400; });
   await page.waitForFunction(()=>v._followingEnd===false);
   await page.evaluate(()=>v.keepingEnd(()=>{document.querySelector('#turns').lastElementChild.style.height='9000px';}));
   await page.waitForTimeout(100);

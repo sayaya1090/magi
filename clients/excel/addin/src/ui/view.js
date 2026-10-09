@@ -809,6 +809,7 @@ export class View {
     if (!box || !el) return;
     // 가운데에 세운다 — 위아래로 무엇이 더 있는지가 같이 보여야 진척으로 읽힌다.
     const mid = el.offsetTop - (box.clientHeight - el.offsetHeight) / 2;
+    if (box === this.scroller()) this._followingEnd = false;
     box.scrollTop = Math.max(0, mid);
   }
 
@@ -940,55 +941,44 @@ export class View {
   }
 
   toEnd() {
-    const s = this.scroller();
-    if (s) {
-      s.scrollTop = s.scrollHeight;
-      this._endTop = s.scrollTop;
-    }
+    const scroll = this.scroller();
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
   }
 
-  /**
-   * **바닥에 있었으면 다시 바닥으로.** 재는 것은 그리기 전, 붙이는 것은 **모든 판이 선 뒤**다.
-   *
-   * 감싸는 모양인 것이 요점이다. 「마지막에 부르세요」로 두면 판을 하나 더 그리는 날 그 줄이
-   * 뒤에 붙고 고정이 조용히 풀린다 — 순서를 지키라고 적는 것보다 **뒤에 못 오게 만드는 것**이
-   * 싸다.
-   */
   keepingEnd(draw) {
     this.watchEnd();
-    const scroll = this.scroller();
-    // 직접 스크롤한 직후에는 scroll 이벤트가 아직 오지 않았을 수 있다.
-    // 그리기 전 실제 위치를 우선해 사용자가 방금 선택한 바닥을 보존한다.
-    const moved = scroll && scroll.scrollTop !== this._endTop;
-    const stick = moved ? this.atEnd() : (this._followingEnd ?? this.atEnd());
-    this._followingEnd = stick;
+    if (this.atEnd()) this._followingEnd = true;
     draw();
-    if (stick) this.toEnd();
+    if (this._followingEnd) this.toEnd();
   }
 
-  // 노트·접힌 도구 결과·폰트가 뒤늦게 높이를 바꿔도 바닥을 유지한다.
   watchEnd() {
     const scroll = this.scroller();
     if (!scroll || this._endScroll === scroll) return;
     this._endObserver?.disconnect();
     this._endScroll = scroll;
     this._followingEnd = this.atEnd();
-    this._endTop = scroll.scrollTop;
+    // 사용자 조작으로만 추적을 해제한다. 내용이 커지며 발생한
+    // scroll 이벤트는 사용자가 위로 이동한 것으로 해석하지 않는다.
+    scroll.addEventListener('wheel', e => {
+      if (e.deltaY < 0) this._followingEnd = false;
+    }, { passive: true });
+    scroll.addEventListener('pointerdown', e => {
+      if (e.target === scroll || e.pointerType === 'touch') this._followingEnd = false;
+    });
+    scroll.addEventListener('keydown', e => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(e.key)) {
+        this._followingEnd = false;
+      }
+    });
     scroll.addEventListener('scroll', () => {
-      if (this._endScroll !== scroll) return;
-      // 이전 toEnd의 scroll 이벤트가 늦게 도착할 때 새 높이로
-      // atEnd를 다시 재면 자동 추적을 잘못 해제한다.
       if (this.atEnd()) this._followingEnd = true;
-      else if (scroll.scrollTop < this._endTop) this._followingEnd = false;
-      this._endTop = scroll.scrollTop;
     }, { passive: true });
     if (typeof ResizeObserver === 'undefined') return;
     this._endObserver = new ResizeObserver(() => {
       if (this._followingEnd) this.toEnd();
     });
     this._endObserver.observe(scroll);
-    // flex 자식은 높이가 각각 달라질 수 있다. 스크롤 상자만 관찰하면
-    // 상자 높이는 같은 채 내용만 늘어난 경우를 놓친다.
     for (const child of scroll.children) this._endObserver.observe(child);
   }
 
