@@ -41,6 +41,7 @@ const DRAWN = new Map([
   ['prompt.submitted', 'user'],
   ['turn.finished', 'turn'],
   ['error', 'error'],
+  ['model.changed', 'note'],
   // **카운슬은 이 제품에서 특히 그려야 한다.** 종료 게이트가 「다 했다」를 거절하면 턴이 계속
   // 도는데, 그 사유가 화면에 없으면 사람은 **모델이 왜 같은 일을 또 하는지** 모른다. 실물에서
   // 그 화면을 봤다(2026-09-01): 제목은 이미 바뀌었는데 창에는 도구 호출만 줄줄이 섰고, 세
@@ -569,6 +570,8 @@ function finishOf(ev, type) {
  * 지어낸 글을 모델의 말인 것처럼 화면에 올리는 것이 이 목업이 제일 피하려는 것이다.
  */
 function textOf(ev, kind) {
+  if (ev?.type === 'model.changed') return typeof ev?.data?.model === 'string'
+    ? `모델 변경: ${ev.data.model}` : '모델이 변경됐습니다.';
   if (kind === 'unknown') return '';
   const d = ev?.data;
   if (d == null) return '';
