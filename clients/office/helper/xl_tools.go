@@ -49,7 +49,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 				"format when it is not General. Omit address for the sheet's used range. Big ranges are cut at " +
 				"max_rows/max_cols and the answer says so — read the part you need, not the whole sheet twice. Dates " +
 				"come back as Excel serial numbers with the number format beside them; text as text; empty cells as " +
-				"\"\"." + declare,
+				"\"\"." +
+				" Always choose a bounded address for a local task, with small max_rows/max_cols. Use formulas:false when formulas are irrelevant. Do not read the whole used range by default or read the same unchanged range again; inspect truncation before claiming complete coverage." + declare,
 			Props: withRange(
 				property{Name: "max_rows", Type: "integer", Desc: "Cap on rows returned (default 200)."},
 				property{Name: "max_cols", Type: "integer", Desc: "Cap on columns returned (default 30)."},
@@ -75,7 +76,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_table",
 			Desc: "One table (a ListObject) by name: its address, header names and rows as arrays. rows beyond max_rows " +
-				"are cut and the answer says so. Table names come from list_sheets / describe_sheet." + declare,
+				"are cut and the answer says so. Table names come from list_sheets / describe_sheet." +
+				" Read only the relevant table and needed max_rows. For a few cells use read_range with their explicit address instead of a full table read. Reuse unchanged results and check truncation." + declare,
 			Props: []property{
 				{Name: "table", Type: "string", Desc: "Table name (\"Table1\", \"매출\"). Required."},
 				{Name: "max_rows", Type: "integer", Desc: "Cap on rows returned (default 200)."},
@@ -98,19 +100,21 @@ func xlCatalogue(hasCouncil bool) []tool {
 			Desc: "A PNG of a range as Excel draws it — formats, borders, conditional colours, wrapped text. **The most " +
 				"expensive tool here**; only a vision model can see it. Use it to check a layout you built (does " +
 				"the header fit, are the numbers aligned), not to read values — read_range is cheaper and exact. " +
-				"Omit address for the used range. Needs ExcelApi 1.7." + declare,
+				"Omit address for the used range. Needs ExcelApi 1.7." +
+				" Specify a small address around the layout being checked. Batch edits before rendering and reuse unchanged images; never render whole sheets to retrieve cell values or after each individual cell edit." + declare,
 			Props: withRange(
-				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 1024, 160–4096)."},
+				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 800, 160–4096). Use a larger value only for details unreadable at the default."},
 			),
 			ReadOnly: true,
 		},
 		{
 			Name: "render_chart",
 			Desc: "A PNG of one chart. Cheaper than render_range of the whole sheet when the question is about the " +
-				"chart. Needs ExcelApi 1.2." + declare,
+				"chart. Needs ExcelApi 1.2." +
+				" Use only when visual chart appearance matters, after a batch of edits. Use read_chart for chart properties and source ranges; reuse unchanged images." + declare,
 			Props: withSheet(
 				property{Name: "chart", Type: "string", Desc: "Chart name. Required."},
-				property{Name: "max_width", Type: "integer", Desc: "Width in pixels (default 800)."},
+				property{Name: "max_width", Type: "integer", Desc: "Width in pixels (default 640, 160–4096). Increase only if small labels are unreadable."},
 			),
 			Required: []string{"chart"},
 			ReadOnly: true,
@@ -119,7 +123,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 			Name: "read_comments",
 			Desc: "Threaded comments on a sheet (or the whole workbook when sheet is omitted): cell, author, text, " +
 				"replies, resolved flag. Needs ExcelApi 1.10. On Excel 2021 for Windows, which has no threaded-comment API, the helper " +
-				"reads cell NOTES instead and the answer says so (kind: note)." + declare,
+				"reads cell NOTES instead and the answer says so (kind: note)." +
+				" Read only when comments or cell notes matter to the task. Specify the relevant sheet; do not scan all workbook comments during routine cell editing. Reuse unchanged results." + declare,
 			Props:    withSheet(),
 			ReadOnly: true,
 		},
@@ -127,7 +132,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 			Name: "read_names",
 			Desc: "Named items (defined names) of the workbook and, when sheet is given, of that sheet: name, what it " +
 				"refers to, its value when it is a constant. Formulas people wrote use these names — read them " +
-				"before rewriting formulas." + declare,
+				"before rewriting formulas." +
+				" Read when defined names affect the formulas or names being edited, not before every cell update. Scope to the relevant sheet when appropriate and reuse unchanged results." + declare,
 			Props:    withSheet(),
 			ReadOnly: true,
 		},
@@ -142,7 +148,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_conditional_formats",
 			Desc: "Conditional formats that touch a range (omit address for the whole sheet): kind, rule, priority. " +
-				"Read before adding one so you do not stack a second rule on the first. Needs ExcelApi 1.6." + declare,
+				"Read before adding one so you do not stack a second rule on the first. Needs ExcelApi 1.6." +
+				" Specify the relevant address rather than inspecting the whole sheet for a local change. Reuse rules already inspected unless the rules change." + declare,
 			Props:    withRange(),
 			ReadOnly: true,
 		},

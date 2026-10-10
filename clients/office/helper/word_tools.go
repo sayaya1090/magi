@@ -24,7 +24,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 				"THE DOCUMENT'S OUTLINE: every body paragraph with its 1-based number, style (Heading 1, Normal, " +
 				"List Paragraph…), list level, whether it sits in a table (and which), and the first ~80 " +
 				"characters. Read this first; it is one call and it tells you where everything is. Long " +
-				"documents are paged (from/to/max)." + declare,
+				"documents are paged (from/to/max)." +
+				" Use a small from/to/max page to locate the requested passage; do not enumerate every paragraph for a local edit. Reuse the outline until document structure changes." + declare,
 			Props:    withFromTo(property{Name: "max", Type: "integer", Desc: "Rows to return (default 200)."}),
 			ReadOnly: true,
 		},
@@ -32,7 +33,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Name: "read_paragraphs",
 			Desc: "Full text of paragraphs from..to, one entry per paragraph, with style, alignment, list level and " +
 				"the font of the first run (name, size, bold, italic, color). Use after list_paragraphs to read " +
-				"the passage you are about to change. Cheap for a page, expensive for a book — page it." + declare,
+				"the passage you are about to change. Cheap for a page, expensive for a book — page it." +
+				" Specify from/to for the needed passage and a suitable max_chars; omit the range only when the task requires the entire body. Reuse earlier text until it changes or is no longer available." + declare,
 			Props:    withFromTo(property{Name: "max_chars", Type: "integer", Desc: "Cap per paragraph (default 4000)."}),
 			ReadOnly: true,
 		},
@@ -61,7 +63,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_table",
 			Desc: "One table: its number, size, header row flag, style, and every cell's text as a 2-D array " +
-				"(rows of cells). Cells that were merged read as empty in the covered positions." + declare,
+				"(rows of cells). Cells that were merged read as empty in the covered positions." +
+				" Potentially large cell text output. Read only a table relevant to the task and set max_rows to the rows needed; use read_paragraphs for a specific passage instead of repeatedly reading the whole table. Check truncation before making claims about omitted rows." + declare,
 			Props:    []property{tableProp, property{Name: "max_rows", Type: "integer", Desc: "Rows to return (default 200)."}},
 			Required: []string{"table"},
 			ReadOnly: true,
@@ -70,8 +73,9 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Name: "read_html",
 			Desc: "The passage from..to as HTML, as Word renders it. This is the LOOK — the nearest thing to seeing " +
 				"the page: it carries bold, sizes, colors, lists and tables where read_paragraphs gives you " +
-				"numbers. Word cannot render a page to an image, so this is what you check formatting with. " +
-				"Big — ask for a few paragraphs at a time." + declare,
+				"numbers. Use render_page when page-level visual layout needs checking. " +
+				"Big — ask for a few paragraphs at a time." +
+				" Use only when markup or formatting details are needed, with explicit from/to and a suitable max_chars. For text editing use read_paragraphs; do not repeatedly export whole-body HTML." + declare,
 			Props:    withFromTo(property{Name: "max_chars", Type: "integer", Desc: "Cap on the HTML (default 20000)."}),
 			ReadOnly: true,
 		},
@@ -79,7 +83,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Name: "read_comments",
 			Desc: "Every comment thread on the body: id, author, date, the commented text, the comment, its " +
 				"replies, and whether it is resolved. Needs WordApi 1.4 in the pane; " +
-				"on Windows the helper does it through COM when the pane cannot (Word 2019·2021)." + declare,
+				"on Windows the helper does it through COM when the pane cannot (Word 2019·2021)." +
+				" Read comments only for review or comment-related tasks. Restrict from/to to the relevant passage and reuse previous results until comments change." + declare,
 			Props:    withFromTo(),
 			ReadOnly: true,
 		},
@@ -93,7 +98,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_footnotes",
 			Desc: "Every footnote and endnote: number, kind, the paragraph it hangs on, the referenced text, and the note. " +
-				"Needs WordApi 1.5 in the pane; on Windows the helper does it through COM when the pane cannot (Word 2019·2021)." + declare,
+				"Needs WordApi 1.5 in the pane; on Windows the helper does it through COM when the pane cannot (Word 2019·2021)." +
+				" Read notes only when their content or references matter to the task. Restrict from/to to the relevant passage; do not collect all notes during routine formatting." + declare,
 			Props:    withFromTo(),
 			ReadOnly: true,
 		},
@@ -101,7 +107,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Name: "render_page",
 			Desc: "See one page of the document as a picture — Word hands the whole document over as PDF and the helper " +
 				"draws the asked page (needs poppler's pdftoppm on this machine; a Mac without it draws page 1 only). Use " +
-				"it to check layout after a batch of edits; read_html is the cheaper look at formatting." + declare,
+				"it to check layout after a batch of edits; read_html is the cheaper look at formatting." +
+				" Rendering transfers a PDF and produces image input, which adds processing and model input cost. Render only pages whose visual layout needs checking, after a batch of changes; reuse unchanged images and do not render every page after each edit." + declare,
 			Props: []property{
 				property{Name: "page", Type: "integer", Desc: "Page number, 1-based (default 1)."},
 				property{Name: "max_width", Type: "integer", Desc: "Picture width in pixels (default 800)."},
@@ -111,7 +118,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_content_controls",
 			Desc: "Every content control in the body — id, tag, title, type, the text inside, placeholder, whether editing/" +
-				"deleting is locked, and the paragraph it starts in. Templates and forms live here; set_content_control fills them." + declare,
+				"deleting is locked, and the paragraph it starts in. Templates and forms live here; set_content_control fills them." +
+				" Read only when template or form controls matter. Restrict from/to to the needed passage; do not dump all control text for routine body edits." + declare,
 			Props:    withFromTo(),
 			ReadOnly: true,
 		},
@@ -125,7 +133,8 @@ func wordCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_tracked_changes",
 			Desc: "Pending tracked changes (insertions, deletions, formatting) with author, date and text, plus the " +
-				"tracking mode. Needs WordApi 1.6 (Microsoft 365 / 2024)." + declare,
+				"tracking mode. Needs WordApi 1.6 (Microsoft 365 / 2024)." +
+				" Read only for revision review, acceptance or rejection tasks. Limit from/to and limit to the needed changes; reuse unchanged results." + declare,
 			Props:    withFromTo(property{Name: "limit", Type: "integer", Desc: "Max changes (default 100)."}),
 			ReadOnly: true,
 		},

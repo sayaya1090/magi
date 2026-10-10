@@ -162,7 +162,7 @@ public sealed partial class Hand
             case "render_slide":
             {
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id"));
-                var w = Math.Clamp(a.Int("max_width") ?? 1024, 160, 4096);
+                var w = Math.Clamp(a.Int("max_width") ?? 640, 160, 4096);
                 var r = ops.RenderSlide(n, w);
                 return (new() { ["slide"] = n, ["image_base64"] = r.Base64Png, ["image_mime"] = "image/png", ["image_bytes"] = r.Bytes, ["max_width"] = w },
                         new() { $"슬라이드 {n} 를 {r.Width}×{r.Height} 으로 떴습니다({r.Bytes} 바이트)" });

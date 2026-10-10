@@ -2054,7 +2054,7 @@ async function makeZip(files) {
     // **값을 적는다** — 얼마짜리였는지 모르면 아끼는 판단을 할 수가 없다.
     ok('얼마짜리였는지 적는다', typeof out.result.image_bytes === 'number' && out.result.image_bytes > 0,
       String(out.result.image_bytes));
-    ok('기본 폭이 1024 다', out.result.max_width === 1024, String(out.result.max_width));
+    ok('기본 폭이 640 다', out.result.max_width === 640, String(out.result.max_width));
 
     // **안 바뀐 장을 다시 안 뜬다.** 모델은 이미 그 그림을 대화에 갖고 있다.
     // 거절이지 실패가 아니다: 오류로 던지지 않고(카운슬이 [error] 로 읽는다) 답에 적는다.

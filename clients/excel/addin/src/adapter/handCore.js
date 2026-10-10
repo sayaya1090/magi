@@ -112,3 +112,22 @@ export function envelope(hand, result, changed = []) {
 export const clip = (s, n = 40) => { const t = String(s ?? '').replace(/\s+/g, ' '); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 export const isFormula = (v) => typeof v === 'string' && v.startsWith('=');
 export const nowEpoch = () => Math.floor(Date.now() / 1000) % 2147483647;
+
+// Resize image input before sending it to the helper. Never enlarge a small image.
+export async function limitRenderImage(base64, maxEdge) {
+  const image = new Image();
+  image.src = `data:image/png;base64,${base64}`;
+  await image.decode();
+  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  if (scale === 1) return { base64, width, height };
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, width, height);
+  return { base64: canvas.toDataURL('image/png').split(',')[1], width, height };
+}

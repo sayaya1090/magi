@@ -704,7 +704,7 @@ export class OfficeHand extends HandPort {
    * 그림 한 장은 글 수천 자 값이고, 그것을 매 확인마다 부르면 대화창이 그림으로 가득 찬다 —
    * 사용자가 그 걱정을 이름 대어 말했다(2026-09-02). 그래서 셋을 건다.
    *
-   * **하나 — 크기를 줄여 보낸다.** 슬라이드를 원본 해상도로 뜨면 쓸데없이 크다. 기본 1024px
+   * **하나 — 크기를 줄여 보낸다.** 슬라이드를 원본 해상도로 뜨면 쓸데없이 크다. 기본 640px
    * 폭이면 넘침·겹침·대비처럼 이 도구를 부르는 이유는 다 보인다.
    *
    * **둘 — 안 바뀐 장을 다시 안 뜬다.** 개정 쌍(epoch·count)이 그대로면 **그림도 그대로**이고,
@@ -733,7 +733,7 @@ export class OfficeHand extends HandPort {
       }
 
       // 폭만 준다 — 비율은 호스트가 지킨다. 0 이나 음수는 「제한 없음」이 아니라 실수다.
-      const width = Math.max(160, Math.min(Number(args.max_width ?? 1024), 4096));
+      const width = Math.max(160, Math.min(Number(args.max_width ?? 640), 4096));
       let image;
       try {
         image = slide.getImageAsBase64({ width });

@@ -1,7 +1,7 @@
 import { HandPort } from '../port/HandPort.js';
 import {
   ALL_OPS, FIX_TOOLS, FIX_PREFIX, BOOK_SETTING_KEY, Refusal, refuse, str, num, int, bool, arr, need, grid, hex,
-  chartTypeOf, CHART_KO, envelope, clip, isFormula, nowEpoch,
+  chartTypeOf, CHART_KO, envelope, clip, isFormula, nowEpoch, limitRenderImage,
 } from './handCore.js';
 
 /**
@@ -374,13 +374,15 @@ export class ExcelHand extends HandPort {
       if (used && range.isNullObject) refuse('이 시트는 비어 있어 그릴 것이 없습니다');
       const img = range.getImage();
       await context.sync();
-      const b64 = img.value ?? '';
-      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), image_base64: b64, image_mime: 'image/png', image_bytes: Math.floor(b64.length * 3 / 4) });
+      const maxWidth = Math.max(160, Math.min(int(a, 'max_width') ?? 800, 4096));
+      const image = await limitRenderImage(img.value ?? '', maxWidth);
+      const b64 = image.base64;
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), image_base64: b64, image_mime: 'image/png', image_bytes: Math.floor(b64.length * 3 / 4), width: image.width, height: image.height, max_width: maxWidth });
     });
   }
 
   async #renderChart(a) {
-    const name = String(need(a, 'chart')); const w = int(a, 'max_width') ?? 800;
+    const name = String(need(a, 'chart')); const w = Math.max(160, Math.min(int(a, 'max_width') ?? 640, 4096));
     return this.runner(async (context) => {
       const ws = this.#sheet(context, a); ws.load('name');
       const c = ws.charts.getItemOrNullObject(name); c.load('name,isNullObject,width,height');

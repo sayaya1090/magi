@@ -9,6 +9,14 @@ import { ALL_OPS } from '../src/adapter/handCore.js';
 import { Refusal } from '../src/adapter/handCore.js';
 import { parseAddress, rangeName, cellName } from '../src/adapter/a1.js';
 
+// The Office stub returns a 1px PNG. Browser resizing is exercised separately
+// by clients/office/tools/render-size-test.mjs.
+globalThis.Image = class {
+  naturalWidth = 1;
+  naturalHeight = 1;
+  async decode() {}
+};
+
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const SUGGESTION = JSON.stringify({ what: '천 단위', why: 'w', fix: { tool: 'set_number_format', args: { sheet: 'Sheet1', address: 'B2', format: '#,##0' } } });
 

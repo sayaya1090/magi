@@ -86,7 +86,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 			Name: "render_slide",
 			Desc: "A PNG of one slide as PowerPoint draws it. **The most expensive tool here** — one picture costs what thousands of characters cost, and only a vision model can see it at all. Call it for a defect that numbers cannot show (text overflowing its box, shapes overlapping, contrast), never as a routine check: read_slide answers what is on the slide, in words, for nothing. Rendering a slide that has not changed since you last rendered it is refused, because you already have that picture. It is not how you copy a style from another deck: a picture cannot be measured — read that deck instead (list_documents, then describe_style/list_layouts/read_slide with `document` set to it)." + declare,
 			Props: withSlide(
-				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 1024). Smaller is cheaper; 1024 is enough to see overflow and overlap."},
+				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 640, 160–4096). Use the default for overall layout; request 1024 or more only when small details are unreadable."},
 				property{Name: "force", Type: "boolean", Desc: "Render again even though nothing changed since the last render of this slide. Only when the person asked to look again."},
 			),
 			ReadOnly: true,
