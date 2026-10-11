@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -60,23 +59,12 @@ const (
 	councilGuidanceCap    = 30000
 )
 
-// finalAnswerFloor: an assistant message at least this long just before the declaration is the
-// answer itself (live 2026-09-05: 2.0–3.2K characters, then a near-identical copy after the
-// acceptance because the closing call asked for "your final answer"). Below it — "done", a
-// one-liner — the answer is still owed. Measured, not assumed: a short report keeps the old call.
-const finalAnswerFloor = 400
-
-// closingCall is what the agent reads when the council accepts. Headless prints every fact
-// as it streams, so an answer already written is already out; asking for it again only
-// doubles it.
-func closingCall(lastText string) string {
-	if utf8.RuneCountInString(strings.TrimSpace(lastText)) >= finalAnswerFloor {
-		return "The council accepts that the task is finished. Your turn ends here. Your message just " +
-			"before declaring reads as the final answer for whoever asked — it stands; do not write it " +
-			"again. Reply with one line at most, and stop."
+// closingCall uses the explicit declaration contract, never the length of the report.
+func closingCall(reportReady bool) string {
+	if reportReady {
+		return "The council accepts that the task is finished. Your final report stands; do not write it again. The turn ends without another model call."
 	}
-	return "The council accepts that the task is finished. Your turn ends here — write your final " +
-		"answer for whoever asked, and stop."
+	return "The council accepts that the task is finished. Write your final answer for whoever asked, and stop."
 }
 
 // declarationGater is what a TurnObserver may also be: the plugin host's declaration gates
@@ -99,7 +87,7 @@ func (a *App) CouncilEnabled() bool { return a.cfg.Council != nil }
 // is over — or hands back what is not done, and the agent keeps working. Ending was a passive event
 // before this: the agent stopped calling tools and the turn simply stopped, with nothing asked and
 // nothing shown. Now it is an act, and the act is answered.
-func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool) (string, error) {
+func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool, ready ...bool) (string, error) {
 	if a.cfg.Council == nil {
 		return "", fmt.Errorf("no council is configured for this run")
 	}
@@ -218,7 +206,11 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		plan = formatTodos(td)
 	}
 	changes := truncateForCouncil(buildCouncilChanges(guardChanges), councilDiffCap)
-	lastText := lastTurnAssistantText(evs)
+	lastText := currentTurnAssistantText(evs)
+	reportReady := complete && len(ready) > 0 && ready[0]
+	if reportReady && strings.TrimSpace(lastText) == "" {
+		reportReady = false // no report exists yet: generate the answer once after acceptance
+	}
 
 	// A re-declaration with nothing changed is not worth an endless fresh fan-out. When the agent
 	// declares complete again with a byte-identical report and the same edits — it did no work,
@@ -302,15 +294,16 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
-		Guidance:     guidance,
-		Declared:     complete,
-		NoChanges:    strings.TrimSpace(changes) == "",
-		Members:      members,
-		Rule:         rule,
-		DefaultModel: s.Model.Model,
-		Debate:       councilDebateEnabled(),
-		Keep:         councilKeepEnabled(),
-		SuiteWalk:    councilSuiteWalkEnabled(),
+		EvidencePrefix: councilPrefix(evs),
+		Guidance:       guidance,
+		Declared:       complete,
+		NoChanges:      strings.TrimSpace(changes) == "",
+		Members:        members,
+		Rule:           rule,
+		DefaultModel:   s.Model.Model,
+		Debate:         councilDebateEnabled(),
+		Keep:           councilKeepEnabled(),
+		SuiteWalk:      councilSuiteWalkEnabled(),
 		// Show each member the moment it answers. The members are polled concurrently and the
 		// slowest sets the wall clock — a median 87s across the recorded runs, all of it with
 		// nothing on screen. The transcript was already built for this: its verdict handler
@@ -374,8 +367,8 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		// this struct (applyToolControl at the head of every step, finishDeclared,
 		// takeTurnControl) and a fix in one of them is dead code the moment another drains
 		// first — which is what happened to the first attempt.
-		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish, tc.unverifiedReason = true, "" })
-		return closingCall(lastText) + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish, tc.unverifiedReason, tc.reportReady = true, "", reportReady })
+		return closingCall(reportReady) + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil
 	}
 	if unjudged(delib) {
@@ -682,8 +675,18 @@ func renderCouncilAdvice(d council.Deliberation, lead string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// lastTurnAssistantText is the agent's most recent message — its claim, in its own words, which the
-// members read beside the record of what actually ran.
+// currentTurnAssistantText excludes reports from already completed turns.
+func currentTurnAssistantText(evs []event.Event) string {
+	start := 0
+	for i, e := range evs {
+		if e.Type == event.TypeTurnFinished {
+			start = i + 1
+		}
+	}
+	return lastTurnAssistantText(evs[start:])
+}
+
+// lastTurnAssistantText is the agent's claim, read beside the execution record.
 func lastTurnAssistantText(evs []event.Event) string {
 	var said []string
 	for _, e := range evs {

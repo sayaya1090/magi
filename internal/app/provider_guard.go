@@ -277,3 +277,11 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 	}()
 	return out, nil
 }
+
+func (g guardedProvider) PrefillPrefix(ctx context.Context, req port.ChatRequest) error {
+	p, ok := g.inner.(port.PrefixPrefiller)
+	if !ok {
+		return port.ErrCapabilityAbsent
+	}
+	return p.PrefillPrefix(ctx, req)
+}

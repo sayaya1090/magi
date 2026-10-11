@@ -67,12 +67,22 @@ type BaseRedirector interface {
 	BaseURL() string
 }
 
+// PrefixPrefiller prepares an exact chat prefix without generating an answer.
+// Unsupported backends return ErrCapabilityAbsent; callers must never emulate it with StreamChat.
+type PrefixPrefiller interface {
+	PrefillPrefix(context.Context, ChatRequest) error
+}
+
 // ProviderExtras is the whole optional surface, as one name a wrapper can be held to.
 type ProviderExtras interface {
+	PrefixPrefiller
 	ModelLister
 	ContextProber
 	BaseRedirector
 }
+
+// ErrPrefillBusy asks preparation to defer to foreground model work.
+var ErrPrefillBusy = errors.New("foreground model request takes priority over prefill")
 
 // ErrCapabilityAbsent is what an optional capability answers when the backend underneath does not
 // have it. It exists so "I cannot say" stops arriving as "there is nothing" — the shape that made
@@ -81,10 +91,11 @@ var ErrCapabilityAbsent = errors.New("this backend does not offer that")
 
 // ChatRequest is a provider-agnostic chat completion request.
 type ChatRequest struct {
-	Model    string
-	System   string
-	Messages []session.Message
-	Tools    []ToolSpec
+	Model       string
+	System      string
+	Messages    []session.Message
+	CachePrefix string // exact prefix of the first user message, for explicit backend cache breakpoints
+	Tools       []ToolSpec
 	// Params carries per-call sampling pins: "temperature", "top_p", "top_k". A pin outranks the
 	// configured default ([sampling]) for that field only; an unrecognised or unusable key is
 	// ignored, not an error. The output cap is NOT here — it is provider config, applied by the
@@ -208,7 +219,8 @@ type AdviceRequest struct {
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM
 // (Report) against the CONTRACT (Plan/Task) using EVIDENCE (Actions/Changes).
 type DeliberationRequest struct {
-	Round int // 1-based council round within the turn
+	Round          int    // 1-based council round within the turn
+	EvidencePrefix string // immutable chronological turn journal; current-state summaries follow it
 	// NoChanges marks a pure read-only / investigation / answer turn: the agent made no
 	// file edits (via its tools). Such a turn has no artifact to verify
 	// and no false success to guard against, so members should approve (done) on a
@@ -535,7 +547,7 @@ type ToolEnv struct {
 	// council reads the record as a finish, and if it accepts, the application ends the turn.
 	// Set for any session with a council configured; nil leaves the tool reporting that there is
 	// none rather than pretending to have asked.
-	Council func(ctx context.Context, question string, complete bool) (string, error)
+	Council func(ctx context.Context, question string, complete bool, reportReady bool) (string, error)
 	// RouteInterjection routes a user request that arrived mid-turn: action is
 	// "queue" (default — run it after the current task), "redirect" (switch to it
 	// now), or "append" (fold it into the current task). requestID names which pending

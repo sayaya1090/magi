@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -328,10 +329,17 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 			Rationale: panelUnanswered}
 	}
 	model := req.DefaultModel
+	providerName := ""
+	if len(members) > 0 {
+		providerName = members[0].Provider
+		if members[0].Model != "" {
+			model = members[0].Model
+		}
+	}
 	if model == "" {
 		model = c.model
 	}
-	provider := c.resolve("")
+	provider := c.resolve(providerName)
 	if provider == nil {
 		for i := range out {
 			out[i].Rationale = "no council backend resolved"
@@ -346,6 +354,10 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	sys := panelPromptFor(members, req.Keep, req.SuiteWalk)
 	user := evidence(req)
 	sys = withLangNote(sys, req.Task)
+	if req.EvidencePrefix != "" {
+		user += "\n\n# Judging instructions\n" + sys
+		sys = cacheSystem
+	}
 
 	// Shared panel reasoning is displayed once, explicitly labelled as shared. Keep each
 	// call separate so a silent retry or closing call cannot erase the earlier reasoning.
@@ -359,15 +371,17 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	// see worthRetrying (#182): a model that was running away runs away again.
 	var lastCut error
 	send := func(msgs []session.Message) (string, error) {
+		started := time.Now()
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model: model, System: sys,
-			Messages: msgs,
-			Params:   map[string]any{"temperature": 0.0},
+			Messages:    msgs,
+			CachePrefix: req.EvidencePrefix,
+			Params:      map[string]any{"temperature": 0.0},
 		})
 		if err != nil {
 			return "", err
 		}
-		text, reasoning, cut := drain(stream)
+		text, reasoning, cut := drain(stream, started)
 		lastCut = cut // why THIS stream ended, for the retry decision below (worthRetrying)
 		if cut != nil {
 			cutOff("a council panel reply", text, reasoning, cut)

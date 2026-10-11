@@ -322,15 +322,21 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
 	sys := memberSystem(m, req.Task, req.Keep)
+	if req.EvidencePrefix != "" {
+		user += "\n\n# Judging instructions\n" + sys
+		sys = cacheSystem
+	}
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
 	// lastCut is how the most recent stream ended, when magi ended it. The retry below consults it —
 	// a captured var rather than a sixth return value, which this signature already strains under.
 	var lastCut error
 	ask := func(userMsg string) (memberReply, string, string, bool, error) {
+		started := time.Now()
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
-			Model:  model,
-			System: sys,
+			Model:       model,
+			System:      sys,
+			CachePrefix: req.EvidencePrefix,
 			Messages: []session.Message{{Role: session.RoleUser,
 				Parts: []session.Part{{Kind: session.PartText, Text: userMsg}}}},
 			Params: map[string]any{"temperature": 0.0},
@@ -339,7 +345,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			return memberReply{}, "", "", false, err
 		}
 		var b strings.Builder
-		text, reasoning, cut := drain(stream)
+		text, reasoning, cut := drain(stream, started)
 		lastCut = cut // why THIS stream ended, for the retry decision below (worthRetrying)
 		b.WriteString(text)
 		if cut != nil {
@@ -453,23 +459,31 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	if provider == nil {
 		return prior
 	}
-	user := evidence(req) + "\n\n# Council disagreement — reconsider once\n" +
+	user := evidence(req)
+	sys := memberSystem(m, req.Task, req.Keep)
+	if req.EvidencePrefix != "" {
+		user += "\n\n# Judging instructions\n" + sys
+		sys = cacheSystem
+	}
+	user += "\n\n# Council disagreement — reconsider once\n" +
 		"The council split. Your independent verdict was " + string(prior.Decision) + ". The other members:\n" +
 		peers + "\n\nWeigh their reasoning against yours. If a peer identifies a real defect your lens should " +
 		"honor, change your vote; if your verdict still holds under their reasoning, keep it and say why. Do " +
 		"not defer just to agree, and do not raise brand-new unrelated objections — this is about the concerns " +
 		"already on the table. Reply in the SAME JSON shape."
+	started := time.Now()
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
-		Model:    model,
-		System:   memberSystem(m, req.Task, req.Keep),
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
-		Params:   map[string]any{"temperature": 0.0},
+		Model:       model,
+		System:      sys,
+		CachePrefix: req.EvidencePrefix,
+		Messages:    []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
+		Params:      map[string]any{"temperature": 0.0},
 	})
 	if err != nil {
 		return prior
 	}
 	var b strings.Builder
-	text, reasoning, cut := drain(stream)
+	text, reasoning, cut := drain(stream, started)
 	b.WriteString(text)
 	if cut != nil {
 		cutOff("a council reply", text, reasoning, cut)
@@ -847,6 +861,10 @@ func withLangNote(prompt, task string) string {
 // evidence renders the deliberation request into the user message the members see.
 func evidence(req port.DeliberationRequest) string {
 	var b strings.Builder
+	if req.EvidencePrefix != "" {
+		b.WriteString(req.EvidencePrefix)
+		b.WriteString("\n\n# Current review snapshot (supersedes older state in the journal)\n")
+	}
 	section := func(title, body string) {
 		if strings.TrimSpace(body) == "" {
 			return
@@ -946,9 +964,30 @@ func decisionOf(s string) council.Decision {
 // So the second return is for the OPERATOR, not for the parser. Feeding it to `parseReply` would
 // let a model's thinking-out-loud become a verdict — the thing the split exists to prevent — and
 // the callers below pass it only to the lines a person reads.
-func drain(stream <-chan port.ProviderEvent) (text, reasoning string, cut error) {
+func drain(stream <-chan port.ProviderEvent, started ...time.Time) (text, reasoning string, cut error) {
 	var said, thought strings.Builder
+	var first time.Time
+	cached, cacheReported := 0, false
+	defer func() {
+		if len(started) > 0 {
+			ttft := "unavailable"
+			if !first.IsZero() {
+				ttft = first.Sub(started[0]).Round(time.Millisecond).String()
+			}
+			cache := "unreported"
+			if cacheReported {
+				cache = strconv.Itoa(cached)
+			}
+			fmt.Fprintf(os.Stderr, "magi: council timing first_token=%s total=%s cached_tokens=%s\n", ttft, time.Since(started[0]).Round(time.Millisecond), cache)
+		}
+	}()
 	for ev := range stream {
+		if first.IsZero() && (ev.Type == port.ProviderText || ev.Type == port.ProviderReasoning) && ev.Text != "" {
+			first = time.Now()
+		}
+		if ev.Type == port.ProviderUsage && ev.Usage != nil {
+			cached, cacheReported = ev.Usage.Cached, ev.Usage.CacheReported
+		}
 		switch ev.Type {
 		case port.ProviderText:
 			said.WriteString(ev.Text)

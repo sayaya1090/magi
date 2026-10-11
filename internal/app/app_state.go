@@ -116,7 +116,8 @@ type sessionState struct {
 	// the snapshot's own walk would look at. The finish snapshot is the difference against it,
 	// which is the only way a DELETED file — or a write that preserved its mtime — shows up at
 	// all. Replaced each turn; nil until one starts.
-	worldBase fileIndex
+	councilPreparation *councilPreparation
+	worldBase          fileIndex
 	// arrival is the workspace as magi FIRST saw it in this session: path → size, taken on the
 	// first turn and never replaced. What it holds is the only thing in the tree nobody here can
 	// remake — everything that appeared afterwards is this run's own output, whether magi's tools
@@ -355,7 +356,8 @@ type turnControl struct {
 	// accepted — or when the rejection cap landed the turn over the members' heads. The loop ends
 	// the turn at its next step — a turn ends because someone decided to end it, not because the
 	// model happened to stop calling tools.
-	finish bool
+	finish      bool
+	reportReady bool // explicit final report supplied before an accepted declaration
 	// unverifiedReason rides with finish when the landing is the CAP's, not an acceptance: the
 	// turn ends UNVERIFIED with this reason on the record. Empty on an accepted finish.
 	unverifiedReason string

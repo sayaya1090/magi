@@ -251,6 +251,22 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 	}
 	out.Messages = append(out.Messages, convertMessages(r.Messages, withImages)...)
 	out.Messages = normalizeSystemPlacement(out.Messages)
+	if cache && r.CachePrefix != "" {
+		for i := range out.Messages {
+			m := &out.Messages[i]
+			if m.Role != "user" {
+				continue
+			}
+			if content, ok := m.Content.(string); ok && strings.HasPrefix(content, r.CachePrefix) {
+				blocks := []textBlock{{Type: "text", Text: r.CachePrefix, CacheControl: ephemeral()}}
+				if tail := content[len(r.CachePrefix):]; tail != "" {
+					blocks = append(blocks, textBlock{Type: "text", Text: tail})
+				}
+				m.Content = blocks
+			}
+			break
+		}
+	}
 
 	for _, t := range r.Tools {
 		out.Tools = append(out.Tools, wireTool{

@@ -173,6 +173,7 @@ type turnState struct {
 	cutNoted        bool
 	declareAsks     int  // how many times this turn was told to declare completion (declareAskCap)
 	declareAskEpoch int  // guard.mutationEpoch() at the last such ask; a later epoch resets the count
+	reportReady     bool // accepted declaration already has a final report
 	declared        bool // the agent declared the task finished and the council accepted
 	distilAsked     bool // the finish seam already asked what was worth keeping (once per turn)
 	handoffTold     bool // the turn was told once that a companion has not answered yet
@@ -287,6 +288,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	}
 	st.preexistingDirt = preDirt
 	a.mu.Unlock()
+	var preparation *councilPreparation
+	if depth == 0 && !a.cfg.Workflow {
+		preparation = a.startCouncilPreparation(ctx, s)
+	}
+	defer func() {
+		preparation.close()
+		a.mu.Lock()
+		if st, ok := a.stateIf(sid); ok && st.councilPreparation == preparation {
+			st.councilPreparation = nil
+		}
+		a.mu.Unlock()
+	}()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	guard := newRunGuard(a.touchesFile)
@@ -402,6 +415,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// answering (a redirect re-anchors it) rather than letting it recompute from a transcript
 		// view that hides the redirect and falls back to the abandoned original.
 		a.setLiveTurnTask(sid, turnTask)
+
+		// An accepted declaration with an explicit report needs no closing generation.
+		// Keep the normal finish gates, event emission and late-interjection handling.
+		if ts.declared && ts.reportReady {
+			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
+			if a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) == loopFinish {
+				finished = ts.unverifiedReason == ""
+				return lastText, nil
+			}
+			// A finish gate requested more work; it must be allowed to generate.
+			ts.reportReady = false
+		}
 
 		// One model response for this step, with the two recoveries that belong to getting it:
 		// a context too large to send, and a backend that goes silent (see generateStep).
@@ -672,6 +697,7 @@ func (a *App) applyToolControl(ctx context.Context, tc turnCtx, ts *turnState, e
 	// HERE or it is thrown away before the finish check ever sees it.
 	if ctrl.finish {
 		ts.declared = true
+		ts.reportReady = ctrl.reportReady
 		if ctrl.unverifiedReason != "" {
 			ts.unverifiedReason = ctrl.unverifiedReason // the rejection cap's landing, not an acceptance
 		}

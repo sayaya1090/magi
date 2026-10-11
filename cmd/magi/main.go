@@ -1245,6 +1245,15 @@ func loadConfigLayers(plat port.Platform, wd string, warn io.Writer) (config.Con
 func llmOptions(cfg config.Config, noCache bool, httpTimeout time.Duration) []openai.Option {
 	var opts []openai.Option
 	if !noCache {
+		preempt := os.Getenv("MAGI_COUNCIL_PREFILL_PREEMPT") == "1"
+		switch os.Getenv("MAGI_COUNCIL_PREFILL") {
+		case "", "auto":
+			opts = append(opts, openai.WithAutoPrefixPrefill(preempt))
+		case "llama.cpp":
+			opts = append(opts, openai.WithLlamaPrefixPrefill(preempt))
+		}
+	}
+	if !noCache {
 		opts = append(opts, openai.WithPromptCache())
 	}
 	if httpTimeout > 0 {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -362,7 +361,7 @@ func declareAskNudge(n int, lastSaid string, hasCouncil bool) string {
 	first := "You stopped without saying you are finished. A turn ends by declaring it: call the " +
 		"`council` tool with `complete: true`, and the council reads the record — what actually ran, " +
 		"how it ended, what is on disk now — and either accepts (the turn is over) or tells you what " +
-		"is still undone. If the work is finished, declare it now. If it is not, keep working."
+		"is still undone. Write your final report first and set `report_ready: true` when declaring; an accepted report is not generated again. If the work is finished, declare it now. If it is not, keep working."
 	if !hasCouncil {
 		// **이 판에는 카운슬이 없다.** 그러면 턴을 끝내는 것은 「한 일을 말하고 멈추는 것」이고,
 		// 그게 사실이다 — 없는 문을 가리키면 모델은 그 문을 두드리다 한 바퀴를 버린다.
@@ -417,6 +416,7 @@ func (a *App) finishDeclared(ts *turnState, sid session.SessionID) bool {
 		a.signalTurnControl(sid, func(tc *turnControl) {
 			if tc.finish {
 				ts.declared = true
+				ts.reportReady = tc.reportReady
 				if tc.unverifiedReason != "" {
 					ts.unverifiedReason = tc.unverifiedReason
 				} else {
@@ -427,7 +427,7 @@ func (a *App) finishDeclared(ts *turnState, sid session.SessionID) bool {
 					ts.unverifiedReason = ""
 				}
 			}
-			tc.finish, tc.unverifiedReason = false, ""
+			tc.finish, tc.unverifiedReason, tc.reportReady = false, "", false
 		})
 	}
 	return ts.declared
@@ -587,10 +587,9 @@ func (a *App) callsAfterDeclaring(ctx context.Context, sid session.SessionID,
 	return kept
 }
 
-// notRunTail ends the not-run notice: the same measured rule as closingCall — an answer already
-// written is not asked for again.
+// notRunTail does not ask for a copy of an existing report, regardless of length.
 func notRunTail(lastText string) string {
-	if utf8.RuneCountInString(strings.TrimSpace(lastText)) >= finalAnswerFloor {
+	if strings.TrimSpace(lastText) != "" {
 		return "If it IS finished, the message you wrote before declaring already is the final answer — " +
 			"do not write it again; reply with one short line, and stop."
 	}

@@ -20,8 +20,9 @@ import (
 type Council struct{}
 
 type councilArgs struct {
-	Question string   `json:"question"`
-	Complete FlexBool `json:"complete"`
+	Question    string   `json:"question"`
+	Complete    FlexBool `json:"complete"`
+	ReportReady FlexBool `json:"report_ready"`
 }
 
 func (Council) Name() string { return "council" }
@@ -34,21 +35,24 @@ func (Council) Description() string {
 		"Pass `complete: true` to DECLARE THE TASK FINISHED: this is how a turn ends. The council then reads " +
 		"the record as a finish and either accepts — the turn is over and your work is handed back — or tells " +
 		"you what is not done yet, and you keep working. Do not declare completion to ask a question; declare " +
-		"it when you believe the work is finished and are ready to be held to it."
+		"it when you believe the work is finished and are ready to be held to it. " +
+		"Write your final user-facing report before declaring; `report_ready` defaults to true. " +
+		"On acceptance that report stands and no further model reply is requested. " +
+		"Leave report_ready false only when a final report still needs to be written."
 }
 func (Council) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"complete":{"type":"boolean"}}}`)
+	return json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"complete":{"type":"boolean"},"report_ready":{"type":"boolean","default":true,"description":"The latest assistant message is the final report for the user; on acceptance do not regenerate it."}}}`)
 }
 
 func (Council) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	if env.Council == nil {
 		return errResult("", "no council is configured for this run"), nil
 	}
-	var a councilArgs
+	a := councilArgs{ReportReady: true}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
-	out, err := env.Council(ctx, strings.TrimSpace(a.Question), bool(a.Complete))
+	out, err := env.Council(ctx, strings.TrimSpace(a.Question), bool(a.Complete), bool(a.ReportReady))
 	if err != nil {
 		return errResult("", err.Error()), nil
 	}

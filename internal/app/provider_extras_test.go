@@ -26,8 +26,14 @@ import (
 // a forwarded answer cannot be confused with a wrapper's own default.
 type fullProvider struct {
 	port.LLMProvider
-	cleared []uint64
-	base    string
+	cleared  []uint64
+	base     string
+	prefills int
+}
+
+func (p *fullProvider) PrefillPrefix(context.Context, port.ChatRequest) error {
+	p.prefills++
+	return nil
 }
 
 func (p *fullProvider) ListModels(context.Context) ([]string, error) {
@@ -61,7 +67,7 @@ func wrappers() []providerWrapper {
 // extrasMethods is what this file exercises. Compared against the interface below, so widening
 // port.ProviderExtras without extending this test fails instead of quietly leaving the new
 // capability unforwarded — which is the exact way the first three were lost.
-var extrasMethods = []string{"BaseURL", "ClearBaseURL", "ListModels", "ProbeContextWindow", "SetBaseURL"}
+var extrasMethods = []string{"BaseURL", "ClearBaseURL", "ListModels", "PrefillPrefix", "ProbeContextWindow", "SetBaseURL"}
 
 func TestEveryOptionalCapabilityIsExercised(t *testing.T) {
 	iface := reflect.TypeOf((*port.ProviderExtras)(nil)).Elem()
@@ -85,6 +91,9 @@ func TestAWrapperForwardsEveryCapabilityItDoesNotImplement(t *testing.T) {
 			x, ok := w.wrap(inner).(port.ProviderExtras)
 			if !ok {
 				t.Fatalf("%s does not offer the optional surface at all", w.name)
+			}
+			if err := x.PrefillPrefix(ctx, port.ChatRequest{}); err != nil || inner.prefills != 1 {
+				t.Fatalf("prefill not forwarded: %v", err)
 			}
 			got, err := x.ListModels(ctx)
 			if err != nil || len(got) != 1 || got[0] != "the-inner-catalogue" {
@@ -124,6 +133,9 @@ func TestAWrapperOverASilentBackendNamesTheAbsence(t *testing.T) {
 			x, ok := w.wrap(noopProvider{}).(port.ProviderExtras)
 			if !ok {
 				t.Fatalf("%s does not offer the optional surface at all", w.name)
+			}
+			if err := x.PrefillPrefix(ctx, port.ChatRequest{}); !errors.Is(err, port.ErrCapabilityAbsent) {
+				t.Fatalf("prefill absence: %v", err)
 			}
 			got, err := x.ListModels(ctx)
 			if !errors.Is(err, port.ErrCapabilityAbsent) || got != nil {

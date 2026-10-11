@@ -224,3 +224,11 @@ func (a *App) UsageTotal() event.Usage { return a.usage.grandTotal() }
 
 // UsageFor reports what one session cost.
 func (a *App) UsageFor(sid session.SessionID) event.Usage { return a.usage.forSession(sid) }
+
+func (m *meteredProvider) PrefillPrefix(ctx context.Context, req port.ChatRequest) error {
+	p, ok := m.inner.(port.PrefixPrefiller)
+	if !ok {
+		return port.ErrCapabilityAbsent
+	}
+	return p.PrefillPrefix(ctx, req)
+}

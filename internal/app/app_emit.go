@@ -21,6 +21,9 @@ func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.T
 	ev.Seq = seqs[0]
 	a.touch(sid)
 	a.bus.Publish(ev)
+	if typ == event.TypePartAppended || typ == event.TypeCouncilVerdict || typ == event.TypeCouncilDecided || typ == event.TypeTodosChanged || typ == event.TypePromptSubmitted {
+		a.notifyCouncilPreparation(sid)
+	}
 	return nil
 }
 

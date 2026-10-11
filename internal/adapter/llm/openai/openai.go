@@ -27,13 +27,22 @@ import (
 
 // Client is an OpenAI-compatible LLM provider.
 type Client struct {
-	baseURL  string
-	dynBase  atomic.Pointer[baseOverride] // runtime override (plugin magi.set_base_url); nil = use baseURL
-	baseSeq  atomic.Uint64                // monotonic ownership-token source for dynBase
-	apiKey   string
-	http     *http.Client
-	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
-	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
+	baseURL            string
+	dynBase            atomic.Pointer[baseOverride] // runtime override (plugin magi.set_base_url); nil = use baseURL
+	baseSeq            atomic.Uint64                // monotonic ownership-token source for dynBase
+	apiKey             string
+	http               *http.Client
+	prefixMu           sync.Mutex
+	prefixCancel       context.CancelFunc
+	prefixRunning      bool
+	prefixPreempt      bool
+	prefixAuto         bool
+	prefixDetectedBase string
+	prefixDetected     bool
+	foreground         int
+	llamaPrefill       bool        // explicitly enabled native zero-generation API
+	cache              bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
+	cacheOff           atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
 
 	reasoningEffort string                  // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
 	maxTokens       int                     // per-request output cap ([limits] max_output_tokens); 0 = provider default
@@ -387,6 +396,37 @@ func envSampling(s *Sampling) {
 // returned immediately (F-LLM-ERROR llm-err-3); server/stream errors surface as
 // ProviderError events on the channel (llm-err-1, llm-err-2).
 func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	if !c.llamaPrefill {
+		return c.streamChat(ctx, r)
+	}
+	c.prefixMu.Lock()
+	c.foreground++
+	if c.prefixCancel != nil && c.prefixPreempt {
+		c.prefixCancel()
+	}
+	c.prefixMu.Unlock()
+	end := func() { c.prefixMu.Lock(); c.foreground--; c.prefixMu.Unlock() }
+	in, err := c.streamChat(ctx, r)
+	if err != nil {
+		end()
+		return nil, err
+	}
+	out := make(chan port.ProviderEvent)
+	go func() {
+		defer close(out)
+		defer end()
+		for ev := range in {
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+func (c *Client) streamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	useCache := c.cache && !c.cacheOff.Load()
 	// A cancelable child ctx bounds the request body: consume() can unblock a read
 	// that is stranded waiting for a trailing `[DONE]` the backend never sends

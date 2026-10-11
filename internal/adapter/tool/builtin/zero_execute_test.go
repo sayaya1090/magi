@@ -36,7 +36,7 @@ func TestEnvClosureToolsRefuseAndMap(t *testing.T) {
 	}
 	var gotQ string
 	var gotDone bool
-	env := port.ToolEnv{Council: func(_ context.Context, q string, done bool) (string, error) {
+	env := port.ToolEnv{Council: func(_ context.Context, q string, done bool, reportReady bool) (string, error) {
 		gotQ, gotDone = q, done
 		return "", nil
 	}}
@@ -75,5 +75,19 @@ func TestEnvClosureToolsRefuseAndMap(t *testing.T) {
 	if res, _ := (SearchSessions{}).Execute(ctx, json.RawMessage(`{"query":"parser"}`), qenv); res.IsError ||
 		!strings.Contains(string(res.Content), "hit:parser") {
 		t.Fatalf("search: %+v", res)
+	}
+}
+
+func TestCouncilReportReadyDefaultsToTrue(t *testing.T) {
+	for _, tc := range []struct {
+		args string
+		want bool
+	}{{`{"complete":true}`, true}, {`{"complete":true,"report_ready":false}`, false}, {`{"complete":true,"report_ready":true}`, true}} {
+		var got bool
+		env := port.ToolEnv{Council: func(_ context.Context, _ string, _ bool, ready bool) (string, error) { got = ready; return "ok", nil }}
+		res, err := (Council{}).Execute(context.Background(), json.RawMessage(tc.args), env)
+		if err != nil || res.IsError || got != tc.want {
+			t.Fatalf("%s: ready=%v result=%+v err=%v", tc.args, got, res, err)
+		}
 	}
 }
