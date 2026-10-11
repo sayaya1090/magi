@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Magi for GitHub",
+  "version": "0.1.0",
+  "description": "Use a repository-bound Magi coding assistant in a github.com side panel.",
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://127.0.0.1:8737/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Magi"
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "minimum_chrome_version": "114"
+}

@@ -28,13 +28,14 @@ import (
 // the loop guard kills the turn. The last sentence exists for the case the list cannot help
 // with: an agent that genuinely has no way to do the thing should SAY so, not keep asking.
 func (a *App) gateAllowlist(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
-	if agent.allows(tc.Name) {
+	roleAllowed := ClientRoleAllows(a.cfg.ClientRole, tc.Name)
+	if roleAllowed && agent.allows(tc.Name) {
 		return false
 	}
 	// **광고한 것은 부를 수 있어야 한다.** 읽기만 하는 턴에는 「읽기만 한다고 선언한」 도구도 실린다(prompt.go
 	// looksOnlyReads) — 그 둘이 갈리면 모델은 목록에서 본 도구를 부르고 여기서 거절당한다. 실측(2026-09-07):
 	// 광고만 고쳤더니 워드 컴패니언이 list_paragraphs 를 불러 "tool not permitted for agent looking" 을 받았다.
-	if t, ok := a.tools.Get(tc.Name); ok && looksOnlyReads(agent, t) {
+	if t, ok := a.tools.Get(tc.Name); ok && roleAllowed && looksOnlyReads(agent, t) {
 		return false
 	}
 	msg := "tool not permitted for agent " + agent.Name + " — this call did nothing."

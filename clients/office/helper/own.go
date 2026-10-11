@@ -197,6 +197,7 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 		spawn = runDetached
 	}
 	env := deckEnv(o.ConfigDir, os.Environ())
+	env = append(env, "MAGI_CLIENT_ROLE="+o.App.Workspace)
 	if err := spawn(bin, space, env); err != nil {
 		return st, fmt.Errorf("파워포인트 몫의 컴패니언을 못 띄웠습니다: %w (데몬이 남긴 말: %s)", err, st.Log)
 	}
@@ -222,6 +223,7 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 var scrubbed = []string{
 	"MAGI_FLEET_LISTEN",
 	"MAGI_PROFILE",
+	"MAGI_CLIENT_ROLE",
 	"MAGI_PERMISSION",
 }
 

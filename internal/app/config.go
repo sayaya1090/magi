@@ -179,6 +179,7 @@ func DefaultDangerTools() map[string]bool {
 
 // Config holds run-time policy for the agent loop and orchestration (D7).
 type Config struct {
+	ClientRole string
 	Model      session.ModelRef
 	System     string
 	MaxSteps   int

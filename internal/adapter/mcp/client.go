@@ -25,10 +25,11 @@ type Client struct {
 	r   *bufio.Reader
 	cls io.Closer
 
-	mu      sync.Mutex
-	nextID  int64
-	pending map[int64]chan message
-	closed  bool
+	mu           sync.Mutex
+	nextID       int64
+	pending      map[int64]chan message
+	closed       bool
+	instructions string
 
 	done chan struct{}
 
@@ -183,7 +184,10 @@ func (c *Client) Initialize(ctx context.Context) error {
 		Capabilities:    map[string]any{},
 		ClientInfo:      clientInfo{Name: "magi", Version: "0.1.0"},
 	}
-	if err := c.call(ctx, "initialize", params, &struct{}{}); err != nil {
+	var result struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := c.call(ctx, "initialize", params, &result); err != nil {
 		return err
 	}
 	// Name the half that failed. The call site wraps all of this as `initialize %q`, so a refused
@@ -191,8 +195,14 @@ func (c *Client) Initialize(ctx context.Context) error {
 	if err := c.notify("notifications/initialized", nil); err != nil {
 		return fmt.Errorf("notifications/initialized: %w", err)
 	}
+	c.mu.Lock()
+	c.instructions = result.Instructions
+	c.mu.Unlock()
 	return nil
 }
+
+// Instructions returns the successful initialize response's guidance.
+func (c *Client) Instructions() string { c.mu.Lock(); defer c.mu.Unlock(); return c.instructions }
 
 // ListTools returns the tools advertised by the server.
 func (c *Client) ListTools(ctx context.Context) ([]toolDef, error) {

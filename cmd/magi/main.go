@@ -367,6 +367,7 @@ var visionOf func(string) bool
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
+		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "application role: figma|mail|slack|github|powerpoint|word|excel (empty: coding)")
 		output      = flag.String("output", "text", "output format: text|json")
 		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
 		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
@@ -434,6 +435,10 @@ func run() int {
 		noUpdateCheck   = flag.Bool("no-update-check", env("MAGI_NO_UPDATE_CHECK", "") != "", "disable the interactive startup update check and the daemon's auto-update loop")
 	)
 	flag.Parse()
+	if !app.ValidClientRole(*clientRole) {
+		fmt.Fprintln(os.Stderr, "magi: unknown client-role")
+		return 2
+	}
 
 	// Validate enum-valued flags up front so a typo (e.g. -output jsn, -permission
 	// auto0, -profile safmode) fails loudly with exit 2 instead of silently
@@ -843,7 +848,8 @@ func run() int {
 	var ears *companionEars
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model:       session.ModelRef{Provider: "openai", Model: modelID},
-		System:      systemPrompt,
+		System:      clientSystem(*clientRole),
+		ClientRole:  *clientRole,
 		Permission:  perm,
 		Interactive: !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
 		AnswerWait:  answerWait(answerable),  // whether an answerer is elsewhere; app decides which modes wait

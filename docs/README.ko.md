@@ -28,9 +28,14 @@
 |---|---|
 | [ENGRAM_MEMORY](ENGRAM_MEMORY.ko.md) · [English](ENGRAM_MEMORY.md) | **기억 정리·공유 목표 설계**: 정본 ID, 병합·정정·망각, 데몬 복제·권한, 이행 및 인수 조건. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.ko.md) · [English](CLIENT_LIFECYCLE.md) | **대표 클라이언트 안정화 목표**: 소유권, 상태 전이, 호환성, 담당 범위와 설치 환경 인수 매트릭스. 구현 완료 문서가 아닙니다. |
+| [APPLICATION_CLIENTS_DESIGN](APPLICATION_CLIENTS_DESIGN.ko.md) · [English](APPLICATION_CLIENTS_DESIGN.md) | **앱 클라이언트 계약**: Figma·IMAP/SMTP 메일·Slack·GitHub의 화면, 역할, 세션 귀속, 인증과 인수 기준. |
+| [CODING_WORKTREE_DESIGN](CODING_WORKTREE_DESIGN.ko.md) · [English](CODING_WORKTREE_DESIGN.md) | **코딩 작업 서비스 설계**: 워크트리 준비, 전담 컴패니언, 복구와 정리. 아직 미구현입니다. |
+| [MAIL_CLIENT](MAIL_CLIENT.ko.md) · [English](MAIL_CLIENT.md) | **메일 구현 참조**: IMAP/SMTP 계약, MIME 제한과 계정 인수 절차. |
 | [PROJECT_REVIEW_2026-09-11](PROJECT_REVIEW_2026-09-11.ko.md) · [English](PROJECT_REVIEW_2026-09-11.md) | **프로젝트 평가 (2026-09-11)**: 카운슬 추론 전달 경로 및 클라이언트 연동 현황 평가와 안정화 우선순위 제안. |
 
 ## 설계 이력 & 보존 문서
+
+앱별 매뉴얼: [Figma](../clients/figma/README.ko.md), [메일](../clients/mail/README.ko.md), [Slack](../clients/slack/README.ko.md), [GitHub](../clients/github/README.ko.md). 소스 빌드와 초기 구현의 제한을 각각 설명합니다.
 
 초기 아키텍처 결정 배경을 추적하기 위한 보존 문서입니다. 현행 참조 기준이 아니며, 최신 코드나 ARCHITECTURE/MANUAL과 내용이 상충할 경우 최신 문서를 우선합니다.
 

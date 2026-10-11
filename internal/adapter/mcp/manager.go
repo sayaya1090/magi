@@ -500,3 +500,40 @@ func (p *procCloser) Close() error {
 	}
 	return nil
 }
+
+// Instructions exposes guidance only from live servers with tools available to this owner.
+// A session-owned attachment supersedes the daemon-wide attachment of the same namespace.
+func (m *Manager) Instructions(owner string, available map[string]bool) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]string{}
+	for _, sc := range m.servers {
+		if sc.client == nil || (sc.owner != "" && sc.owner != owner) {
+			continue
+		}
+		if sc.owner == "" {
+			if local := m.servers[serverKey(sanitizeToolPart(sc.name), owner)]; owner != "" && local != nil && local.client != nil {
+				continue
+			}
+		}
+		select {
+		case <-sc.client.Done():
+			continue
+		default:
+		}
+		visible := false
+		for _, name := range sc.tools {
+			if available[name] {
+				visible = true
+				break
+			}
+		}
+		if !visible {
+			continue
+		}
+		if body := strings.TrimSpace(sc.client.Instructions()); body != "" {
+			out[sanitizeToolPart(sc.name)] = body
+		}
+	}
+	return out
+}
