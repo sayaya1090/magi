@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 class CompanionTypeTest {
  @Test void applicationsUseSharedChat() {
-  for(String role:new String[]{"design","communication","presentation","document","spreadsheet"}) {
+  for(String role:new String[]{"design","communication","presentation","document","spreadsheet","operations","browser"}) {
    CompanionType type=CompanionType.byId(role);
    assertEquals(role,type.id);assertEquals("application",type.module);assertEquals("type."+role,type.labelKey);
   }

@@ -2,7 +2,7 @@
 
 [한국어](CODING_WORKTREE_DESIGN.ko.md) · [Application client design](APPLICATION_CLIENTS_DESIGN.md)
 
-This is a design, not an implemented service. The repository currently has no common service managing user worktrees. Running `git worktree` alone does not manage task lifetime or companion ownership. The service will support existing terminal, VS Code and JetBrains coding agents as well as GitHub.
+This is a design, not an implemented service. The repository currently has no common service managing user worktrees. Running `git worktree` alone does not manage task lifetime or companion ownership. The service will support existing terminal, VS Code and JetBrains coding agents.
 
 ## 1. Placement
 
@@ -48,8 +48,8 @@ If Git creation succeeds but persistence fails, return recovery information incl
 1. Implement records, states, canonical repository identity and API types. Test transitions and idempotent request IDs without Git.
 2. Connect prepare to real temporary Git repositories. Test spaces, linked worktrees, branch collisions, concurrent creation and persistence failure recovery.
 3. Connect start to companion startup. Check fixed per-task workdirs/sockets/sessions and that preparation alone never calls a model.
-4. Add CLI first, then GitHub, VS Code and JetBrains. All surfaces must list the same task identically.
+4. Add CLI first, then VS Code and JetBrains. All surfaces must list the same task identically.
 5. Implement stop/remove. Test refusals for modified/untracked files, active turns and externally owned worktrees.
 6. Run real CLI acceptance and browser Playwright. Another reviewer checks paths, command arguments, recovery and deletion contracts. Mark implementation complete only after recording execution evidence.
 
-Initial application clients work without this service. The GitHub helper connects sessions in an explicitly configured local checkout. Do not add a nonfunctional worktree button before these APIs exist.
+Initial application clients work without this service. Do not add a nonfunctional worktree button before these APIs exist.

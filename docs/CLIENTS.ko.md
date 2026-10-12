@@ -35,7 +35,7 @@ flowchart LR
 
 ## 1. 클라이언트 환경별 특성 비교
 
-새 앱 클라이언트는 [공통 앱 계약](APPLICATION_CLIENTS_DESIGN.ko.md)을 사용합니다. 소스 빌드·설치·사용 매뉴얼은 [Figma](../clients/figma/README.ko.md), [IMAP/SMTP 메일](../clients/mail/README.ko.md), [Slack](../clients/slack/README.ko.md), [GitHub](../clients/github/README.ko.md)에 있습니다. Figma·메일·Slack은 앱별 업무 에이전트이고 GitHub는 코딩 에이전트입니다. 실제 계정 인수와 모의 테스트를 구분해 기록합니다. [워크트리 관리](CODING_WORKTREE_DESIGN.ko.md)는 코딩 작업 공통 서비스로 설계 중입니다.
+새 앱 클라이언트는 [공통 앱 계약](APPLICATION_CLIENTS_DESIGN.ko.md)을 사용합니다. 소스 빌드·설치·사용 매뉴얼은 [Figma](../clients/figma/README.ko.md), [IMAP/SMTP 메일](../clients/mail/README.ko.md), [Slack](../clients/slack/README.ko.md), [Chrome 브라우저](../clients/browser/README.ko.md)에 있습니다. Figma·메일·Slack·Chrome 브라우저는 앱별 업무 에이전트입니다. 실제 계정 인수와 모의 테스트를 구분해 기록합니다. [워크트리 관리](CODING_WORKTREE_DESIGN.ko.md)는 코딩 작업 공통 서비스로 설계 중입니다.
 
 | 클라이언트 | 연결 방식 | 관측 대상 | 수행 명령 | 적용 시나리오 |
 |---|---|---|---|---|

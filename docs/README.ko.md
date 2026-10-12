@@ -35,7 +35,7 @@
 
 ## 설계 이력 & 보존 문서
 
-앱별 매뉴얼: [Figma](../clients/figma/README.ko.md), [메일](../clients/mail/README.ko.md), [Slack](../clients/slack/README.ko.md), [GitHub](../clients/github/README.ko.md). 소스 빌드와 초기 구현의 제한을 각각 설명합니다.
+앱별 매뉴얼: [Figma](../clients/figma/README.ko.md), [메일](../clients/mail/README.ko.md), [Slack](../clients/slack/README.ko.md), [Chrome 브라우저](../clients/browser/README.ko.md). 소스 빌드와 초기 구현의 제한을 각각 설명합니다.
 
 초기 아키텍처 결정 배경을 추적하기 위한 보존 문서입니다. 현행 참조 기준이 아니며, 최신 코드나 ARCHITECTURE/MANUAL과 내용이 상충할 경우 최신 문서를 우선합니다.
 

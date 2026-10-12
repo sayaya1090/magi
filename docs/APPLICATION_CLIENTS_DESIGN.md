@@ -2,7 +2,7 @@
 
 [한국어](APPLICATION_CLIENTS_DESIGN.ko.md) · [Client overview](CLIENTS.md)
 
-Figma, standard IMAP/SMTP mail, Slack and GitHub become new Magi clients. This document defines their shared implementation contracts and acceptance requirements. Each application manual explains installation, account configuration and everyday use. Mock tests and real account acceptance are reported separately.
+Figma, standard IMAP/SMTP mail, Slack and Chrome browser become new Magi clients. This document defines their shared implementation contracts and acceptance requirements. Each application manual explains installation, account configuration and everyday use. Mock tests and real account acceptance are reported separately.
 
 ## 1. Roles and surfaces
 
@@ -11,10 +11,10 @@ Figma, standard IMAP/SMTP mail, Slack and GitHub become new Magi clients. This d
 | Figma | Development plugin panel | Inspect selection, edit text, create frames | Shell, source edits, whole-file scans, publishing |
 | Mail | Local browser mail UI | Read selected correspondence, identify requests, draft replies | Model-initiated sending, OAuth, attachments |
 | Slack | App Home, DMs, mention threads | Summarize conversations, coordinate work, draft messages | Shell, source edits, unsolicited messages in other channels |
-| GitHub | Chrome/Chromium side panel on github.com | Repository, issue and pull-request coding work | Unrequested comments, pushes and merges |
+| Chrome browser | Chrome side panel | Inspect and operate granted tabs | Unrelated tabs, passwords, arbitrary scripts |
 | Existing Office | PowerPoint, Word and Excel task panes | Presentation, document and spreadsheet work | Default coding identity, external shell and source editing |
 
-`--client-role` and `MAGI_CLIENT_ROLE` select the role. Coding has the explicit kind `coding`. GitHub is a coding client, not another agent kind. Legacy empty and `github` inputs normalize to `coding`. Other roles receive application-specific system instructions from `internal/app/client_role.go`. The same role restriction applies when advertising tools and executing calls. Only the application's MCP namespace and common question, council, planning and recall tools are permitted. A model cannot execute a hidden `bash` call or another application's tools.
+`--client-role` and `MAGI_CLIENT_ROLE` select the role. Coding has the explicit kind `coding`. Empty input normalizes to `coding`; the removed `github` role is rejected. Chrome uses the `browser` kind. Other roles receive application-specific system instructions from `internal/app/client_role.go`. The same role restriction applies when advertising tools and executing calls. Only the application's MCP namespace and common question, council, planning and recall tools are permitted. A model cannot execute a hidden `bash` call or another application's tools.
 
 Office passes its role when starting a new companion. Installing a new executable does not change the role of an already running older companion. Migration acceptance must distinguish fresh role-aware starts from restarts of older processes.
 
@@ -26,7 +26,6 @@ Role source text lives in `internal/app/client_role.go`; the base coding prompt 
 | Role | Specific guidance |
 |---|---|
 | Base coding (terminal, VS Code, JetBrains) | Inspect the project, follow existing conventions, plan, implement and verify |
-| GitHub coding | Inspect the bound repository, issue or PR; verify repository and branch; test; require explicit instructions for comments, push and merge |
 | Figma design | Preserve design intent, typography, spacing, components and accessibility; inspect selection, file and page before editing |
 | Mail correspondence | Identify requests and draft in the user's tone; invent no facts, commitments or recipients; distinguish drafts from sending |
 | Slack collaboration | Separate decisions from proposals, identify owners and actions, remain in the requesting user's channel and thread |
@@ -34,7 +33,7 @@ Role source text lives in `internal/app/client_role.go`; the base coding prompt 
 | Word documents | Preserve facts, structure and author intent; use appropriate prose and consistent headings; read relevant sections |
 | Excel analysis | Preserve formulas, types and structure; verify calculations; distinguish observations from assumptions; read relevant ranges |
 
-The six application roles share user-language responses, truthful reporting, external content treated as data, and a prohibition on shell/source edits. GitHub retains the base coding system prompt and adds MCP guidance from `clients/github/github.go`. Figma, Slack and mail MCP guidance applies only to available tools in the bound session. `looking` is a read-only session of the same role, not another application identity; council is a separate completion-evidence gate.
+The six application roles share user-language responses, truthful reporting, external content treated as data, and a prohibition on shell/source edits. Figma, Slack and mail MCP guidance applies only to available tools in the bound session. `looking` is a read-only session of the same role, not another application identity; council is a separate completion-evidence gate.
 
 MCP initialize `instructions` enters the model request's trailing context. It cannot override user instructions, application role or permission policy, and is removed when its tools detach. `internal/app/mcp_instructions_test.go` verifies actual model-request delivery and session/role isolation.
 
@@ -42,7 +41,7 @@ MCP initialize `instructions` enters the model request's trailing context. It ca
 
 The role vocabulary is the seven `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
 
-`CompanionType.java` registers coding type `1` and six application types. Base coding and GitHub use the coding child; other business kinds use `application-ui`. Mail and Slack share communication type. The `coding` spelling resolves to type `1`, and the existing missing/unknown-type coding fallback remains. Local daemon/roster/fleet and remote cluster carry type. Remote type is advisory metadata excluded from Signable, like Version; execution rights come from the destination daemon's role gate.
+`CompanionType.java` registers coding type `1` and six application types. Base coding use the coding child; other business kinds use `application-ui`. Mail and Slack share communication type. The `coding` spelling resolves to type `1`, and the existing missing/unknown-type coding fallback remains. Local daemon/roster/fleet and remote cluster carry type. Remote type is advisory metadata excluded from Signable, like Version; execution rights come from the destination daemon's role gate.
 
 The application child shares conversation/composer code without mounting the filesystem/Git workspace. The parent clears slots on type changes; PaneSharing caches module-specific renders for revisits. Late coding loads cannot replace application slots. WorkspaceStore rejects application contexts to prevent background file requests too.
 
@@ -50,7 +49,7 @@ The application child shares conversation/composer code without mounting the fil
 
 ### Business kind, codebase role and client
 
-The business vocabulary is the six AgentKind values in `internal/app/agent_kind.go`: coding, design, communication, document, presentation and spreadsheet. ClientKind selects application-specific instructions and tool boundaries; it is not a business kind. Mail and Slack map to communication but cannot use each other's tools. GitHub, IDEs and terminal are coding clients.
+The business vocabulary is the eight AgentKind values in `internal/app/agent_kind.go`: coding, design, communication, document, presentation, spreadsheet, operations and browser. ClientKind selects application-specific instructions and tool boundaries; it is not a business kind. Mail and Slack map to communication but cannot use each other's tools. IDEs and terminal are coding clients.
 
 Internal coding roles follow ownership of a codebase or module. Role describes the user-assigned ownership; concrete repository/path boundaries determine access. Investigation, design, implementation, verification and review are work phases performed by each owner, not separate agent kinds or ownership roles.
 
@@ -58,7 +57,7 @@ AgentKind mapping and client tool-isolation tests are implemented. Published typ
 
 ## 2. Shared connection layer
 
-`clients/appbridge` connects local HTTP clients to the daemon control socket. Figma calls pass through this layer into the plugin's main sandbox. Mail, Slack and GitHub APIs run in their respective helpers. Model API credentials never enter application UI code.
+`clients/appbridge` connects local HTTP clients to the daemon control socket. Figma calls pass through this layer into the plugin's main sandbox. Mail and Slack APIs run in their respective helpers. Model API credentials never enter application UI code.
 
 ```text
 Application UI / Slack event
@@ -73,7 +72,6 @@ Application operation ← binding-specific MCP URL
 | `127.0.0.1:8734` | Figma plugin helper |
 | `127.0.0.1:8793` | Mail UI and IMAP/SMTP helper |
 | `127.0.0.1:8736` | Slack helper MCP callback |
-| `127.0.0.1:8737` | GitHub side panel helper |
 
 Listeners require an explicit loopback IP. Local APIs and MCP require `Authorization: Bearer <token>`. An unspecified token is generated with 256 bits of cryptographic randomness. Cross-origin browser extension and sandbox iframe requests require the bearer credential; CORS permission is not authentication. Browser text uses `textContent` rendering.
 
@@ -84,11 +82,10 @@ Listeners require an explicit loopback IP. Local APIs and MCP require `Authoriza
 | Figma | File key or user-supplied permanent document ID | Capture page and selection IDs; recheck before mutation |
 | Mail | Account / mailbox / UIDVALIDITY / UID | Refuse old UIDs after UIDVALIDITY changes |
 | Slack | Team / channel / thread timestamp / requesting user | Reject another user's approval actions |
-| GitHub | Owner / repository and issue or pull number | Match the local origin to the connected repository |
 
 `POST /api/connect` accepts `{target}` and returns `{binding, session, target}`. The helper generates the opaque binding ID. Application UI cannot provide arbitrary socket paths, work directories or session IDs. Sessions use `session-new` with `keep` and a `for` tag for creation and recovery. Connecting another document does not switch the companion's foreground conversation.
 
-Figma, mail and Slack derive a hashed workspace directory for each target. GitHub connects an explicitly configured local checkout. Document bodies and titles never become work directories. Bindings live in process memory and must be reconnected after restart; persisted sessions are recovered by their `for` tag.
+Figma, mail and Slack derive a hashed workspace directory for each target. Document bodies and titles never become work directories. Bindings live in process memory and must be reconnected after restart; persisted sessions are recovered by their `for` tag.
 
 ## 4. Chat and tool protocol
 
@@ -102,13 +99,13 @@ Figma receives calls from `/api/figma/poll` and returns results through `/api/fi
 
 ## 5. Accounts and external operations
 
-IMAP/SMTP credentials, Slack app/bot tokens and GitHub API tokens stay in helper environments. `CompanionEnv` removes application tokens and mail passwords when starting a companion, retaining model-provider credentials. Existing processes need restarting because their environments cannot be changed. They are excluded from tool results and server error output. Figma invokes design APIs in its main sandbox and does not require a Figma API token.
+IMAP/SMTP credentials, Slack app/bot tokens stay in helper environments. `CompanionEnv` removes application tokens and mail passwords when starting a companion, retaining model-provider credentials. Existing processes need restarting because their environments cannot be changed. They are excluded from tool results and server error output. Figma invokes design APIs in its main sandbox and does not require a Figma API token.
 
-The mail model receives read and draft tools. SMTP delivery is a separate UI action after the user reviews recipient, subject and body. Slack tools read the current thread and prepare drafts. Responses to an initiated Magi conversation stay in that thread; no tool sends to unrelated channels. Initial GitHub API tools are read-only. Remote writes are not automatically authorized merely because implementation or testing would benefit from them.
+The mail model receives read and draft tools. SMTP delivery is a separate UI action after the user reviews recipient, subject and body. Slack tools read the current thread and prepare drafts. Responses to an initiated Magi conversation stay in that thread; no tool sends to unrelated channels. Remote writes are not automatically authorized merely because implementation or testing would benefit from them.
 
 ## 6. Coding tasks and worktrees
 
-Worktrees belong in a common coding task layer. Starting a repository task creates a separate branch/worktree and connects a companion that owns that workspace. Creating a directory and beginning the model's first turn are separate actions. General coding agents, VS Code, JetBrains, terminal and GitHub clients should share this contract.
+Worktrees belong in a common coding task layer. Starting a repository task creates a separate branch/worktree and connects a companion that owns that workspace. Creating a directory and beginning the model's first turn are separate actions. General coding agents, VS Code, JetBrains, terminal clients should share this contract.
 
 Figma, mail, Slack and Office do not expose worktree operations by default. They may delegate coding work to a separate coding companion. [Coding worktree design](CODING_WORKTREE_DESIGN.md) defines creation, recovery and cleanup. A worktree service is outside this initial client implementation's completion scope.
 
@@ -117,7 +114,7 @@ Figma, mail, Slack and Office do not expose worktree operations by default. They
 1. Implement shared connection, session, authentication and role restrictions. Test with actual local sockets.
 2. Connect chat, permission responses, questions and events in each application. Check target/input preservation on new sessions, model changes and connection failure.
 3. Test tool success, failure, foreign targets, malformed arguments and large responses. Mail/Slack delivery tests use mock servers or transports.
-4. Run Playwright for Figma, mail and GitHub browser surfaces. Also run the existing full VS Code transcript harness.
+4. Run Playwright for Figma, mail and Chrome browser surfaces. Also run the existing full VS Code transcript harness.
 5. Follow owner self-review with another owner's code/document/test review. Fix findings and rerun affected verification.
 6. Record real account acceptance separately. Without an account, do not claim authentication, app installation or actual message delivery passed.
 
@@ -144,4 +141,8 @@ The implementation was cross-reviewed between client owners and by the integrati
 | Build and manuals | New client command builds and `go vet` passed; 14 design/manual files had no broken local links |
 | Coding worktrees | EN/KO design specifies creation, ownership, recovery and removal; no worktree service was implemented |
 
-Real Figma/Slack installation, real IMAP/SMTP delivery and a loaded Chrome extension with live GitHub credentials remain unverified. Account-based acceptance steps are in each client manual. No real mail or unrelated remote messages were sent during development. Updating an existing installation requires rebuilding the core/helpers and restarting old companions; committed source alone does not upgrade running processes.
+Real Figma/Slack installation, real IMAP/SMTP delivery remain unverified. Account-based acceptance steps are in each client manual. No real mail or unrelated remote messages were sent during development. Updating an existing installation requires rebuilding the core/helpers and restarting old companions; committed source alone does not upgrade running processes.
+
+## Chrome browser replacement (2026-10-12)
+
+The GitHub-specific helper and extension were removed at the user’s request. Earlier verification rows above describe the implementation at that time; they do not describe currently available clients. Port 8737 now belongs to the Chrome browser helper. Its scope, permissions and acceptance procedure are in [the browser manual](../clients/browser/README.md). Browser tasks use a dedicated business kind and cannot execute coding tools.

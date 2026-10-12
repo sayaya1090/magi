@@ -41,7 +41,7 @@ flowchart LR
 
 ## 1. Seen from the seat you are in
 
-New application clients use [shared application contracts](APPLICATION_CLIENTS_DESIGN.md). Their source-build manuals are [Figma](../clients/figma/README.md), [IMAP/SMTP mail](../clients/mail/README.md), [Slack](../clients/slack/README.md) and [GitHub](../clients/github/README.md). Figma, mail and Slack have application-specific agents; GitHub retains a coding agent. Real account acceptance is recorded separately from mock tests. [Worktree management](CODING_WORKTREE_DESIGN.md) is a planned common coding task service.
+New application clients use [shared application contracts](APPLICATION_CLIENTS_DESIGN.md). Their source-build manuals are [Figma](../clients/figma/README.md), [IMAP/SMTP mail](../clients/mail/README.md), [Slack](../clients/slack/README.md) and [Chrome browser](../clients/browser/README.md). Figma, mail, Slack and Chrome browser have application-specific agents. Real account acceptance is recorded separately from mock tests. [Worktree management](CODING_WORKTREE_DESIGN.md) is a planned common coding task service.
 
 | Seat | Attaches how | Sees | Commands | When you use it |
 |---|---|---|---|---|

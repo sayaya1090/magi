@@ -32,7 +32,7 @@ func TestApplicationRolesExcludeCodingAndOtherApplicationTools(t *testing.T) {
 			t.Fatalf("%s omitted application tool", role)
 		}
 	}
-	if !ClientRoleAllows("github", "bash") || !ClientRoleAllows("", "edit") || ValidClientRole("unknown") {
+	if !ClientRoleAllows("coding", "bash") || !ClientRoleAllows("", "edit") || ValidClientRole("unknown") {
 		t.Fatal("coding role or validation changed")
 	}
 }
@@ -55,13 +55,13 @@ func TestClientKindCatalogHasUniqueValidRoles(t *testing.T) {
 			t.Fatalf("application kind has no prompt: %q", kind)
 		}
 	}
-	if len(seen) != 9 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
+	if len(seen) != 10 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
 		t.Fatal("unknown kind allowed or catalog incomplete")
 	}
 }
 
 func TestCodingKindIsExplicitAndClientAliasesNormalize(t *testing.T) {
-	for _, input := range []string{"", "coding", "github"} {
+	for _, input := range []string{"", "coding"} {
 		kind := NormalizeClientKind(input)
 		if kind != ClientCoding || string(kind) != "coding" || !ClientRoleAllows(input, "bash") {
 			t.Fatalf("coding input %q did not normalize: %q", input, kind)
@@ -93,5 +93,11 @@ func TestApplicationRoleBlocksExecutionEvenWithPermissionAllow(t *testing.T) {
 	}
 	if body := resultBody(t, a, sid, "blocked-write"); !strings.Contains(body, "not permitted") {
 		t.Fatalf("missing refusal: %s", body)
+	}
+}
+
+func TestBrowserRoleIsScoped(t *testing.T) {
+	if ValidClientRole("github") || ClientRoleAllows("browser", "bash") || ClientRoleAllows("browser", "mcp__mail__read") || !ClientRoleAllows("browser", "mcp__browser__read_page") {
+		t.Fatal("browser role or removed client boundary changed")
 	}
 }

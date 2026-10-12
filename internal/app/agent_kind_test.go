@@ -18,8 +18,8 @@ func TestAgentKindIsIndependentOfClientToolBoundary(t *testing.T) {
 	if ClientRoleAllows("mail", "mcp__slack__read") || ClientRoleAllows("slack", "mcp__mail__read") {
 		t.Fatal("communication grouping widened tool permissions")
 	}
-	if NormalizeClientKind("github").AgentKind() != AgentCoding {
-		t.Fatal("GitHub must remain a coding client")
+	if NormalizeClientKind("browser").AgentKind() != AgentBrowser {
+		t.Fatal("Browser must have a browser identity")
 	}
 }
 

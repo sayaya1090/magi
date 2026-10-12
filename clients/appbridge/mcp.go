@@ -117,7 +117,7 @@ func (s *Server) relay(ctx context.Context, b Binding, name string, args json.Ra
 	select {
 	case b.pending <- c:
 	case <-ctx.Done():
-		return nil, errors.New("Figma 플러그인이 연결되어 있는지 확인해 주세요.")
+		return nil, errors.New("앱 클라이언트가 연결되어 있는지 확인해 주세요.")
 	}
 	select {
 	case r := <-c.reply:
@@ -126,7 +126,7 @@ func (s *Server) relay(ctx context.Context, b Binding, name string, args json.Ra
 		}
 		return r.Result, nil
 	case <-ctx.Done():
-		return nil, errors.New("Figma 도구 응답 시간이 초과되었습니다. 변경 여부를 확인한 뒤 다시 요청해 주세요.")
+		return nil, errors.New("앱 도구 응답 시간이 초과되었습니다. 변경 여부를 확인한 뒤 다시 요청해 주세요.")
 	}
 }
 func (s *Server) pollHTTP(w http.ResponseWriter, r *http.Request) {

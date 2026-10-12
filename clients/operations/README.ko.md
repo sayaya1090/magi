@@ -27,3 +27,5 @@
 IDE가 소유한 컴패니언 4개를 갱신된 코어로 재시작했습니다. 저장된 이벤트가 없는 빈 세션은 재시작 시 ID가 바뀔 수 있습니다. 이번 점검에서 저장된 대화가 유실되지는 않았습니다. 실제 계정의 Figma·메일·Slack 인수 검증은 남아 있습니다.
 
 kubectl v1.37.1을 설치했습니다. context `handbook-dev/api-sayaya-cloud:6443/sayaya`, namespace `handbook-dev`로 읽기 전용 Pod 목록을 요청했지만 `api.sayaya.cloud:6443`의 연결 거절로 실패했습니다. Kubernetes 변경 명령은 실행하지 않았습니다. 접속이 복구되면 명시적으로 허용한 테스트 Pod의 상태와 제한된 로그를 확인하고, 승인 재시작은 폐기 가능한 테스트 Deployment에서만 검증합니다. context·namespace·명령·결과를 기록하되 인증정보는 포함하지 않습니다.
+
+위 설치 기록의 GitHub 헬퍼는 2026-10-12에 제거했습니다. 브라우저 작업은 Chrome 브라우저 클라이언트를 사용합니다.

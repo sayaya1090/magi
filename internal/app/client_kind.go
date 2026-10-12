@@ -5,6 +5,7 @@ package app
 type ClientKind string
 
 const (
+	ClientBrowser    ClientKind = "browser"
 	ClientCoding     ClientKind = "coding"
 	ClientFigma      ClientKind = "figma"
 	ClientMail       ClientKind = "mail"
@@ -17,12 +18,12 @@ const (
 )
 
 func ClientKinds() []ClientKind {
-	return []ClientKind{ClientCoding, ClientFigma, ClientMail, ClientSlack, ClientPowerPoint, ClientWord, ClientExcel, ClientDocker, ClientKubernetes}
+	return []ClientKind{ClientBrowser, ClientCoding, ClientFigma, ClientMail, ClientSlack, ClientPowerPoint, ClientWord, ClientExcel, ClientDocker, ClientKubernetes}
 }
 
-// Empty and github were legacy spellings for coding; normalize at input boundaries.
+// Empty is the legacy spelling for coding; normalize at input boundaries.
 func NormalizeClientKind(role string) ClientKind {
-	if role == "" || role == "github" {
+	if role == "" {
 		return ClientCoding
 	}
 	return ClientKind(role)
@@ -38,7 +39,7 @@ func (kind ClientKind) Valid() bool {
 	return false
 }
 
-// CompanionType preserves the existing console coding ID. GitHub is coding too.
+// CompanionType preserves the existing console coding ID.
 func (kind ClientKind) CompanionType() string {
 	if kind == ClientCoding {
 		return "1"

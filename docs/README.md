@@ -35,7 +35,7 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 
 ## Design History & Archived Records
 
-Application manuals: [Figma](../clients/figma/README.md), [Mail](../clients/mail/README.md), [Slack](../clients/slack/README.md), [GitHub](../clients/github/README.md). Each documents source builds and initial implementation limits.
+Application manuals: [Figma](../clients/figma/README.md), [Mail](../clients/mail/README.md), [Slack](../clients/slack/README.md), [Chrome browser](../clients/browser/README.md). Each documents source builds and initial implementation limits.
 
 Preserved to record early architectural decisions and rationales. These are historical records; where they conflict with current code or the ARCHITECTURE/MANUAL documents, the active documentation takes precedence.
 

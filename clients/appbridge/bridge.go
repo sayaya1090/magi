@@ -87,7 +87,7 @@ func randomID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 func New(c Config) (*Server, error) {
-	if c.App != "figma" && c.App != "mail" && c.App != "slack" && c.App != "github" && c.App != "docker" && c.App != "kubernetes" {
+	if c.App != "figma" && c.App != "mail" && c.App != "slack" && c.App != "browser" && c.App != "docker" && c.App != "kubernetes" {
 		return nil, errors.New("unknown application")
 	}
 	if c.Addr == "" {
@@ -122,6 +122,8 @@ func New(c Config) (*Server, error) {
 	s.Mux.Handle("/api/request", s.Auth(http.HandlerFunc(s.requestHTTP)))
 	s.Mux.Handle("/api/events", s.Auth(http.HandlerFunc(s.eventsHTTP)))
 	s.Mux.Handle("/api/figma/events", s.Auth(http.HandlerFunc(s.pollEventsHTTP)))
+	s.Mux.Handle("/api/browser/poll", s.Auth(http.HandlerFunc(s.pollHTTP)))
+	s.Mux.Handle("/api/browser/result", s.Auth(http.HandlerFunc(s.resultHTTP)))
 	s.Mux.Handle("/api/figma/poll", s.Auth(http.HandlerFunc(s.pollHTTP)))
 	s.Mux.Handle("/api/figma/result", s.Auth(http.HandlerFunc(s.resultHTTP)))
 	s.Mux.Handle("/mcp/", s.Auth(http.HandlerFunc(s.mcpHTTP)))
@@ -217,15 +219,15 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 	var expired *Binding
 	if id := s.targets[target]; id != "" {
 		b := *s.bindings[id]
-		if s.Config.App == "figma" && time.Since(b.lastPoll) > time.Minute {
+		if (s.Config.App == "figma" || s.Config.App == "browser") && time.Since(b.lastPoll) > time.Minute {
 			expired = &b
 			delete(s.bindings, id)
 			delete(s.targets, target)
 			s.failCallsLocked(id, "플러그인 연결이 만료되어 도구 요청이 취소되었습니다.")
 		} else {
 			s.mu.Unlock()
-			if s.Config.App == "figma" {
-				return Binding{}, errors.New("이 문서에는 다른 Figma 플러그인이 연결되어 있습니다. 먼저 연결을 종료해 주세요.")
+			if s.Config.App == "figma" || s.Config.App == "browser" {
+				return Binding{}, errors.New("이 문서에는 다른 클라이언트이 연결되어 있습니다. 먼저 연결을 종료해 주세요.")
 			}
 			return b, nil
 		}
@@ -326,7 +328,7 @@ func (s *Server) connectHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(b); err != nil && s.Config.App == "figma" {
+	if err := json.NewEncoder(w).Encode(b); err != nil && (s.Config.App == "figma" || s.Config.App == "browser") {
 		if cleanupErr := s.Disconnect(context.Background(), b.ID); cleanupErr != nil {
 			log.Print("appbridge: undelivered connection cleanup failed")
 		}
