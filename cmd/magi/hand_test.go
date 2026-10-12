@@ -502,6 +502,7 @@ func TestAnswersCannotBeReadWithoutTheReceiptForThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	until(t, "the handed work to start before recording its answer", func() bool { return len(ar.prompts()) == 1 })
 	ar.finishes(ar.side("s_design"), "somebody else's answer")
 
 	// A made-up receipt is no better than none.
