@@ -126,3 +126,5 @@ Figma·메일·Slack·Office에는 워크트리 조작을 기본 제공하지 �
 ### 실제 데몬 연결 통합 검사
 
 `clients/appbridge/real_daemon_test.go`는 실제 App, JSONL 저장소, Unix 소켓 데몬, MCP Manager와 HTTP 서버를 연결합니다. 세션 생성, initialize 지침 수신, 대상에 귀속된 도구 호출, 다른 세션 호출 거절, 새 세션의 도구 재등록, disconnect 후 등록 해제를 검증합니다. 테스트용 엔진 래퍼는 App의 세션 API를 데몬에 제공합니다. CLI 자식 프로세스 기동·앱 계정·모델 API 실행을 검증한 것은 아닙니다. 실행 명령은 `go test -race ./clients/appbridge -count=1`입니다.
+
+업무 종류의 공통 프롬프트는 `AgentKind.System()`에 있습니다. 앱 프롬프트는 공통 안전·언어 지침, 업무 종류 지침, 클라이언트별 제약을 순서대로 조합합니다. 메일과 Slack은 같은 communication 지침을 받으며 각각 발송 확인과 채널·스레드 제약을 추가합니다. 코딩은 기존 기본 시스템 지침을 유지합니다.

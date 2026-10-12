@@ -126,3 +126,5 @@ Each manual must include real run commands, credential locations, session identi
 ### Actual daemon integration check
 
 `clients/appbridge/real_daemon_test.go` connects the actual App, JSONL store, Unix-socket daemon, MCP Manager and HTTP server. It checks session creation, initialize guidance, target-bound tool calls, foreign-session rejection, tool reattachment on new session, and removal on disconnect. A test engine wrapper exposes the App session API to the daemon. This does not test CLI child-process startup, application accounts or model API execution. Run `go test -race ./clients/appbridge -count=1`.
+
+Shared business prompts live in `AgentKind.System()`. Application prompts combine common language/safety guidance, business identity and client constraints in that order. Mail and Slack receive the same communication guidance plus sending-confirmation or channel/thread rules. Coding retains the existing base system prompt.
