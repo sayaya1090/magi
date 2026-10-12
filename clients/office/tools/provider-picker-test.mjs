@@ -57,6 +57,10 @@ try {
     assert.equal(await page.locator('#provider-value').innerText(), 'my-provider');
     assert.equal(await page.locator('#provider-menu [role="option"]').getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('#model-value').innerText(), 'model-a');
+    await page.locator('#provider').click();
+    await page.locator('#provider-menu [role="option"]').click();
+    await page.waitForFunction(() => calls.length === 3 && refreshes === 3);
+    assert.deepEqual(await page.evaluate(() => calls.at(-1)), {op: 'apply', name: 'my-provider'});
     await page.close();
     console.log(`PASS ${product}: save closes, named profile refreshes picker, real picker handler applies name-only profile`);
   }

@@ -1,6 +1,9 @@
 package office
 
 import (
+	"encoding/json"
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -120,5 +123,81 @@ func TestSavedProfilesAppearInPickerBeforeConversationBinding(t *testing.T) {
 	a.models(w, httptest.NewRequest("GET", "/api/models", nil))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"friendly"`) || strings.Contains(w.Body.String(), "hidden-key") {
 		t.Fatalf("picker response: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestSavingSelectedProviderRefreshesCurrentSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, selected, applyError string
+		wantApply                  bool
+	}{{"selected", "friendly", "", true}, {"other", "other", "", false}, {"busy", "friendly", "busy", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sockDir, err := os.MkdirTemp("", "mpp-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(sockDir)
+			socket := filepath.Join(sockDir, "d.sock")
+			ln, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ln.Close()
+			requests := make(chan daemon.Request, 4)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for {
+					c, e := ln.Accept()
+					if e != nil {
+						return
+					}
+					var r daemon.Request
+					e = json.NewDecoder(c).Decode(&r)
+					if e == nil {
+						requests <- r
+						out := daemon.Response{OK: true, Profile: tc.selected}
+						if r.Method == "use-profile" {
+							out.Err = tc.applyError
+							out.OK = tc.applyError == ""
+						}
+						if err := json.NewEncoder(c).Encode(out); err != nil {
+							return
+						}
+					}
+					if err := c.Close(); err != nil {
+						return
+					}
+				}
+			}()
+			a := &API{ConfigDir: dir, Bridge: &Bridge{socket: socket, session: "current"}}
+			w := httptest.NewRecorder()
+			a.providerProfiles(w, httptest.NewRequest("POST", "/api/provider-profiles", strings.NewReader(`{"op":"save","name":"friendly","baseUrl":"https://example.com/v1","model":"model-b","apiKey":"secret-key"}`)))
+			ln.Close()
+			<-done
+			if w.Code != 200 || strings.Contains(w.Body.String(), "secret-key") {
+				t.Fatalf("save: %d %s", w.Code, w.Body)
+			}
+			gotApply := false
+			for len(requests) > 0 {
+				r := <-requests
+				if r.Method == "use-profile" {
+					gotApply = true
+					if r.Name != "friendly" || r.Session != "current" {
+						t.Fatal("wrong profile/session")
+					}
+				}
+			}
+			if gotApply != tc.wantApply {
+				t.Fatalf("apply=%v want=%v", gotApply, tc.wantApply)
+			}
+			if tc.applyError != "" && !strings.Contains(w.Body.String(), "반영하지 못했습니다") {
+				t.Fatal("application failure hidden")
+			}
+			if tc.applyError == "" && tc.wantApply && !strings.Contains(w.Body.String(), "현재 대화에 반영했습니다") {
+				t.Fatal("missing application confirmation")
+			}
+		})
 	}
 }

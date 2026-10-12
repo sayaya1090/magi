@@ -4,18 +4,20 @@ export function mountProviderProfiles({ api, root = document, onSaved = () => {}
   if (!advanced || !api) return;
   const button = root.createElement('button');
   button.type = 'button'; button.className = 'ghost'; button.id = 'manage-providers'; button.textContent = '프로바이더 관리';
-  advanced.append(button);
+  const picker = root.querySelector('#pick-model');
+  if (picker) picker.insertBefore(button, picker.querySelector('#model-note'));
+  else advanced.append(button);
   const dialog = root.createElement('dialog');
   dialog.id = 'provider-profiles-dialog'; dialog.className = 'provider-profiles-dialog';
   dialog.setAttribute('aria-labelledby', 'provider-profiles-title');
   dialog.innerHTML = `<h2 id="provider-profiles-title">프로바이더 관리</h2>
-    <p>이 컴퓨터의 모든 Magi 클라이언트가 공유하는 설정입니다. 저장은 현재 대화를 바꾸지 않습니다. 저장한 프로바이더는 설정의 프로바이더 목록에서 선택할 수 있습니다.</p>
+    <p>이 컴퓨터의 모든 Magi 클라이언트가 공유하는 설정입니다. 현재 대화에서 선택한 프로바이더를 수정하면 저장 후 다음 요청부터 반영됩니다. 저장한 프로바이더는 설정의 프로바이더 목록에서 선택할 수 있습니다.</p>
     <label>저장된 프로바이더<select id="profile-list"><option value="">새 프로바이더</option></select></label>
-    <form id="profile-form">
-    <label>이름<input id="profile-name" required pattern="[A-Za-z0-9_-]+" maxlength="100" autocomplete="off"><small>영문·숫자·밑줄·하이픈으로 입력하세요.</small></label>
-    <label>엔드포인트<input id="profile-endpoint" type="url" required placeholder="https://api.example.com/v1" autocomplete="off"></label>
-    <label>기본 모델<input id="profile-model" required autocomplete="off"></label>
-    <label>API 키<input id="profile-key" type="password" autocomplete="new-password"><small id="profile-key-note">빈칸으로 두면 저장된 키를 유지합니다.</small></label>
+    <form id="profile-form" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <label>이름<input id="profile-name" required pattern="[A-Za-z0-9_-]+" maxlength="100" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><small>영문·숫자·밑줄·하이픈으로 입력하세요.</small></label>
+    <label>엔드포인트<input id="profile-endpoint" type="url" required placeholder="https://api.example.com/v1" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <label>기본 모델<input id="profile-model" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <label>API 키<input id="profile-key" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"><small id="profile-key-note">빈칸으로 두면 저장된 키를 유지합니다.</small></label>
     <label class="profile-clear"><input id="profile-clear-key" type="checkbox">저장된 API 키 삭제</label>
     <div class="profile-actions"><button type="submit" id="profile-save" class="primary">저장</button><button type="button" id="profile-delete" class="ghost" disabled>삭제</button><button type="button" id="profile-close" class="ghost">닫기</button></div>
     </form><p id="profile-status" role="status" aria-live="polite"></p>`;
@@ -62,7 +64,7 @@ export function mountProviderProfiles({ api, root = document, onSaved = () => {}
     lock(true); status('저장하는 중입니다…');
     try { const out = await api.setProviderProfile(body); fill(out, op === 'delete' ? '' : name); status(op === 'delete' ? '삭제했습니다. 이미 적용한 대화는 유지됩니다.' : '저장했습니다. 프로바이더 목록에서 선택할 수 있습니다.');
       if (op === 'save') dialog.close();
-      try { await onSaved(); } catch { status('설정은 저장했습니다. 목록을 새로 불러오려면 설정 화면을 다시 열어 주세요.'); } }
+      try { await onSaved(out); } catch { status('설정은 저장했습니다. 목록을 새로 불러오려면 설정 화면을 다시 열어 주세요.'); } }
     catch { status('저장하지 못했습니다. 입력값과 헬퍼 연결을 확인해 주세요.'); }
     finally { body.apiKey = ''; clearSecret(); lock(false); }
   };

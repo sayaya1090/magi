@@ -86,7 +86,20 @@ func (a *API) providerProfiles(w http.ResponseWriter, r *http.Request) {
 				values["api_key"] = key
 			}
 			err = config.SetKeysChecked(path, section, values)
-			note = "프로필을 저장했습니다. 실행 중인 모델은 바뀌지 않습니다. 현재 대화에 적용 버튼으로 사용할 수 있습니다."
+			note = "프로필을 저장했습니다. 프로바이더 목록에서 선택할 수 있습니다."
+			if err == nil {
+				if bridge := a.chat(r); bridge != nil {
+					if socket, sid, _ := bridge.Bound(); socket != "" && sid != "" {
+						if st, statusErr := bridge.Status(); statusErr == nil && st["profile"] == in.Name {
+							if applyErr := bridge.UseProfile(in.Name); applyErr != nil {
+								note = "프로필은 저장했지만 현재 대화에는 반영하지 못했습니다. 응답이 끝난 뒤 프로바이더 목록에서 같은 이름을 다시 선택해 주세요."
+							} else {
+								note = "프로필을 저장하고 현재 대화에 반영했습니다. 다음 요청부터 변경한 설정을 사용합니다."
+							}
+						}
+					}
+				}
+			}
 		default:
 			writeStatus(w, 400, map[string]any{"error": "저장 또는 삭제 작업을 지정해 주세요."})
 			return

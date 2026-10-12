@@ -213,7 +213,7 @@ async function boot() {
     if (!real) { view.modelPicker({ providers: [], models: [], warning: '브라우저 목업에서는 고를 것이 없습니다' }); return; }
     try { view.modelPicker(await api.models()); } catch (e) { view.modelPicker({ providers: [], models: [], error: e?.message ?? String(e) }); }
   };
-  mountProviderProfiles({ api, onSaved: loadModels });
+  mountProviderProfiles({ api, onSaved: async out => { if (out?.note) view.where(out.note); await loadModels(); } });
 
   if (real) {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
@@ -514,7 +514,7 @@ async function boot() {
       menu?.addEventListener('click', (ev) => {
         const item = ev.target.closest('[role="option"]'); if (!item) return;
         view.menu(btnId, false);
-        if (item.getAttribute('aria-selected') === 'true') return;
+        if (item.getAttribute('aria-selected') === 'true' && !(key === 'base' && item.dataset.value?.startsWith('profile:'))) return;
         void sendModel({ [key]: item.dataset.value });
       });
     }

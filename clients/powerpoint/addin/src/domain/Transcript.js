@@ -257,7 +257,7 @@ export class Transcript {
       const row = id ? this.rows.find((r) => r.kind === 'user' && r.messageId === id) : null;
       if (row) {
         const settled = type === 'interjection.answered' || ev?.data?.resolved === true;
-        row.status = settled ? 'done' : 'queued';
+        row.status = settled ? 'done' : (this.turnOpen ? 'queued' : 'pending');
       }
       return null;
     }
@@ -408,8 +408,13 @@ export class Transcript {
       row.status = 'running'; this.turnOpen = true; this.driving = row;
       return;
     }
+    if (type === 'error') {
+      if (this.driving) this.driving.status = 'failed';
+      return;
+    }
     if (type === 'turn.finished') {
-      if (this.driving) this.driving.status = 'done';
+      if (this.driving && this.driving.status !== 'failed') this.driving.status = 'done';
+      for (const r of this.rows) if (r.kind === 'user' && r.status === 'queued') r.status = 'pending';
       this.driving = null; this.turnOpen = false;
       return;
     }

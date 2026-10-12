@@ -261,6 +261,8 @@ export function rowClass(r) {
 export function userBadge(status) {
   if (status === 'running') return { kind: 'running', text: '처리 중' };
   if (status === 'queued') return { kind: 'queued', text: '대기 중 — 지금 일이 끝나면 이어서 처리합니다' };
+  if (status === 'pending') return { kind: 'pending', text: '미처리 — 현재 진행 중인 작업이 없습니다' };
+  if (status === 'failed') return { kind: 'failed', text: '요청 실패 — 오류 안내를 확인해 주세요' };
   return null;
 }
 
