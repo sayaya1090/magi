@@ -1,3 +1,4 @@
+import { mountIconControls } from './ui/iconControls.js';
 import { mountProviderProfiles } from './ui/providerProfiles.js';
 // 조립하는 자리. **여기만 무엇이 무엇인지 안다** — 안쪽 층은 서로를 인터페이스로만 안다.
 import { Composer } from './domain/Composer.js';
@@ -55,6 +56,7 @@ const POLL_MS = 1000;
 const SESSION = 'sess-mock';
 
 async function boot() {
+  mountIconControls();
   // 헬퍼가 내준 페이지(토큰이 박혀 온다)는 Office 안이다 — 거기서는 시계 없이 onReady 를 기다린다. 빈 덱을
   // 새로 열면 호스트가 1.5초를 넘겨 PowerPoint 안에서 가짜 덱이 붙었다(실물 2021, 2026-09-07). 시계는
   // 브라우저에서 그냥 연 목업 페이지 몫이다.

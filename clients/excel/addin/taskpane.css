@@ -918,7 +918,9 @@ button:disabled { cursor: default; opacity: .5; }
    고른 항목은 앞의 체크와 옅은 채움(selected). 필드 높이는 이 판의 밀도에 맞춘 40(M3 기본 56 은 348px 판에서 한 줄을
    다 먹는다). 스테이트 레이어는 아이콘 단추와 같은 값(hover 8%·pressed 12%). 포커스·펼침은 2px primary 테두리. */
 .pick-model { display: flex; gap: var(--s2); align-items: center; justify-content: center; flex-wrap: wrap; flex: 1 1 100%; min-width: 0; margin-left: 0; }
-#manage-providers { height: 40px; box-sizing: border-box; padding: 0 12px; flex: none; white-space: nowrap; }
+#manage-providers { width: 40px; height: 40px; box-sizing: border-box; padding: 0; flex: none; }
+#manage-providers::before { inset: -4px; }
+.pick-model > .dd { flex-basis: 112px; min-width: 112px; }
 .dd { position: relative; flex: 1 1 120px; min-width: 120px; max-width: 200px; }
 .dd-field {
   position: relative; width: 100%; height: 40px; padding: 0 32px 0 12px;
@@ -967,3 +969,9 @@ button:disabled { cursor: default; opacity: .5; }
 .provider-profiles-dialog .profile-clear { flex-direction: row; align-items: center; }
 .provider-profiles-dialog .profile-clear input { width: auto; }
 .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Fixed control groups follow the pane's leading alignment; descriptions escape clipping. */
+.advanced-tools { display: flex; align-items: center; justify-content: flex-start; gap: 24px; flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
+.control-group { display: flex; align-items: center; gap: 16px; flex: none; }
+.pick-model { justify-content: flex-start; }
+.icon-control-tooltip { position: fixed; z-index: 10000; max-width: min(280px, calc(100vw - 16px)); padding: 8px; border-radius: 4px; background: var(--fg); color: var(--bg); font: var(--t-caption); line-height: 1.4; overflow-wrap: anywhere; box-shadow: var(--shadow-2); }
