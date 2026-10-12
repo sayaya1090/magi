@@ -42,7 +42,7 @@ MCP initialize `instructions` enters the model request's trailing context. It ca
 
 The role vocabulary is the eight `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
 
-`CompanionType.java` still registers only coding type `1`. Implement the chain `daemon.Identity` → `daemon.Info` → local roster/fleet response → `FleetAgent.type` → `CompanionType`. Remote cluster propagation needs a separate signed-JSON and older-verifier compatibility review. Applications must not use the coding child module, which exposes filesystem/shell UI; first provide an application child using shared conversation controls.
+`CompanionType.java` still registers only coding type `1`. The local chain `daemon.Identity` → `daemon.Info` → roster/fleet response now carries `type`. Coding and GitHub publish `1`; application roles publish their role key. Console mapping through `FleetAgent.type` and `CompanionType` remains incomplete. Remote cluster propagation needs a separate signed-JSON and older-verifier compatibility review. Applications must not use the coding child module, which exposes filesystem/shell UI; first provide an application child using shared conversation controls.
 
 Acceptance requires matching actual daemon records and `/fleet` types for each role, preserving coding type `1`, excluding filesystem/shell controls from application screens, deterministic unknown-type handling, and desktop/narrow-screen Playwright checks. This console integration is currently incomplete.
 

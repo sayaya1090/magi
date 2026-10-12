@@ -28,3 +28,16 @@ func (kind ClientKind) Valid() bool {
 	}
 	return false
 }
+
+// CompanionType preserves the existing console coding ID. GitHub is coding too.
+func (kind ClientKind) CompanionType() string {
+	if kind == ClientCoding || kind == ClientGitHub {
+		return "1"
+	}
+	if !kind.Valid() {
+		return "unknown"
+	}
+	return string(kind)
+}
+
+func (a *App) ClientKind() ClientKind { return ClientKind(a.cfg.ClientRole) }

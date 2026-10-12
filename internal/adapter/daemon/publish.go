@@ -130,6 +130,7 @@ func shortHash(s string) string {
 
 // Info is what a daemon publishes about itself.
 type Info struct {
+	Type    string `json:"type,omitempty"`
 	Socket  string `json:"socket"`
 	Workdir string `json:"workdir"` // the FULL path; the socket name carries only a base name and a hash
 	Session string `json:"session"`
@@ -304,7 +305,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	recordMu.Lock()
 	err := writeRecord(socketPath, Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
-		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
+		Name: id.Name, Role: id.Role, Type: id.Type, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
 		PID: os.Getpid(), Instance: InstanceID(), Owner: OwnerID(),
 		Started: time.Now().UTC().Format(time.RFC3339),
 		Host:    host, Addr: primaryAddr(), Account: account(), Version: version.Version,

@@ -14,12 +14,15 @@ import (
 func TestRosterRowsMapLosslessly(t *testing.T) {
 	in := rosterInfo(daemon.RosterRow{
 		Socket: "/tmp/daemon-a.sock", Workdir: "/w/a", Session: "s_a",
-		Name: "alpha", Role: "builds", Team: "core", Hub: true, Can: 3,
+		Name: "alpha", Role: "builds", Type: "figma", Team: "core", Hub: true, Can: 3,
 		Does: []string{"build", "test"}, Waiting: 2, Handling: true,
 		PID: 42, Addr: "10.0.0.5", Started: "2026-08-29T01:00:00Z",
 		Host: "box", Account: "me", State: "waiting", Version: "v9",
 		Permission: "allow", Backend: "http://b/v1", Model: "qwen3-coder", User: "sayaya",
 	})
+	if in.Type != "figma" || lightRow(in).Type != "figma" {
+		t.Fatal("application type lost through local roster/fleet")
+	}
 	// The runtime facts are the half a screen cannot get anywhere else: they exist only in the
 	// running process, and this mapping is where the light listing meets them. Dropped here, the
 	// console drew an empty approval mode and an empty model and still offered to change them.

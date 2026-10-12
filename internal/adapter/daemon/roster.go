@@ -25,6 +25,7 @@ import (
 // sighting never has (the session id, a live dial), and Member's shape is signed — a field added
 // for this door would ride the gossip wire and change what older daemons verify.
 type RosterRow struct {
+	Type    string `json:"type,omitempty"`
 	Host    string `json:"host,omitempty"`
 	Socket  string `json:"socket"`
 	Name    string `json:"name,omitempty"`
@@ -84,7 +85,7 @@ func buildRoster(home string, now time.Time) []RosterRow {
 	if list, err := List(home); err == nil {
 		for _, in := range list {
 			rows = append(rows, RosterRow{
-				Host: in.Host, Socket: in.Socket, Name: in.Name, Role: in.Role,
+				Host: in.Host, Socket: in.Socket, Name: in.Name, Role: in.Role, Type: in.Type,
 				Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Account: in.Account,
 				State: in.State, Version: in.Version, Can: in.Can, Does: in.Does,
 				Waiting: in.Waiting, Handling: in.Handling,

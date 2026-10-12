@@ -109,7 +109,7 @@ func runDaemonMode(p daemonModeParams) int {
 	}
 	howMany, whatOf := countCan(store, wd)
 	unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
-		daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role,
+		daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role, Type: a.ClientKind().CompanionType(),
 			Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Can: howMany, Does: whatOf})
 	if perr != nil {
 		fmt.Fprintln(os.Stderr, "magi:", perr)

@@ -1157,6 +1157,7 @@ type completeArgs struct {
 // workspace keeps its config, and a second config reader is a second place for the two to disagree
 // about which file wins.
 type Identity struct {
+	Type string   // console application kind, distinct from the free-text Role
 	Name string   // "design", "api" — how somebody addresses it
 	Role string   // one line: what it is for, in the words of whoever set it up
 	Team string   // the group of companions doing related work, if any

@@ -172,6 +172,7 @@ const (
 
 // Agent is one running (or lately running) magi.
 type Agent struct {
+	Type string `json:"type,omitempty"`
 	// Peer names the console this companion was reported by — empty when it is on this machine.
 	// A federated view is several consoles read at once, and the pair (peer, socket) is what
 	// identifies a companion once more than one machine is in the list.
@@ -331,7 +332,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 	for _, in := range found {
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
-			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
+			Session: in.Session, PID: in.PID, Role: in.Role, Type: in.Type, Team: in.Team, Hub: in.Hub,
 			Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
 			Version: in.Version,
 			Does:    in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
@@ -1257,7 +1258,7 @@ func rosterInfo(r daemon.RosterRow) daemon.Info {
 	return daemon.Info{
 		Live:   r.Live,
 		Socket: r.Socket, Workdir: r.Workdir, Session: r.Session,
-		Name: r.Name, Role: r.Role, Team: r.Team, Hub: r.Hub, Can: r.Can, Does: r.Does,
+		Name: r.Name, Role: r.Role, Type: r.Type, Team: r.Team, Hub: r.Hub, Can: r.Can, Does: r.Does,
 		Waiting: r.Waiting, Handling: r.Handling, PID: r.PID, Started: r.Started,
 		Host: r.Host, Addr: r.Addr, Account: r.Account, State: r.State, Version: r.Version,
 		// The runtime facts the roster row carries. Without these the light listing built from the
@@ -1335,7 +1336,7 @@ func ListLight(configDir, here string) ([]Agent, error) {
 func lightRow(in daemon.Info) Agent {
 	a := Agent{
 		Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
-		Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
+		Session: in.Session, PID: in.PID, Role: in.Role, Type: in.Type, Team: in.Team, Hub: in.Hub,
 		Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
 		Version: in.Version, Does: in.Does, Can: in.Can,
 		Waiting: in.Waiting, Handling: in.Handling, Live: in.Live,

@@ -44,6 +44,13 @@ func TestClientKindCatalogHasUniqueValidRoles(t *testing.T) {
 			t.Fatalf("invalid catalog entry %q", kind)
 		}
 		seen[kind] = true
+		want := string(kind)
+		if kind == ClientCoding || kind == ClientGitHub {
+			want = "1"
+		}
+		if kind.CompanionType() != want {
+			t.Fatalf("wrong console type for %q", kind)
+		}
 		if kind != ClientCoding && kind != ClientGitHub && ClientRoleSystem(string(kind)) == "" {
 			t.Fatalf("application kind has no prompt: %q", kind)
 		}
