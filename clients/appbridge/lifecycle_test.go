@@ -135,3 +135,35 @@ func TestOldQueuedSessionIsSkippedByPoll(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestFigmaReconnectReclaimsOnlyExpiredOwner(t *testing.T) {
+	s, requests, mu := lifecycleServer(t, false)
+	b, err := s.Connect(context.Background(), "file-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.bindings[b.ID].lastPoll = time.Now().Add(-2 * time.Minute)
+	s.mu.Unlock()
+	next, err := s.Connect(context.Background(), "file-a")
+	if err != nil || next.ID == b.ID {
+		t.Fatalf("expired reconnect: %#v %v", next, err)
+	}
+	if _, err := s.binding(b.ID); err == nil {
+		t.Fatal("expired owner remains active")
+	}
+	if _, err := s.Connect(context.Background(), "file-a"); err == nil {
+		t.Fatal("fresh owner displaced")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, request := range *requests {
+		if request == "mcp-detach:old" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expired owner's tools were not detached")
+	}
+}

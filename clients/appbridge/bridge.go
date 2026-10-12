@@ -40,11 +40,12 @@ type Config struct {
 	Socket func(context.Context, string) (string, error)
 }
 type Binding struct {
-	ID      string `json:"binding"`
-	Session string `json:"session"`
-	Target  string `json:"target"`
-	socket  string
-	pending chan *toolCall
+	ID       string `json:"binding"`
+	Session  string `json:"session"`
+	Target   string `json:"target"`
+	socket   string
+	pending  chan *toolCall
+	lastPoll time.Time
 }
 type Request struct {
 	Binding  string `json:"binding"`
@@ -213,15 +214,42 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 	s.connectMu.Lock()
 	defer s.connectMu.Unlock()
 	s.mu.Lock()
+	var expired *Binding
 	if id := s.targets[target]; id != "" {
 		b := *s.bindings[id]
-		s.mu.Unlock()
-		if s.Config.App == "figma" {
-			return Binding{}, errors.New("이 문서에는 다른 Figma 플러그인이 연결되어 있습니다. 먼저 연결을 종료해 주세요.")
+		if s.Config.App == "figma" && time.Since(b.lastPoll) > time.Minute {
+			expired = &b
+			delete(s.bindings, id)
+			delete(s.targets, target)
+			s.failCallsLocked(id, "플러그인 연결이 만료되어 도구 요청이 취소되었습니다.")
+		} else {
+			s.mu.Unlock()
+			if s.Config.App == "figma" {
+				return Binding{}, errors.New("이 문서에는 다른 Figma 플러그인이 연결되어 있습니다. 먼저 연결을 종료해 주세요.")
+			}
+			return b, nil
 		}
-		return b, nil
 	}
 	s.mu.Unlock()
+	if expired != nil && len(s.Config.Tools) > 0 {
+		restore := func() {
+			s.mu.Lock()
+			s.bindings[expired.ID] = expired
+			s.targets[target] = expired.ID
+			s.mu.Unlock()
+		}
+		cl, err := daemon.DialWithin(expired.socket, time.Second, 3*time.Second)
+		if err != nil {
+			restore()
+			return Binding{}, errors.New("만료된 도구 연결을 해제하지 못했습니다. 헬퍼와 컴패니언 연결을 확인해 주세요.")
+		}
+		_, err = cl.DetachMCP(expired.Session, s.Config.App)
+		cl.Close()
+		if err != nil {
+			restore()
+			return Binding{}, err
+		}
+	}
 	sock, err := s.socket(ctx, target)
 	if err != nil {
 		return Binding{}, err
@@ -252,7 +280,7 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 	if err != nil {
 		return Binding{}, err
 	}
-	b := &Binding{ID: id, Target: target, Session: sid, socket: sock, pending: make(chan *toolCall, 8)}
+	b := &Binding{ID: id, Target: target, Session: sid, socket: sock, pending: make(chan *toolCall, 8), lastPoll: time.Now()}
 	s.mu.Lock()
 	s.bindings[id] = b
 	s.mu.Unlock()

@@ -141,6 +141,11 @@ func (s *Server) pollHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, e)
 		return
 	}
+	s.mu.Lock()
+	if current := s.bindings[p.Binding]; current != nil {
+		current.lastPoll = time.Now()
+	}
+	s.mu.Unlock()
 	timer := time.NewTimer(20 * time.Second)
 	defer timer.Stop()
 	for {
