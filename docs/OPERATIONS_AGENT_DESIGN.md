@@ -4,7 +4,7 @@ The business kind is operations. Docker and Kubernetes are client/tool environme
 
 ## Implementation status
 
-AgentKind, client identities, dedicated prompts, tool namespace isolation and console type registration are added. Read-only Docker/Kubernetes adapters and a fixed-target browser UI are implemented; mutation tools remain pending. Selecting the role does not install tools automatically.
+AgentKind, client identities, dedicated prompts, tool namespace isolation and console type registration are added. Read-only Docker/Kubernetes adapters and a fixed-target browser UI are implemented; human-confirmed restart proposals and post-change checks are implemented. Selecting the role does not install tools automatically.
 
 ## Tool contract and implementation order
 
