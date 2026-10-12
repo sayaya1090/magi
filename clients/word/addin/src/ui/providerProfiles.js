@@ -3,7 +3,7 @@ export function mountProviderProfiles({ api, root = document, onSaved = () => {}
   const advanced = root.querySelector('#advanced');
   if (!advanced || !api) return;
   const button = root.createElement('button');
-  button.type = 'button'; button.id = 'manage-providers'; button.textContent = '프로바이더 관리';
+  button.type = 'button'; button.className = 'ghost'; button.id = 'manage-providers'; button.textContent = '프로바이더 관리';
   advanced.append(button);
   const dialog = root.createElement('dialog');
   dialog.id = 'provider-profiles-dialog'; dialog.className = 'provider-profiles-dialog';
@@ -17,7 +17,7 @@ export function mountProviderProfiles({ api, root = document, onSaved = () => {}
     <label>기본 모델<input id="profile-model" required autocomplete="off"></label>
     <label>API 키<input id="profile-key" type="password" autocomplete="new-password"><small id="profile-key-note">빈칸으로 두면 저장된 키를 유지합니다.</small></label>
     <label class="profile-clear"><input id="profile-clear-key" type="checkbox">저장된 API 키 삭제</label>
-    <div class="profile-actions"><button type="submit" id="profile-save">저장</button><button type="button" id="profile-delete" disabled>삭제</button><button type="button" id="profile-close">닫기</button></div>
+    <div class="profile-actions"><button type="submit" id="profile-save" class="primary">저장</button><button type="button" id="profile-delete" class="ghost" disabled>삭제</button><button type="button" id="profile-close" class="ghost">닫기</button></div>
     </form><p id="profile-status" role="status" aria-live="polite"></p>`;
   root.body.append(dialog);
   const el = id => dialog.querySelector('#' + id);

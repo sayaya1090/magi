@@ -957,7 +957,7 @@ button:disabled { cursor: default; opacity: .5; }
 .menu-empty { padding: 12px; font: var(--t-caption); color: var(--muted); }
 .model-note { font: var(--t-caption); color: var(--muted); flex-basis: 100%; }
 
-.provider-profiles-dialog { box-sizing: border-box; width: min(480px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: var(--bg); color: var(--fg); }
+.provider-profiles-dialog { box-sizing: border-box; width: min(480px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; border: 1px solid var(--line); border-radius: 28px; padding: 24px; background: var(--bg); color: var(--fg); }
 .provider-profiles-dialog::backdrop { background: rgb(0 0 0 / .4); }
 .provider-profiles-dialog h2 { font-size: 18px; }
 .provider-profiles-dialog label { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
