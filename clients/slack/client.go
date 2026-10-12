@@ -106,6 +106,22 @@ func (c *Client) Handle(ctx context.Context, i Input) (resultErr error) {
 		cv.binding = b
 		go c.watch(ctx, cv)
 	}
+	if i.Text == "Magi 중단" || i.Text == "magi stop" {
+		if _, err := c.bridge.Request(ctx, cv.binding.ID, appbridge.Request{Method: "interrupt"}); err != nil {
+			return errors.New("작업 중단 요청을 전달하지 못했습니다")
+		}
+		return c.post(ctx, cv, "작업 중단을 요청했습니다.")
+	}
+	if strings.HasPrefix(i.Text, "Magi 모델 ") || strings.HasPrefix(i.Text, "magi model ") {
+		name := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(i.Text, "Magi 모델 "), "magi model "))
+		if name == "" {
+			return errors.New("Magi 모델 모델이름 형식으로 입력해 주세요")
+		}
+		if _, err := c.bridge.Request(ctx, cv.binding.ID, appbridge.Request{Method: "model", Name: name}); err != nil {
+			return errors.New("모델 변경 요청을 전달하지 못했습니다")
+		}
+		return c.post(ctx, cv, "모델 변경 요청을 전달했습니다: "+name)
+	}
 	if strings.HasPrefix(i.Text, "/answer ") || strings.HasPrefix(i.Text, "답변 ") {
 		parts := strings.SplitN(strings.TrimPrefix(strings.TrimPrefix(i.Text, "/answer "), "답변 "), " ", 2)
 		if len(parts) != 2 {

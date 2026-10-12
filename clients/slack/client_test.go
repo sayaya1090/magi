@@ -95,6 +95,28 @@ func fixture() (*Client, *fakeBridge, *fakeTransport) {
 	f := &fakeTransport{}
 	return New(b, f, "BOT"), b, f
 }
+
+func TestSlackExecutionControlsDoNotReachModelPrompt(t *testing.T) {
+	for _, tt := range []struct{ text, method, name string }{
+		{"Magi 중단", "interrupt", ""}, {"magi stop", "interrupt", ""},
+		{"Magi 모델 test-model", "model", "test-model"}, {"magi model test-model", "model", "test-model"},
+	} {
+		t.Run(tt.text, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			c, b, _ := fixture()
+			i := Input{EventID: "control", Team: "T", User: "U", Channel: "C", Thread: "1", Text: tt.text}
+			if err := c.Handle(ctx, i); err != nil {
+				t.Fatal(err)
+			}
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			if len(b.requests) != 1 || b.requests[0].Method != tt.method || b.requests[0].Name != tt.name || b.bindingIDs[0] != key(i) {
+				t.Fatalf("control routed incorrectly: %#v", b.requests)
+			}
+		})
+	}
+}
 func TestThreadIsolationReplayAndNoUnsolicitedMessages(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
