@@ -1,0 +1,113 @@
+package appbridge
+
+import (
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/adapter/mcp"
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+type integrationEngine struct {
+	*app.App
+	workdir string
+}
+
+func (e integrationEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, error) {
+	return e.App.ListSessions(ctx, e.workdir)
+}
+func (e integrationEngine) NewSession(ctx context.Context) (session.SessionID, error) {
+	return e.NewSessionKeeping(ctx, "")
+}
+func (e integrationEngine) NewSessionKeeping(ctx context.Context, purpose string) (session.SessionID, error) {
+	return e.App.CreateSession(ctx, command.CreateSession{Workdir: e.workdir, For: purpose})
+}
+
+// Real App + daemon + MCP transport; no model/provider/account is involved.
+func TestBridgeAgainstActualDaemonAndMCPManager(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "magi-app-integration-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	store, err := jsonl.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := builtin.NewRegistry()
+	engine := app.New(store, nil, registry, bus.New(), nil, app.Config{ClientRole: "mail", System: app.ClientRoleSystem("mail")})
+	defer engine.Close(context.Background())
+	manager := mcp.NewManager(registry)
+	defer manager.Close()
+	engine.UseToolServers(manager)
+	socket := filepath.Join(dir, "d.sock")
+	d, err := daemon.Listen(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer d.Close()
+	go d.Serve(ctx, integrationEngine{App: engine, workdir: dir})
+	bridge, err := New(Config{App: "mail", Token: "integration", Instructions: "selected mail only", Tools: []Tool{{Name: "mail_read", ReadOnly: true, InputSchema: map[string]any{"type": "object"}}}, Socket: func(context.Context, string) (string, error) { return socket, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge.Config.Call = func(_ context.Context, target, name string, _ json.RawMessage) (any, error) {
+		return map[string]string{"target": target, "tool": name}, nil
+	}
+	httpServer := httptest.NewServer(bridge.Mux)
+	defer httpServer.Close()
+	bridge.Config.Addr = strings.TrimPrefix(httpServer.URL, "http://")
+	deadline, cancelDeadline := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelDeadline()
+	b, err := bridge.Connect(deadline, "account/INBOX/1/7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := map[string]bool{"mcp__mail__mail_read": true}
+	if manager.Instructions(b.Session, visible)["mail"] != "selected mail only" {
+		t.Fatal("initialize guidance missing")
+	}
+	tool, found := registry.Get("mcp__mail__mail_read")
+	if !found {
+		t.Fatal("real MCP registration missing")
+	}
+	result, err := tool.Execute(deadline, json.RawMessage(`{}`), port.ToolEnv{SessionID: session.SessionID(b.Session)})
+	if err != nil || result.IsError || !strings.Contains(string(result.Content), "account/INBOX/1/7") {
+		t.Fatalf("actual MCP call failed: %#v %v", result, err)
+	}
+	foreign, err := tool.Execute(deadline, json.RawMessage(`{}`), port.ToolEnv{SessionID: "foreign"})
+	if err != nil || !foreign.IsError {
+		t.Fatalf("foreign session executed: %#v %v", foreign, err)
+	}
+	if _, err = bridge.Request(deadline, b.ID, Request{Method: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	next, err := bridge.binding(b.ID)
+	if err != nil || next.Session == b.Session {
+		t.Fatalf("new session: %#v %v", next, err)
+	}
+	if len(manager.Instructions(b.Session, visible)) != 0 || manager.Instructions(next.Session, visible)["mail"] != "selected mail only" {
+		t.Fatal("MCP ownership did not follow session transition")
+	}
+	if err = bridge.Disconnect(deadline, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.Instructions(next.Session, visible)) != 0 {
+		t.Fatal("disconnected MCP retained")
+	}
+}

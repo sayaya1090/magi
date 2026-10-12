@@ -112,3 +112,7 @@ Figma, mail, Slack and Office do not expose worktree operations by default. They
 6. Record real account acceptance separately. Without an account, do not claim authentication, app installation or actual message delivery passed.
 
 Each manual must include real run commands, credential locations, session identity, supported tools, size limits, recovery steps, test commands and unverified scope. Update this design and both language editions when contracts change.
+
+### Actual daemon integration check
+
+`clients/appbridge/real_daemon_test.go` connects the actual App, JSONL store, Unix-socket daemon, MCP Manager and HTTP server. It checks session creation, initialize guidance, target-bound tool calls, foreign-session rejection, tool reattachment on new session, and removal on disconnect. A test engine wrapper exposes the App session API to the daemon. This does not test CLI child-process startup, application accounts or model API execution. Run `go test -race ./clients/appbridge -count=1`.
