@@ -18,6 +18,26 @@ Figma, standard IMAP/SMTP mail, Slack and GitHub become new Magi clients. This d
 
 Office passes its role when starting a new companion. Installing a new executable does not change the role of an already running older companion. Migration acceptance must distinguish fresh role-aware starts from restarts of older processes.
 
+
+## 1.1. Role-specific prompts
+
+Role source text lives in `internal/app/client_role.go`; the base coding prompt is `systemPrompt` in `cmd/magi/main.go`. This table summarizes those prompts and is not another runtime configuration.
+
+| Role | Specific guidance |
+|---|---|
+| Base coding (terminal, VS Code, JetBrains) | Inspect the project, follow existing conventions, plan, implement and verify |
+| GitHub coding | Inspect the bound repository, issue or PR; verify repository and branch; test; require explicit instructions for comments, push and merge |
+| Figma design | Preserve design intent, typography, spacing, components and accessibility; inspect selection, file and page before editing |
+| Mail correspondence | Identify requests and draft in the user's tone; invent no facts, commitments or recipients; distinguish drafts from sending |
+| Slack collaboration | Separate decisions from proposals, identify owners and actions, remain in the requesting user's channel and thread |
+| PowerPoint presentations | Organize arguments, design and verify; use Korean outline phrasing; preserve editability; avoid unnecessary full reads |
+| Word documents | Preserve facts, structure and author intent; use appropriate prose and consistent headings; read relevant sections |
+| Excel analysis | Preserve formulas, types and structure; verify calculations; distinguish observations from assumptions; read relevant ranges |
+
+The six application roles share user-language responses, truthful reporting, external content treated as data, and a prohibition on shell/source edits. GitHub retains the base coding system prompt and adds MCP guidance from `clients/github/github.go`. Figma, Slack and mail MCP guidance applies only to available tools in the bound session. `looking` is a read-only session of the same role, not another application identity; council is a separate completion-evidence gate.
+
+MCP initialize `instructions` enters the model request's trailing context. It cannot override user instructions, application role or permission policy, and is removed when its tools detach. `internal/app/mcp_instructions_test.go` verifies actual model-request delivery and session/role isolation.
+
 ## 2. Shared connection layer
 
 `clients/appbridge` connects local HTTP clients to the daemon control socket. Figma calls pass through this layer into the plugin's main sandbox. Mail, Slack and GitHub APIs run in their respective helpers. Model API credentials never enter application UI code.

@@ -5,7 +5,7 @@ const require=createRequire(new URL('../../web/e2e/package.json',import.meta.url
 const {chromium}=require('@playwright/test');
 const browser=await chromium.launch({headless:true});
 try {
- const page=await browser.newPage();const errors=[],calls=[];let delayedDraft;let failRequest=false;page.on('pageerror',e=>errors.push(e.message));
+ const page=await browser.newPage();const errors=[],calls=[];let delayedDraft;let failRequest=false;let activeSession="session";page.on('pageerror',e=>errors.push(e.message));
  await page.route('http://127.0.0.1:8793/**',async route=>{
   const request=route.request(),path=new URL(request.url()).pathname;
   if(path==='/')return route.fulfill({contentType:'text/html',body:fs.readFileSync(new URL('../web/index.html',import.meta.url),'utf8')});
@@ -13,9 +13,9 @@ try {
   let result={};if(path==='/mail/list')result={account:'user@example.com',uidValidity:19,items:[{uid:7,subject:'<script>window.pwned=true</script>',from:'sender@example.com'},{uid:8,subject:'Next',from:'other@example.com'}]};
   if(path==='/mail/read')result={text:'<img src=x onerror=window.pwned=true>',raw:'Content-Type: text/html\n\n<script>window.pwned=true</script>'};
   if(path==='/api/connect')result={binding:'bind-'+body.target,session:'session'};
-  if(path==='/api/events')return route.fulfill({contentType:'text/event-stream',body:'data: {"type":"part.appended","sessionId":"foreign","data":{"role":"assistant","part":{"kind":"text","text":"foreign output"}}}\n\ndata: {"type":"part.appended","sessionId":"session","data":{"role":"assistant","part":{"kind":"text","text":"model output"}}}\n\ndata: {"type":"permission.requested","sessionId":"session","data":{"callId":"approve-1","name":"mail_draft","args":{"subject":"Draft"}}}\n\ndata: {"type":"question.requested","sessionId":"session","data":{"callId":"question-1","question":"Send which wording?","options":["Formal"]}}\n\n'});
+  if(path==='/api/events')return route.fulfill({contentType:'text/event-stream',body:'data: {"type":"part.appended","sessionId":"foreign","data":{"role":"assistant","part":{"kind":"text","text":"foreign output"}}}\n\ndata: {"type":"part.appended","sessionId":"session","data":{"role":"assistant","part":{"kind":"text","text":"model output"}}}\n\ndata: {"type":"permission.requested","sessionId":"session","data":{"callId":"approve-1","name":"mail_draft","args":{"subject":"Draft"}}}\n\ndata: {"type":"question.requested","sessionId":"session","data":{"callId":"question-1","question":"Send which wording?","options":["Formal"]}}\n\n'.replaceAll('\"sessionId\":\"session\"', '\"sessionId\":\"'+activeSession+'\"')});
   if(path==='/mail/draft'&&delayedDraft){await delayedDraft.promise;}if(path==='/api/request'&&failRequest)return route.fulfill({status:400,contentType:'text/plain',body:'Magi 연결이 끊겼습니다. 다시 선택하세요.'});if(path==='/mail/draft')result={to:'recipient@example.com',subject:'Draft',body:'Reviewed body'};
-  if(path==='/mail/send')result={sent:true};
+  if(path==='/api/request'&&body.method==='new'){activeSession='session-new';result={session:activeSession};}if(path==='/mail/send')result={sent:true};
   await route.fulfill({contentType:'application/json',body:JSON.stringify(result)});
  });
  await page.goto('http://127.0.0.1:8793');await page.locator('#token').fill('test-only-token');await page.locator('#load').click();await page.locator('#list button').nth(1).click();await page.waitForFunction(()=>document.getElementById('events').textContent.includes('model output'));
@@ -30,5 +30,6 @@ try {
 
  delayedDraft={};delayedDraft.promise=new Promise(resolve=>delayedDraft.resolve=resolve);await page.locator('#getDraft').click();
  await page.locator('#list button').nth(0).click();await page.waitForFunction(()=>document.getElementById('subject').textContent==='Next');assert.equal(await page.locator('#to').inputValue(),'');assert.equal(await page.locator('#draft').inputValue(),'');delayedDraft.resolve();await page.waitForTimeout(60);assert.equal(await page.locator('#draft').inputValue(),'');await page.locator('#chat').fill('Next mail');await page.locator('#request').click();await page.waitForFunction(()=>document.getElementById('chat').value==='');assert.equal(calls.filter(c=>c.path==='/api/request').at(-1).body.binding,'bind-user@example.com/INBOX/19/8');failRequest=true;await page.locator('#chat').fill('error test');await page.locator('#request').click();await page.waitForFunction(()=>document.getElementById('status').textContent.includes('다시 선택'));assert.deepEqual(errors,[]);
- console.log('PASS mail UI: untrusted content as text, session binding, authenticated requests, canceled and confirmed send');
+ failRequest=false;await page.locator('#chat').fill('preserved draft');await page.locator('#model').fill('test-model');await page.locator('#setModel').click();await page.waitForFunction(()=>document.getElementById('status').textContent==='');assert.equal(calls.filter(c=>c.body?.method==='model').at(-1).body.name,'test-model');await page.locator('#interrupt').click();await page.locator('#new').click();await page.waitForFunction(()=>document.getElementById('events').textContent.includes('model output'));assert.equal(await page.locator('#chat').inputValue(),'preserved draft');assert.ok(calls.some(c=>c.body?.method==='interrupt'));assert.ok(calls.some(c=>c.body?.method==='new'));
+ console.log('PASS mail UI: untrusted content as text, session binding, new/model/stop controls, preserved input, authenticated requests, canceled and confirmed send');
 }finally{await browser.close();}
