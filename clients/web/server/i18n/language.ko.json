@@ -614,5 +614,10 @@
   "type.slack": "Slack 대화 도우미",
   "type.powerpoint": "발표자료 도우미",
   "type.word": "문서 도우미",
-  "type.excel": "스프레드시트 도우미"
+  "type.excel": "스프레드시트 도우미",
+  "type.design": "디자인 에이전트",
+  "type.communication": "커뮤니케이션 에이전트",
+  "type.presentation": "프레젠테이션 에이전트",
+  "type.document": "문서 에이전트",
+  "type.spreadsheet": "스프레드시트 에이전트"
 }

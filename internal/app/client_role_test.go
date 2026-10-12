@@ -44,7 +44,7 @@ func TestClientKindCatalogHasUniqueValidRoles(t *testing.T) {
 			t.Fatalf("invalid catalog entry %q", kind)
 		}
 		seen[kind] = true
-		want := string(kind)
+		want := string(kind.AgentKind())
 		if kind == ClientCoding {
 			want = "1"
 		}

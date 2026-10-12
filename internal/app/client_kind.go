@@ -44,7 +44,7 @@ func (kind ClientKind) CompanionType() string {
 	if !kind.Valid() {
 		return "unknown"
 	}
-	return string(kind)
+	return string(kind.AgentKind())
 }
 
 func (a *App) ClientKind() ClientKind { return NormalizeClientKind(a.cfg.ClientRole) }

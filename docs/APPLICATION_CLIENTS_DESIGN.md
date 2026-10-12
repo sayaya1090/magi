@@ -42,7 +42,7 @@ MCP initialize `instructions` enters the model request's trailing context. It ca
 
 The role vocabulary is the seven `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
 
-`CompanionType.java` registers coding type `1` and six application types. Base coding and GitHub use the coding child; applications use `application-ui`. The `coding` spelling resolves to type `1`, and the existing missing/unknown-type coding fallback remains. Local daemon/roster/fleet and remote cluster carry type. Remote type is advisory metadata excluded from Signable, like Version; execution rights come from the destination daemon's role gate.
+`CompanionType.java` registers coding type `1` and six application types. Base coding and GitHub use the coding child; other business kinds use `application-ui`. Mail and Slack share communication type. The `coding` spelling resolves to type `1`, and the existing missing/unknown-type coding fallback remains. Local daemon/roster/fleet and remote cluster carry type. Remote type is advisory metadata excluded from Signable, like Version; execution rights come from the destination daemon's role gate.
 
 The application child shares conversation/composer code without mounting the filesystem/Git workspace. The parent clears slots on type changes; PaneSharing caches module-specific renders for revisits. Late coding loads cannot replace application slots. WorkspaceStore rejects application contexts to prevent background file requests too.
 
@@ -54,7 +54,7 @@ The business vocabulary is the six AgentKind values in `internal/app/agent_kind.
 
 Internal coding roles follow ownership of a codebase or module. Role describes the user-assigned ownership; concrete repository/path boundaries determine access. Investigation, design, implementation, verification and review are work phases performed by each owner, not separate agent kinds or ownership roles.
 
-AgentKind mapping and client tool-isolation tests are implemented. Console type still uses legacy application keys; a follow-up must migrate it to business-kind keys, retain client identity in a separate field, interpret legacy keys and consolidate display labels. Kind grouping must never widen tool permissions, session targets or codebase ownership.
+AgentKind mapping and client tool-isolation tests are implemented. Published type and the console catalog use business kinds, interpreting legacy application keys as their corresponding business kind. Client identity remains in the ClientKind execution configuration. Coding type 1 is retained for compatibility. Kind grouping must never widen tool permissions, session targets or codebase ownership.
 
 ## 2. Shared connection layer
 

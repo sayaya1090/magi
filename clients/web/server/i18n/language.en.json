@@ -614,5 +614,10 @@
   "type.slack": "Slack assistant",
   "type.powerpoint": "Presentation assistant",
   "type.word": "Document assistant",
-  "type.excel": "Spreadsheet assistant"
+  "type.excel": "Spreadsheet assistant",
+  "type.design": "Design agent",
+  "type.communication": "Communication agent",
+  "type.presentation": "Presentation agent",
+  "type.document": "Document agent",
+  "type.spreadsheet": "Spreadsheet agent"
 }

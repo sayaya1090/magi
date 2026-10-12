@@ -37,17 +37,21 @@ public final class CompanionType {
     public static final CompanionType CODING = new CompanionType("1", "type.coding", "coding", true);
 
     private static CompanionType application(String id) { return new CompanionType(id, "type." + id, "application", false); }
-    public static final CompanionType FIGMA = application("figma");
-    public static final CompanionType MAIL = application("mail");
-    public static final CompanionType SLACK = application("slack");
-    public static final CompanionType POWERPOINT = application("powerpoint");
-    public static final CompanionType WORD = application("word");
-    public static final CompanionType EXCEL = application("excel");
-    public static CompanionType[] all() { return new CompanionType[]{CODING, FIGMA, MAIL, SLACK, POWERPOINT, WORD, EXCEL}; }
+    public static final CompanionType DESIGN = application("design");
+    public static final CompanionType COMMUNICATION = application("communication");
+    public static final CompanionType PRESENTATION = application("presentation");
+    public static final CompanionType DOCUMENT = application("document");
+    public static final CompanionType SPREADSHEET = application("spreadsheet");
+    public static CompanionType[] all() { return new CompanionType[]{CODING, DESIGN, COMMUNICATION, PRESENTATION, DOCUMENT, SPREADSHEET}; }
 
     /** 선언이 대는 타입, 없거나 모르면 기본(코딩 에이전트). */
     public static CompanionType byId(String id) {
         if (id == null || id.isEmpty() || "coding".equals(id)) return CODING;
+        if ("figma".equals(id)) return DESIGN;
+        if ("mail".equals(id) || "slack".equals(id)) return COMMUNICATION;
+        if ("powerpoint".equals(id)) return PRESENTATION;
+        if ("word".equals(id)) return DOCUMENT;
+        if ("excel".equals(id)) return SPREADSHEET;
         for (CompanionType t : all()) if (t.id.equals(id)) return t;
         return CODING;
     }
