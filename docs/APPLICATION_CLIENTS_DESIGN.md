@@ -146,3 +146,5 @@ Real Figma/Slack installation, real IMAP/SMTP delivery remain unverified. Accoun
 ## Chrome browser replacement (2026-10-12)
 
 The GitHub-specific helper and extension were removed at the user’s request. Earlier verification rows above describe the implementation at that time; they do not describe currently available clients. Port 8737 now belongs to the Chrome browser helper. Its scope, permissions and acceptance procedure are in [the browser manual](../clients/browser/README.md). Browser tasks use a dedicated business kind and cannot execute coding tools.
+
+Browser cooperation reuses `hand_off` and introduces a small on-demand `browser` entry point without changing the session-frozen tool catalog. Tests default to isolated headless mode. See [the cooperation contract](BROWSER_COLLABORATION_DESIGN.md).

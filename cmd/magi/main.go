@@ -35,6 +35,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	browsertool "github.com/sayaya1090/magi/internal/adapter/tool/browser"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/adapter/tui"
@@ -367,7 +368,7 @@ var visionOf func(string) bool
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
-		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "agent kind: coding|figma|mail|slack|powerpoint|word|excel|docker|kubernetes (empty/github: legacy coding aliases)")
+		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "client kind: coding|figma|mail|slack|powerpoint|word|excel|docker|kubernetes|browser (empty: legacy coding alias)")
 		output      = flag.String("output", "text", "output format: text|json")
 		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
 		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
@@ -842,7 +843,9 @@ func run() int {
 		Cache:     companionCache,
 		Ask:       describeCompanion,
 	})
+	reg.Register(&browsertool.Access{ConfigDir: plat.ConfigDir()})
 	dangerTools := app.DefaultDangerTools()
+	dangerTools["browser"] = true
 
 	// Declared here and built once the MCP manager exists, the same way `a` is captured by the
 	// closures above: the engine has to be told how to reach it before either of them is real.

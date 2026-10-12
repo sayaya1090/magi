@@ -1,10 +1,10 @@
 # Chrome browser client
 
-Magi Browser exposes explicitly granted Chrome tabs to a dedicated browser agent. It replaces the retired GitHub-specific extension. It uses Chrome Manifest V3, sidePanel and scripting APIs; it does not require remote debugging or a GitHub account.
+Magi Browser exposes explicitly granted Chrome tabs to a dedicated browser agent. It replaces the retired GitHub-specific extension. The extension uses Chrome Manifest V3, sidePanel and scripting APIs. Isolated headless tests use Playwright Chromium or installed Chrome. Neither mode requires a GitHub account.
 
 ## Install and connect
 
-Build an updated core with `go build -o /tmp/magi ./cmd/magi` and the helper with `go build -o /tmp/magi-browser ./clients/browser/cmd`. Configure Magi's model first. Start `MAGI_BINARY=/tmp/magi /tmp/magi-browser`; port 8737 must be free. The helper prints a local bearer token. `MAGI_BROWSER_TOKEN` optionally supplies a fixed token. Keep the helper and core running.
+Build an updated core with `go build -o /tmp/magi ./cmd/magi` and the helper with `go build -o /tmp/magi-browser ./clients/browser/cmd`. Configure Magi's model first. Start `MAGI_BINARY=/tmp/magi /tmp/magi-browser -mode extension`; port 8737 must be free. The helper prints a local bearer token. `MAGI_BROWSER_TOKEN` optionally supplies a fixed token. Keep the helper and core running.
 
 In `chrome://extensions`, enable Developer mode and load `clients/browser/extension` as an unpacked extension. Open its side panel, paste the helper token and connect. Open an ordinary HTTP(S) page, press the grant-tab button and accept the origin permission. Grant each desired tab separately. The revoke button removes all local tab grants. Browser grants live only while the panel is open; reopening requires new grants. The connection target is a random ID persisted in extension-local storage; the token is stored only in Chrome session storage.
 
@@ -29,3 +29,35 @@ The authenticated loopback helper uses appbridge bindings and session-bound MCP 
 Run `go test -race ./clients/browser/... ./clients/appbridge`, `go vet ./clients/browser/... ./clients/appbridge`, `node --test clients/browser/test/*.test.mjs` and `node clients/browser/test/ui-playwright.mjs`. Browser tests mock Chrome and the helper; page tests exercise real DOM in Playwright. They do not establish acceptance of an installed Chrome extension or a live model session.
 
 For live acceptance, load the unpacked extension and use a disposable local HTTP form. Grant only that tab, connect the helper and ask the model to read it. Confirm one fill/click, verify the DOM result, deny another action, and check the field stays unchanged. Navigate or alter the DOM before using an old element ID and confirm rejection. Check that ungranted tabs and password fields stay unavailable, then switch sessions during a pending action and confirm it cannot execute. Record the core commit, Chrome version and observed results. Do not use a real payment or messaging form for these checks.
+
+## On-demand use and delegated tests
+
+The core registers a small `browser` tool. Its complete browser schemas are returned only when the model calls `browser({action: "connect"})`; they are not added to every model request. The session tool catalog is frozen for prompt-cache stability, so the same entry point forwards subsequent calls without changing that catalog. `mode` defaults to `headless`. Use `mode: "extension"` explicitly for user-granted tabs. There is no automatic fallback between modes.
+
+```text
+browser({action: "connect"})
+browser({action: "call", tool: "list_tabs", args: {}})
+browser({action: "call", tool: "read_page", args: {tabId: 1}})
+browser({action: "release"})
+```
+
+Results are forwarded as original JSON without an intermediate model. Access is tied to the caller's daemon socket and session, expires after five idle minutes, and is revoked when the parent browser connection is closed or changes session. Reconnect after expiration. A busy extension rejects another simultaneous call; it does not replay it later. Already executing actions cannot be undone by releasing a lease. Read outcomes before retrying.
+
+To delegate a complete test, use existing `companions`/`companion_can` to find the browser companion, then `hand_off(to, request, so_that, answer_as)`. The recipient gets its own conversation and calls `browser` there, so its lease and headless profile are separate from the requester and other delegated jobs. Include the URL, steps, success conditions and evidence format; use a normal working handoff for click/fill tests, not `looking:true`. `hand_off` returns a receipt immediately; its completed report later reaches the requester's conversation. No new collaboration protocol is added.
+
+## Headless test startup
+
+Install the existing Playwright dependencies and browser with `npm ci --prefix clients/web/e2e` and `cd clients/web/e2e && npx playwright install chromium`. Start a scoped helper:
+
+```sh
+MAGI_BINARY=/tmp/magi /tmp/magi-browser -mode headless \
+  -allow-origins http://127.0.0.1:3000 -url http://127.0.0.1:3000
+```
+
+Headless mode listens on 8739 and creates an independent browser companion for test handoffs. `-allow-actions` defaults true for this CLI: starting with explicit origins authorizes test navigation/click/fill in that scope. Set `-allow-actions=false` for read-only testing. The backend library defaults to read-only unless enabled explicitly. This companion starts with core permission=allow while the browser role and startup origins still restrict execution; existing agents retain their own core approval policy.
+
+Each lease uses a separate temporary profile. No user Chrome cookies or accounts are imported. All HTTP requests, redirects and subresources must match the supplied origins; include fixture asset origins explicitly. WebSockets and service workers are disabled. Use `-channel chrome` for installed Google Chrome or omit it for Playwright Chromium. `-runner` overrides the runner path. Source-built installation still needs the runner, `extension/page.js` and Playwright dependencies; copying only the Go executable is insufficient for headless mode.
+
+Runtime credentials are published under Magi's `runtime/browser-headless.json` or `browser-extension.json` with owner-only permissions. They are never included in model-visible discovery results. Other application agents gain the browser entry point and existing companion collaboration tools; they do not gain another application's MCP tools or shell access. Detailed contracts are in [browser collaboration design](../../docs/BROWSER_COLLABORATION_DESIGN.md).
+
+The dedicated browser companion’s primary session has `browser_runtime` MCP tools attached because browsing is its main task. Existing agents and delegated side sessions use the small lazy entry point; their catalogs do not receive the full browser schemas.

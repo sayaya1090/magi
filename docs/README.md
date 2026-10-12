@@ -48,3 +48,5 @@ Preserved to record early architectural decisions and rationales. These are hist
 
 The `docs/proposals/` directory contains dated design proposals from specific decision points. They serve as historical decision contexts rather than active specifications.
 
+
+Browser cooperation: [on-demand direct access and headless testing](BROWSER_COLLABORATION_DESIGN.md).

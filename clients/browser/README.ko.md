@@ -1,10 +1,10 @@
 # Chrome 브라우저 클라이언트
 
-Magi Browser는 사용자가 명시적으로 허용한 Chrome 탭을 전용 브라우저 에이전트에 제공합니다. 제거한 GitHub 전용 확장을 대체합니다. Chrome Manifest V3의 sidePanel·scripting API를 사용하며 원격 디버깅이나 GitHub 계정은 필요하지 않습니다.
+Magi Browser는 사용자가 명시적으로 허용한 Chrome 탭을 전용 브라우저 에이전트에 제공합니다. 제거한 GitHub 전용 확장을 대체합니다. 확장은 Chrome Manifest V3의 sidePanel·scripting API를 사용합니다. 격리된 헤드리스 테스트는 Playwright Chromium이나 설치된 Chrome을 사용하며 GitHub 계정은 필요하지 않습니다.
 
 ## 설치와 연결
 
-`go build -o /tmp/magi ./cmd/magi`로 코어를, `go build -o /tmp/magi-browser ./clients/browser/cmd`로 헬퍼를 빌드합니다. 먼저 Magi 모델을 설정합니다. `MAGI_BINARY=/tmp/magi /tmp/magi-browser`를 실행하며 8737 포트가 비어 있어야 합니다. 헬퍼가 로컬 연결 토큰을 출력합니다. `MAGI_BROWSER_TOKEN`으로 고정 토큰을 지정할 수도 있습니다. 헬퍼와 코어는 실행 상태로 유지합니다.
+`go build -o /tmp/magi ./cmd/magi`로 코어를, `go build -o /tmp/magi-browser ./clients/browser/cmd`로 헬퍼를 빌드합니다. 먼저 Magi 모델을 설정합니다. `MAGI_BINARY=/tmp/magi /tmp/magi-browser -mode extension`을 실행하며 8737 포트가 비어 있어야 합니다. 헬퍼가 로컬 연결 토큰을 출력합니다. `MAGI_BROWSER_TOKEN`으로 고정 토큰을 지정할 수도 있습니다. 헬퍼와 코어는 실행 상태로 유지합니다.
 
 `chrome://extensions`에서 개발자 모드를 켜고 `clients/browser/extension`을 압축해제된 확장으로 로드합니다. 사이드 패널을 열어 헬퍼 토큰을 입력하고 연결합니다. 일반 HTTP(S) 페이지를 열고 탭 허용 버튼을 누른 뒤 사이트 권한을 승인합니다. 사용할 탭마다 별도로 허용합니다. 해제 버튼은 로컬 탭 허용 목록을 모두 비웁니다. 탭 허용은 패널이 열려 있는 동안만 유지하며 다시 열면 새로 허용해야 합니다. 연결 대상의 무작위 ID는 확장의 로컬 저장소, 토큰은 Chrome 세션 저장소에 보관합니다.
 
@@ -29,3 +29,35 @@ Magi에게 허용한 탭의 조회나 조작을 요청합니다. 패널에서 �
 `go test -race ./clients/browser/... ./clients/appbridge`, `go vet ./clients/browser/... ./clients/appbridge`, `node --test clients/browser/test/*.test.mjs`, `node clients/browser/test/ui-playwright.mjs`를 실행합니다. 브라우저 테스트는 Chrome과 헬퍼를 모의 처리하며 페이지 테스트는 Playwright의 실제 DOM을 사용합니다. 설치된 Chrome 확장이나 실제 모델 세션의 인수 통과를 뜻하지 않습니다.
 
 실물 인수는 확장을 로드하고 폐기 가능한 로컬 HTTP 폼에서 수행합니다. 해당 탭만 허용하고 헬퍼에 연결한 뒤 모델에게 조회를 요청합니다. 입력·클릭 하나를 승인해 DOM 결과를 확인하고 다른 조작은 거부해 필드가 유지되는지 확인합니다. 이동하거나 DOM을 바꾼 뒤 구형 요소 ID를 사용하면 거절되는지 확인합니다. 미허용 탭·비밀번호 필드가 노출되지 않는지 확인하고 대기 작업 중 세션을 바꿔 실행이 차단되는지도 확인합니다. 코어 커밋·Chrome 버전·실측 결과를 기록합니다. 실제 결제·메시지 발송 폼은 사용하지 않습니다.
+
+## 필요할 때 직접 사용하거나 테스트 위임하기
+
+코어에는 작은 `browser` 도구 하나를 등록합니다. 전체 브라우저 도구 명세는 모델이 `browser({action: "connect"})`를 호출했을 때만 결과로 전달합니다. 매 모델 요청에 전체 명세를 넣지 않습니다. 프롬프트 캐시를 유지하려고 세션의 도구 목록을 고정하므로, 이후 호출도 같은 진입점에서 전달합니다. `mode` 기본값은 `headless`이며 사용자 탭을 쓰려면 `mode: "extension"`을 명시합니다. 두 모드 사이의 자동 폴백은 없습니다.
+
+```text
+browser({action: "connect"})
+browser({action: "call", tool: "list_tabs", args: {}})
+browser({action: "call", tool: "read_page", args: {tabId: 1}})
+browser({action: "release"})
+```
+
+중간 모델 없이 원래 JSON 결과를 전달합니다. 사용권은 호출자의 데몬 소켓·세션에 귀속되고 5분간 사용하지 않으면 만료됩니다. 부모 브라우저 연결을 닫거나 세션을 바꾸면 해제됩니다. 만료 뒤에는 다시 연결합니다. 확장이 다른 호출을 처리 중이면 새 호출을 거절하며 나중에 재실행하지 않습니다. 이미 실행 중인 조작은 사용권을 해제해도 되돌릴 수 없습니다. 재시도 전에 결과를 확인합니다.
+
+전체 테스트를 맡기려면 기존 `companions`·`companion_can`으로 브라우저 컴패니언을 찾고 `hand_off(to, request, so_that, answer_as)`를 사용합니다. 수신자는 자기 곁세션에서 `browser`를 호출하므로 요청자나 다른 위임 작업과 사용권·헤드리스 프로필을 공유하지 않습니다. URL·수행 단계·성공 조건·증거 양식을 명시합니다. 클릭·입력 테스트는 `looking:true` 대신 일반 작업 위임을 사용합니다. `hand_off`는 즉시 접수증을 반환하고 완료 보고는 나중에 요청자의 대화에 도착합니다. 새 협업 프로토콜을 만들지 않습니다.
+
+## 헤드리스 테스트 기동
+
+`npm ci --prefix clients/web/e2e`와 `cd clients/web/e2e && npx playwright install chromium`으로 기존 Playwright 의존성과 브라우저를 설치합니다. 테스트 범위를 지정해 헬퍼를 시작합니다.
+
+```sh
+MAGI_BINARY=/tmp/magi /tmp/magi-browser -mode headless \
+  -allow-origins http://127.0.0.1:3000 -url http://127.0.0.1:3000
+```
+
+헤드리스 모드는 8739 포트를 사용하고 테스트 위임을 받을 별도 브라우저 컴패니언을 만듭니다. 이 CLI의 `-allow-actions` 기본값은 true입니다. 명시한 사이트 범위로 시작하는 것이 그 범위의 테스트 이동·클릭·입력을 허용하는 조작입니다. 읽기 전용 검증은 `-allow-actions=false`로 시작합니다. 백엔드 라이브러리는 명시적으로 켜지 않으면 읽기 전용입니다. 이 컴패니언은 core permission=allow로 시작하지만 브라우저 역할과 시작 시 지정한 사이트 범위는 그대로 강제합니다. 기존 에이전트의 코어 승인 정책은 변경하지 않습니다.
+
+사용권마다 별도 임시 프로필을 사용하며 사용자 Chrome의 쿠키·계정을 가져오지 않습니다. HTTP 요청·리다이렉트·하위 자원도 지정한 origin에 속해야 하므로 테스트 자산의 origin도 명시합니다. WebSocket·서비스 워커는 비활성화합니다. 설치된 Google Chrome을 쓰려면 `-channel chrome`, Playwright Chromium을 쓰려면 생략합니다. `-runner`로 실행 스크립트 경로를 지정합니다. 소스 빌드 설치는 runner·`extension/page.js`·Playwright 의존성이 필요하므로 Go 실행 파일만 복사하면 헤드리스 모드는 동작하지 않습니다.
+
+런타임 자격 증명은 Magi의 `runtime/browser-headless.json` 또는 `browser-extension.json`에 소유자 전용 권한으로 저장하며 모델의 조회 결과에는 포함하지 않습니다. 다른 앱 에이전트에는 브라우저 진입점과 기존 컴패니언 협업 도구를 허용합니다. 다른 앱의 MCP 도구나 셸 권한은 추가하지 않습니다. 상세 계약은 [브라우저 협업 설계](../../docs/BROWSER_COLLABORATION_DESIGN.ko.md)에 있습니다.
+
+전용 브라우저 컴패니언의 기본 세션에는 주 업무용 `browser_runtime` MCP 도구를 연결합니다. 기존 에이전트와 위임 곁세션은 작은 지연 연결 진입점을 사용하며 전체 브라우저 도구 명세를 목록에 추가하지 않습니다.

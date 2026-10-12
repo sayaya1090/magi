@@ -111,3 +111,67 @@ func TestBridgeAgainstActualDaemonAndMCPManager(t *testing.T) {
 		t.Fatal("disconnected MCP retained")
 	}
 }
+
+// External coding conversation uses the same browser backend without creating a browser turn.
+func TestBrowserProxyAgainstActualExternalDaemon(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "magi-browser-external-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	store, err := jsonl.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := builtin.NewRegistry()
+	engine := app.New(store, nil, registry, bus.New(), nil, app.Config{ClientRole: "coding"})
+	defer engine.Close(context.Background())
+	socket := filepath.Join(dir, "daemon-external.sock")
+	d, err := daemon.Listen(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer d.Close()
+	go d.Serve(ctx, integrationEngine{App: engine, workdir: dir})
+	cl, err := daemon.DialWithin(socket, time.Second, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	sid, err := cl.NewSessionKeepingFor("coding target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.SetModel(session.SessionID(sid), "fixture-model")
+	unpublish, err := daemon.Publish(socket, dir, sid, daemon.Identity{Name: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unpublish()
+	bridge, err := New(Config{App: "browser", ConfigDir: dir, Token: "test", Tools: []Tool{{Name: "read", InputSchema: map[string]any{"type": "object"}}}, Call: func(_ context.Context, target, name string, _ json.RawMessage) (any, error) {
+		return map[string]string{"target": target, "name": name}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := &Binding{ID: "chrome", Session: "ui", Target: "allowed Chrome", socket: socket, pending: make(chan *toolCall, 8), lastPoll: time.Now()}
+	bridge.bindings[primary.ID] = primary
+	lease, _, err := bridge.AttachBrowser(ctx, primary.ID, socket, sid, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"lease": lease.ID, "socket": socket, "session": sid, "name": "read", "args": map[string]any{}})
+	response := browserPost(bridge, "/api/browser/call", string(payload))
+	if response.Code != 200 || !strings.Contains(response.Body.String(), lease.ID) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	rows, err := cl.Sessions()
+	if err != nil || len(rows) != 1 || rows[0].ID != sid {
+		t.Fatal("proxy changed conversation", rows, err)
+	}
+	if err := bridge.Disconnect(ctx, lease.ID); err != nil {
+		t.Fatal(err)
+	}
+}

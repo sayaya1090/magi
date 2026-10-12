@@ -108,8 +108,12 @@ func runDaemonMode(p daemonModeParams) int {
 		daemon.AdoptOwner()
 	}
 	howMany, whatOf := countCan(store, wd)
+	publishedRole := cfg.Companion.Role
+	if publishedRole == "" && a.ClientKind() == app.ClientBrowser {
+		publishedRole = "browser: web interaction and isolated headless tests; on-demand browser tools"
+	}
 	unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
-		daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role, Type: a.ClientKind().CompanionType(),
+		daemon.Identity{Name: cfg.Companion.Name, Role: publishedRole, Type: a.ClientKind().CompanionType(),
 			Team: cfg.Companion.Team, Hub: cfg.Companion.Hub, Can: howMany, Does: whatOf})
 	if perr != nil {
 		fmt.Fprintln(os.Stderr, "magi:", perr)

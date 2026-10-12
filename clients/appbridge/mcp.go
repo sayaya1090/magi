@@ -71,10 +71,17 @@ func (s *Server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if !allowed {
 				err = errors.New("등록되지 않은 앱 도구입니다.")
-			} else if s.Config.Call != nil {
-				result, err = s.Config.Call(r.Context(), b.Target, a.Name, a.Args)
 			} else {
-				result, err = s.relay(r.Context(), b, a.Name, a.Args)
+				var release func()
+				release, err = s.acquireBrowser()
+				if err == nil {
+					defer release()
+					if s.Config.Call != nil {
+						result, err = s.Config.Call(r.Context(), browserCallTarget(s.Config.App, b), a.Name, a.Args)
+					} else {
+						result, err = s.relay(r.Context(), b, a.Name, a.Args)
+					}
+				}
 			}
 		}
 		text := ""
@@ -108,6 +115,17 @@ func (s *Server) relay(ctx context.Context, b Binding, name string, args json.Ra
 	if current == nil || current.Session != b.Session {
 		s.mu.Unlock()
 		return nil, errors.New("만료된 세션의 도구 요청입니다.")
+	}
+	if b.parent != "" {
+		parent := s.bindings[b.parent]
+		if parent == nil || time.Now().After(b.expires) {
+			s.mu.Unlock()
+			return nil, errors.New("브라우저 도구 연결이 만료되었습니다.")
+		}
+		c.binding = parent.ID
+		c.Session = parent.Session
+		c.SourceSession = b.Session
+		c.Lease = b.ID
 	}
 	s.calls[id] = c
 	s.mu.Unlock()
@@ -153,7 +171,7 @@ func (s *Server) pollHTTP(w http.ResponseWriter, r *http.Request) {
 		case c := <-b.pending:
 			s.mu.Lock()
 			current := s.bindings[b.ID]
-			alive := s.calls[c.ID] == c && current != nil && current.Session == c.Session
+			alive := s.calls[c.ID] == c && current != nil && s.callAliveLocked(c)
 			s.mu.Unlock()
 			if alive {
 				write(w, c)
@@ -181,7 +199,7 @@ func (s *Server) resultHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	c := s.calls[p.CallID]
 	b := s.bindings[p.Binding]
-	if c == nil || c.binding != p.Binding || b == nil || c.Session != b.Session || p.Session != c.Session {
+	if c == nil || c.binding != p.Binding || b == nil || !s.callAliveLocked(c) || p.Session != c.Session {
 		s.mu.Unlock()
 		http.Error(w, "만료되었거나 다른 파일의 도구 요청입니다.", 409)
 		return
@@ -190,4 +208,11 @@ func (s *Server) resultHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	c.reply <- toolReply{Result: p.Result, Error: p.Error}
 	write(w, map[string]any{"ok": true})
+}
+
+func browserCallTarget(app string, b Binding) string {
+	if app == "browser" {
+		return b.ID
+	}
+	return b.Target
 }

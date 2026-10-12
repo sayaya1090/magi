@@ -33,19 +33,25 @@ type Tool struct {
 	ReadOnly    bool   `json:"-"`
 }
 type Config struct {
-	App, Addr, ConfigDir, Token, Binary, Instructions string
-	Tools                                             []Tool
-	Call                                              func(context.Context, string, string, json.RawMessage) (any, error)
+	App, Addr, ConfigDir, Token, Binary, Instructions, Permission string
+	Tools                                                         []Tool
+	Call                                                          func(context.Context, string, string, json.RawMessage) (any, error)
+	Release                                                       func(string) error
 	// Socket injects a transport for tests. Production derives the path itself.
 	Socket func(context.Context, string) (string, error)
+	// ExternalSocketAllowed injects published-socket validation for tests only.
+	ExternalSocketAllowed func(string) bool
 }
 type Binding struct {
-	ID       string `json:"binding"`
-	Session  string `json:"session"`
-	Target   string `json:"target"`
-	socket   string
-	pending  chan *toolCall
-	lastPoll time.Time
+	ID           string `json:"binding"`
+	Session      string `json:"session"`
+	Target       string `json:"target"`
+	socket       string
+	pending      chan *toolCall
+	lastPoll     time.Time
+	parent       string
+	expires      time.Time
+	registration string
 }
 type Request struct {
 	Binding  string `json:"binding"`
@@ -57,26 +63,29 @@ type Request struct {
 	Answer   string `json:"answer,omitempty"`
 }
 type toolCall struct {
-	ID      string          `json:"callId"`
-	Name    string          `json:"name"`
-	Args    json.RawMessage `json:"args"`
-	binding string
-	Session string `json:"session"`
-	reply   chan toolReply
+	ID            string          `json:"callId"`
+	Name          string          `json:"name"`
+	Args          json.RawMessage `json:"args"`
+	binding       string
+	Session       string `json:"session"`
+	SourceSession string `json:"sourceSession,omitempty"`
+	Lease         string `json:"lease,omitempty"`
+	reply         chan toolReply
 }
 type toolReply struct {
 	Result any    `json:"result"`
 	Error  string `json:"error"`
 }
 type Server struct {
-	Config    Config
-	Token     string
-	Mux       *http.ServeMux
-	mu        sync.Mutex
-	connectMu sync.Mutex
-	bindings  map[string]*Binding
-	targets   map[string]string
-	calls     map[string]*toolCall
+	Config      Config
+	Token       string
+	Mux         *http.ServeMux
+	mu          sync.Mutex
+	connectMu   sync.Mutex
+	bindings    map[string]*Binding
+	targets     map[string]string
+	calls       map[string]*toolCall
+	browserBusy bool
 }
 
 func randomID() (string, error) {
@@ -96,6 +105,12 @@ func New(c Config) (*Server, error) {
 	host, _, err := net.SplitHostPort(c.Addr)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
 		return nil, errors.New("the client bridge must listen on a loopback IP")
+	}
+	if c.Permission == "" {
+		c.Permission = "ask"
+	}
+	if c.Permission != "ask" && !(c.App == "browser" && c.Call != nil && c.Permission == "allow") {
+		return nil, errors.New("only scoped headless browser helpers may enable startup action authorization")
 	}
 	if c.Binary == "" {
 		c.Binary = os.Getenv("MAGI_BINARY")
@@ -117,6 +132,13 @@ func New(c Config) (*Server, error) {
 		}
 	}
 	s := &Server{Config: c, Token: c.Token, Mux: http.NewServeMux(), bindings: map[string]*Binding{}, targets: map[string]string{}, calls: map[string]*toolCall{}}
+	if c.App == "browser" {
+		s.Mux.Handle("/api/browser/check", s.Auth(http.HandlerFunc(s.checkBrowserHTTP)))
+		s.Mux.Handle("/api/browser/call", s.Auth(http.HandlerFunc(s.callBrowserHTTP)))
+		s.Mux.Handle("/api/browser/available", s.Auth(http.HandlerFunc(s.availableBrowserHTTP)))
+		s.Mux.Handle("/api/browser/attach", s.Auth(http.HandlerFunc(s.attachBrowserHTTP)))
+		s.Mux.Handle("/api/browser/release", s.Auth(http.HandlerFunc(s.releaseBrowserHTTP)))
+	}
 	s.Mux.Handle("/api/connect", s.Auth(http.HandlerFunc(s.connectHTTP)))
 	s.Mux.Handle("/api/disconnect", s.Auth(http.HandlerFunc(s.disconnectHTTP)))
 	s.Mux.Handle("/api/request", s.Auth(http.HandlerFunc(s.requestHTTP)))
@@ -173,7 +195,7 @@ func (s *Server) binding(id string) (Binding, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b := s.bindings[id]
-	if b == nil {
+	if b == nil || (!b.expires.IsZero() && time.Now().After(b.expires)) {
 		return Binding{}, errors.New("연결이 만료되었습니다. 다시 연결해 주세요.")
 	}
 	return *b, nil
@@ -201,7 +223,7 @@ func (s *Server) socket(ctx context.Context, target string) (string, error) {
 			return "", errors.New("magi 실행 파일을 PATH에 설치해 주세요.")
 		}
 	}
-	cmd := exec.CommandContext(ctx, bin, "--daemon", "--detach", "--no-update-check", "--permission", "ask", "--client-role", s.Config.App)
+	cmd := exec.CommandContext(ctx, bin, "--daemon", "--detach", "--no-update-check", "--permission", s.Config.Permission, "--client-role", s.Config.App)
 	cmd.Dir = wd
 	cmd.Env = CompanionEnv(os.Environ(), s.Config.ConfigDir)
 	if out, e := cmd.CombinedOutput(); e != nil {
@@ -233,6 +255,9 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 		}
 	}
 	s.mu.Unlock()
+	if expired != nil {
+		s.cancelBrowserChildren(expired.ID)
+	}
 	if expired != nil && len(s.Config.Tools) > 0 {
 		restore := func() {
 			s.mu.Lock()
@@ -245,7 +270,7 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 			restore()
 			return Binding{}, errors.New("만료된 도구 연결을 해제하지 못했습니다. 헬퍼와 컴패니언 연결을 확인해 주세요.")
 		}
-		_, err = cl.DetachMCP(expired.Session, s.Config.App)
+		_, err = cl.DetachMCP(expired.Session, s.serverName())
 		cl.Close()
 		if err != nil {
 			restore()
@@ -287,7 +312,7 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 	s.bindings[id] = b
 	s.mu.Unlock()
 	if len(s.Config.Tools) > 0 {
-		_, err = cl.AttachMCP(sid, s.Config.App, "http://"+s.Config.Addr+"/mcp/"+id+"/"+sid, map[string]string{"Authorization": "Bearer " + s.Token})
+		_, err = cl.AttachMCP(sid, s.serverName(), "http://"+s.Config.Addr+"/mcp/"+id+"/"+sid, map[string]string{"Authorization": "Bearer " + s.Token})
 		if err != nil {
 			s.mu.Lock()
 			delete(s.bindings, id)
@@ -296,7 +321,7 @@ func (s *Server) Connect(ctx context.Context, target string) (Binding, error) {
 		}
 	}
 	if ctx.Err() != nil {
-		if _, cleanupErr := cl.DetachMCP(sid, s.Config.App); cleanupErr != nil {
+		if _, cleanupErr := cl.DetachMCP(sid, s.serverName()); cleanupErr != nil {
 			log.Print("appbridge: cancelled connection tool cleanup failed")
 		}
 		s.mu.Lock()
@@ -389,21 +414,27 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 		if e != nil {
 			return nil, e
 		}
+		s.cancelBrowserChildren(id)
+		if s.Config.Release != nil {
+			if releaseErr := s.Config.Release(id); releaseErr != nil {
+				return nil, errors.New("기존 브라우저 프로필을 정리하지 못했습니다. 연결을 종료한 뒤 다시 연결해 주세요.")
+			}
+		}
 		// Retire old calls before new attach; old queued polls must never execute.
 		s.mu.Lock()
 		s.bindings[id].Session = sid
 		s.failCallsLocked(id, "세션이 변경되어 도구 요청이 취소되었습니다.")
 		s.mu.Unlock()
 		if len(s.Config.Tools) > 0 {
-			_, e = cl.DetachMCP(b.Session, s.Config.App)
+			_, e = cl.DetachMCP(b.Session, s.serverName())
 			if e == nil {
-				_, e = cl.AttachMCP(sid, s.Config.App, "http://"+s.Config.Addr+"/mcp/"+id+"/"+sid, map[string]string{"Authorization": "Bearer " + s.Token})
+				_, e = cl.AttachMCP(sid, s.serverName(), "http://"+s.Config.Addr+"/mcp/"+id+"/"+sid, map[string]string{"Authorization": "Bearer " + s.Token})
 			}
 			if e != nil {
 				s.mu.Lock()
 				s.bindings[id].Session = b.Session
 				s.mu.Unlock()
-				_, restore := cl.AttachMCP(b.Session, s.Config.App, "http://"+s.Config.Addr+"/mcp/"+id+"/"+b.Session, map[string]string{"Authorization": "Bearer " + s.Token})
+				_, restore := cl.AttachMCP(b.Session, s.serverName(), "http://"+s.Config.Addr+"/mcp/"+id+"/"+b.Session, map[string]string{"Authorization": "Bearer " + s.Token})
 				if restore != nil {
 					return nil, errors.New("새 세션 연결과 기존 도구 복구에 실패했습니다. 연결을 종료하고 다시 연결해 주세요.")
 				}
@@ -531,15 +562,33 @@ func (s *Server) pollEventsHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, map[string]any{"events": events})
 }
+func (s *Server) serverName() string {
+	if s.Config.App == "browser" {
+		return "browser_runtime"
+	}
+	return s.Config.App
+}
 func (s *Server) Run(ctx context.Context) error {
-	srv := &http.Server{Addr: s.Config.Addr, Handler: s.Mux, ReadHeaderTimeout: 5 * time.Second}
+	listener, err := net.Listen("tcp", s.Config.Addr)
+	if err != nil {
+		return err
+	}
+	return s.Serve(ctx, listener)
+}
+func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
+	srv := &http.Server{Handler: s.Mux, ReadHeaderTimeout: 5 * time.Second}
+	finished := make(chan struct{})
+	defer close(finished)
 	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		srv.Shutdown(shutdown)
+		select {
+		case <-ctx.Done():
+			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(shutdown)
+		case <-finished:
+		}
 	}()
-	err := srv.ListenAndServe()
+	err := srv.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

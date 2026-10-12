@@ -101,3 +101,16 @@ func TestBrowserRoleIsScoped(t *testing.T) {
 		t.Fatal("browser role or removed client boundary changed")
 	}
 }
+
+func TestApplicationClientsCanCooperateWithoutForeignTools(t *testing.T) {
+	for _, role := range []string{"mail", "slack", "figma", "word", "powerpoint", "excel", "docker", "kubernetes", "browser"} {
+		for _, name := range []string{"browser", "companions", "companion_can", "hand_off", "rate_handoff"} {
+			if !ClientRoleAllows(role, name) {
+				t.Fatalf("%s cannot use %s", role, name)
+			}
+		}
+		if ClientRoleAllows(role, "bash") || ClientRoleAllows(role, "edit") {
+			t.Fatalf("%s gained coding permissions", role)
+		}
+	}
+}
