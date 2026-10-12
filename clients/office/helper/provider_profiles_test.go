@@ -109,3 +109,16 @@ func TestProviderProfileApplyNeedsBoundConversation(t *testing.T) {
 		t.Fatal("apply mutated configuration")
 	}
 }
+
+func TestSavedProfilesAppearInPickerBeforeConversationBinding(t *testing.T) {
+	dir := t.TempDir()
+	if err := config.SetKeysChecked(filepath.Join(dir, "config.toml"), "llm.profiles.friendly", map[string]string{"base_url": "https://example.com/v1", "api_key": "hidden-key", "model": "model-a"}); err != nil {
+		t.Fatal(err)
+	}
+	a := &API{ConfigDir: dir}
+	w := httptest.NewRecorder()
+	a.models(w, httptest.NewRequest("GET", "/api/models", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"friendly"`) || strings.Contains(w.Body.String(), "hidden-key") {
+		t.Fatalf("picker response: %d %s", w.Code, w.Body)
+	}
+}

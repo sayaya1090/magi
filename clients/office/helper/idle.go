@@ -55,6 +55,26 @@ func (a *API) idleTick(now time.Time) bool {
 	return true
 }
 
+// warmRunningCompanion starts at most one preparation for a known running host.
+// Unknown process state does not authorize speculative startup.
+func (a *API) warmRunningCompanion() bool {
+	if a.Own == nil || a.Work == nil || a.Work.Now().Phase != OwnIdle {
+		return false
+	}
+	running, known := a.programRunning()
+	if !known || !running {
+		return false
+	}
+	if _, mine := a.Work.Begin(); !mine {
+		return false
+	}
+	_, _ = SeedInstructions(a.App, a.ConfigDir)
+	_, _ = SeedSkills(a.App, a.ConfigDir)
+	_ = a.App.SeedLandingSocket(a.ConfigDir)
+	go a.provision()
+	return true
+}
+
 // watchProgram 은 헬퍼가 사는 동안 돈다(mount 가 띄운다).
 func (a *API) watchProgram(stop <-chan struct{}) {
 	t := time.NewTicker(idleTickEvery)
@@ -67,6 +87,7 @@ func (a *API) watchProgram(stop <-chan struct{}) {
 			// 순서가 뜻을 갖는다: 프로그램이 떠 있으면 어댑터를 띄우고, 없으면 컴패니언을 내린다.
 			a.adapterTick()
 			a.idleTick(now)
+			a.warmRunningCompanion()
 		}
 	}
 }

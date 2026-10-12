@@ -498,7 +498,9 @@ async function boot() {
     /** 프로바이더·모델 — 고르면 바로 보낸다. 백엔드를 바꾸면 모델 어휘가 바뀌므로 목록을 다시 묻는다. */
     const sendModel = async (body) => {
       try {
-        const out = await api.setModel(body);
+        const out = body.base?.startsWith('profile:')
+          ? await api.setProviderProfile({ op: 'apply', name: body.base.slice('profile:'.length) })
+          : await api.setModel(body);
         view.where(out?.note || '바꿨습니다 — 다음 턴부터입니다.');
       } catch (e) { view.where(`못 바꿨습니다: ${e?.message ?? e}`); }
       await loadModels();

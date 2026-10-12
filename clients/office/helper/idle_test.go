@@ -1,6 +1,7 @@
 package office
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -95,5 +96,42 @@ func TestTheHelperEndsWhenNoOfficeProgramIsLeft(t *testing.T) {
 		if w.tick(t0.Add(time.Duration(4+i) * time.Hour)) {
 			t.Fatal("못 재는 자리에서 끝냈다")
 		}
+	}
+}
+
+func TestWarmOnlyRunningOfficeHost(t *testing.T) {
+	for _, app := range []*App{PPT, Word, XL} {
+		t.Run(app.Key, func(t *testing.T) {
+			dir := t.TempDir()
+			running, known := false, true
+			spawned := make(chan struct{}, 1)
+			api := &API{App: app, ConfigDir: dir, Work: NewOwnWork(), Running: func() (bool, bool) { return running, known }, Own: &OwnCompanion{App: app, ConfigDir: dir, Binary: "fake", Alive: func(string) bool { return false }, Spawn: func(string, string, []string) error { spawned <- struct{}{}; return fmt.Errorf("test startup failure") }}}
+			if api.warmRunningCompanion() {
+				t.Fatal("started absent host")
+			}
+			running, known = true, false
+			if api.warmRunningCompanion() {
+				t.Fatal("started unknown host")
+			}
+			known = true
+			if !api.warmRunningCompanion() {
+				t.Fatal("did not warm running host")
+			}
+			select {
+			case <-spawned:
+			case <-time.After(time.Second):
+				t.Fatal("no spawn")
+			}
+			deadline := time.Now().Add(time.Second)
+			for api.Work.Now().Phase == OwnWorking && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			if api.Work.Now().Phase != OwnFailed {
+				t.Fatal("preparation not finished")
+			}
+			if api.warmRunningCompanion() {
+				t.Fatal("background polling retried failed startup")
+			}
+		})
 	}
 }

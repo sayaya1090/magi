@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -121,11 +122,30 @@ func (a *API) contextState(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/models — 고를 수 있는 것(프로바이더·모델)과 지금 것(백엔드·모델).
 func (a *API) models(w http.ResponseWriter, r *http.Request) {
-	if socket, _, _ := a.chat(r).Bound(); socket == "" {
-		writeStatus(w, http.StatusConflict, map[string]any{"error": "아직 어느 컴패니언에도 안 붙었습니다", "providers": []provider.Provider{}})
+	out := map[string]any{}
+	profiles := []providerProfile{}
+	if cfg, err := config.Load(a.ConfigDir); err == nil {
+		for name, p := range cfg.LLM.Profiles {
+			profiles = append(profiles, providerProfile{Name: name, BaseURL: p.BaseURL, Model: p.Model, HasKey: strings.TrimSpace(p.APIKey) != ""})
+		}
+		sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
+	}
+	out["profiles"] = profiles
+	bridge := a.chat(r)
+	if bridge == nil {
+		out["providers"] = []provider.Provider{}
+		out["models"] = []string{}
+		out["warning"] = "대화를 선택하면 프로바이더를 적용할 수 있습니다."
+		writeJSON(w, out)
 		return
 	}
-	out := map[string]any{}
+	if socket, _, _ := bridge.Bound(); socket == "" {
+		out["providers"] = []provider.Provider{}
+		out["models"] = []string{}
+		out["warning"] = "대화를 선택하면 프로바이더를 적용할 수 있습니다."
+		writeJSON(w, out)
+		return
+	}
 	current := ""
 	if st, err := a.chat(r).Status(); err == nil {
 		out["backend"] = st["backend"]
@@ -136,6 +156,7 @@ func (a *API) models(w http.ResponseWriter, r *http.Request) {
 		out["warning"] = err.Error()
 	}
 	out["providers"] = a.providers(r.Context(), current)
+
 	names, err := a.chat(r).Models()
 	if err != nil {
 		out["warning"] = err.Error()

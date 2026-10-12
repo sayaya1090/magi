@@ -241,23 +241,9 @@ func mount(mux *http.ServeMux, app *App, dir, root, token string, port int) *ser
 	sub.Handle("/", pages.Handler())
 	mux.Handle(app.Base()+"/", http.StripPrefix(app.Base(), sub))
 
-	// **컴패니언을 미리 마련해 둔다.**
-	//
-	// 실측(2026-09-02): 이 머신에서 데몬 냉시동이 **165초**다. 그걸 작업창을 연 뒤에 시작하면
-	// 사람은 3분을 「준비 중」 화면 앞에서 보낸다 — PC 를 잘 다루지 못하는 사람에게 그건 고장과
-	// 구별이 안 된다. 헬퍼는 애드인을 깐 사람의 머신에서 도는 것이므로, 여기서 시작하면 판을
-	// 열 무렵에는 대개 이미 서 있다.
-	//
-	// **기동을 안 붙잡는다.** 뒤에서 돌고, 실패해도 헬퍼는 그대로 선다 — 명단으로 가는 길이
-	// 남아 있고, 사유는 판이 `/api/own` 으로 물으면 그대로 나온다.
-	if _, mine := api.Work.Begin(); mine {
-		// 운영 지침은 도구 쪽 일이다 — 사람이 브리프에 적게 두지 않는다(instructions.go). 마련(goroutine)
-		// 안이 아니라 여기서 동기로 심는다: 시험의 TempDir 정리와 부딪히지 않고, 못 심어도 마련은 계속한다.
-		_, _ = SeedInstructions(app, dir)
-		_, _ = SeedSkills(app, dir)
-		_ = app.SeedLandingSocket(dir) // 착지 플러그인이 land 없이 끝난 턴을 되부를 때 쓰는 소켓(council.go)
-		go api.provision()
-	}
+	// Warm only the host that is running; mounting all three routes must not start all three daemons.
+	api.warmRunningCompanion()
+
 	return &served{app: app, api: api, bridge: bridge, bridges: bridges, attachments: attachments}
 }
 
