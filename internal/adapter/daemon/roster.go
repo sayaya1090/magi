@@ -101,7 +101,7 @@ func buildRoster(home string, now time.Time) []RosterRow {
 			age = 0
 		}
 		rows = append(rows, RosterRow{
-			Host: m.Host, Socket: m.Socket, Name: m.Name, Role: m.Role,
+			Host: m.Host, Socket: m.Socket, Name: m.Name, Role: m.Role, Type: m.Type,
 			Team: m.Team, Hub: m.Hub, Workdir: m.Workdir, Account: m.Account,
 			State: m.State, Version: m.Version, Can: m.Can, Does: m.Does,
 			Waiting: m.Waiting, Handling: m.Handling, By: m.By,

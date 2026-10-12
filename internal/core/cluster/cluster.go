@@ -138,6 +138,10 @@ type Member struct {
 	// needs to show both versions. It is advisory (a spoofed version misleads a display, nothing
 	// more), so it travels unsigned. Empty from a daemon too old to report it.
 	Version string `json:"version,omitempty"`
+	// Type is advisory UI metadata, like Version, and never an authorization
+	// decision. Excluded from Signable to preserve rolling-upgrade compatibility.
+	// Execution permissions must come from the destination daemon's client role.
+	Type string `json:"type,omitempty"`
 	// Seen is when somebody last had it answer. Not when this entry was written: an entry copied
 	// from a third companion carries the sighting it describes, or a rumour passed along twice
 	// would look newer than the fact it came from.

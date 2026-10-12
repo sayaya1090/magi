@@ -430,3 +430,16 @@ func TestSignableIgnoresVersionSoARollingUpgradeSurvives(t *testing.T) {
 			"out of the roster mid-upgrade, which is exactly what carrying the version unsigned avoids")
 	}
 }
+
+func TestApplicationTypeIsAdvisoryAcrossRollingUpgrade(t *testing.T) {
+	base := Member{Host: "host", Socket: "/socket", Name: "agent", Role: "signed role"}
+	app := base
+	app.Type = "figma"
+	if string(Signable(base)) != string(Signable(app)) {
+		t.Fatal("advisory type breaks older signature verification")
+	}
+	app.Role = "tampered role"
+	if string(Signable(base)) == string(Signable(app)) {
+		t.Fatal("signed role text unexpectedly became advisory")
+	}
+}

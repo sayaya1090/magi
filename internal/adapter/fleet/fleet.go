@@ -410,7 +410,7 @@ func elsewhereRows(ms []cluster.Member, configDir string, now time.Time, seen []
 		}
 		out = append(out, Agent{
 			Socket: m.Socket, Workdir: m.Workdir, Name: name,
-			Role: m.Role, Team: m.Team, Hub: m.Hub, Host: m.Host, Version: m.Version,
+			Role: m.Role, Type: m.Type, Team: m.Team, Hub: m.Hub, Host: m.Host, Version: m.Version,
 			Instance: instanceOf(m.Account, m.Host), Trust: trustIn(configDir, m.By),
 			Does: m.Does, Can: m.Can, Waiting: m.Waiting, Handling: m.Handling,
 			// Live is "believed reachable", and for a companion on another machine the evidence
@@ -1272,7 +1272,7 @@ func rosterInfo(r daemon.RosterRow) daemon.Info {
 // Fresh and the hub election read it exactly as they would have read the file.
 func rosterMember(r daemon.RosterRow, now time.Time) cluster.Member {
 	return cluster.Member{
-		Host: r.Host, Socket: r.Socket, Name: r.Name, Role: r.Role,
+		Host: r.Host, Socket: r.Socket, Name: r.Name, Role: r.Role, Type: r.Type,
 		Team: r.Team, Hub: r.Hub, Workdir: r.Workdir, Account: r.Account, State: r.State,
 		Can: r.Can, Does: r.Does, Waiting: r.Waiting, Handling: r.Handling,
 		Version: r.Version, By: r.By,
@@ -1286,7 +1286,7 @@ func localMembers(found []daemon.Info, now time.Time) []cluster.Member {
 	out := make([]cluster.Member, 0, len(found))
 	for _, in := range found {
 		out = append(out, cluster.Member{
-			Host: in.Host, Socket: in.Socket, Name: in.Name, Role: in.Role,
+			Host: in.Host, Socket: in.Socket, Name: in.Name, Role: in.Role, Type: in.Type,
 			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Account: in.Account,
 			State: in.State, Version: in.Version, Can: in.Can, Does: in.Does,
 			Waiting: in.Waiting, Handling: in.Handling, Seen: now,

@@ -42,13 +42,13 @@ func TestRosterRowsMapLosslessly(t *testing.T) {
 
 	now := time.Now()
 	m := rosterMember(daemon.RosterRow{
-		Host: "otherbox", Socket: "/tmp/daemon-b.sock", Name: "beta", State: "working",
+		Host: "otherbox", Socket: "/tmp/daemon-b.sock", Name: "beta", Type: "mail", State: "working",
 		By: "pk_other", Sighting: true, AgeSeconds: 40,
 	}, now)
 	if got := now.Sub(m.Seen); got < 39*time.Second || got > 41*time.Second {
 		t.Fatalf("Seen must be recovered from the age, got %v ago", got)
 	}
-	if m.By != "pk_other" || m.Host != "otherbox" || m.State != "working" {
+	if m.By != "pk_other" || m.Host != "otherbox" || m.State != "working" || m.Type != "mail" {
 		t.Fatalf("the sighting's own facts must arrive as told: %+v", m)
 	}
 	if !m.Fresh(now) {
