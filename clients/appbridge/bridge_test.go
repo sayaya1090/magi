@@ -3,8 +3,11 @@ package appbridge
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -182,5 +185,34 @@ func TestRelayRejectsForeignBindingAndLateResult(t *testing.T) {
 	}
 	if post(b.ID) != 409 {
 		t.Fatal("duplicate result accepted")
+	}
+}
+
+func TestSocketIdentityIsComputedAfterWorkspaceExists(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skip("symlinks unavailable", err)
+	}
+	binary := filepath.Join(root, "fake-magi")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{App: "browser", ConfigDir: alias, Binary: binary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock, err := s.socket(context.Background(), "new-target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("new-target"))
+	wd := filepath.Join(alias, "clients", "browser", hex.EncodeToString(sum[:16]))
+	if want := daemon.SocketPath(alias, wd); sock != want {
+		t.Fatalf("first-start socket %s differs from canonical %s", sock, want)
 	}
 }

@@ -47,3 +47,15 @@ Real headless fixture tests are execution evidence for an isolated Chromium proc
 Go core and CLI tests, browser/appbridge race tests, vet, browser JS/Playwright and the full VS Code transcript Playwright suite passed. Live headless race tests passed with both Playwright Chromium and installed Google Chrome. The real daemon/appbridge/proxy/Chromium integration test verifies original results, no full schema leakage to the requesting session, and a separate profile for a handoff-origin side session. It uses no model/provider/account; a real model's end-to-end hand_off is still a separate acceptance item.
 
 Cross-review caught a core-tool/MCP-server name collision and retained per-session access state. MCP uses `browser_runtime` while the entry point remains `browser`; released/expired local access state is removed and helper failures retire local access with reconnect guidance. Ordinary page/tool errors preserve the current lease so a stale snapshot can be refreshed without losing the profile.
+
+## Real-model direct acceptance (2026-10-12)
+
+Using local `qwen3-coder:30b` with isolated config/data/socket directories and a disposable loopback form, both coding and mail-role agents called the lazy browser entry point, filled their own profiles, clicked Save with a fresh snapshot, reread `Saved: Direct-A` / `Saved: Mail-A`, released access, and reported PASS. The raw session logs verify actual operations. Earlier `gpt-oss:20b` attempts confused the wrapper fields or reused an invalidated snapshot and did not pass; they are not counted as acceptance. Model choice and explicit target instructions affected these results.
+
+This run also exposed a first-start socket mismatch when a symlinked config root's child workspace did not yet exist. The helper now creates the workspace before computing its canonical socket identity. A symlink regression test covers that order. Browser wrapper descriptions include concrete call examples, and fill explicitly requires a fresh snapshot before the next click.
+
+## Real-model handoff acceptance (2026-10-12)
+
+A coding requester used `companions`/`companion_can` and `hand_off` to dispatch the local form test to a browser companion. The receiver's own side session used browser connect/read/fill/read/click/read/release, verified `Saved: Delegated-A`, and finished with PASS. The existing completion mechanism delivered the report verbatim into the requester's conversation. Local `qwen3-coder:30b` and installed headless Chrome were used.
+
+The existing handoff permission floor still requires per-call human approval even when the recipient's normal policy is allow. This acceptance approved only the explicitly authorized fixture browser calls. It verifies approved delegation, not fully unattended test delegation. An earlier unapproved attempt timed out and reported FAIL. A future unattended-test policy must authorize only startup-scoped headless browser leases and must preserve the handoff floor for extension tabs and every other tool; do not disable the general floor.

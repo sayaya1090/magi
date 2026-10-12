@@ -38,10 +38,10 @@ type Access struct {
 
 func (*Access) Name() string { return "browser" }
 func (*Access) Description() string {
-	return "Use a browser on demand without loading its full tool catalog. connect returns tool schemas; call forwards a listed tool and its original result; release ends access. Default headless is for isolated tests. extension uses explicitly user-granted Chrome tabs. Test delegation may use hand_off to a browser companion. Never switch modes silently."
+	return "Use a browser on demand without loading its full tool catalog. connect returns tool schemas; call forwards a listed tool and its original result; release ends access. Default headless is for isolated tests. extension uses explicitly user-granted Chrome tabs. Test delegation may use hand_off to a browser companion. Never switch modes silently. Examples: browser({action:\"connect\"}); browser({action:\"call\",tool:\"read_page\",args:{tabId:1}}); browser({action:\"release\"}). action is connect/call/release, tool is the returned backend name, never browser. Put backend arguments directly in args, without payload or method_name wrappers."
 }
 func (*Access) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["connect","call","release"]},"mode":{"type":"string","enum":["headless","extension"]},"tool":{"type":"string"},"args":{"type":"object"}},"required":["action"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["connect","call","release"],"description":"connect to fetch schemas; call to execute a backend tool; release to close access"},"mode":{"type":"string","enum":["headless","extension"]},"tool":{"type":"string","description":"For action=call: returned tool name, e.g. read_page, fill or click. Never browser."},"args":{"type":"object","description":"Backend arguments directly, e.g. {tabId:1}. No method_name/payload wrapper."}},"required":["action"],"additionalProperties":false}`)
 }
 func browserResult(value any, err error) (session.ToolResult, error) {
 	if err != nil {
@@ -248,6 +248,6 @@ func (a *Access) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		}
 		return session.ToolResult{Content: out.Result}, nil
 	default:
-		return browserResult(nil, errors.New("browser action must be connect, call or release"))
+		return browserResult(nil, errors.New("browser action must be connect, call or release. To read a page use {action:\"call\",tool:\"read_page\",args:{tabId:1}}"))
 	}
 }

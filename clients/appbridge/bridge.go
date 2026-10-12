@@ -207,6 +207,9 @@ func (s *Server) socket(ctx context.Context, target string) (string, error) {
 	}
 	h := sha256.Sum256([]byte(target))
 	wd := filepath.Join(s.Config.ConfigDir, "clients", s.Config.App, hex.EncodeToString(h[:16]))
+	if err := os.MkdirAll(wd, 0700); err != nil {
+		return "", err
+	}
 	sock := daemon.SocketPath(s.Config.ConfigDir, wd)
 	cl, err := daemon.DialWithin(sock, time.Second, 3*time.Second)
 	if err == nil {

@@ -16,6 +16,6 @@ func Tools() []appbridge.Tool {
 		{Name: "read_page", Description: "Read a bounded visible page snapshot and actionable element IDs in the main frame. Password values are excluded.", InputSchema: object(map[string]any{"tabId": tab}, "tabId"), ReadOnly: true},
 		{Name: "navigate", Description: "Navigate one granted tab to an HTTP(S) URL after human confirmation. Origin permission may need granting first.", InputSchema: object(map[string]any{"tabId": tab, "url": str}, "tabId", "url")},
 		{Name: "click", Description: "Click an element from a fresh page snapshot after human confirmation. Inspect the result afterwards.", InputSchema: object(map[string]any{"tabId": tab, "snapshot": str, "elementId": str}, "tabId", "snapshot", "elementId")},
-		{Name: "fill", Description: "Replace one non-password text input from a fresh snapshot after human confirmation. Does not submit.", InputSchema: object(map[string]any{"tabId": tab, "snapshot": str, "elementId": str, "text": map[string]any{"type": "string", "maxLength": 10000}}, "tabId", "snapshot", "elementId", "text")},
+		{Name: "fill", Description: "Replace one non-password text input from a fresh snapshot after human confirmation. Does not submit. Every successful fill invalidates the snapshot: call read_page again before clicking.", InputSchema: object(map[string]any{"tabId": tab, "snapshot": str, "elementId": str, "text": map[string]any{"type": "string", "maxLength": 10000}}, "tabId", "snapshot", "elementId", "text")},
 	}
 }
