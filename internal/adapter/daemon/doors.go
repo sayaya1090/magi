@@ -495,6 +495,9 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 	if c, ok := eng.(CouncilTeller); ok {
 		resp.Council = c.HasCouncil()
 	}
+	if c, ok := eng.(interface{ CouncilSetting(session.SessionID) bool }); ok {
+		resp.Council = c.CouncilSetting(session.SessionID(req.Session))
+	}
 	if n, ok := eng.(UserNamer); ok {
 		resp.User = n.UserLabel(session.SessionID(req.Session))
 	}
@@ -1022,6 +1025,16 @@ func init() {
 				return fmt.Errorf("this companion cannot select saved profiles")
 			}
 			return c.UseProfile(sid, r.Name)
+		}},
+		"set-council": {needs: (*CouncilSwitcher)(nil), why: "this companion cannot switch council", run: func(_ context.Context, eng Engine, r Request, sid session.SessionID) error {
+			c, ok := eng.(CouncilSwitcher)
+			if !ok {
+				return fmt.Errorf("this companion cannot switch council")
+			}
+			if r.Name != "true" && r.Name != "false" {
+				return fmt.Errorf("카운슬 활성 여부를 지정해 주세요.")
+			}
+			return c.SetCouncil(sid, r.Name == "true")
 		}},
 		"use-backend": ctl(func(_ context.Context, c Controller, r Request, sid session.SessionID) error {
 			return c.UseBackend(sid, r.Name)

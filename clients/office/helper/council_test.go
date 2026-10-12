@@ -66,12 +66,18 @@ func TestCouncilSwitchReadsTheFileOrTheDefault(t *testing.T) {
 }
 
 // 문: POST 는 설정을 고치고 붙어 있는 데몬을 다시 띄운다. 안 붙어 있으면 아무것도 안 고친다.
-func TestTheCouncilDoorWritesThenRestarts(t *testing.T) {
+func TestTheCouncilDoorWritesThenSwitchesWithoutRestart(t *testing.T) {
 	cfg := t.TempDir()
 	restarted := []string{}
 	api := &API{App: Word,
 		Bridge: NewBridge(), Bridges: NewBridges(), Attachments: NewAttachments(Word), ConfigDir: cfg,
-		Restart: func(socket string) error { restarted = append(restarted, socket); return nil },
+		SwitchCouncil: func(socket, sid string, on bool) error {
+			if sid != "s1" || on {
+				t.Fatal("wrong session or choice")
+			}
+			restarted = append(restarted, socket)
+			return nil
+		},
 	}
 	body, _ := json.Marshal(map[string]any{"enabled": false})
 	w := httptest.NewRecorder()
@@ -96,7 +102,7 @@ func TestTheCouncilDoorWritesThenRestarts(t *testing.T) {
 	if len(restarted) != 1 || restarted[0] != "/sock-a" {
 		t.Fatalf("붙어 있는 데몬을 다시 안 띄웠다: %v", restarted)
 	}
-	if !strings.Contains(w.Body.String(), "새 대화로 붙습니다") {
+	if !strings.Contains(w.Body.String(), "다음 턴부터 적용") {
 		t.Fatalf("대화가 새로 시작된다는 말이 없다: %s", w.Body.String())
 	}
 	// GET 은 파일이 말하는 값.
@@ -108,7 +114,7 @@ func TestTheCouncilDoorWritesThenRestarts(t *testing.T) {
 		t.Fatalf("GET 이 파일과 다르다: %v", got)
 	}
 	// 재기동이 실패해도 파일은 바뀌었다 — 그 사실을 적는다.
-	api.Restart = func(string) error { return os.ErrDeadlineExceeded }
+	api.SwitchCouncil = func(string, string, bool) error { return os.ErrDeadlineExceeded }
 	body, _ = json.Marshal(map[string]any{"enabled": true})
 	w = httptest.NewRecorder()
 	api.council(w, httptest.NewRequest("POST", "/api/council?deck=d1", strings.NewReader(string(body))))

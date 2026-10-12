@@ -16,7 +16,8 @@ func TestSettingsRequireAuthenticationAndBoundWorkspace(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s.bindings["a"] = &Binding{ID: "a", Target: "file-a", Session: "sa"}
+	socket := mockDaemon(t, func(map[string]any) any { return map[string]any{"ok": true} })
+	s.bindings["a"] = &Binding{ID: "a", Target: "file-a", Session: "sa", socket: socket}
 	s.bindings["b"] = &Binding{ID: "b", Target: "file-b", Session: "sb"}
 	call := func(method, path, body string, auth bool) *httptest.ResponseRecorder {
 		t.Helper()
@@ -112,7 +113,8 @@ func TestSettingsCouncilLayerInheritanceAndSkillsReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.bindings["a"] = &Binding{ID: "a", Target: "file-a", Session: "sa"}
+	socket := mockDaemon(t, func(map[string]any) any { return map[string]any{"ok": true} })
+	s.bindings["a"] = &Binding{ID: "a", Target: "file-a", Session: "sa", socket: socket}
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))

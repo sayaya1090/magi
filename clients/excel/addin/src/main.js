@@ -535,10 +535,10 @@ async function boot() {
         const want = watchPrompt.view.council !== true;
         // 데몬을 다시 띄우는 일이라 **먼저 묻는다** — 같은 데몬의 다른 창·플러그인까지 끊긴다.
         if (!await view.ask('council', want ? 'on' : 'off')) return;
-        view.where(`카운슬을 ${want ? '켜는' : '끄는'} 중입니다 — 컴패니언을 다시 띄웁니다.`);
+        view.where(`카운슬을 ${want ? '켜는' : '끄는'} 중입니다 — 다음 턴부터 적용합니다.`);
         try {
           const out = await api.setCouncil(want);
-          view.where(out?.note || `카운슬을 ${want ? '켰습니다' : '껐습니다'} — 컴패니언을 다시 띄우는 중입니다.`);
+          view.where(out?.note || `카운슬을 ${want ? '켰습니다' : '껐습니다'} — 다음 턴부터 적용됩니다.`);
         } catch (e) {
           view.where(`카운슬을 못 바꿨습니다: ${e?.message ?? e}. 지금 상태 그대로입니다.`);
         }

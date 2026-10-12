@@ -112,7 +112,7 @@ type councilPreparation struct {
 }
 
 func (a *App) startCouncilPreparation(ctx context.Context, s session.Session) *councilPreparation {
-	prep, ok := a.cfg.Council.(councilPreparer)
+	prep, ok := a.councilFor(s.ID).(councilPreparer)
 	if !ok {
 		return nil
 	}

@@ -282,7 +282,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	if ts.declared {
 		return 0, false // it declared, and the council accepted — that IS the finish
 	}
-	if !declareFinishEnabled() || !usedTools || a.cfg.Council == nil || a.cfg.Workflow {
+	if !declareFinishEnabled() || !usedTools || a.councilFor(tc.s.ID) == nil || a.cfg.Workflow {
 		return 0, false
 	}
 	// A CHILD never convenes one. The council is the gate on ending the USER's turn — it reads the
@@ -325,7 +325,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts: []session.Part{{Kind: session.PartText,
-			Text: declareAskNudge(ts.declareAsks, lastText, a.HasCouncil()) + notesTail(a.turnNotesBlock(tc.s.ID))}},
+			Text: declareAskNudge(ts.declareAsks, lastText, a.councilFor(tc.s.ID) != nil) + notesTail(a.turnNotesBlock(tc.s.ID))}},
 	})
 	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, pd)
 	return loopContinue, true

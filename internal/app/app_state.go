@@ -31,6 +31,8 @@ type bornFact struct {
 // entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
 // the rest live for the whole session.
 type sessionState struct {
+	councilWanted *bool
+	councilTurn   *bool
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
 	// unattended marks a turn nobody is watching — a scheduled firing, today.

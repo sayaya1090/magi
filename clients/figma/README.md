@@ -23,7 +23,7 @@ The layout follows the Office client: conversation controls above the transcript
 | Provider settings | Save or delete a name, endpoint, default model and API key shared by all Magi clients. An empty key input preserves the saved key; a separate checkbox deletes it. Saving the selected profile reapplies it to the conversation and reports any application failure. |
 | Standing rules | Edit `AGENTS.md` in the document workspace, up to 8,000 characters. Changes apply to the next request. |
 | Skills and guides | Add, edit, delete and enable `.magi/skills/*.md` files in the document workspace, up to 40,000 characters. Changes apply to the next request. Disabled guides remain in the `off` directory. |
-| Council | Save whether this document companion uses consensus review. Restarting the running companion is required to apply it. **Restart and reconnect** in settings can interrupt current work. |
+| Council | Save whether this document companion uses consensus review. It applies on the next turn without restarting. The current turn keeps its prior setting. A confirmation explains that part of the model context may be processed again. |
 | Execution controls | Interrupt requests and compact context. |
 
 ### Left panel and floating window

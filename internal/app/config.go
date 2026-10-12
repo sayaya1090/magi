@@ -338,7 +338,8 @@ type Config struct {
 	// model would finish, a consensus council votes done/continue instead, and a
 	// "continue" injects the members' aggregated feedback back into the loop. nil
 	// disables the gate (the model's stop is final, the historical behavior).
-	Council port.Council
+	Council                 port.Council
+	CouncilInitiallyEnabled *bool
 	// CouncilRule is the consensus rule (default majority); CouncilMembers overrides
 	// the default MAGI trio.
 	CouncilRule    council.Rule

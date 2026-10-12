@@ -270,6 +270,10 @@ func (s *Server) councilHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, errors.New("카운슬 설정을 저장하지 못했습니다."))
 			return
 		}
+		if _, err = s.Request(r.Context(), in.Binding, Request{Method: "set-council", Name: raw}); err != nil {
+			settingsStatus(w, 502, map[string]any{"error": "설정은 저장했지만 실행 중인 대화에 반영하지 못했습니다. 다시 연결한 뒤 설정을 확인해 주세요."})
+			return
+		}
 	}
 	enabled := true
 	for _, layer := range []string{s.Config.ConfigDir, filepath.Join(wd, ".magi"), dir} {
@@ -282,7 +286,7 @@ func (s *Server) councilHTTP(w http.ResponseWriter, r *http.Request) {
 			enabled = *cfg.Council.Enabled
 		}
 	}
-	write(w, map[string]any{"enabled": enabled, "applicability": "next-start", "note": "카운슬 설정은 다음 데몬 시작부터 반영됩니다. 실행 중인 대화는 바뀌지 않습니다."})
+	write(w, map[string]any{"enabled": enabled, "applicability": "next-turn", "note": "다음 턴부터 적용됩니다. 진행 중인 턴은 기존 설정을 유지합니다. 컨텍스트 일부가 다시 처리될 수 있습니다."})
 }
 
 func settingsGuideDescription(text string) string {

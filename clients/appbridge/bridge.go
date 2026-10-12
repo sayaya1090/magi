@@ -388,7 +388,7 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 		if p.Decision != "" {
 			method = "permission"
 		}
-	case "permission", "interrupt", "status", "models", "context", "compact", "cursor", "sessions", "use-profile", "config-get", "config-set", "profiles", "restart":
+	case "permission", "interrupt", "status", "models", "context", "compact", "cursor", "sessions", "use-profile", "config-get", "config-set", "profiles", "restart", "set-council":
 	default:
 		return nil, errors.New("지원하지 않는 클라이언트 명령입니다.")
 	}

@@ -88,7 +88,7 @@ func (a *App) CouncilEnabled() bool { return a.cfg.Council != nil }
 // before this: the agent stopped calling tools and the turn simply stopped, with nothing asked and
 // nothing shown. Now it is an act, and the act is answered.
 func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool, ready ...bool) (string, error) {
-	if a.cfg.Council == nil {
+	if a.councilFor(s.ID) == nil {
 		return "", fmt.Errorf("no council is configured for this run")
 	}
 	sid := s.ID
@@ -292,7 +292,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 			}
 		}
 	}()
-	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
+	delib, err := a.councilFor(s.ID).Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
 		EvidencePrefix: councilPrefix(evs),
 		Guidance:       guidance,

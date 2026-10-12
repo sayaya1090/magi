@@ -207,7 +207,7 @@ func (a *API) council(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, http.StatusBadRequest, map[string]any{"error": "enabled 가 없습니다 — true 나 false"})
 		return
 	}
-	socket, _, _ := a.chat(r).Bound()
+	socket, sid, _ := a.chat(r).Bound()
 	if socket == "" {
 		writeStatus(w, http.StatusConflict, map[string]any{
 			"error": "아직 아무 컴패니언에도 안 붙어 있어서 다시 띄울 데몬이 없습니다",
@@ -222,16 +222,27 @@ func (a *API) council(w http.ResponseWriter, r *http.Request) {
 	if *in.Enabled {
 		word = "켰습니다"
 	}
-	if err := a.restartOn(socket); err != nil {
+	switchCouncil := a.SwitchCouncil
+	if switchCouncil == nil {
+		switchCouncil = func(socket, sid string, on bool) error {
+			cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
+			if err != nil {
+				return err
+			}
+			defer cl.Close()
+			return cl.SetCouncil(sid, on)
+		}
+	}
+	if err := switchCouncil(socket, sid, *in.Enabled); err != nil {
 		// 파일은 바뀌었다 — 다음 기동부터 그 값이다. 그 사실을 적는다.
 		writeStatus(w, http.StatusBadGateway, map[string]any{
 			"enabled": *in.Enabled, "path": path, "restarted": false,
-			"error": "설정은 바꿨는데 컴패니언을 다시 못 띄웠습니다: " + err.Error() + " — 다음에 뜰 때부터 그 값입니다",
+			"error": "설정은 저장했지만 현재 대화에 반영하지 못했습니다: " + err.Error() + " — 다음에 뜰 때부터 그 값입니다",
 		})
 		return
 	}
 	writeStatus(w, http.StatusAccepted, map[string]any{
-		"enabled": *in.Enabled, "path": path, "restarted": true,
-		"note": "카운슬을 " + word + " — 컴패니언을 다시 띄우는 중입니다. 몇 초 뒤 새 대화로 붙습니다(" + a.App.PartKo + " 그대로).",
+		"enabled": *in.Enabled, "path": path, "restarted": false,
+		"note": "카운슬을 " + word + ". 다음 턴부터 적용됩니다. 진행 중인 턴과 대화는 유지됩니다.",
 	})
 }

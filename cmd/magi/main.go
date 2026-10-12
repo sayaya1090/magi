@@ -738,7 +738,7 @@ func run() int {
 	// deliberation runs, by which time this is set. It is what meters the council's requests.
 	var a *app.App
 	var councilPort port.Council
-	if cfg.Council.IsEnabled() {
+	{
 		// Resolver over the startup profiles snapshot; an unknown/empty name (incl. a
 		// profile added later via /route) falls back to the default backend, so
 		// council member providers should be defined in config at startup.
@@ -894,14 +894,15 @@ func run() int {
 		RoutePersister: routePersister{path: filepath.Join(companionCfg, "config.toml")},
 		// Same file, for the same reason: "always, in this project" is a decision about this
 		// workspace made by this person, and it was being appended to a file the team commits.
-		PermissionPersister: permPersister{path: filepath.Join(companionCfg, "config.toml")},
-		SubagentPrefs:       toSubagentPrefs(cfg.Subagents),
-		SubagentPersister:   subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		Council:             councilPort,
-		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
-		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
-		TimeBudget:          *timeBudget,
-		Observer:            obs,
+		PermissionPersister:     permPersister{path: filepath.Join(companionCfg, "config.toml")},
+		SubagentPrefs:           toSubagentPrefs(cfg.Subagents),
+		SubagentPersister:       subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
+		Council:                 councilPort,
+		CouncilInitiallyEnabled: cfg.Council.Enabled,
+		CouncilRule:             corecouncil.Rule(cfg.Council.Rule),
+		CouncilMembers:          councilMembers(cfg.Council, cfg.LLM.Profiles),
+		TimeBudget:              *timeBudget,
+		Observer:                obs,
 	})
 	// The client can now ask what a model's window is, so a configured output cap is held under it
 	// instead of going out as a demand. Set here because this is the first moment the answer

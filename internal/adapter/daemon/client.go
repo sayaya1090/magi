@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -921,6 +922,10 @@ func (c *Client) Shutdown() error { return c.call(Request{Method: "shutdown"}) }
 // a re-exec into the new build instead of an exit. Used to finish a self-update. The reply arrives
 // before the drain; the socket then goes briefly as the successor rebinds.
 func (c *Client) Restart() error { return c.call(Request{Method: "restart"}) }
+
+func (c *Client) SetCouncil(sid string, enabled bool) error {
+	return c.call(Request{Method: "set-council", Session: sid, Name: strconv.FormatBool(enabled)})
+}
 
 // Update asks a same-machine daemon to update itself to the latest release and restart onto it. It
 // returns the daemon's one-line account (what it did, or "already up to date"), or an error when the

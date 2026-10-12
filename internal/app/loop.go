@@ -18,6 +18,7 @@ import (
 // and drives the loop, returning any terminal error (e.g. a provider failure) so
 // the caller can avoid re-running a failed turn into a retry storm.
 func (a *App) run(ctx context.Context, sid session.SessionID) error {
+	a.snapshotCouncil(sid)
 	s := a.sessionInfo(ctx, sid)
 	if a.cfg.Workflow {
 		return a.runWorkflow(ctx, s)
@@ -273,7 +274,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// Only when a council can convene: the disclaimer has exactly one reader, and a probe run
 	// for a consumer that does not exist is a git status per turn nobody reads.
 	var preDirt []string
-	if a.cfg.Council != nil {
+	if a.councilFor(sid) != nil {
 		preDirt = a.dirtyBeforeTurn(ctx, s.Workdir)
 	}
 	a.mu.Lock()
@@ -937,6 +938,13 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	}
 
 	msgs := reconstruct(a.liveEvents(sid, evs))
+	if a.cfg.Council != nil {
+		if a.councilFor(sid) != nil {
+			vol += "\nCouncil is enabled for this turn. Declare completed work with the council tool."
+		} else {
+			vol += "\nCouncil is disabled for this turn. Do not call the council tool; report the result directly when finished. This overrides any older council completion guidance."
+		}
+	}
 	// Append the volatile context as an ephemeral trailing user message (not persisted, so
 	// it never enters the event log, the language lock, or the council's task snapshot).
 	// Placed last for recency and so the entire real prefix stays cacheable. A trailing

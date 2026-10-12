@@ -300,7 +300,7 @@ func arrivalHolds(workdir, target string, arrival fileIndex) bool {
 //     a refusal because the operator turned the council off would be deciding for them.
 func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor event.Actor,
 	tc *session.ToolCall, guard *runGuard, toolMsgID string) bool {
-	if tc.Name != "bash" || a.cfg.Interactive || a.cfg.Council == nil {
+	if tc.Name != "bash" || a.cfg.Interactive || a.councilFor(s.ID) == nil {
 		return false
 	}
 	var ba struct {
@@ -345,7 +345,7 @@ func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor eve
 				"form that leaves a way back, or report what you need and stop.", true)
 		return true
 	}
-	advice, err := a.cfg.Council.Advise(ctx, port.AdviceRequest{
+	advice, err := a.councilFor(s.ID).Advise(ctx, port.AdviceRequest{
 		Task:         task,
 		Question:     q,
 		Members:      members,

@@ -246,6 +246,10 @@ type CouncilTeller interface {
 	HasCouncil() bool
 }
 
+type CouncilSwitcher interface {
+	SetCouncil(session.SessionID, bool) error
+}
+
 // ToolReader is an engine that can run one of its READ-ONLY tools where it is, outside the turn.
 //
 // # Why the console does not read the files itself

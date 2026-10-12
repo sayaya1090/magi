@@ -285,7 +285,8 @@ type API struct {
 	ImageRoot string
 	Port      int
 	// Restart 는 그 소켓의 데몬에게 restart 문을 두드리는 것(council.go). 시험이 바꿔 끼운다.
-	Restart func(socket string) error
+	Restart       func(socket string) error
+	SwitchCouncil func(socket, session string, enabled bool) error
 	// Own 은 **파워포인트 몫의 컴패니언**. 명단에서 남의 워크스페이스를 골라 빌리는 대신 이것을
 	// 마련한다(own.go) — 메일에서 받은 덱을 더블클릭한 사람에게는 명단이 늘 비어 있다.
 	Own *OwnCompanion
