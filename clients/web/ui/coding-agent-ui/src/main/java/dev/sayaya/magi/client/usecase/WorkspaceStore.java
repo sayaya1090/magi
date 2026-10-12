@@ -40,6 +40,7 @@ public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
     public WorkspaceStore(WorkspaceSource source) { this.source = source; }
 
     public void aim(CompanionContext c) {
+        if (c != null && c.ui != null && !"coding".equals(c.ui)) c = null;
         boolean moved = ctx == null || c == null || !c.socket.equals(ctx.socket);
         ctx = c;
         if (!moved) return;

@@ -36,6 +36,7 @@ public class Arrangement {
     private final HTMLElement bay = el("div");
     private final HTMLElement dockFill = el("div");
     private final HTMLElement handles = el("span");
+    private boolean workspaceEnabled = true;
     private final HTMLElement filesToggle = el("md-icon-button");
     private final HTMLElement sideToggle = el("md-icon-button");
     private boolean built = false;
@@ -126,6 +127,7 @@ public class Arrangement {
 
     /** 열림/닫힘을 한 곳에서 말한다: 속성·기억·손잡이의 상태와 이름이 같은 사실에서 나온다. */
     private void say(String key, boolean open) {
+        if ("files".equals(key) && !workspaceEnabled) open = false;
         DomGlobal.document.body.setAttribute(key, open ? "open" : "shut");
         store("magi." + key, open ? "open" : "shut");
         // 그 자리를 채우는 쪽에게 알린다 — 아무도 열어 본 적 없는 판은 요청을 쓰지 않는다.
@@ -167,10 +169,19 @@ public class Arrangement {
         return true;
     }
 
+    public void workspaceEnabled(boolean enabled) {
+        workspaceEnabled = enabled;
+        if (enabled) filesToggle.removeAttribute("hidden"); else filesToggle.setAttribute("hidden", "");
+        if (!enabled) {
+            DomGlobal.document.body.setAttribute("files", "shut");
+            dev.sayaya.magi.bridge.PaneSharing.opened("left", false);
+        }
+    }
+
     /** 지금 기억하고 있는 두 기둥의 상태를 다시 말한다 — 폰에서 탭이 하던 말을 되돌릴 때. */
     public void sayPanes() {
         dev.sayaya.magi.bridge.PaneSharing.opened("left",
-                "open".equals(DomGlobal.document.body.getAttribute("files")));
+                workspaceEnabled && "open".equals(DomGlobal.document.body.getAttribute("files")));
         dev.sayaya.magi.bridge.PaneSharing.opened("side",
                 "open".equals(DomGlobal.document.body.getAttribute("side")));
     }

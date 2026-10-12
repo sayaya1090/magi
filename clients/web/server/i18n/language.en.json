@@ -608,5 +608,11 @@
   "update.working": "checking…",
   "ver.behind": "{v} is out",
   "wiki.edited_by": "edited by {name}",
-  "wiki.stale": "retired"
+  "wiki.stale": "retired",
+  "type.figma": "Figma design assistant",
+  "type.mail": "Mail assistant",
+  "type.slack": "Slack assistant",
+  "type.powerpoint": "Presentation assistant",
+  "type.word": "Document assistant",
+  "type.excel": "Spreadsheet assistant"
 }

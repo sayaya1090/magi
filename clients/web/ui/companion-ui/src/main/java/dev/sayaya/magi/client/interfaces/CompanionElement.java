@@ -357,6 +357,11 @@ public class CompanionElement {
         // 탭도 안 보이는데 판은 탭 규칙대로 감춰진 상태가 된다 — 실측: 860px에서 전사 폭 0.
         boolean narrow = DomGlobal.window.matchMedia("(max-width:52.4375em)").matches;
         boolean companion = store.context() != null;
+        boolean coding = !companion || "coding".equals(store.context().ui);
+        arrange.workspaceEnabled(coding);
+        elemental2.dom.Element fileTab = DomGlobal.document.getElementById("ptab-files");
+        if (fileTab != null) { if (coding) fileTab.removeAttribute("hidden"); else fileTab.setAttribute("hidden", ""); }
+        if (!coding && "files".equals(panel)) panel = "talk";
         // 기둥이 하나뿐이라는 사실은 배치를 아는 여기서 적는다 — 자식은 묻기만 한다(Windows).
         dev.sayaya.magi.bridge.Windows.onePane(narrow && companion);
         if (!narrow || !companion) {
@@ -387,7 +392,7 @@ public class CompanionElement {
         // 폰에서 그 판을 여는 것은 손잡이가 아니라 <b>탭</b>이다(손잡이는 이 폭에서 그려지지도
         // 않는다) — 그러니 여는 쪽이 그 사실을 말한다. 이걸 빠뜨리면 폰의 작업공간 탭이 영영
         // 걷지 않는 판이 된다(실측: 트리도 git도 비어 있었다).
-        dev.sayaya.magi.bridge.PaneSharing.opened("left", "files".equals(panel));
+        dev.sayaya.magi.bridge.PaneSharing.opened("left", coding && "files".equals(panel));
         dev.sayaya.magi.bridge.PaneSharing.opened("side", "plan".equals(panel));
         boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
         standAlone(cardHere);
@@ -444,7 +449,13 @@ public class CompanionElement {
         layout();
         if (ctx == null || ctx.ui == null || ctx.ui.isEmpty()) return;
         if (ctx.ui.equals(childLoaded)) return;
+        centreFill.replaceChildren();
+        leftFill.replaceChildren();
+        while (filecol.childElementCount > 1) filecol.lastElementChild.remove();
+        arrange.dockSlot().replaceChildren();
+        PaneSharing.opened("left", false);
         childLoaded = ctx.ui;
+        PaneSharing.activate(ctx.ui);
         // 자식의 시트도 들이는 쪽이 건다 — 그 선언은 셸의 카탈로그가 컨텍스트에 실어 보냈다.
         ModuleInject.ensure(ctx.ui, ctx.uiStyles);
     }

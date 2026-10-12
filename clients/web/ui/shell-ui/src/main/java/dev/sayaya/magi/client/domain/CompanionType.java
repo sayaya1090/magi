@@ -36,11 +36,18 @@ public final class CompanionType {
 
     public static final CompanionType CODING = new CompanionType("1", "type.coding", "coding", true);
 
-    public static CompanionType[] all() { return new CompanionType[]{CODING}; }
+    private static CompanionType application(String id) { return new CompanionType(id, "type." + id, "application", false); }
+    public static final CompanionType FIGMA = application("figma");
+    public static final CompanionType MAIL = application("mail");
+    public static final CompanionType SLACK = application("slack");
+    public static final CompanionType POWERPOINT = application("powerpoint");
+    public static final CompanionType WORD = application("word");
+    public static final CompanionType EXCEL = application("excel");
+    public static CompanionType[] all() { return new CompanionType[]{CODING, FIGMA, MAIL, SLACK, POWERPOINT, WORD, EXCEL}; }
 
     /** 선언이 대는 타입, 없거나 모르면 기본(코딩 에이전트). */
     public static CompanionType byId(String id) {
-        if (id == null || id.isEmpty()) return CODING;
+        if (id == null || id.isEmpty() || "coding".equals(id)) return CODING;
         for (CompanionType t : all()) if (t.id.equals(id)) return t;
         return CODING;
     }

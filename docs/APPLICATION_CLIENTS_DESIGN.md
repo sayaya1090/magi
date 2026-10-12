@@ -42,9 +42,19 @@ MCP initialize `instructions` enters the model request's trailing context. It ca
 
 The role vocabulary is the seven `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
 
-`CompanionType.java` still registers only coding type `1`. The local chain `daemon.Identity` → `daemon.Info` → roster/fleet response now carries `type`. Coding and GitHub publish `1`; application roles publish their role key. Console mapping through `FleetAgent.type` and `CompanionType` remains incomplete. Remote cluster sightings also carry type as advisory UI metadata, like Version. Type is excluded from Signable so old and new peers retain the same signature bytes. It cannot authorize execution: the destination daemon enforces its client role. Missing type on older records remains possible. Applications must not use the coding child module, which exposes filesystem/shell UI; first provide an application child using shared conversation controls.
+`CompanionType.java` registers coding type `1` and six application types. Base coding and GitHub use the coding child; applications use `application-ui`. The `coding` spelling resolves to type `1`, and the existing missing/unknown-type coding fallback remains. Local daemon/roster/fleet and remote cluster carry type. Remote type is advisory metadata excluded from Signable, like Version; execution rights come from the destination daemon's role gate.
 
-Acceptance requires matching actual daemon records and `/fleet` types for each role, preserving coding type `1`, excluding filesystem/shell controls from application screens, deterministic unknown-type handling, and desktop/narrow-screen Playwright checks. This console integration is currently incomplete.
+The application child shares conversation/composer code without mounting the filesystem/Git workspace. The parent clears slots on type changes; PaneSharing caches module-specific renders for revisits. Late coding loads cannot replace application slots. WorkspaceStore rejects application contexts to prevent background file requests too.
+
+`clients/web/ui/application-ui/test/compiled-playwright.mjs` runs actual GWT output at 1440px and 390px, checking application/coding transitions, toggle restoration, late module loading and zero application filesystem API requests. It does not verify accounts or real Figma/Slack execution. See the [application conversation manual](../clients/web/ui/application-ui/README.md) for reproduction.
+
+### Business kind, codebase role and client
+
+The business vocabulary is the six AgentKind values in `internal/app/agent_kind.go`: coding, design, communication, document, presentation and spreadsheet. ClientKind selects application-specific instructions and tool boundaries; it is not a business kind. Mail and Slack map to communication but cannot use each other's tools. GitHub, IDEs and terminal are coding clients.
+
+Internal coding roles follow ownership of a codebase or module. Role describes the user-assigned ownership; concrete repository/path boundaries determine access. Investigation, design, implementation, verification and review are work phases performed by each owner, not separate agent kinds or ownership roles.
+
+AgentKind mapping and client tool-isolation tests are implemented. Console type still uses legacy application keys; a follow-up must migrate it to business-kind keys, retain client identity in a separate field, interpret legacy keys and consolidate display labels. Kind grouping must never widen tool permissions, session targets or codebase ownership.
 
 ## 2. Shared connection layer
 

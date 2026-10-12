@@ -19,17 +19,17 @@ public class Application implements EntryPoint {
     @Override
     public void onModuleLoad() {
         CodingComponent component = DaggerCodingComponent.create();
-        PaneSharing.next("centre", (Render) frame -> {
+        PaneSharing.nextFor("coding", "centre", (Render) frame -> {
             component.conversation().mount(frame);
             return true;
         });
         // 왼쪽은 이 타입에게 워크스페이스다 — 무엇으로 일하고 있는가.
-        PaneSharing.next("left", (Render) frame -> {
+        PaneSharing.nextFor("coding", "left", (Render) frame -> {
             component.workspace().mount(frame);
             return true;
         });
         // 도크는 한 마디를 보내는 자리다. 이것이 창 바닥의 고정 상자라는 것은 부모의 사실이다.
-        PaneSharing.next("dock", (Render) frame -> {
+        PaneSharing.nextFor("coding", "dock", (Render) frame -> {
             component.conversation().mountComposer(frame);
             return true;
         });

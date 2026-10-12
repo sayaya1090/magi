@@ -41,6 +41,27 @@ public final class PaneSharing {
         Js.<SlotFn>cast(win.get(KEY)).call(slot, render);
     }
 
+    /** Register one module's slots so switching back can replay cached renders. */
+    public static void nextFor(String module, String slot, Object render) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        JsPropertyMap<Object> modules = Js.uncheckedCast(win.get("__magi_pane_modules"));
+        if (modules == null) { modules = JsPropertyMap.of(); win.set("__magi_pane_modules", modules); }
+        JsPropertyMap<Object> slots = Js.uncheckedCast(modules.get(module));
+        if (slots == null) { slots = JsPropertyMap.of(); modules.set(module, slots); }
+        slots.set(slot, render);
+        if (module.equals(win.get("__magi_pane_active"))) next(slot, render);
+    }
+
+    public static void activate(String module) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set("__magi_pane_active", module);
+        JsPropertyMap<Object> modules = Js.uncheckedCast(win.get("__magi_pane_modules"));
+        if (modules == null) return;
+        JsPropertyMap<Object> slots = Js.uncheckedCast(modules.get(module));
+        if (slots == null) return;
+        for (String slot : new String[]{"centre", "left", "dock"}) if (slots.has(slot)) next(slot, slots.get(slot));
+    }
+
     // ── 그 자리가 지금 열려 있는가 ────────────────────────────────────────────
     //
     // 아무도 열어 본 적 없는 판은 <b>한 번도 요청을 쓰지 않는다</b>(운영 규칙). 그 판이 열려

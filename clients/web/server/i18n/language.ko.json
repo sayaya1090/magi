@@ -608,5 +608,11 @@
   "update.working": "확인 중…",
   "ver.behind": "최신 버전 {v} 이용 가능",
   "wiki.edited_by": "{name} 편집",
-  "wiki.stale": "업데이트 필요 표시됨"
+  "wiki.stale": "업데이트 필요 표시됨",
+  "type.figma": "Figma 디자인 도우미",
+  "type.mail": "메일 도우미",
+  "type.slack": "Slack 대화 도우미",
+  "type.powerpoint": "발표자료 도우미",
+  "type.word": "문서 도우미",
+  "type.excel": "스프레드시트 도우미"
 }

@@ -22,6 +22,7 @@ val screens = linkedMapOf(
     "shell-ui" to ("dev.sayaya.magi.Shell" to "dev.sayaya.magi.ShellTest"),
     "companion-ui" to ("dev.sayaya.magi.Companion" to "dev.sayaya.magi.CompanionTest"),
     "coding-agent-ui" to ("dev.sayaya.magi.Coding" to "dev.sayaya.magi.CodingTest"),
+    "application-ui" to ("dev.sayaya.magi.ApplicationChat" to "dev.sayaya.magi.ApplicationChatTest"),
     "knowledge-ui" to ("dev.sayaya.magi.Knowledge" to "dev.sayaya.magi.KnowledgeTest"),
     "board-ui" to ("dev.sayaya.magi.Board" to "dev.sayaya.magi.BoardTest"),
     "map-ui" to ("dev.sayaya.magi.MapScreen" to "dev.sayaya.magi.MapTest"),
@@ -178,3 +179,6 @@ tasks.register<Copy>("assembleDemoMock") {
     from(project(":demo-ui").layout.buildDirectory.dir("gwt/war"))
     into(layout.buildDirectory.dir("demo-mock"))
 }
+
+project(":coding-agent-ui") { tasks.named<Jar>("jar") { from(project.the<SourceSetContainer>()["main"].allSource); duplicatesStrategy = DuplicatesStrategy.WARN } }
+project(":application-ui") { dependencies { add("implementation", project(":coding-agent-ui")) } }
