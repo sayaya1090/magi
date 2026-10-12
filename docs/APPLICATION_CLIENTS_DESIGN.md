@@ -128,3 +128,20 @@ Each manual must include real run commands, credential locations, session identi
 `clients/appbridge/real_daemon_test.go` connects the actual App, JSONL store, Unix-socket daemon, MCP Manager and HTTP server. It checks session creation, initialize guidance, target-bound tool calls, foreign-session rejection, tool reattachment on new session, and removal on disconnect. A test engine wrapper exposes the App session API to the daemon. This does not test CLI child-process startup, application accounts or model API execution. Run `go test -race ./clients/appbridge -count=1`.
 
 Shared business prompts live in `AgentKind.System()`. Application prompts combine common language/safety guidance, business identity and client constraints in that order. Mail and Slack receive the same communication guidance plus sending-confirmation or channel/thread rules. Coding retains the existing base system prompt.
+
+## 8. Verification record (2026-10-12)
+
+The implementation was cross-reviewed between client owners and by the integrating agent. Findings corrected include stale session calls, duplicate Figma ownership, helper credentials inherited by companions, mail body limits applied too late, MIME transport encoding, malformed GitHub responses, and application/coding slot switching.
+
+| Requirement | Verified evidence |
+|---|---|
+| Four application clients and bridge | `go test -race ./clients/appbridge ./clients/figma/... ./clients/mail/... ./clients/slack/... ./clients/github/... -count=1` passed after final prompt changes |
+| Role and actual execution gates | Application role tests, AgentKind tests and actual model-request MCP guidance tests passed |
+| Existing core/Office integration | Full tests for `internal/app`, `cmd/magi`, Office helper, daemon, fleet and architecture passed |
+| Browser clients | Figma, mail and GitHub Playwright passed; mocks are described in their manuals |
+| Existing VS Code browser | Full transcript harness: 7 test groups passed; axe checks reported zero violations |
+| Console app/coding separation | GWT compile and shell tests passed; compiled parent/children Playwright passed at 1440px and 390px |
+| Build and manuals | New client command builds and `go vet` passed; 14 design/manual files had no broken local links |
+| Coding worktrees | EN/KO design specifies creation, ownership, recovery and removal; no worktree service was implemented |
+
+Real Figma/Slack installation, real IMAP/SMTP delivery and a loaded Chrome extension with live GitHub credentials remain unverified. Account-based acceptance steps are in each client manual. No real mail or unrelated remote messages were sent during development. Updating an existing installation requires rebuilding the core/helpers and restarting old companions; committed source alone does not upgrade running processes.

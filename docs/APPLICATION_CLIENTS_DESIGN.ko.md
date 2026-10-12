@@ -128,3 +128,20 @@ Figma·메일·Slack·Office에는 워크트리 조작을 기본 제공하지 �
 `clients/appbridge/real_daemon_test.go`는 실제 App, JSONL 저장소, Unix 소켓 데몬, MCP Manager와 HTTP 서버를 연결합니다. 세션 생성, initialize 지침 수신, 대상에 귀속된 도구 호출, 다른 세션 호출 거절, 새 세션의 도구 재등록, disconnect 후 등록 해제를 검증합니다. 테스트용 엔진 래퍼는 App의 세션 API를 데몬에 제공합니다. CLI 자식 프로세스 기동·앱 계정·모델 API 실행을 검증한 것은 아닙니다. 실행 명령은 `go test -race ./clients/appbridge -count=1`입니다.
 
 업무 종류의 공통 프롬프트는 `AgentKind.System()`에 있습니다. 앱 프롬프트는 공통 안전·언어 지침, 업무 종류 지침, 클라이언트별 제약을 순서대로 조합합니다. 메일과 Slack은 같은 communication 지침을 받으며 각각 발송 확인과 채널·스레드 제약을 추가합니다. 코딩은 기존 기본 시스템 지침을 유지합니다.
+
+## 8. 검증 기록 (2026-10-12)
+
+클라이언트 담당자끼리와 통합 담당자가 교차 검토했습니다. 이전 세션 호출, Figma 중복 소유권, 컴패니언의 헬퍼 자격 증명 상속, 늦은 메일 크기 제한, MIME 전송 인코딩, 잘못된 GitHub 응답, 앱·코딩 슬롯 전환에서 발견한 결함을 수정했습니다.
+
+| 요구사항 | 확인한 근거 |
+|---|---|
+| 클라이언트 4종과 브리지 | 최종 프롬프트 변경 뒤 `go test -race ./clients/appbridge ./clients/figma/... ./clients/mail/... ./clients/slack/... ./clients/github/... -count=1` 통과 |
+| 역할과 실제 실행 제한 | 앱 역할·AgentKind·실제 모델 요청의 MCP 지침 도달 테스트 통과 |
+| 기존 코어·Office 연동 | internal/app, cmd/magi, Office helper, daemon, fleet, architecture 전체 테스트 통과 |
+| 브라우저 클라이언트 | Figma·메일·GitHub Playwright 통과. 모의 범위는 각 매뉴얼에 명시 |
+| 기존 VS Code 브라우저 | 전체 전사 하네스 7개 검사 묶음 통과, axe 위반 0건 |
+| 콘솔 앱·코딩 분리 | GWT 컴파일·셸 테스트 통과, 실제 부모·자식 산출물 Playwright 1440px·390px 통과 |
+| 빌드와 매뉴얼 | 신규 명령 빌드·go vet 통과, 설계·매뉴얼 14개 로컬 링크 오류 없음 |
+| 코딩 워크트리 | 생성·소유권·복구·정리의 한·영 설계 작성. 워크트리 서비스는 구현하지 않음 |
+
+실제 Figma·Slack 설치, IMAP/SMTP 전달, Chrome 확장의 실계정 GitHub 연결은 미검증입니다. 계정 인수 절차는 각 매뉴얼에 있습니다. 개발 중 실제 메일이나 무관한 원격 메시지는 보내지 않았습니다. 기존 설치에 반영하려면 코어·헬퍼를 다시 빌드하고 구형 컴패니언을 재시작해야 합니다. 소스 커밋만으로 실행 중인 프로세스가 갱신되지는 않습니다.
