@@ -3,6 +3,7 @@ package browser
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -67,7 +68,9 @@ func Publish(dir, mode string, record Runtime) (func(), error) {
 	return func() {
 		current, e := readRuntime(dir, mode)
 		if e == nil && current == record {
-			_ = os.Remove(path)
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				log.Printf("browser runtime cleanup: %v", err)
+			}
 		}
 	}, nil
 }

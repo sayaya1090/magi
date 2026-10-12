@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -118,11 +120,15 @@ func (b *Backend) receive(ctx context.Context) (response, error) {
 	case out := <-ch:
 		return out.r, out.e
 	case <-ctx.Done():
-		_ = b.cmd.Process.Signal(syscall.SIGTERM)
+		if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			log.Printf("headless termination: %v", err)
+		}
 		b.closed = true
 		return response{}, ctx.Err()
 	case <-timer.C:
-		_ = b.cmd.Process.Signal(syscall.SIGTERM)
+		if err := b.cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			log.Printf("headless termination: %v", err)
+		}
 		b.closed = true
 		return response{}, errors.New("headless call timed out; outcome uncertain, no retry")
 	}
@@ -179,21 +185,24 @@ func (b *Backend) Close() error {
 		return nil
 	}
 	b.reaped = true
+	var cleanupErr error
 	for _, child := range b.children {
-		_ = child.Close()
+		cleanupErr = errors.Join(cleanupErr, child.Close())
 	}
 	b.children = nil
-	_ = b.input.Close()
+	cleanupErr = errors.Join(cleanupErr, b.input.Close())
 	done := make(chan error, 1)
 	go func() { done <- b.cmd.Wait() }()
 	select {
 	case e := <-done:
 		b.closed = true
-		return e
+		return errors.Join(cleanupErr, e)
 	case <-time.After(5 * time.Second):
-		_ = b.cmd.Process.Kill()
+		if err := b.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
 		b.closed = true
-		return <-done
+		return errors.Join(cleanupErr, <-done)
 	}
 }
 

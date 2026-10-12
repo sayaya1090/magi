@@ -199,8 +199,8 @@ func (a *Access) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		}
 		expires, parseErr := time.Parse(time.RFC3339Nano, attached.ExpiresAt)
 		if parseErr != nil {
-			_ = post(ctx, record, "/api/browser/release", map[string]any{"lease": attached.Lease}, nil)
-			return browserResult(nil, errors.New("browser helper returned no valid expiry"))
+			releaseErr := post(ctx, record, "/api/browser/release", map[string]any{"lease": attached.Lease}, nil)
+			return browserResult(nil, errors.Join(errors.New("browser helper returned no valid expiry"), releaseErr))
 		}
 		state.lease = accessLease{record: record, id: attached.Lease, socket: socket, expires: expires}
 		state.connected = true

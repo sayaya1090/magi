@@ -587,7 +587,9 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 		case <-ctx.Done():
 			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = srv.Shutdown(shutdown)
+			if err := srv.Shutdown(shutdown); err != nil {
+				log.Printf("application bridge shutdown: %v", err)
+			}
 		case <-finished:
 		}
 	}()

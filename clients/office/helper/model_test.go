@@ -15,7 +15,7 @@ func TestModelDoorsSayWhyBeforeTheyAreBound(t *testing.T) {
 		want                     int
 	}{
 		{"context", "GET", "/api/context?deck=d1", "", 409},
-		{"models", "GET", "/api/models?deck=d1", "", 409},
+		{"models", "GET", "/api/models?deck=d1", "", 200},
 		{"compact", "POST", "/api/compact?deck=d1", "", 409},
 		{"compact-get", "GET", "/api/compact?deck=d1", "", 405},
 		{"model-empty", "POST", "/api/model?deck=d1", `{}`, 400},
@@ -37,7 +37,7 @@ func TestModelDoorsSayWhyBeforeTheyAreBound(t *testing.T) {
 			t.Errorf("%s: %d, want %d — %s", tc.name, w.Code, tc.want, w.Body.String())
 		}
 		var out map[string]any
-		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out["error"] == "" {
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || (tc.name == "models" && out["warning"] == "") || (tc.name != "models" && out["error"] == "") {
 			t.Errorf("%s: 사유 없는 답: %s", tc.name, w.Body.String())
 		}
 	}

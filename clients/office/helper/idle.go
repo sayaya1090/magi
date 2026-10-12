@@ -68,9 +68,15 @@ func (a *API) warmRunningCompanion() bool {
 	if _, mine := a.Work.Begin(); !mine {
 		return false
 	}
-	_, _ = SeedInstructions(a.App, a.ConfigDir)
-	_, _ = SeedSkills(a.App, a.ConfigDir)
-	_ = a.App.SeedLandingSocket(a.ConfigDir)
+	if _, err := SeedInstructions(a.App, a.ConfigDir); err != nil {
+		log.Printf("[%s] instructions preparation: %v", a.App.Key, err)
+	}
+	if _, err := SeedSkills(a.App, a.ConfigDir); err != nil {
+		log.Printf("[%s] skills preparation: %v", a.App.Key, err)
+	}
+	if err := a.App.SeedLandingSocket(a.ConfigDir); err != nil {
+		log.Printf("[%s] landing socket preparation: %v", a.App.Key, err)
+	}
 	go a.provision()
 	return true
 }

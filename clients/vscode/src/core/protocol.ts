@@ -166,6 +166,8 @@ export interface Response {
    */
   permission?: string;
   backend?: string;
+  /** Saved provider selected for this session; absent for the default backend. */
+  profile?: string;
   model?: string;
   /** `transcript`: one frame per event. */
   event?: Event;
