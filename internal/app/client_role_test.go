@@ -37,6 +37,22 @@ func TestApplicationRolesExcludeCodingAndOtherApplicationTools(t *testing.T) {
 	}
 }
 
+func TestClientKindCatalogHasUniqueValidRoles(t *testing.T) {
+	seen := map[ClientKind]bool{}
+	for _, kind := range ClientKinds() {
+		if seen[kind] || !kind.Valid() {
+			t.Fatalf("invalid catalog entry %q", kind)
+		}
+		seen[kind] = true
+		if kind != ClientCoding && kind != ClientGitHub && ClientRoleSystem(string(kind)) == "" {
+			t.Fatalf("application kind has no prompt: %q", kind)
+		}
+	}
+	if len(seen) != 8 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
+		t.Fatal("unknown kind allowed or catalog incomplete")
+	}
+}
+
 func TestApplicationRoleBlocksExecutionEvenWithPermissionAllow(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{ClientRole: "mail", Permission: "allow"})
 	ctx := context.Background()

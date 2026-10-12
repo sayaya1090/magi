@@ -38,6 +38,14 @@ Office는 새 컴패니언을 시작할 때 앱 역할을 전달합니다. 이�
 
 MCP initialize의 `instructions`는 실제 모델 요청의 후행 컨텍스트에 전달됩니다. 지침은 사용자 요청·앱 역할·승인 정책을 덮어쓰지 못하며, 도구가 분리되면 해당 지침도 제거됩니다. `internal/app/mcp_instructions_test.go`는 모델 요청 도달과 세션·역할 귀속을 검증합니다.
 
+### 타입 선언과 콘솔 연결 상태
+
+역할 값의 정본은 `internal/app/client_kind.go`의 `ClientKind` 상수 8개입니다. 유효성 검사와 프롬프트 선택은 이 선언을 사용하고, 알 수 없는 역할은 도구 실행을 허용하지 않습니다. 세션의 Agent(default/looking), 사용자가 작성한 Role 설명, 콘솔 화면 타입은 별개입니다.
+
+콘솔의 `CompanionType.java`에는 아직 코딩 타입 `1`만 등록돼 있습니다. 후속 구현은 `daemon.Identity` → `daemon.Info` → 로컬 roster·fleet 응답 → `FleetAgent.type` → `CompanionType` 순서로 연결합니다. 원격 cluster 전달은 서명 대상 JSON과 구버전 검증 호환성을 별도로 확인해야 합니다. 앱을 코딩 자식 모듈에 연결하면 파일·셸 UI를 잘못 노출하므로 공용 대화 기능을 제공하는 앱 자식 모듈부터 준비합니다.
+
+인수 조건은 역할별 실제 데몬 기록과 `/fleet` 타입 일치, 코딩 타입 `1` 호환 유지, 앱 화면의 파일·셸 기능 미노출, 미지 타입의 결정적 처리, 데스크톱·좁은 화면 Playwright 통과입니다. 현재 이 콘솔 통합은 미완료입니다.
+
 ## 2. 공통 연결 계층
 
 `clients/appbridge`는 로컬 HTTP와 데몬 제어 소켓 사이의 연결 계층입니다. Figma의 도구 호출은 이 계층을 거쳐 플러그인의 main sandbox로 전달합니다. 메일·Slack·GitHub의 API 작업은 각각의 헬퍼에서 수행합니다. 모델 API 자격 증명은 앱 UI에 전달하지 않습니다.

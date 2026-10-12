@@ -38,6 +38,14 @@ The six application roles share user-language responses, truthful reporting, ext
 
 MCP initialize `instructions` enters the model request's trailing context. It cannot override user instructions, application role or permission policy, and is removed when its tools detach. `internal/app/mcp_instructions_test.go` verifies actual model-request delivery and session/role isolation.
 
+### Type declaration and console integration status
+
+The role vocabulary is the eight `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
+
+`CompanionType.java` still registers only coding type `1`. Implement the chain `daemon.Identity` → `daemon.Info` → local roster/fleet response → `FleetAgent.type` → `CompanionType`. Remote cluster propagation needs a separate signed-JSON and older-verifier compatibility review. Applications must not use the coding child module, which exposes filesystem/shell UI; first provide an application child using shared conversation controls.
+
+Acceptance requires matching actual daemon records and `/fleet` types for each role, preserving coding type `1`, excluding filesystem/shell controls from application screens, deterministic unknown-type handling, and desktop/narrow-screen Playwright checks. This console integration is currently incomplete.
+
 ## 2. Shared connection layer
 
 `clients/appbridge` connects local HTTP clients to the daemon control socket. Figma calls pass through this layer into the plugin's main sandbox. Mail, Slack and GitHub APIs run in their respective helpers. Model API credentials never enter application UI code.
