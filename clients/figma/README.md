@@ -26,9 +26,9 @@ The layout follows the Office client: conversation controls above the transcript
 | Council | Save whether this document companion uses consensus review. Restarting the running companion is required to apply it. **Restart and reconnect** in settings can interrupt current work. |
 | Execution controls | Interrupt requests and compact context. |
 
-### Right panel and floating window
+### Left panel and floating window
 
-The default mode aligns the plugin on the right. It computes size and position from `figma.viewport` bounds and zoom, then calls `figma.ui.resize()` and `reposition()`. Width is capped at 400px and shrinks in small viewports. Floating-window mode stops automatic placement.
+The default mode aligns the plugin on the left. It computes size and position from `figma.viewport` bounds and zoom, then calls `figma.ui.resize()` and `reposition()`. Width is capped at 400px and shrinks in small viewports. Floating-window mode stops automatic placement.
 
 This does not dock into Figma's sidebar. The plugin overlays the canvas and does not reduce its editing width. The implementation follows the placement approach in [Parrot's public window manager](https://github.com/opral/parrot/blob/main/versions/dev/code.js), with a separate implementation. It checks for changes every 500ms instead of Parrot's 1ms interval and clears the timer when the plugin closes. Positioning and movement after dragging still need acceptance inside Figma.
 

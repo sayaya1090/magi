@@ -16,15 +16,15 @@ test('another page node and unexpected arguments cannot mutate',async()=>{const 
 test('mixed-font text loads each distinct font before editing',async()=>{const x=setup();x.node.fontName=x.f.mixed;x.node.getRangeAllFontNames=()=>[{family:'Inter',style:'Regular'},{family:'Inter',style:'Bold'},{family:'Inter',style:'Regular'}];await x.f.ui.onmessage(request);assert.deepEqual(x.fonts.map(f=>f.style),['Regular','Bold']);assert.equal(x.node.characters,'after');});
 test('missing fonts reject without mutation',async()=>{const x=setup();x.node.hasMissingFont=true;await x.f.ui.onmessage(request);assert.equal(x.node.characters,'before');assert.equal(x.fonts.length,0);assert.match(x.sent[0].error,/missing font/);});
 
-test('right panel tracks viewport size and zoom; window mode releases placement and close clears timer',async()=>{
+test('left panel tracks viewport size and zoom; window mode releases placement and close clears timer',async()=>{
  const sizes=[],positions=[],listeners={};let tick,cleared=false;
  const f={currentPage:{id:'page',selection:[],children:[]},viewport:{bounds:{x:100,y:200,width:1000,height:800},zoom:1},ui:{postMessage(){},resize:(...x)=>sizes.push(x),reposition:(...x)=>positions.push(x)},showUI(){},on:(name,fn)=>listeners[name]=fn};
  vm.runInNewContext(source,{figma:f,__html__:'',console,setInterval:fn=>{tick=fn;return 7},clearInterval:id=>{assert.equal(id,7);cleared=true}});
- assert.deepEqual(sizes.at(-1),[400,760]);assert.deepEqual(positions.at(-1),[700,200]);
+ assert.deepEqual(sizes.at(-1),[400,760]);assert.deepEqual(positions.at(-1),[100,200]);
  f.viewport.bounds.width=500;f.viewport.bounds.height=600;f.viewport.zoom=2;tick();
- assert.deepEqual(sizes.at(-1),[400,1160]);assert.deepEqual(positions.at(-1),[400,200]);
+ assert.deepEqual(sizes.at(-1),[400,1160]);assert.deepEqual(positions.at(-1),[100,200]);
  await f.ui.onmessage({kind:'window-mode',mode:'window'});const count=positions.length;
  f.viewport.bounds.x=500;tick();assert.equal(positions.length,count);
- await f.ui.onmessage({kind:'window-mode',mode:'right'});assert.ok(positions.length>count);
+ await f.ui.onmessage({kind:'window-mode',mode:'left'});assert.ok(positions.length>count);
  listeners.close();assert.equal(cleared,true);
 });
