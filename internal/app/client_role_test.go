@@ -12,7 +12,7 @@ import (
 )
 
 func TestApplicationRolesExcludeCodingAndOtherApplicationTools(t *testing.T) {
-	for _, role := range []string{"figma", "mail", "slack", "powerpoint", "word", "excel"} {
+	for _, role := range []string{"figma", "mail", "slack", "powerpoint", "word", "excel", "docker", "kubernetes"} {
 		if !ValidClientRole(role) || !strings.Contains(ClientRoleSystem(role), "not a coding agent") {
 			t.Fatalf("missing role contract: %s", role)
 		}
@@ -55,7 +55,7 @@ func TestClientKindCatalogHasUniqueValidRoles(t *testing.T) {
 			t.Fatalf("application kind has no prompt: %q", kind)
 		}
 	}
-	if len(seen) != 7 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
+	if len(seen) != 9 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
 		t.Fatal("unknown kind allowed or catalog incomplete")
 	}
 }

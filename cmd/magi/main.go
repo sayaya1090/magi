@@ -367,7 +367,7 @@ var visionOf func(string) bool
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
-		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "agent kind: coding|figma|mail|slack|powerpoint|word|excel (empty/github: legacy coding aliases)")
+		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "agent kind: coding|figma|mail|slack|powerpoint|word|excel|docker|kubernetes (empty/github: legacy coding aliases)")
 		output      = flag.String("output", "text", "output format: text|json")
 		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
 		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")

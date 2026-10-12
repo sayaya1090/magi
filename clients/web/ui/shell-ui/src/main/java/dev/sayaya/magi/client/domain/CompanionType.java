@@ -42,7 +42,8 @@ public final class CompanionType {
     public static final CompanionType PRESENTATION = application("presentation");
     public static final CompanionType DOCUMENT = application("document");
     public static final CompanionType SPREADSHEET = application("spreadsheet");
-    public static CompanionType[] all() { return new CompanionType[]{CODING, DESIGN, COMMUNICATION, PRESENTATION, DOCUMENT, SPREADSHEET}; }
+    public static final CompanionType OPERATIONS = application("operations");
+    public static CompanionType[] all() { return new CompanionType[]{CODING, DESIGN, COMMUNICATION, PRESENTATION, DOCUMENT, SPREADSHEET, OPERATIONS}; }
 
     /** 선언이 대는 타입, 없거나 모르면 기본(코딩 에이전트). */
     public static CompanionType byId(String id) {

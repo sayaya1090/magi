@@ -87,7 +87,7 @@ func randomID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 func New(c Config) (*Server, error) {
-	if c.App != "figma" && c.App != "mail" && c.App != "slack" && c.App != "github" {
+	if c.App != "figma" && c.App != "mail" && c.App != "slack" && c.App != "github" && c.App != "docker" && c.App != "kubernetes" {
 		return nil, errors.New("unknown application")
 	}
 	if c.Addr == "" {

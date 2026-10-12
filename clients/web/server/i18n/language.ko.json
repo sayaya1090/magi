@@ -619,5 +619,6 @@
   "type.communication": "커뮤니케이션 에이전트",
   "type.presentation": "프레젠테이션 에이전트",
   "type.document": "문서 에이전트",
+  "type.operations": "인프라·운영 에이전트",
   "type.spreadsheet": "스프레드시트 에이전트"
 }

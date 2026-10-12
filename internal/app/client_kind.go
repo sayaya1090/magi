@@ -12,10 +12,12 @@ const (
 	ClientPowerPoint ClientKind = "powerpoint"
 	ClientWord       ClientKind = "word"
 	ClientExcel      ClientKind = "excel"
+	ClientDocker     ClientKind = "docker"
+	ClientKubernetes ClientKind = "kubernetes"
 )
 
 func ClientKinds() []ClientKind {
-	return []ClientKind{ClientCoding, ClientFigma, ClientMail, ClientSlack, ClientPowerPoint, ClientWord, ClientExcel}
+	return []ClientKind{ClientCoding, ClientFigma, ClientMail, ClientSlack, ClientPowerPoint, ClientWord, ClientExcel, ClientDocker, ClientKubernetes}
 }
 
 // Empty and github were legacy spellings for coding; normalize at input boundaries.

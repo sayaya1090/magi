@@ -619,5 +619,6 @@
   "type.communication": "Communication agent",
   "type.presentation": "Presentation agent",
   "type.document": "Document agent",
+  "type.operations": "Operations agent",
   "type.spreadsheet": "Spreadsheet agent"
 }
