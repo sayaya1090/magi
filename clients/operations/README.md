@@ -15,3 +15,7 @@ Restart defaults off. Enable proposals with `-enable-restart`. Docker restarts o
 propose_restart creates a five-minute proposal without executing. The UI shows environment, resource, interruption impact and recovery limits. The approval button and confirmation dialog submit a one-use ID. Denial, expiry and reuse never execute. Core permission=allow cannot bypass this helper confirmation.
 
 Approval runs Docker restart then State inspection, or Kubernetes rollout restart then rollout status (60 seconds), with a 90-second overall limit. Docker running/health or Kubernetes rollout completion is checked; service-level response tests are separate. Mutation success and verification failure are distinct. Failed/timed-out commands report uncertain completion, with no automatic retry or rollback. Pending approvals exist only in process memory.
+
+## Live Docker verification (2026-10-12)
+
+After backing up and repairing malformed Podman registry configuration, Docker API 5.5.2 responded. `MAGI_OPERATIONS_LIVE_DOCKER=1 go test ./clients/operations -run TestLiveDocker -count=1 -v` verified status, stdout/stderr logs, approved restart and post-restart inspection on an isolated container with no network or volumes (PASS, 20.31 seconds). Fixture removal was confirmed; existing workloads were unchanged. Kubernetes live acceptance is still pending.

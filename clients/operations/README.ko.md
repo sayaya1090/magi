@@ -15,3 +15,7 @@
 모델의 propose_restart 호출은 실행하지 않고 5분 수명의 제안을 만듭니다. 운영 화면은 환경·대상·중단 영향·복구 한계를 표시하고, 재시작 승인 버튼과 확인 대화상자를 거쳐 일회용 승인 ID를 제출합니다. 거부·만료·재사용은 실행하지 않습니다. core permission=allow도 이 확인을 우회하지 못합니다.
 
 승인 후 Docker restart와 State 조회 또는 Kubernetes rollout restart와 rollout status(60초)를 실행합니다. 전체 제한은 90초입니다. Docker의 running/health 상태나 Kubernetes rollout 완료만 확인하며 서비스 수준 응답 검증은 별도입니다. 변경 성공과 상태 검증 실패를 구분하고, 명령 실패·시간 초과는 결과 불확실로 표시합니다. 자동 재시도·자동 rollback은 하지 않습니다. 승인 대기 목록은 프로세스 메모리에만 있으며 재시작하면 사라집니다.
+
+## Docker 실물 검증 (2026-10-12)
+
+손상된 Podman 레지스트리 설정을 백업·복구한 뒤 Docker API 5.5.2가 정상 응답했습니다. `MAGI_OPERATIONS_LIVE_DOCKER=1 go test ./clients/operations -run TestLiveDocker -count=1 -v`로 네트워크·볼륨 없는 테스트 컨테이너의 상태, stdout/stderr 로그, 승인 재시작과 상태 확인을 검증했습니다(20.31초 PASS). 테스트 컨테이너를 제거한 것도 확인했습니다. 기존 워크로드는 변경하지 않았습니다. Kubernetes 실물 검증은 아직 미수행입니다.
