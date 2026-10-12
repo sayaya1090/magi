@@ -1,3 +1,4 @@
+import { mountProviderProfiles } from './ui/providerProfiles.js';
 // 조립하는 자리. **여기만 무엇이 무엇인지 안다** — 안쪽 층은 서로를 인터페이스로만 안다.
 import { Composer } from './domain/Composer.js';
 import { QuoteSelection } from './usecase/QuoteSelection.js';
@@ -70,6 +71,7 @@ async function boot() {
   // (clients/office/helper), 이 창의 문은 오리진에 그 접두를 붙인 자리다. 접두는 부팅 값이 준다.
   const origin = real ? location.origin + (boot.base ?? '') : undefined;
   const api = real ? new HelperApi({ token: boot.token, origin }) : null;
+  mountProviderProfiles({ api });
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
   // **이 창이 손인가, 화면인가.** 바닥(PowerPointApi 1.8) 아래 호스트에서는 화면만 맡는다 —
   // 편집은 COM 손이 하고, 이 창이 손으로 붙으면 못 하는 호출을 받아 날 오류를 낸다. 실물

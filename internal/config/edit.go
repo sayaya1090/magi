@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -110,6 +111,55 @@ func QuotedName(s string) bool {
 // use SetRawKey for those.
 func SetKey(path, section, key, value string) error {
 	return setKey(path, section, key, value, true)
+}
+
+// SetKeysChecked stages a group of string-key edits, validates the staged config,
+// and publishes it with one atomic replacement. Readers never see a partial profile.
+func SetKeysChecked(path, section string, values map[string]string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	setKeyMu.Lock()
+	defer setKeyMu.Unlock()
+	return withFileLock(path, func() error {
+		before, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if _, err := Load(filepath.Dir(path)); err != nil {
+			return err
+		}
+		stage, err := os.MkdirTemp(filepath.Dir(path), ".config-edit-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(stage)
+		stagedPath := filepath.Join(stage, "config.toml")
+		if err := os.WriteFile(stagedPath, before, 0o600); err != nil {
+			return err
+		}
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			if !BareName(key) {
+				return fmt.Errorf("invalid config key")
+			}
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if err := setKeyLocked(stagedPath, section, key, values[key], true); err != nil {
+				return err
+			}
+		}
+		if _, err := Load(stage); err != nil {
+			return err
+		}
+		after, err := os.ReadFile(stagedPath)
+		if err != nil {
+			return err
+		}
+		return atomicfile.Write(path, after, 0o600)
+	})
 }
 
 // SetRawKey is SetKey for a value that is not a string: `enabled = true`, not

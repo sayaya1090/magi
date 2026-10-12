@@ -50,3 +50,5 @@
 
 
 브라우저 협업: [필요 시 직접 연결과 헤드리스 테스트](BROWSER_COLLABORATION_DESIGN.ko.md).
+
+Office: [프로바이더 엔드포인트·키 관리](OFFICE_PROVIDER_MANAGEMENT.ko.md).

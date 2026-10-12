@@ -360,6 +360,7 @@ func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/council", a.guard(a.council))
 	mux.HandleFunc("/api/context", a.guard(a.contextState))
 	mux.HandleFunc("/api/models", a.guard(a.models))
+	mux.HandleFunc("/api/provider-profiles", a.guard(a.providerProfiles))
 	mux.HandleFunc("/api/model", a.guard(a.setModel))
 	mux.HandleFunc("/api/compact", a.guard(a.compact))
 	mux.HandleFunc("/api/instructions", a.guard(a.instructions))

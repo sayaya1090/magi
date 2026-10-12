@@ -50,3 +50,5 @@ The `docs/proposals/` directory contains dated design proposals from specific de
 
 
 Browser cooperation: [on-demand direct access and headless testing](BROWSER_COLLABORATION_DESIGN.md).
+
+Office: [provider endpoint and key management](OFFICE_PROVIDER_MANAGEMENT.md).

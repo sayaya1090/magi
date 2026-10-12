@@ -112,6 +112,8 @@ export class HelperApi {
   /** 창의 구성 — 얼마나·무엇으로 찼나. 헬퍼가 데몬의 `context` 문을 두드린다. */
   context() { return this.#send('/api/context', { method: 'GET' }); }
   /** 고를 수 있는 프로바이더·모델과 지금 것. */
+  providerProfiles() { return this.#send('/api/provider-profiles', { method: 'GET' }); }
+  setProviderProfile(body) { return this.#send('/api/provider-profiles', { body }); }
   models() { return this.#send('/api/models', { method: 'GET' }); }
   /** 백엔드(base)와 모델(model)을 바꾼다 — 다음 턴부터. 둘 중 하나만 보내도 된다. */
   setModel({ base = '', model = '' } = {}) { return this.#send('/api/model', { body: { base, model } }); }
