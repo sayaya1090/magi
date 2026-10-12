@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/sayaya1090/magi/clients/appbridge"
 	"github.com/sayaya1090/magi/clients/operations"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -29,6 +31,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	s.Mux.Handle("/api/operations/config", s.Auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "GET required", 405)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"target": c.Target(), "resources": c.Resources})
+	})))
+	s.Mux.Handle("/", a.UI())
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	fmt.Println("Magi operations helper: 127.0.0.1:8738; target:", c.Target())
