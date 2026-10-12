@@ -3277,3 +3277,15 @@ func serveMCP(to, as string, store port.Store, plat *platform.OS, wd string,
 	}
 	return 0
 }
+
+func (d daemonEngine) UseProfile(sid session.SessionID, name string) error {
+	cfg, err := config.Load(d.configDir)
+	if err != nil {
+		return fmt.Errorf("could not load saved provider profiles")
+	}
+	p, ok := cfg.LLM.Profiles[name]
+	if !ok {
+		return fmt.Errorf("saved provider profile not found")
+	}
+	return d.App.ApplySessionProfile(sid, app.ProfileDef{Name: name, BaseURL: p.BaseURL, APIKey: p.APIKey, Model: p.Model, Headers: p.Headers})
+}

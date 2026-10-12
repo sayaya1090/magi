@@ -45,13 +45,28 @@ func (a *API) providerProfiles(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join(a.ConfigDir, "config.toml")
 		var err error
 		switch in.Op {
+		case "apply":
+			bridge := a.chat(r)
+			if bridge == nil {
+				writeStatus(w, 409, map[string]any{"error": "먼저 대화를 선택해 주세요."})
+				return
+			}
+			if socket, sid, _ := bridge.Bound(); socket == "" || sid == "" {
+				writeStatus(w, 409, map[string]any{"error": "먼저 대화를 선택해 주세요."})
+				return
+			}
+			if err := bridge.UseProfile(in.Name); err != nil {
+				writeStatus(w, 409, map[string]any{"error": "프로바이더를 적용하지 못했습니다. 진행 중인 응답이 끝났는지와 저장된 설정을 확인해 주세요."})
+				return
+			}
+			note = "현재 대화에 적용했습니다. 다음 요청부터 저장된 엔드포인트, 키, 모델을 함께 사용합니다."
 		case "delete":
 			if _, loadErr := config.Load(a.ConfigDir); loadErr != nil {
 				writeStatus(w, 500, map[string]any{"error": "설정 파일을 읽지 못했습니다. 파일 형식을 확인해 주세요."})
 				return
 			}
 			err = config.RemoveSection(path, section)
-			note = "프로필을 삭제했습니다. 실행 중인 대화에는 적용되지 않으며, 다음 데몬 시작부터 반영됩니다."
+			note = "프로필을 삭제했습니다. 이미 적용한 대화는 유지됩니다."
 		case "save":
 			endpoint := strings.TrimSpace(in.BaseURL)
 			u, e := url.Parse(endpoint)
@@ -71,7 +86,7 @@ func (a *API) providerProfiles(w http.ResponseWriter, r *http.Request) {
 				values["api_key"] = key
 			}
 			err = config.SetKeysChecked(path, section, values)
-			note = "프로필을 저장했습니다. 실행 중인 모델은 바뀌지 않습니다. 다음 데몬 시작부터 사용할 수 있습니다."
+			note = "프로필을 저장했습니다. 실행 중인 모델은 바뀌지 않습니다. 현재 대화에 적용 버튼으로 사용할 수 있습니다."
 		default:
 			writeStatus(w, 400, map[string]any{"error": "저장 또는 삭제 작업을 지정해 주세요."})
 			return
@@ -91,5 +106,5 @@ func (a *API) providerProfiles(w http.ResponseWriter, r *http.Request) {
 		profiles = append(profiles, providerProfile{Name: name, BaseURL: p.BaseURL, Model: p.Model, HasKey: strings.TrimSpace(p.APIKey) != ""})
 	}
 	sort.Slice(profiles, func(i, j int) bool { return profiles[i].Name < profiles[j].Name })
-	writeJSON(w, map[string]any{"profiles": profiles, "applicability": "next-start", "note": note})
+	writeJSON(w, map[string]any{"profiles": profiles, "applicability": "session-apply", "note": note})
 }

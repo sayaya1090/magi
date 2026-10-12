@@ -41,7 +41,7 @@ func TestProviderProfilesPersistenceAndSecretBoundaries(t *testing.T) {
 	}
 	get := httptest.NewRecorder()
 	a.providerProfiles(get, httptest.NewRequest("GET", "/api/provider-profiles", nil))
-	if strings.Contains(get.Body.String(), "top-secret") || !strings.Contains(get.Body.String(), "next-start") {
+	if strings.Contains(get.Body.String(), "top-secret") || !strings.Contains(get.Body.String(), "session-apply") {
 		t.Fatal(get.Body)
 	}
 	before, _ := os.ReadFile(path)
@@ -88,5 +88,24 @@ func TestProviderProfileRouteRequiresAuthentication(t *testing.T) {
 		if w.Code == 200 {
 			t.Fatal("unauthenticated route accepted")
 		}
+	}
+}
+
+func TestProviderProfileApplyNeedsBoundConversation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("model = \"original\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	a := &API{ConfigDir: dir}
+	w := httptest.NewRecorder()
+	a.providerProfiles(w, httptest.NewRequest("POST", "/api/provider-profiles", strings.NewReader(`{"op":"apply","name":"saved"}`)))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("unbound apply returned %d", w.Code)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("apply mutated configuration")
 	}
 }

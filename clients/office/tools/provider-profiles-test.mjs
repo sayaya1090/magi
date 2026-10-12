@@ -16,7 +16,7 @@ try {
       const profiles = [{ name: 'saved', baseUrl: 'https://example.com/v1', model: 'model-a', hasKey: true }];
       mountProviderProfiles({ api: {
         providerProfiles: async () => ({ profiles }),
-        setProviderProfile: async body => { requests.push({ ...body }); if (window.fail) throw new Error('secret-should-not-render'); return { profiles: body.op === 'delete' ? [] : [{ name: body.name, baseUrl: body.baseUrl, model: body.model, hasKey: !body.clearKey }] }; },
+        setProviderProfile: async body => { requests.push({ ...body }); if (window.fail) throw new Error('secret-should-not-render'); if (body.op === 'apply') return { note: '현재 대화에 적용했습니다.' }; return { profiles: body.op === 'delete' ? [] : [{ name: body.name, baseUrl: body.baseUrl, model: body.model, hasKey: !body.clearKey }] }; },
       } });
     });
     await page.locator('#manage-providers').click();
@@ -25,6 +25,9 @@ try {
     assert.equal(await page.locator('#profile-key').getAttribute('type'), 'password');
     await page.locator('#profile-save').click();
     await page.waitForFunction(() => document.querySelector('#profile-status').textContent.includes('저장했습니다'));
+    await page.waitForFunction(() => !document.querySelector('#provider-profiles-dialog').open);
+    await page.locator('#manage-providers').click();
+    await page.locator('#profile-list').selectOption('saved');
     assert.equal((await page.evaluate(() => requests.at(-1))).apiKey, '');
     assert.equal(await page.locator('#profile-name').getAttribute('readonly'), '');
     await page.locator('#profile-key').fill('new-secret');
@@ -32,29 +35,46 @@ try {
     await page.waitForFunction(() => requests.length === 2 && !document.querySelector('#profile-save').disabled);
     assert.equal((await page.evaluate(() => requests.at(-1))).apiKey, 'new-secret');
     assert.equal(await page.locator('#profile-key').inputValue(), '');
+    await page.waitForFunction(() => !document.querySelector('#provider-profiles-dialog').open);
+    await page.locator('#manage-providers').click();
+    await page.locator('#profile-list').selectOption('saved');
     await page.locator('#profile-clear-key').check();
     await page.locator('#profile-save').click();
     await page.waitForFunction(() => requests.length === 3 && !document.querySelector('#profile-save').disabled);
     assert.equal((await page.evaluate(() => requests.at(-1))).clearKey, true);
+    await page.waitForFunction(() => !document.querySelector('#provider-profiles-dialog').open);
+    await page.locator('#manage-providers').click();
+    await page.locator('#profile-list').selectOption('saved');
+    await page.locator('#profile-apply').click();
+    await page.waitForFunction(() => requests.length === 4 && !document.querySelector('#profile-save').disabled);
+    assert.deepEqual(await page.evaluate(() => requests.at(-1)), { op: 'apply', name: 'saved' });
+    await page.locator('#profile-endpoint').fill('https://changed.example/v1');
+    await page.locator('#profile-apply').click();
+    assert.equal(await page.evaluate(() => requests.length), 4);
+    await page.locator('#profile-list').selectOption('');
+    await page.locator('#profile-list').selectOption('saved');
     await page.evaluate(() => window.fail = true);
     await page.locator('#profile-key').fill('failed-secret');
     await page.locator('#profile-save').click();
     await page.waitForFunction(() => document.querySelector('#profile-status').textContent.includes('저장하지 못했습니다'));
     assert.equal(await page.locator('#profile-key').inputValue(), '');
+    assert.equal(await page.locator('#provider-profiles-dialog').evaluate(d => d.open), true);
     assert.ok(!(await page.locator('body').innerText()).includes('secret'));
     await page.evaluate(() => window.fail = false);
     page.once('dialog', d => d.dismiss()); await page.locator('#profile-delete').click();
-    assert.equal(await page.evaluate(() => requests.length), 4);
+    assert.equal(await page.evaluate(() => requests.length), 5);
     page.once('dialog', d => d.accept()); await page.locator('#profile-delete').click();
-    await page.waitForFunction(() => requests.length === 5 && !document.querySelector('#profile-save').disabled);
+    await page.waitForFunction(() => requests.length === 6 && !document.querySelector('#profile-save').disabled);
     assert.equal((await page.evaluate(() => requests.at(-1))).op, 'delete');
     await page.locator('#profile-list').selectOption('');
     await page.locator('#profile-name').fill('new');
     await page.locator('#profile-endpoint').fill('https://new.example/v1');
     await page.locator('#profile-model').fill('new-model');
     await page.locator('#profile-save').click();
-    await page.waitForFunction(() => requests.length === 6 && !document.querySelector('#profile-save').disabled);
+    await page.waitForFunction(() => requests.length === 7 && !document.querySelector('#profile-save').disabled);
     assert.equal((await page.evaluate(() => requests.at(-1))).name, 'new');
+    await page.waitForFunction(() => !document.querySelector('#provider-profiles-dialog').open);
+    await page.locator('#manage-providers').click();
     const box = await page.locator('#provider-profiles-dialog').boundingBox(); assert.ok(box.width <= 320);
     await page.locator('#profile-key').fill('close-secret');
     await page.keyboard.press('Escape');

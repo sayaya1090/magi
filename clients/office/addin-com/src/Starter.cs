@@ -158,6 +158,7 @@ public sealed class Starter : IDTExtensibility2, ICustomQueryInterface
         using var only = new Mutex(false, @"Local\magi-office-start");
         var mine = false;
         try { mine = only.WaitOne(TimeSpan.FromSeconds(20)); } catch (AbandonedMutexException) { mine = true; }
+        if (!mine) { Log("다른 Office 창에서 헬퍼를 시작하는 중이라 중복 실행하지 않습니다"); return; }
         try
         {
             if (PortIsOpen(HelperPort)) return;
@@ -170,8 +171,8 @@ public sealed class Starter : IDTExtensibility2, ICustomQueryInterface
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            Process.Start(psi);
-            Log($"헬퍼를 띄웠습니다: {exe} {psi.Arguments}");
+            using var child = Process.Start(psi);
+            Log($"헬퍼를 띄웠습니다: pid={child?.Id} parent={Process.GetCurrentProcess().Id} {exe} {psi.Arguments}");
             // 프로세스 기동 완료를 최대 5초간 대기합니다.
             for (var i = 0; i < 20 && !PortIsOpen(HelperPort); i++) Thread.Sleep(250);
         }
@@ -258,7 +259,7 @@ public sealed class Starter : IDTExtensibility2, ICustomQueryInterface
             var here = HereDir();
             if (here is null) return;
             File.AppendAllText(Path.Combine(here, "start.log"),
-                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{Process.GetCurrentProcess().ProcessName}] {what}{Environment.NewLine}", Encoding.UTF8);
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{Process.GetCurrentProcess().ProcessName} pid={Process.GetCurrentProcess().Id}] {what}{Environment.NewLine}", Encoding.UTF8);
         }
         catch { /* 진단 로깅 실패 시 무시 */ }
     }

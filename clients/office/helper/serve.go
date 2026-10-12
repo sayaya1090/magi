@@ -128,7 +128,7 @@ func Run(args []string, out, log io.Writer) int {
 		served = append(served, sv)
 		fmt.Fprintf(log, "%s: 애드인 %s · MCP %s · 소스 %s\n", app.Product, app.PageURL(*port), app.MCPURL(*port, ""), roots[app.Key])
 	}
-	fmt.Fprintf(log, "magi office %s\n", version.Version)
+	fmt.Fprintf(log, "magi office %s pid=%d parent=%d config=%s sockets=%s\n", version.Version, os.Getpid(), os.Getppid(), dir, daemon.SocketDir(dir))
 	fmt.Fprintln(log, CertInstallHint(dir))
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}

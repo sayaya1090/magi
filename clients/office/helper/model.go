@@ -38,10 +38,11 @@ func (b *Bridge) Context() (app.ContextState, error) {
 
 // Models 는 데몬의 백엔드가 지금 댈 수 있는 모델 이름들.
 func (b *Bridge) Models() ([]string, error) {
+	_, sid, _ := b.Bound()
 	var names []string
 	err := b.call(func(cl *daemon.Client) error {
 		var err error
-		names, err = cl.Models()
+		names, err = cl.SessionModels(session.SessionID(sid))
 		return err
 	})
 	return names, err
@@ -50,6 +51,12 @@ func (b *Bridge) Models() ([]string, error) {
 // UseBackend 는 데몬의 백엔드를 다른 심으로 돌린다. 명단 검사는 부르는 쪽(handler)이 한다.
 func (b *Bridge) UseBackend(base string) error {
 	return b.call(func(cl *daemon.Client) error { return cl.UseBackend(base) })
+}
+
+// UseProfile applies a saved profile to the bound session without exposing its key.
+func (b *Bridge) UseProfile(name string) error {
+	_, sid, _ := b.Bound()
+	return b.call(func(cl *daemon.Client) error { return cl.UseProfile(session.SessionID(sid), name) })
 }
 
 // SetModel 은 붙어 있는 대화의 모델을 바꾼다.
@@ -123,6 +130,7 @@ func (a *API) models(w http.ResponseWriter, r *http.Request) {
 	if st, err := a.chat(r).Status(); err == nil {
 		out["backend"] = st["backend"]
 		out["model"] = st["model"]
+		out["profile"] = st["profile"]
 		current, _ = st["backend"].(string)
 	} else {
 		out["warning"] = err.Error()
@@ -158,6 +166,13 @@ func (a *API) setModel(w http.ResponseWriter, r *http.Request) {
 	}
 	did := []string{}
 	if in.Base != "" {
+		if st, err := a.chat(r).Status(); err != nil {
+			writeStatus(w, 502, map[string]any{"error": "현재 프로바이더를 확인하지 못했습니다. 다시 시도해 주세요."})
+			return
+		} else if profile, _ := st["profile"].(string); profile != "" {
+			writeStatus(w, 409, map[string]any{"error": "저장된 프로필을 사용 중입니다. 프로바이더 관리에서 다른 프로필을 선택해 현재 대화에 적용해 주세요."})
+			return
+		}
 		known := false
 		current := ""
 		if st, err := a.chat(r).Status(); err == nil {

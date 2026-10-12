@@ -74,9 +74,9 @@ func (a *App) agentFor(s session.Session) AgentSpec {
 	// WritingRun. The narrowing is enforced twice over, at advertising and at execution, by the
 	// same gate a spawned child's allowlist goes through.
 	if s.Agent == LookingAgent {
-		return AgentSpec{Name: LookingAgent, System: a.cfg.System, Tools: ReadOnlyToolNames()}
+		return AgentSpec{Name: LookingAgent, System: a.cfg.System, Tools: ReadOnlyToolNames(), Provider: a.sessionProviderRoute(s.ID)}
 	}
-	return AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
+	return AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System, Provider: a.sessionProviderRoute(s.ID)}
 }
 
 // LookingAgent is the role of a session that may only read.
@@ -99,6 +99,11 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 		a.stateLocked(sid).meta = s
 	}
 	p := a.cfg.RoutePersister
+	runtimeProfile := false
+	if st, ok := a.stateIf(sid); ok && st.providerRoute != "" {
+		p = nil
+		runtimeProfile = true
+	}
 	a.mu.Unlock()
 	if p != nil {
 		// Best-effort, and said: a choice that was not saved comes back as the old model on the next
@@ -123,7 +128,7 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	// for the read-only paths that never write a log, and SetModel was safe in those before this —
 	// a routing change is not a reason for the process to die.
 	d, _ := json.Marshal(event.ModelChangedData{Model: modelID})
-	if a.store == nil {
+	if a.store == nil || runtimeProfile {
 		a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
 		return
 	}
@@ -367,4 +372,81 @@ func (a *App) providerFor(spec AgentSpec) port.LLMProvider {
 		}
 	}
 	return a.MeterProvider(a.llm)
+}
+
+// ApplySessionProfile replaces endpoint, credentials and model as one idle-session operation.
+// It never redirects the shared default provider or writes secrets into events.
+func (a *App) ApplySessionProfile(sid session.SessionID, p ProfileDef) error {
+	if strings.TrimSpace(p.BaseURL) == "" || strings.TrimSpace(p.Model) == "" {
+		return fmt.Errorf("profile requires an endpoint and model")
+	}
+	if a.cfg.NewProvider == nil {
+		return fmt.Errorf("profile switching is unavailable")
+	}
+	provider := a.cfg.NewProvider(p)
+	if provider == nil {
+		return fmt.Errorf("profile provider could not be created")
+	}
+	a.mu.Lock()
+	s, ok := a.metaLocked(sid)
+	if !ok {
+		a.mu.Unlock()
+		return fmt.Errorf("conversation not found")
+	}
+	st := a.stateLocked(sid)
+	if st.cancel != nil {
+		a.mu.Unlock()
+		return fmt.Errorf("wait for the current turn to finish before changing provider")
+	}
+	key := "session:" + string(sid)
+	if a.providers == nil {
+		a.providers = map[string]port.LLMProvider{}
+	}
+	a.providers[key] = provider
+	st.providerRoute = key
+	st.providerName = p.Name
+	st.providerBase = p.BaseURL
+	s.Model = session.ModelRef{Provider: "openai", Model: p.Model}
+	st.meta = s
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.ModelChangedData{Model: p.Model})
+	// Runtime provider credentials are not restored on restart, so the paired model
+	// must stay transient too. Persisting only that model would route it to the default backend.
+	a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
+	return nil
+}
+func (a *App) sessionProviderRoute(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.providerRoute
+	}
+	return ""
+}
+
+// SessionBackend reports the endpoint selected for this conversation.
+func (a *App) SessionBackend(sid session.SessionID) (string, string) {
+	a.mu.Lock()
+	if st, ok := a.stateIf(sid); ok && st.providerRoute != "" {
+		base, name := st.providerBase, st.providerName
+		a.mu.Unlock()
+		return base, name
+	}
+	a.mu.Unlock()
+	return a.Backend(), ""
+}
+
+// ListSessionModels asks the selected raw provider, preserving optional model-list capability.
+func (a *App) ListSessionModels(ctx context.Context, sid session.SessionID) ([]string, error) {
+	a.mu.Lock()
+	p := a.llm
+	if st, ok := a.stateIf(sid); ok && st.providerRoute != "" {
+		p = a.providers[st.providerRoute]
+	}
+	a.mu.Unlock()
+	l, ok := p.(port.ModelLister)
+	if !ok {
+		return nil, port.ErrCapabilityAbsent
+	}
+	return l.ListModels(ctx)
 }

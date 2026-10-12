@@ -957,15 +957,15 @@ export function modelPicker(m) {
   const on = providers.find((p) => p.base === backend);
   const provOptions = providers.map((p) => ({ value: p.base, text: p.name || p.base, selected: p.base === backend }));
   if (backend && !on) provOptions.unshift({ value: backend, text: `${backend} (명단 밖)`, selected: true });
-  let names = (on && Array.isArray(on.models) && on.models.length > 0) ? on.models : (Array.isArray(m?.models) ? m.models : []);
+  let names = (!m?.profile && on && Array.isArray(on.models) && on.models.length > 0) ? on.models : (Array.isArray(m?.models) ? m.models : []);
   names = [...new Set(names)];
   if (current && !names.includes(current)) names = [current, ...names];
   const modelOptions = names.map((n) => ({ value: n, text: n, selected: n === current }));
   const empty = provOptions.length === 0 && modelOptions.length === 0;
   return {
     providers: provOptions, models: modelOptions, empty,
-    note: empty ? (m?.warning || m?.error || '고를 것이 없습니다 — 답하는 프로바이더가 없습니다') : (m?.warning || ''),
-    title: `${on?.name || backend || '백엔드 모름'} · ${current || '모델 모름'}`,
+    note: empty ? (m?.warning || m?.error || '고를 것이 없습니다 — 답하는 프로바이더가 없습니다') : (m?.warning || (m?.profile ? `저장된 프로필: ${m.profile} · 다른 프로필은 프로바이더 관리에서 적용합니다` : '')),
+    title: `${m?.profile || on?.name || backend || '백엔드 모름'} · ${current || '모델 모름'}`,
   };
 }
 

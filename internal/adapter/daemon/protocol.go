@@ -716,6 +716,7 @@ type Response struct {
 	// Backend is the base URL its requests go to now — a runtime fact for the same reason
 	// Permission is one, and read by the console to say which provider is in use.
 	Backend string `json:"backend,omitempty"`
+	Profile string `json:"profile,omitempty"`
 	// Model is the model this conversation is on, on the status answer for the reason Permission
 	// is there: it changes at runtime, and a viewer that offers to change it must show what from.
 	Model string `json:"model,omitempty"`
@@ -1118,6 +1119,7 @@ type Status struct {
 	Permission string
 	// Backend is the base URL its LLM requests go to now.
 	Backend string
+	Profile string
 	// User is what it calls the person, when a plugin has renamed them.
 	User string
 	// Model is the model the conversation is on now — the same kind of runtime fact as the two
@@ -1176,4 +1178,15 @@ type ConditionalToolServerHost interface {
 // request that names paths to such an engine gets the staged draft, never an error.
 type PathDrafter interface {
 	DraftCommitOf(ctx context.Context, rules string, paths []string) (string, error)
+}
+
+// ProfileSelector applies a saved profile without exposing its credentials.
+type ProfileSelector interface {
+	UseProfile(session.SessionID, string) error
+}
+
+// SessionProviderTeller describes the selected provider without credential exposure.
+type SessionProviderTeller interface {
+	SessionBackend(session.SessionID) (string, string)
+	ListSessionModels(context.Context, session.SessionID) ([]string, error)
 }

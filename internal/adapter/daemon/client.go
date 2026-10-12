@@ -655,7 +655,7 @@ func (c *Client) Status(sid string) (Status, error) {
 		return Status{}, err
 	}
 	return Status{Asking: resp.Waiting, Doing: resp.Doing, Permission: resp.Permission,
-		Backend: resp.Backend, User: resp.User, Model: resp.Model, Council: resp.Council}, nil
+		Backend: resp.Backend, Profile: resp.Profile, User: resp.User, Model: resp.Model, Council: resp.Council}, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
@@ -1060,4 +1060,23 @@ func (c *Client) Raw(line []byte) ([]byte, error) {
 	out := make([]byte, len(c.sc.Bytes()))
 	copy(out, c.sc.Bytes())
 	return out, nil
+}
+
+func (c *Client) UseProfile(sid session.SessionID, name string) error {
+	return c.call(Request{Method: "use-profile", Session: string(sid), Name: name})
+}
+
+// SessionModels lists models of the backend selected for one conversation.
+func (c *Client) SessionModels(sid session.SessionID) ([]string, error) {
+	resp, err := c.exchange(Request{Method: "models", Session: string(sid)})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Err != "" {
+		return nil, errors.New(resp.Err)
+	}
+	if resp.Why != "" {
+		return nil, errors.New(resp.Why)
+	}
+	return resp.Models, nil
 }

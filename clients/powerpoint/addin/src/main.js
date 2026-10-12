@@ -71,7 +71,6 @@ async function boot() {
   // (clients/office/helper), 이 창의 문은 오리진에 그 접두를 붙인 자리다. 접두는 부팅 값이 준다.
   const origin = real ? location.origin + (boot.base ?? '') : undefined;
   const api = real ? new HelperApi({ token: boot.token, origin }) : null;
-  mountProviderProfiles({ api });
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
   // **이 창이 손인가, 화면인가.** 바닥(PowerPointApi 1.8) 아래 호스트에서는 화면만 맡는다 —
   // 편집은 COM 손이 하고, 이 창이 손으로 붙으면 못 하는 호출을 받아 날 오류를 낸다. 실물
@@ -218,6 +217,7 @@ async function boot() {
     if (!real) { view.modelPicker({ providers: [], models: [], warning: '브라우저 목업에서는 고를 것이 없습니다' }); return; }
     try { view.modelPicker(await api.models()); } catch (e) { view.modelPicker({ providers: [], models: [], error: e?.message ?? String(e) }); }
   };
+  mountProviderProfiles({ api, onSaved: loadModels });
 
   if (real) {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).

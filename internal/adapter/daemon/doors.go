@@ -489,6 +489,9 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 		resp.Permission = c.Permission()
 		resp.Backend = c.Backend()
 	}
+	if c, ok := eng.(SessionProviderTeller); ok {
+		resp.Backend, resp.Profile = c.SessionBackend(session.SessionID(req.Session))
+	}
 	if c, ok := eng.(CouncilTeller); ok {
 		resp.Council = c.HasCouncil()
 	}
@@ -505,11 +508,19 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 func answerModels(ctx context.Context, eng Engine, req Request) Response {
 	var resp Response
 	resp = Response{OK: true, Models: []string{}}
-	if l, ok := eng.(ModelLister); ok {
+	var list func(context.Context) ([]string, error)
+	if l, ok := eng.(SessionProviderTeller); ok {
+		list = func(ctx context.Context) ([]string, error) {
+			return l.ListSessionModels(ctx, session.SessionID(req.Session))
+		}
+	} else if l, ok := eng.(ModelLister); ok {
+		list = l.ListModels
+	}
+	if list != nil {
 		// A backend that is slow or down must not hold the socket: the caller is a screen
 		// drawing a menu, and no menu is a better answer than a stuck one.
 		mctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		names, err := l.ListModels(mctx)
+		names, err := list(mctx)
 		cancel()
 		if err == nil {
 			resp.Models = names
@@ -1005,6 +1016,13 @@ func init() {
 			c.SetModel(sid, r.Name)
 			return nil
 		}),
+		"use-profile": {needs: (*ProfileSelector)(nil), why: "this companion cannot select saved profiles", run: func(_ context.Context, eng Engine, r Request, sid session.SessionID) error {
+			c, ok := eng.(ProfileSelector)
+			if !ok {
+				return fmt.Errorf("this companion cannot select saved profiles")
+			}
+			return c.UseProfile(sid, r.Name)
+		}},
 		"use-backend": ctl(func(_ context.Context, c Controller, r Request, sid session.SessionID) error {
 			return c.UseBackend(sid, r.Name)
 		}),

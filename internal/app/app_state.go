@@ -40,8 +40,11 @@ type sessionState struct {
 	// gate is about the WORKSPACE, every later firing is skipped behind the one that is stuck
 	// ("skipped, X is still going in this workspace") — one job wedges the whole schedule, and
 	// nothing on any screen says why.
-	unattended bool
-	meta       session.Session // session metadata cache
+	unattended    bool
+	providerRoute string // session-private runtime provider key
+	providerName  string
+	providerBase  string
+	meta          session.Session // session metadata cache
 	// born is the session.created fact, held until the session has something in it.
 	//
 	// A conversation nobody has spoken in is not a conversation, and writing it to disk the moment
