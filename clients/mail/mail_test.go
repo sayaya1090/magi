@@ -1,12 +1,36 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestOutgoingUTF8MIMEWorksWithout8BitTransport(t *testing.T) {
+	d := Draft{To: "recipient@example.com", Subject: "한국어 제목", Body: strings.Repeat("한국어 문장 ", 100) + "\nsecond line"}
+	var wire bytes.Buffer
+	if err := writeDraftMIME(&wire, "sender@example.com", d.To, d); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range wire.Bytes() {
+		if b > 127 {
+			t.Fatal("8-bit byte leaked to transport")
+		}
+	}
+	parts := strings.SplitN(wire.String(), "\r\n\r\n", 2)
+	for _, line := range strings.Split(parts[1], "\r\n") {
+		if len(line) > 76 {
+			t.Fatalf("MIME body line too long: %d", len(line))
+		}
+	}
+	decoded, err := plainMessage(wire.Bytes())
+	if err != nil || strings.ReplaceAll(decoded, "\r\n", "\n") != d.Body {
+		t.Fatalf("UTF-8 body changed: %q %v", decoded, err)
+	}
+}
 
 type fakeBackend struct {
 	sent  int

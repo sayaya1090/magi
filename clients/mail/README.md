@@ -56,3 +56,5 @@ This review checks implementation contracts. It does not establish interoperabil
 New session starts another conversation while keeping the selected mail target. Enter a model name and use Change model to select it; Stop interrupts the current run. Failed requests preserve typed input, and events from an old session are excluded after switching.
 
 Before reading a body, RFC822.SIZE rejects messages above 2 MiB. Allowed messages use a partial BODY.PEEK request for at most 2 MiB plus one byte. `network_test.go` verifies oversized rejection before body fetch and bounded partial fetching against a local TLS IMAP server. This is separate from testing a real provider.
+
+Outgoing UTF-8 bodies use quoted-printable encoding so they do not require 8BITMIME. MIME body lines wrap within 76 bytes. Unit tests check Korean and long-text decoding round trips; actual server delivery remains a separate acceptance item.

@@ -284,9 +284,7 @@ func (n Network) Send(ctx context.Context, d Draft) error {
 	if err != nil {
 		return fmt.Errorf("SMTP data unavailable")
 	}
-	body := strings.ReplaceAll(strings.ReplaceAll(d.Body, "\r\n", "\n"), "\n", "\r\n")
-	_, err = fmt.Fprintf(w, "From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s\r\n", from.String(), to.String(), mime.QEncoding.Encode("UTF-8", d.Subject), body)
-	if err != nil {
+	if err = writeDraftMIME(w, from.String(), to.String(), d); err != nil {
 		return fmt.Errorf("SMTP write failed")
 	}
 	if err = w.Close(); err != nil {
@@ -296,6 +294,20 @@ func (n Network) Send(ctx context.Context, d Draft) error {
 		return fmt.Errorf("SMTP accepted the message but closing the connection failed; do not resend before checking delivery")
 	}
 	return nil
+}
+
+// Quoted-printable preserves UTF-8 without requiring the server's 8BITMIME
+// extension, and wraps long body lines to the MIME transport limit.
+func writeDraftMIME(w io.Writer, from, to string, d Draft) error {
+	if _, err := fmt.Fprintf(w, "From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n", from, to, mime.QEncoding.Encode("UTF-8", d.Subject)); err != nil {
+		return err
+	}
+	body := strings.ReplaceAll(strings.ReplaceAll(d.Body, "\r\n", "\n"), "\n", "\r\n")
+	encoded := quotedprintable.NewWriter(w)
+	if _, err := io.WriteString(encoded, body); err != nil {
+		return err
+	}
+	return encoded.Close()
 }
 
 type App struct {

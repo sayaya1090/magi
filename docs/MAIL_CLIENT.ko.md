@@ -16,8 +16,10 @@ SMTP 발송은 인증된 로컬 `/mail/send` HTTP 엔드포인트로만 요청�
 
 ## 현재 검증
 
-단위 테스트 10개와 메일·Magi API를 모의 처리한 Chromium Playwright 테스트가 통과했습니다. 브라우저에서 악성 HTML의 텍스트 표시, 메일별 채팅 요청 귀속, bearer 인증, 발송 취소·확인 후 발송·도구 승인·질문 답변을 검증했습니다. `clients/web/e2e`의 의존성을 설치한 뒤 `node clients/mail/test/ui-playwright.mjs`로 실행합니다.
+단위 테스트 11개와 메일·Magi API를 모의 처리한 Chromium Playwright 테스트가 통과했습니다. 브라우저에서 악성 HTML의 텍스트 표시, 메일별 채팅 요청 귀속, bearer 인증, 발송 취소·확인 후 발송·도구 승인·질문 답변을 검증했습니다. `clients/web/e2e`의 의존성을 설치한 뒤 `node clients/mail/test/ui-playwright.mjs`로 실행합니다.
 
 이 검증에서는 실제 계정에 연결하거나 메일을 발송하지 않았습니다. 현재 UI는 사용자·모델·도구를 구분한 일반 텍스트 대화 행을 제공하며 Markdown은 렌더링하지 않습니다. HTML 전용 본문 처리, 첨부파일, OAuth, 계정 전환, 폴더 탐색, 보낸 편지함 저장은 초기 구현에 포함하지 않았습니다. 실제 계정 인수 절차는 [매뉴얼](../clients/mail/README.ko.md#검증)에 있습니다.
 
 본문 수신 전 RFC822.SIZE를 검사하며, 로컬 TLS IMAP 서버로 초과 크기 거절과 부분 조회를 검증합니다. Playwright는 다른 세션 이벤트 제외, 새 세션·모델 변경·중단, 입력 보존도 확인합니다.
+
+발송 본문은 UTF-8을 quoted-printable로 인코딩하여 8BITMIME를 지원하지 않는 서버에도 전달할 수 있게 합니다. MIME 본문 줄은 76바이트 이내로 접으며, 한국어·긴 문장의 디코딩 왕복을 단위 테스트로 확인합니다. 실제 서버 전달 확인은 별도 인수 항목입니다.
