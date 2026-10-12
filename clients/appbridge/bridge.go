@@ -144,6 +144,7 @@ func New(c Config) (*Server, error) {
 	s.Mux.Handle("/api/disconnect", s.Auth(http.HandlerFunc(s.disconnectHTTP)))
 	s.Mux.Handle("/api/request", s.Auth(http.HandlerFunc(s.requestHTTP)))
 	s.Mux.Handle("/api/events", s.Auth(http.HandlerFunc(s.eventsHTTP)))
+	s.Mux.Handle("/api/browser/events", s.Auth(http.HandlerFunc(s.pollEventsHTTP)))
 	s.Mux.Handle("/api/figma/events", s.Auth(http.HandlerFunc(s.pollEventsHTTP)))
 	s.Mux.Handle("/api/browser/poll", s.Auth(http.HandlerFunc(s.pollHTTP)))
 	s.Mux.Handle("/api/browser/result", s.Auth(http.HandlerFunc(s.resultHTTP)))

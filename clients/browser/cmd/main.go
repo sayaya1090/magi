@@ -45,7 +45,7 @@ func run(ctx context.Context, args []string) error {
 			*addr = "127.0.0.1:8739"
 		}
 	}
-	config := appbridge.Config{App: "browser", Addr: *addr, Token: os.Getenv("MAGI_BROWSER_TOKEN"), Binary: os.Getenv("MAGI_BINARY"), Tools: browser.Tools(), Instructions: browser.Instructions}
+	config := appbridge.Config{App: "browser", Addr: *addr, Token: os.Getenv("MAGI_BROWSER_TOKEN"), ConfigDir: os.Getenv("MAGI_CONFIG_DIR"), Binary: os.Getenv("MAGI_BINARY"), Tools: browser.Tools(), Instructions: browser.Instructions}
 	var backend *headless.Backend
 	if *mode == "headless" {
 		allowed := []string{}

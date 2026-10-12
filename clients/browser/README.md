@@ -61,3 +61,15 @@ Each lease uses a separate temporary profile. No user Chrome cookies or accounts
 Runtime credentials are published under Magi's `runtime/browser-headless.json` or `browser-extension.json` with owner-only permissions. They are never included in model-visible discovery results. Other application agents gain the browser entry point and existing companion collaboration tools; they do not gain another application's MCP tools or shell access. Detailed contracts are in [browser collaboration design](../../docs/BROWSER_COLLABORATION_DESIGN.md).
 
 The dedicated browser companion’s primary session has `browser_runtime` MCP tools attached because browsing is its main task. Existing agents and delegated side sessions use the small lazy entry point; their catalogs do not receive the full browser schemas.
+
+## Window-scoped panel and management
+
+Use the side panel per Chrome window. Switching tabs retains the conversation, and one conversation manages multiple explicitly granted tabs. Grant current tab adds the active tab of the panel's own window. Moving a granted tab to another site or window requires a new grant. Site permission alone does not authorize every tab.
+
+The target ID is stored in `chrome.storage.session` under the window ID. Panels in different windows use separate connections and conversations. Reopening a panel during the same Chrome run recovers its window target, but tab grants must be added again. Fully closing Chrome removes these IDs. Automatic restoration of a previous window's conversations after a browser restart is not provided.
+
+Management follows the Office layout and includes a local Material Web bundle. Settings select saved providers and manage their names, endpoints, keys and models. An empty key preserves the saved value; a separate checkbox deletes it. Editing the active profile applies to the next request, with save and application failures reported separately. Session listing and restoration accept only conversations associated with the current window target.
+
+Standing rules and skills are stored in the target workspace and reread for the next request. Council toggles save configuration; **Restart and reconnect** applies it and can interrupt current work. New conversation, session selection, model changes, interrupt and context compaction are also available. Management does not extend tab access permissions.
+
+`node clients/browser/test/panel-playwright.mjs` loads the actual extension HTML, CSS, Material bundle and panel script. Chrome APIs and helper responses are mocked. It checks separate window connections, session switching, settings saves and 320px horizontal bounds. Existing `ui-playwright.mjs` and `browser.test.mjs` check grants, revocation, origin boundaries, password exclusion and stale snapshot rejection. Real extension installation and model-driven multi-tab operations still require separate acceptance.
