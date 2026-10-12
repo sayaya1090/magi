@@ -2498,7 +2498,7 @@ type daemonEngine struct {
 // SessionsHere satisfies daemon.ConversationKeeper: this workspace's conversations, for the
 // bottom dock's picker. The store's own listing, unreshaped.
 func (d daemonEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, error) {
-	metas, err := d.App.ListSessions(ctx, d.workdir)
+	metas, err := d.App.ListLiveSessions(ctx, d.workdir)
 	if err != nil {
 		return nil, err
 	}

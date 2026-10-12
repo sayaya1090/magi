@@ -15,11 +15,38 @@
     {name:'figma_create_frame',description:'Create a frame on the current page. Dimensions 1–4096.',parameters:{type:'object',properties:{name:{type:'string'},width:{type:'number'},height:{type:'number'}},required:['name','width','height'],additionalProperties:false}}
   ];
   function context() { figma.ui.postMessage({kind:'context',fileKey:file(),pageId:figma.currentPage.id,selection:figma.currentPage.selection.slice(0,LIMIT).map(describe),tools}); }
-  figma.showUI(__html__, {width:400,height:600});
+  let windowMode='right',lastRect='';
+  function placeWindow(force=false) {
+    if (!figma.viewport || typeof figma.ui.reposition !== 'function') return;
+    const {bounds:b,zoom:z}=figma.viewport;
+    if (!b || !Number.isFinite(z) || z<=0) return;
+    const availableWidth=Math.max(70,Math.floor(b.width*z));
+    const availableHeight=Math.max(120,Math.floor(b.height*z)-40);
+    const width=Math.min(400,availableWidth),height=windowMode==='right'?availableHeight:Math.min(640,availableHeight);
+    const x=windowMode==='right'?b.x+b.width-width/z:b.x+(b.width-width/z)/2;
+    const y=windowMode==='right'?b.y:b.y+(b.height-(height+40)/z)/2;
+    const rect=JSON.stringify([width,height,x,y]);
+    if (!force && rect===lastRect) return;
+    lastRect=rect;
+    figma.ui.resize(width,height);
+    figma.ui.reposition(x,y);
+  }
+  figma.showUI(__html__, {width:400,height:640,themeColors:true});
+  placeWindow(true);
+  if (figma.viewport) {
+    const timer=setInterval(()=>{if(windowMode==='right')placeWindow();},500);
+    figma.on('close',()=>clearInterval(timer));
+  }
   figma.ui.onmessage = async m => {
     if (!m || typeof m !== 'object' || Array.isArray(m)) return;
+    if (m.kind === 'window-mode' && (m.mode==='right'||m.mode==='window')) {
+      windowMode=m.mode;
+      placeWindow(true);
+      figma.ui.postMessage({kind:'window-state',mode:windowMode});
+      return;
+    }
     if (m.kind === 'session' && (m.session===null || typeof m.session==='string')) {activeSession=m.session;return;}
-    if (m.kind === 'ready') return context();
+    if (m.kind === 'ready') { console.log('[Magi] UI ready; sending file context'); figma.ui.postMessage({kind:'window-state',mode:windowMode}); return context(); }
     if (m.kind === 'bind' && !figma.fileKey && !explicitDocumentId && typeof m.documentId === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(m.documentId)) { explicitDocumentId='local:'+m.documentId; return; }
     if (m.kind !== 'tool' || typeof m.callId !== 'string' || !m.callId || typeof m.name !== 'string' || !m.args || typeof m.args !== 'object' || Array.isArray(m.args)) return;
     try {
@@ -59,4 +86,6 @@
   };
   figma.on('selectionchange',context);
   figma.on('currentpagechange',context);
+  console.log('[Magi] sandbox initialized');
+  context();
 })();

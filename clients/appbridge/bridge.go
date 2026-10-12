@@ -61,6 +61,7 @@ type Request struct {
 	CallID   string `json:"callId,omitempty"`
 	Decision string `json:"decision,omitempty"`
 	Answer   string `json:"answer,omitempty"`
+	Tier     string `json:"tier,omitempty"`
 }
 type toolCall struct {
 	ID            string          `json:"callId"`
@@ -149,6 +150,7 @@ func New(c Config) (*Server, error) {
 	s.Mux.Handle("/api/figma/poll", s.Auth(http.HandlerFunc(s.pollHTTP)))
 	s.Mux.Handle("/api/figma/result", s.Auth(http.HandlerFunc(s.resultHTTP)))
 	s.Mux.Handle("/mcp/", s.Auth(http.HandlerFunc(s.mcpHTTP)))
+	s.registerSettingsRoutes()
 	return s, nil
 }
 func (s *Server) Auth(next http.Handler) http.Handler {
@@ -373,15 +375,19 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 		method = "submit"
 	case "new":
 		method = "session-new"
+	case "resume":
+		method = "session-select"
 	case "model":
 		method = "set-model"
+	case "profile":
+		method = "use-profile"
 	case "reply":
 		method = "answer"
 	case "answer":
 		if p.Decision != "" {
 			method = "permission"
 		}
-	case "permission", "interrupt", "status", "models", "context", "compact", "cursor":
+	case "permission", "interrupt", "status", "models", "context", "compact", "cursor", "sessions", "use-profile", "config-get", "config-set", "profiles", "restart":
 	default:
 		return nil, errors.New("지원하지 않는 클라이언트 명령입니다.")
 	}
@@ -390,6 +396,44 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 		return nil, err
 	}
 	defer cl.Close()
+	if method == "restart" {
+		s.connectMu.Lock()
+		defer s.connectMu.Unlock()
+		current, err := s.binding(id)
+		if err != nil {
+			return nil, err
+		}
+		if current.Session != b.Session {
+			return nil, errors.New("대화가 변경되었습니다. 다시 요청해 주세요.")
+		}
+		if b.parent != "" {
+			return nil, errors.New("외부 연결의 컴패니언은 재시작할 수 없습니다.")
+		}
+		if err := cl.Restart(); err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		s.failCallsLocked(id, "컴패니언 재시작으로 도구 요청이 취소되었습니다.")
+		delete(s.bindings, id)
+		if s.targets[b.Target] == id {
+			delete(s.targets, b.Target)
+		}
+		s.mu.Unlock()
+		return json.Marshal(map[string]any{"ok": true, "restarted": true})
+	}
+	if method == "sessions" {
+		rows, e := cl.Sessions()
+		if e != nil {
+			return nil, e
+		}
+		selected := make([]daemon.SessionRow, 0)
+		for _, row := range rows {
+			if row.For == s.Config.App+":"+b.Target {
+				selected = append(selected, row)
+			}
+		}
+		return json.Marshal(map[string]any{"ok": true, "sessions": selected})
+	}
 	if method == "cursor" {
 		events, e := cl.History(b.Session)
 		if e != nil {
@@ -403,7 +447,7 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 		}
 		return json.Marshal(map[string]any{"ok": true, "cursor": seq})
 	}
-	if method == "session-new" {
+	if method == "session-new" || method == "session-select" {
 		s.connectMu.Lock()
 		defer s.connectMu.Unlock()
 		current, e := s.binding(id)
@@ -413,9 +457,29 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 		if current.Session != b.Session {
 			return nil, errors.New("세션이 이미 변경되었습니다. 다시 요청해 주세요.")
 		}
-		sid, e := cl.NewSessionKeepingFor(s.Config.App + ":" + b.Target)
-		if e != nil {
-			return nil, e
+		var sid string
+		if method == "session-new" {
+			sid, e = cl.NewSessionKeepingFor(s.Config.App + ":" + b.Target)
+			if e != nil {
+				return nil, e
+			}
+		} else {
+			rows, err := cl.Sessions()
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				if row.ID == p.Name && row.For == s.Config.App+":"+b.Target {
+					sid = row.ID
+					break
+				}
+			}
+			if sid == "" {
+				return nil, errors.New("이 문서에 속한 대화만 선택할 수 있습니다.")
+			}
+			if sid == b.Session {
+				return json.Marshal(map[string]any{"ok": true, "session": sid})
+			}
 		}
 		s.cancelBrowserChildren(id)
 		if s.Config.Release != nil {
@@ -449,7 +513,7 @@ func (s *Server) Request(ctx context.Context, id string, p Request) (json.RawMes
 	if method == "permission" && p.Decision != "allow" && p.Decision != "deny" && p.Decision != "always" {
 		return nil, errors.New("승인 응답이 올바르지 않습니다.")
 	}
-	req := daemon.Request{Method: method, Session: b.Session, Text: p.Text, Name: p.Name, CallID: p.CallID, Decision: p.Decision, Answer: p.Answer}
+	req := daemon.Request{Method: method, Session: b.Session, Text: p.Text, Name: p.Name, CallID: p.CallID, Decision: p.Decision, Answer: p.Answer, Tier: p.Tier}
 	raw, _ := json.Marshal(req)
 	out, err := cl.Raw(raw)
 	if err != nil {
@@ -560,6 +624,7 @@ func (s *Server) pollEventsHTTP(w http.ResponseWriter, r *http.Request) {
 	events := []event.Event{}
 	err := s.Events(ctx, p.Binding, p.Since, func(e event.Event) bool { events = append(events, e); return len(events) < 100 && e.Seq > 0 })
 	if err != nil && ctx.Err() == nil {
+		log.Printf("appbridge: event subscription failed: %v", err)
 		fail(w, errors.New("Magi 이벤트 연결에 실패했습니다. 다시 연결해 주세요."))
 		return
 	}

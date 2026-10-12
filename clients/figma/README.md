@@ -1,16 +1,36 @@
 # Magi in Figma
 
-This development plugin puts Magi chat inside Figma. A local helper relays chat and Figma tool calls to the Magi companion (the local background service). The plugin never reads a model API key. Its connection token stays in memory and is cleared when the plugin closes.
+This development plugin puts Magi chat inside Figma. A local helper relays chat and Figma tool calls to the Magi companion (the local background service). Provider settings send entered API keys to the authenticated local helper; saved keys are never returned to the UI. The sandbox that operates on Figma nodes receives no model API keys. The connection token stays in memory and is cleared when the plugin closes.
 
 ## Install and connect
 
-1. Start the Magi companion for the workspace you want to use.
+1. Install a current Magi executable that supports `--client-role figma`. The helper starts a separate workspace and companion for each document.
 2. Run `go run ./clients/figma/cmd` from the repository root. It listens on `127.0.0.1:8734` and prints a local bearer token. To build it, use `go build -o /tmp/magi-figma-helper ./clients/figma/cmd`.
 3. In Figma Desktop, choose Plugins → Development → New plugin and create a plugin with a custom UI. Copy the `id` that Figma assigns in its generated manifest. Run `node clients/figma/prepare-plugin.mjs YOUR_FIGMA_ASSIGNED_ID /tmp/magi-figma-plugin`, then import `/tmp/magi-figma-plugin/manifest.json`. Replace the example argument with your assigned numeric ID; do not invent one. The repository manifest is a template without an ID.
 4. Open a saved file and run Magi. Paste the local helper token, then connect. The default development manifest does not request private plugin APIs, so normally `figma.fileKey` is unavailable even in a saved file. Enter a permanent document ID of 8–128 letters, digits, underscores or hyphens. Reuse that ID only for this file; another file needs another ID. The ID is not saved automatically. Re-enter it when opening the plugin; restart the plugin to change it.
 5. Enter a request and choose Send. New session and model controls forward to the bound companion session. Approval buttons accept or deny an explicit pending call. Questions accept typed answers.
 
-The manifest allows HTTP access only to localhost and `127.0.0.1` on port 8734. Changing the helper port also requires changing the manifest. Tokens are not saved in Figma client storage.
+The default UI address is `http://localhost:8734`. The manifest declares `allowedDomains: ["none"]` and this address in `devAllowedDomains`. Numeric IP addresses failed manifest validation in Figma Desktop, so do not replace localhost with `127.0.0.1`. Changing the helper port also requires changing the manifest. Tokens are not saved in Figma client storage.
+
+## Interface and management
+
+The layout follows the Office client: conversation controls above the transcript and a composer below it. Connection settings collapse after connecting. The settings screen manages models, providers, standing rules, skills and council configuration. `prepare-plugin.mjs` embeds the Material Web bundle in the installed HTML; no external CDN is needed.
+
+| Feature | Scope and application |
+| --- | --- |
+| Sessions | Create, list and select conversations associated with this document. Sessions belonging to other documents are rejected. Switching replays the selected transcript and transfers its tool connection. |
+| Model connection | Selecting a saved provider applies its endpoint, key and model together. Changing only the model name is also supported and affects the next request. |
+| Provider settings | Save or delete a name, endpoint, default model and API key shared by all Magi clients. An empty key input preserves the saved key; a separate checkbox deletes it. Saving the selected profile reapplies it to the conversation and reports any application failure. |
+| Standing rules | Edit `AGENTS.md` in the document workspace, up to 8,000 characters. Changes apply to the next request. |
+| Skills and guides | Add, edit, delete and enable `.magi/skills/*.md` files in the document workspace, up to 40,000 characters. Changes apply to the next request. Disabled guides remain in the `off` directory. |
+| Council | Save whether this document companion uses consensus review. Restarting the running companion is required to apply it. **Restart and reconnect** in settings can interrupt current work. |
+| Execution controls | Interrupt requests and compact context. |
+
+### Right panel and floating window
+
+The default mode aligns the plugin on the right. It computes size and position from `figma.viewport` bounds and zoom, then calls `figma.ui.resize()` and `reposition()`. Width is capped at 400px and shrinks in small viewports. Floating-window mode stops automatic placement.
+
+This does not dock into Figma's sidebar. The plugin overlays the canvas and does not reduce its editing width. The implementation follows the placement approach in [Parrot's public window manager](https://github.com/opral/parrot/blob/main/versions/dev/code.js), with a separate implementation. It checks for changes every 500ms instead of Parrot's 1ms interval and clears the timer when the plugin closes. Positioning and movement after dragging still need acceptance inside Figma.
 
 The helper supplies design-specific instructions: inspect the selected design before editing, preserve spacing and typography, and report actual changes. Shell execution and code editing are outside this client’s intended tools. The helper must enforce this tool boundary.
 
@@ -28,6 +48,10 @@ Read results include node ID, name, type, dimensions and up to 4000 characters o
 ## Verify
 
 Run `go test ./clients/figma/...` for the mock daemon integration and tool catalog, then `node --test clients/figma/test/plugin.test.mjs` and `node clients/figma/test/ui-playwright.mjs`. The browser test uses the repository's Playwright installation under `clients/web/e2e`; install those development dependencies first if missing. The tests use mocked Figma APIs and a mocked local helper. Real Figma installation, network permissions, file-key access and daemon/model tool delivery still need an account-based acceptance test.
+
+`go test -race ./clients/appbridge ./clients/figma/...` checks document settings isolation, provider key preservation, new-session event subscriptions, session restoration and tool ownership. Playwright loads the actual Material bundle in prepared installation HTML and checks settings saves, session switching and key-input cleanup at 320px width. Placement tests use mocked Figma bounds and zoom changes and verify timer cleanup.
+
+On 2026-10-13, this Mac's Figma Desktop ran the plugin and delivered UI messages. The actual helper and Magi daemon accepted empty-session event polling with HTTP 200 and served settings reads. The new management UI in Figma, model requests and real node mutations have not yet completed acceptance.
 
 ## Lifecycle and troubleshooting
 
@@ -47,6 +71,6 @@ For real acceptance, import the plugin into a saved test file, connect and ask i
 
 Checked on 2026-10-12 against Figma's [manifest reference](https://developers.figma.com/docs/plugins/manifest/), [figma global API](https://developers.figma.com/docs/plugins/api/figma/), [TextNode](https://developers.figma.com/docs/plugins/api/TextNode/), [loadFontAsync](https://developers.figma.com/docs/plugins/api/properties/figma-loadfontasync/) and [UI messaging](https://developers.figma.com/docs/plugins/api/figma-ui/).
 
-Figma assigns the manifest ID. `fileKey` belongs to private/Figma-owned API access; `enablePrivatePluginApi` enables those APIs for eligible private plugins and local development. Setting the flag does not grant public plugins private access. The default template omits it and uses explicit document pairing. The current manifest uses `dynamic-page` and permits only the two loopback origins on port 8734, with the required local-server reasoning. This is a local development plugin; Community publication is not verified.
+Figma assigns the manifest ID. `fileKey` belongs to private/Figma-owned API access; `enablePrivatePluginApi` enables those APIs for eligible private plugins and local development. Setting the flag does not grant public plugins private access. The default template omits it and uses explicit document pairing. The manifest uses `dynamic-page` and development-only access to `localhost:8734`. This is a local development plugin; Community publication is not verified.
 
 Text changes require loaded fonts. Mixed-font nodes enumerate their range fonts and load each distinct font; missing fonts return an error before mutation. Main/UI communication uses `figma.ui.postMessage` and the iframe's `pluginMessage` envelope. An API-contract review supports these choices; it does not replace testing inside Figma.

@@ -15,7 +15,7 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	bridge, err := appbridge.New(appbridge.Config{App: "figma", Addr: "127.0.0.1:8734", Token: os.Getenv("MAGI_FIGMA_TOKEN"), Binary: os.Getenv("MAGI_BINARY"), Tools: figma.Tools(), Instructions: figma.Instructions})
+	bridge, err := appbridge.New(appbridge.Config{App: "figma", Addr: "127.0.0.1:8734", Token: os.Getenv("MAGI_FIGMA_TOKEN"), ConfigDir: os.Getenv("MAGI_CONFIG_DIR"), Binary: os.Getenv("MAGI_BINARY"), Tools: figma.Tools(), Instructions: figma.Instructions})
 	if err != nil {
 		log.Fatal(err)
 	}

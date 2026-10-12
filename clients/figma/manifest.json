@@ -9,8 +9,10 @@
   "documentAccess": "dynamic-page",
   "networkAccess": {
     "allowedDomains": [
-      "http://localhost:8734",
-      "http://127.0.0.1:8734"
+      "none"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:8734"
     ],
     "reasoning": "Connect to the authenticated local Magi helper."
   }

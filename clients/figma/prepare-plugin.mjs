@@ -10,7 +10,10 @@ if(!id||!/^\d+$/.test(id)||!out||extra.length){console.error('Usage: node client
  fs.mkdirSync(target,{recursive:true});
  const manifest=JSON.parse(fs.readFileSync(path.join(source,'manifest.json'),'utf8'));
  manifest.id=id;
- for(const name of ['code.js','ui.html'])fs.copyFileSync(path.join(source,name),path.join(target,name));
+ fs.copyFileSync(path.join(source,'code.js'),path.join(target,'code.js'));
+ const material=fs.readFileSync(path.join(source,'../web/server/vendor/material.js'),'utf8').replace(/<\/script/gi,'<\\/script');
+ const html=fs.readFileSync(path.join(source,'ui.html'),'utf8').replace('<!-- MAGI_MATERIAL_BUNDLE -->',()=>'<script type="module">'+material+'</script>');
+ fs.writeFileSync(path.join(target,'ui.html'),html);
  fs.writeFileSync(path.join(target,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
  console.log('Prepared development plugin:',path.join(target,'manifest.json'));
 }

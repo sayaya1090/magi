@@ -1,16 +1,36 @@
 # Figma 안의 Magi
 
-이 개발 플러그인은 Figma 안에 Magi 채팅을 제공합니다. 로컬 헬퍼가 채팅과 Figma 도구 호출을 Magi 컴패니언(로컬 백그라운드 서비스)으로 전달합니다. 플러그인은 모델 API 키를 읽지 않습니다. 연결 토큰은 메모리에만 보관하며 플러그인을 닫으면 사라집니다.
+이 개발 플러그인은 Figma 안에 Magi 채팅을 제공합니다. 로컬 헬퍼가 채팅과 Figma 도구 호출을 Magi 컴패니언(로컬 백그라운드 서비스)으로 전달합니다. 프로바이더 설정에서 입력한 API 키는 인증된 로컬 헬퍼로 저장하며, 저장된 키는 UI에 반환하지 않습니다. Figma 문서 도구를 실행하는 샌드박스에는 모델 API 키를 보내지 않습니다. 연결 토큰은 메모리에만 보관하며 플러그인을 닫으면 사라집니다.
 
 ## 설치와 연결
 
-1. 사용할 작업 공간의 Magi 컴패니언을 실행합니다.
+1. `--client-role figma`를 지원하는 최신 Magi 실행 파일을 설치합니다. 헬퍼가 문서마다 별도 작업 공간과 컴패니언을 시작합니다.
 2. 저장소 루트에서 `go run ./clients/figma/cmd`를 실행합니다. `127.0.0.1:8734`에서 연결을 받고 로컬 연결 토큰을 표시합니다. 별도 실행 파일은 `go build -o /tmp/magi-figma-helper ./clients/figma/cmd`로 빌드합니다.
 3. Figma Desktop의 Plugins → Development → New plugin에서 사용자 UI가 있는 플러그인을 생성합니다. 생성된 매니페스트에서 Figma가 부여한 `id`를 복사합니다. `node clients/figma/prepare-plugin.mjs YOUR_FIGMA_ASSIGNED_ID /tmp/magi-figma-plugin`을 실행한 뒤 `/tmp/magi-figma-plugin/manifest.json`을 가져옵니다. 예제 인자는 실제 부여받은 숫자 ID로 바꾸며 임의로 만들지 않습니다. 저장소 매니페스트는 ID가 없는 템플릿입니다.
 4. 저장된 파일에서 Magi를 실행하고 로컬 헬퍼 토큰을 입력한 뒤 연결합니다. 기본 개발 매니페스트는 private plugin API를 요청하지 않으므로 저장된 파일에서도 보통 `figma.fileKey`가 없습니다. 이 경우 영문·숫자·밑줄·하이픈 8~128자의 영속 문서 ID를 입력합니다. 이 ID는 해당 파일에서만 재사용하고 다른 파일에는 다른 ID를 지정합니다. ID는 자동 저장하지 않으므로 플러그인을 열 때 다시 입력합니다. 바꾸려면 플러그인을 다시 실행합니다.
 5. 요청을 입력한 뒤 보내기를 누릅니다. 새 세션과 모델 변경은 연결된 컴패니언 세션에 전달합니다. 승인 버튼은 대기 중인 호출을 허용하거나 거부합니다. 질문에는 입력한 답변을 보냅니다.
 
-매니페스트는 localhost와 `127.0.0.1`의 8734 포트에만 HTTP 연결을 허용합니다. 헬퍼 포트를 바꾸면 매니페스트도 바꿔야 합니다. 토큰은 Figma 클라이언트 저장소에 저장하지 않습니다.
+기본 UI 주소는 `http://localhost:8734`입니다. 매니페스트의 `allowedDomains`는 `none`이며, 로컬 개발용 `devAllowedDomains`에 이 주소를 지정합니다. Figma 실물에서 숫자 IP 주소를 허용 도메인에 넣으면 매니페스트 검증이 실패했으므로 `127.0.0.1`로 바꾸지 않습니다. 헬퍼 포트를 바꾸면 매니페스트도 바꿔야 합니다. 토큰은 Figma 클라이언트 저장소에 저장하지 않습니다.
+
+## 화면과 관리 기능
+
+오피스 클라이언트처럼 상단에는 대화 관리, 중앙에는 대화 기록, 하단에는 요청 입력을 배치합니다. 연결 설정은 연결 후 접힙니다. 설정 화면에서는 모델·프로바이더, 상시 규칙, 스킬과 카운슬을 관리합니다. Material Web 번들은 `prepare-plugin.mjs`가 설치용 HTML에 포함하므로 외부 CDN 연결은 필요하지 않습니다.
+
+| 기능 | 범위와 적용 시점 |
+| --- | --- |
+| 세션 관리 | 현재 문서의 새 대화 생성, 목록 조회, 기존 대화 선택을 제공합니다. 다른 문서의 세션은 선택할 수 없습니다. 선택한 대화 기록을 처음부터 다시 읽고 도구 연결을 옮깁니다. |
+| 모델 연결 | 저장된 프로바이더를 선택하면 엔드포인트·키·모델을 함께 적용합니다. 모델 이름만 바꾸는 것도 지원하며 다음 요청부터 사용합니다. |
+| 프로바이더 설정 | 이름·엔드포인트·기본 모델·API 키를 저장하거나 삭제합니다. 모든 Magi 클라이언트가 공유합니다. 키 입력을 비우면 기존 키를 유지하고, 별도 삭제 체크박스로 지웁니다. 현재 선택된 프로필을 저장하면 대화에 다시 적용하며 실패하면 안내합니다. |
+| 상시 규칙 | 현재 문서 작업 공간의 `AGENTS.md`를 편집합니다. 다음 요청부터 적용합니다. 최대 8,000자입니다. |
+| 스킬·가이드 | 문서 작업 공간의 `.magi/skills/*.md`를 추가·수정·삭제하고 사용 여부를 변경합니다. 다음 요청부터 적용합니다. 최대 40,000자이며 비활성 가이드는 `off` 폴더에 보관합니다. |
+| 카운슬 | 문서 컴패니언의 합의 검토 사용 여부를 저장합니다. 실행 중인 컴패니언을 재시작해야 반영됩니다. 설정 화면의 **재시작하고 다시 연결**을 누르면 현재 작업이 중단될 수 있습니다. |
+| 실행 제어 | 요청 중단과 컨텍스트 압축을 지원합니다. |
+
+### 오른쪽 고정과 일반 창
+
+기본 표시 방식은 오른쪽 고정입니다. `figma.viewport`의 화면 범위와 줌으로 폭·높이·위치를 계산하고, `figma.ui.resize()`와 `reposition()`으로 캔버스 오른쪽에 맞춥니다. 최대 폭은 400px이며 작은 화면에서는 줄입니다. 일반 창으로 전환하면 자동 배치를 멈춥니다.
+
+이 방식은 Figma 사이드바에 도킹하는 기능이 아닙니다. 캔버스 위의 플러그인 창이므로 편집 영역의 폭을 줄여 주지는 않습니다. 공개 [Parrot 창 관리자](https://github.com/opral/parrot/blob/main/versions/dev/code.js)의 하단 패널 방식을 참고해 별도로 구현했습니다. Parrot의 1ms 폴링 대신 500ms 간격으로 변경 여부를 확인하고, 플러그인을 닫을 때 타이머를 해제합니다. 실제 위치와 창 드래그 후 재배치는 Figma 실물에서 확인해야 합니다.
 
 헬퍼에서 디자인 작업 지침을 전달합니다. 편집 전에 선택된 디자인을 확인하고 간격·글꼴을 보존하며 실제 변경 내용을 보고하도록 합니다. 셸 실행과 코드 수정은 이 클라이언트의 도구 범위에 포함하지 않습니다. 헬퍼도 이 경계를 강제해야 합니다.
 
@@ -28,6 +48,10 @@
 ## 검증
 
 모의 데몬 연결과 도구 목록은 `go test ./clients/figma/...`로 확인합니다. 이어서 `node --test clients/figma/test/plugin.test.mjs`와 `node clients/figma/test/ui-playwright.mjs`를 실행합니다. 브라우저 테스트는 저장소의 `clients/web/e2e` Playwright를 사용하므로 개발 의존성이 없다면 먼저 설치합니다. 테스트는 Figma API와 로컬 헬퍼를 모의 구현합니다. 실제 Figma 설치, 네트워크 권한, 파일 키 접근과 컴패니언·모델의 도구 전달은 계정을 사용한 인수 검증이 필요합니다.
+
+`go test -race ./clients/appbridge ./clients/figma/...`는 문서별 설정 분리, 프로필 키 유지, 새 세션의 이벤트 구독, 기존 세션 복원과 도구 소유권을 확인합니다. Playwright는 설치용 HTML에 포함된 실제 Material 번들을 로드하고 320px 화면에서 설정 저장·대화 전환·키 입력 정리를 검증합니다. 창 배치 테스트는 화면 범위·줌 변화와 타이머 해제를 모의 Figma API로 확인합니다.
+
+2026-10-13에는 이 Mac의 Figma Desktop에서 플러그인 실행과 UI 메시지 전달을 확인했고, 실제 헬퍼와 Magi 데몬에서 빈 세션의 이벤트 HTTP 200 및 설정 조회를 확인했습니다. 새 관리 UI의 Figma 실물 조작, 모델 요청과 실제 노드 변경은 아직 인수 완료로 기록하지 않습니다.
 
 ## 수명과 문제 해결
 
@@ -47,7 +71,7 @@ Ctrl+C는 헬퍼의 HTTP 연결을 종료합니다. 문서 컴패니언은 별�
 
 2026-10-12에 Figma 공식 [매니페스트](https://developers.figma.com/docs/plugins/manifest/), [figma 전역 API](https://developers.figma.com/docs/plugins/api/figma/), [TextNode](https://developers.figma.com/docs/plugins/api/TextNode/), [loadFontAsync](https://developers.figma.com/docs/plugins/api/properties/figma-loadfontasync/), [UI 메시지](https://developers.figma.com/docs/plugins/api/figma-ui/) 원문과 대조했습니다.
 
-매니페스트 ID는 Figma가 부여합니다. `fileKey`는 private/Figma-owned API 접근 범위에 속합니다. `enablePrivatePluginApi`는 해당 private 플러그인과 로컬 개발에서 API를 활성화하지만 공개 플러그인에 private 접근 권한을 주지는 않습니다. 기본 템플릿은 이 플래그를 생략하고 사용자가 문서 ID를 지정합니다. 매니페스트는 `dynamic-page`를 사용하며 8734 포트의 두 루프백 주소와 로컬 서버 접근 사유를 지정합니다. 로컬 개발 플러그인이며 Community 게시는 검증하지 않았습니다.
+매니페스트 ID는 Figma가 부여합니다. `fileKey`는 private/Figma-owned API 접근 범위에 속합니다. `enablePrivatePluginApi`는 해당 private 플러그인과 로컬 개발에서 API를 활성화하지만 공개 플러그인에 private 접근 권한을 주지는 않습니다. 기본 템플릿은 이 플래그를 생략하고 사용자가 문서 ID를 지정합니다. 매니페스트는 `dynamic-page`와 개발용 `localhost:8734` 접근을 지정합니다. 로컬 개발 플러그인이며 Community 게시는 검증하지 않았습니다.
 
 텍스트 변경에는 글꼴 로드가 필요합니다. 혼합 글꼴 노드는 범위별 글꼴을 조회하여 서로 다른 글꼴을 각각 로드하며 없는 글꼴은 변경 전에 오류로 반환합니다. main/UI는 `figma.ui.postMessage`와 iframe의 `pluginMessage` 메시지 형식을 사용합니다. 공식 API 계약과 대조한 결과이며 Figma 실물 실행 검증을 대신하지 않습니다.
 

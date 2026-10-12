@@ -292,6 +292,36 @@ func (a *App) ListSessions(ctx context.Context, workdir string) ([]session.Sessi
 	return a.store.ListSessions(ctx, workdir)
 }
 
+// ListLiveSessions includes opened conversations that have not written their first event.
+// Daemon clients must be able to subscribe to these without forcing an empty log onto disk.
+func (a *App) ListLiveSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {
+	rows, err := a.ListSessions(ctx, workdir)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[session.SessionID]bool, len(rows))
+	for _, row := range rows {
+		seen[row.ID] = true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for id, st := range a.states {
+		if st.born == nil || st.meta.Workdir != workdir || seen[id] {
+			continue
+		}
+		var data event.SessionCreatedData
+		if err := json.Unmarshal(st.born.data, &data); err != nil {
+			return nil, err
+		}
+		if data.Parent != "" || data.For == "" {
+			continue
+		}
+		rows = append(rows, session.SessionMeta{ID: id, Workdir: workdir, Agent: st.meta.Agent, For: data.For, Origin: st.born.actor.ID, Created: st.born.at, LastActivity: st.born.at})
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].LastActivity.After(rows[j].LastActivity) })
+	return rows, nil
+}
+
 // ChildSessions returns the subagent sessions a session spawned.
 //
 // A child records its parent when it is created, so this is a fact of the log rather than a

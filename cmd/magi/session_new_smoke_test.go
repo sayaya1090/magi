@@ -74,3 +74,53 @@ func TestSessionNewSucceedsOnTheRealEngine(t *testing.T) {
 		t.Fatalf("the live conversation tops the picker: (%+v, %v)", metas, err)
 	}
 }
+
+func TestKeptDocumentSessionIsListedBeforeFirstMessage(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+	ctx := context.Background()
+	t.Cleanup(func() { _ = engine.Close(ctx) })
+	wd := t.TempDir()
+	current, err := engine.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := daemonEngine{App: engine, workdir: wd, handover: handover{at: newWhere(current)}}
+	id, err := d.NewSessionKeeping(ctx, "figma:local:document_123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := d.SessionsHere(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, row := range rows {
+		if row.ID == id {
+			count++
+			if row.For != "figma:local:document_123" {
+				t.Fatal("document association lost")
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("kept unborn document session count: %d", count)
+	}
+	if d.handover.at.now() != current {
+		t.Fatal("listing or keeping moved the companion")
+	}
+	persisted, err := store.ListSessions(ctx, wd)
+	if err != nil || len(persisted) != 0 {
+		t.Fatalf("listing forced empty sessions onto disk: %+v %v", persisted, err)
+	}
+	other := d
+	other.workdir = t.TempDir()
+	other.handover.at = newWhere("")
+	rows, err = other.SessionsHere(ctx)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("foreign workspace leaked: %+v %v", rows, err)
+	}
+}

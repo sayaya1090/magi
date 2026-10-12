@@ -57,7 +57,7 @@ AgentKind mapping and client tool-isolation tests are implemented. Published typ
 
 ## 2. Shared connection layer
 
-`clients/appbridge` connects local HTTP clients to the daemon control socket. Figma calls pass through this layer into the plugin's main sandbox. Mail and Slack APIs run in their respective helpers. Model API credentials never enter application UI code.
+`clients/appbridge` connects local HTTP clients to the daemon control socket. Figma calls pass through this layer into the plugin's main sandbox. Mail and Slack APIs run in their respective helpers. Saved model API credentials are never returned to application UI code. Provider management sends a newly entered key to the authenticated local helper and then clears the input.
 
 ```text
 Application UI / Slack event
@@ -148,3 +148,13 @@ Real Figma/Slack installation, real IMAP/SMTP delivery remain unverified. Accoun
 The GitHub-specific helper and extension were removed at the user’s request. Earlier verification rows above describe the implementation at that time; they do not describe currently available clients. Port 8737 now belongs to the Chrome browser helper. Its scope, permissions and acceptance procedure are in [the browser manual](../clients/browser/README.md). Browser tasks use a dedicated business kind and cannot execute coding tools.
 
 Browser cooperation reuses `hand_off` and introduces a small on-demand `browser` entry point without changing the session-frozen tool catalog. Tests default to isolated headless mode. See [the cooperation contract](BROWSER_COLLABORATION_DESIGN.md).
+
+## Figma management and window placement (2026-10-13)
+
+Figma follows the Office conversation layout and embeds Material Web controls in installation HTML. Session controls and settings sit above the transcript, with the composer below it. Standing rules and skills use the document's hashed workspace and reload on the next request. Providers use shared `config.toml`; selecting a name applies its endpoint, key and model together. Editing the active profile reapplies it and distinguishes a successful save from a failed application. Council configuration is saved for the companion and applied through explicit restart and reconnect.
+
+Session listing and selection accept only conversations where `For == App + ":" + Target`. Empty document sessions are included before their first request, so event subscriptions do not reject their IDs. Switching suspends the Figma sandbox session before transferring MCP ownership and replaying the selected transcript. Restart uses the same lifecycle lock as creation, selection and disconnection.
+
+Right alignment computes a plugin window from viewport bounds and zoom. It does not dock into the native sidebar or reduce canvas width. The approach follows the bottom-window placement in [Parrot's public distribution](https://github.com/opral/parrot/blob/main/versions/dev/code.js), but checks every 500ms and repositions only after a change. Floating mode stops automatic placement, and closing clears the timer. Procedures and limits are in [the Figma manual](../clients/figma/README.md).
+
+The actual helper and daemon on this Mac accepted new empty-session event polling with HTTP 200 and served settings reads. Figma Desktop with a signed-in account ran the plugin and delivered UI messages. Real interaction with the Material management UI and actual model/document-tool delivery remain acceptance work.

@@ -17,6 +17,7 @@ import (
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -27,7 +28,7 @@ type integrationEngine struct {
 }
 
 func (e integrationEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, error) {
-	return e.App.ListSessions(ctx, e.workdir)
+	return e.App.ListLiveSessions(ctx, e.workdir)
 }
 func (e integrationEngine) NewSession(ctx context.Context) (session.SessionID, error) {
 	return e.NewSessionKeeping(ctx, "")
@@ -78,6 +79,17 @@ func TestBridgeAgainstActualDaemonAndMCPManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A newly opened document has no events yet. It must still be subscribable.
+	follower, err := daemon.DialWithin(socket, time.Second, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caughtUp := false
+	_ = follower.Follow(b.Session, 0, daemon.Tail{Each: func(event.Event) bool { return false }, CaughtUp: func() { caughtUp = true; follower.Close() }})
+	follower.Close()
+	if !caughtUp {
+		t.Fatal("new document session was rejected before its first message")
+	}
 	visible := map[string]bool{"mcp__mail__mail_read": true}
 	if manager.Instructions(b.Session, visible)["mail"] != "selected mail only" {
 		t.Fatal("initialize guidance missing")
@@ -104,10 +116,27 @@ func TestBridgeAgainstActualDaemonAndMCPManager(t *testing.T) {
 	if len(manager.Instructions(b.Session, visible)) != 0 || manager.Instructions(next.Session, visible)["mail"] != "selected mail only" {
 		t.Fatal("MCP ownership did not follow session transition")
 	}
+	listed, err := bridge.Request(deadline, b.ID, Request{Method: "sessions"})
+	if err != nil || !strings.Contains(string(listed), b.Session) || !strings.Contains(string(listed), next.Session) {
+		t.Fatalf("document session list: %s %v", listed, err)
+	}
+	if _, err = bridge.Request(deadline, b.ID, Request{Method: "resume", Name: "foreign"}); err == nil {
+		t.Fatal("foreign session selected")
+	}
+	if _, err = bridge.Request(deadline, b.ID, Request{Method: "resume", Name: b.Session}); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := bridge.binding(b.ID)
+	if err != nil || resumed.Session != b.Session {
+		t.Fatalf("resume binding: %+v %v", resumed, err)
+	}
+	if len(manager.Instructions(next.Session, visible)) != 0 || manager.Instructions(b.Session, visible)["mail"] != "selected mail only" {
+		t.Fatal("MCP did not return to resumed session")
+	}
 	if err = bridge.Disconnect(deadline, b.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(manager.Instructions(next.Session, visible)) != 0 {
+	if len(manager.Instructions(b.Session, visible)) != 0 {
 		t.Fatal("disconnected MCP retained")
 	}
 }
