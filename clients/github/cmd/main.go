@@ -62,7 +62,7 @@ func main() {
 		if bin == "" {
 			bin = "magi"
 		}
-		cmd := exec.CommandContext(ctx, bin, "--daemon", "--detach", "--no-update-check", "--permission", "ask", "--client-role", "github")
+		cmd := exec.CommandContext(ctx, bin, "--daemon", "--detach", "--no-update-check", "--permission", "ask", "--client-role", "coding")
 		cmd.Dir = abs
 		cmd.Env = appbridge.CompanionEnv(os.Environ(), dir)
 		if e = cmd.Run(); e != nil {

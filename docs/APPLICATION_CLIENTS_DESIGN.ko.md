@@ -14,7 +14,7 @@ Figma, 일반 IMAP/SMTP 메일, Slack, GitHub를 Magi의 새 클라이언트로 
 | GitHub | github.com의 Chrome/Chromium 사이드 패널 | 저장소·이슈·PR에 연결된 코딩 작업 | 사용자 지시 없는 댓글·push·merge |
 | 기존 Office | PowerPoint·Word·Excel 작업창 | 발표자료·문서·스프레드시트 작성과 검증 | 기본 코딩 정체성, 앱 밖의 셸·소스 편집 |
 
-`--client-role`과 `MAGI_CLIENT_ROLE`이 역할을 선택합니다. 빈 값은 기존 코딩 동작을 유지합니다. `github`도 코딩 역할입니다. 나머지는 `internal/app/client_role.go`에서 앱별 시스템 지침을 사용하고, 모델에 광고하는 도구 목록과 실제 실행 경로에서 같은 역할 제한을 적용합니다. 앱의 MCP 네임스페이스와 질문·카운슬·계획·기억 조회 같은 공통 도구만 허용합니다. 모델이 숨겨진 `bash`나 다른 앱의 도구를 직접 요청해도 실행하지 않습니다.
+`--client-role`과 `MAGI_CLIENT_ROLE`이 역할을 선택합니다. 코딩 종류는 명시적인 `coding`입니다. GitHub는 별도 종류가 아니라 코딩 클라이언트입니다. 구형 빈 값과 `github` 입력은 `coding`으로 정규화합니다. 나머지는 `internal/app/client_role.go`에서 앱별 시스템 지침을 사용하고, 모델에 광고하는 도구 목록과 실제 실행 경로에서 같은 역할 제한을 적용합니다. 앱의 MCP 네임스페이스와 질문·카운슬·계획·기억 조회 같은 공통 도구만 허용합니다. 모델이 숨겨진 `bash`나 다른 앱의 도구를 직접 요청해도 실행하지 않습니다.
 
 Office는 새 컴패니언을 시작할 때 앱 역할을 전달합니다. 이미 실행 중인 구형 컴패니언은 새 프로그램을 설치하는 것만으로 역할이 바뀌지 않습니다. 마이그레이션 인수에서는 새 역할로 기동한 프로세스와 구형 프로세스의 재시작을 각각 확인해야 합니다.
 
@@ -40,7 +40,7 @@ MCP initialize의 `instructions`는 실제 모델 요청의 후행 컨텍스트�
 
 ### 타입 선언과 콘솔 연결 상태
 
-역할 값의 정본은 `internal/app/client_kind.go`의 `ClientKind` 상수 8개입니다. 유효성 검사와 프롬프트 선택은 이 선언을 사용하고, 알 수 없는 역할은 도구 실행을 허용하지 않습니다. 세션의 Agent(default/looking), 사용자가 작성한 Role 설명, 콘솔 화면 타입은 별개입니다.
+역할 값의 정본은 `internal/app/client_kind.go`의 `ClientKind` 상수 7개입니다. 유효성 검사와 프롬프트 선택은 이 선언을 사용하고, 알 수 없는 역할은 도구 실행을 허용하지 않습니다. 세션의 Agent(default/looking), 사용자가 작성한 Role 설명, 콘솔 화면 타입은 별개입니다.
 
 콘솔의 `CompanionType.java`에는 아직 코딩 타입 `1`만 등록돼 있습니다. `daemon.Identity` → `daemon.Info` → 로컬 roster·fleet 응답은 이제 type을 전달합니다. 기본 코딩과 GitHub는 1, 앱 역할은 각 역할 키를 기록합니다. `FleetAgent.type` → `CompanionType`의 콘솔 매핑은 아직 미완료입니다. 원격 cluster도 타입을 Version과 같은 표시용 메타데이터로 전달합니다. Type은 Signable에서 제외하여 구버전과 동일한 서명 바이트를 유지합니다. 실행 권한은 타입 값이 아니라 대상 데몬의 역할 제한으로 판단합니다. 구형 기록에는 타입이 없을 수 있습니다. 앱을 코딩 자식 모듈에 연결하면 파일·셸 UI를 잘못 노출하므로 공용 대화 기능을 제공하는 앱 자식 모듈부터 준비합니다.
 

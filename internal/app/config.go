@@ -373,6 +373,7 @@ type Config struct {
 
 // withDefaults fills unset fields with sensible values.
 func (c Config) withDefaults() Config {
+	c.ClientRole = string(NormalizeClientKind(c.ClientRole))
 	if c.MaxSteps == 0 {
 		// 240: sized for Terminal-Bench 2.x-scale tasks (multi-deliverable builds,
 		// proof/compile iteration), where 40 was the top cause of agent_timeout —

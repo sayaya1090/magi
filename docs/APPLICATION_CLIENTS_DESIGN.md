@@ -14,7 +14,7 @@ Figma, standard IMAP/SMTP mail, Slack and GitHub become new Magi clients. This d
 | GitHub | Chrome/Chromium side panel on github.com | Repository, issue and pull-request coding work | Unrequested comments, pushes and merges |
 | Existing Office | PowerPoint, Word and Excel task panes | Presentation, document and spreadsheet work | Default coding identity, external shell and source editing |
 
-`--client-role` and `MAGI_CLIENT_ROLE` select the role. An empty value preserves existing coding behavior; `github` also uses the coding role. Other roles receive application-specific system instructions from `internal/app/client_role.go`. The same role restriction applies when advertising tools and executing calls. Only the application's MCP namespace and common question, council, planning and recall tools are permitted. A model cannot execute a hidden `bash` call or another application's tools.
+`--client-role` and `MAGI_CLIENT_ROLE` select the role. Coding has the explicit kind `coding`. GitHub is a coding client, not another agent kind. Legacy empty and `github` inputs normalize to `coding`. Other roles receive application-specific system instructions from `internal/app/client_role.go`. The same role restriction applies when advertising tools and executing calls. Only the application's MCP namespace and common question, council, planning and recall tools are permitted. A model cannot execute a hidden `bash` call or another application's tools.
 
 Office passes its role when starting a new companion. Installing a new executable does not change the role of an already running older companion. Migration acceptance must distinguish fresh role-aware starts from restarts of older processes.
 
@@ -40,7 +40,7 @@ MCP initialize `instructions` enters the model request's trailing context. It ca
 
 ### Type declaration and console integration status
 
-The role vocabulary is the eight `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
+The role vocabulary is the seven `ClientKind` constants in `internal/app/client_kind.go`. Validation and prompt selection use this declaration; unknown roles cannot execute tools. Session Agent (default/looking), user-written Role text and console screen type are separate values.
 
 `CompanionType.java` still registers only coding type `1`. The local chain `daemon.Identity` → `daemon.Info` → roster/fleet response now carries `type`. Coding and GitHub publish `1`; application roles publish their role key. Console mapping through `FleetAgent.type` and `CompanionType` remains incomplete. Remote cluster sightings also carry type as advisory UI metadata, like Version. Type is excluded from Signable so old and new peers retain the same signature bytes. It cannot authorize execution: the destination daemon enforces its client role. Missing type on older records remains possible. Applications must not use the coding child module, which exposes filesystem/shell UI; first provide an application child using shared conversation controls.
 

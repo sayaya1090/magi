@@ -45,18 +45,33 @@ func TestClientKindCatalogHasUniqueValidRoles(t *testing.T) {
 		}
 		seen[kind] = true
 		want := string(kind)
-		if kind == ClientCoding || kind == ClientGitHub {
+		if kind == ClientCoding {
 			want = "1"
 		}
 		if kind.CompanionType() != want {
 			t.Fatalf("wrong console type for %q", kind)
 		}
-		if kind != ClientCoding && kind != ClientGitHub && ClientRoleSystem(string(kind)) == "" {
+		if kind != ClientCoding && ClientRoleSystem(string(kind)) == "" {
 			t.Fatalf("application kind has no prompt: %q", kind)
 		}
 	}
-	if len(seen) != 8 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
+	if len(seen) != 7 || ClientKind("unknown").Valid() || ClientRoleAllows("unknown", "ask_user") {
 		t.Fatal("unknown kind allowed or catalog incomplete")
+	}
+}
+
+func TestCodingKindIsExplicitAndClientAliasesNormalize(t *testing.T) {
+	for _, input := range []string{"", "coding", "github"} {
+		kind := NormalizeClientKind(input)
+		if kind != ClientCoding || string(kind) != "coding" || !ClientRoleAllows(input, "bash") {
+			t.Fatalf("coding input %q did not normalize: %q", input, kind)
+		}
+		if got := (Config{ClientRole: input}).withDefaults().ClientRole; got != "coding" {
+			t.Fatalf("config retained client alias %q", got)
+		}
+	}
+	if ClientKind("").Valid() || ClientKind("github").Valid() {
+		t.Fatal("legacy client spellings became canonical kinds")
 	}
 }
 

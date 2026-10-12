@@ -367,7 +367,7 @@ var visionOf func(string) bool
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
-		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "application role: figma|mail|slack|github|powerpoint|word|excel (empty: coding)")
+		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "agent kind: coding|figma|mail|slack|powerpoint|word|excel (empty/github: legacy coding aliases)")
 		output      = flag.String("output", "text", "output format: text|json")
 		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
 		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
@@ -439,6 +439,7 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "magi: unknown client-role")
 		return 2
 	}
+	*clientRole = string(app.NormalizeClientKind(*clientRole))
 
 	// Validate enum-valued flags up front so a typo (e.g. -output jsn, -permission
 	// auto0, -profile safmode) fails loudly with exit 2 instead of silently

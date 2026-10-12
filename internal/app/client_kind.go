@@ -5,8 +5,7 @@ package app
 type ClientKind string
 
 const (
-	ClientCoding     ClientKind = ""
-	ClientGitHub     ClientKind = "github"
+	ClientCoding     ClientKind = "coding"
 	ClientFigma      ClientKind = "figma"
 	ClientMail       ClientKind = "mail"
 	ClientSlack      ClientKind = "slack"
@@ -16,7 +15,15 @@ const (
 )
 
 func ClientKinds() []ClientKind {
-	return []ClientKind{ClientCoding, ClientGitHub, ClientFigma, ClientMail, ClientSlack, ClientPowerPoint, ClientWord, ClientExcel}
+	return []ClientKind{ClientCoding, ClientFigma, ClientMail, ClientSlack, ClientPowerPoint, ClientWord, ClientExcel}
+}
+
+// Empty and github were legacy spellings for coding; normalize at input boundaries.
+func NormalizeClientKind(role string) ClientKind {
+	if role == "" || role == "github" {
+		return ClientCoding
+	}
+	return ClientKind(role)
 }
 
 // Valid deliberately does not infer validity from whether a prompt is nonempty.
@@ -31,7 +38,7 @@ func (kind ClientKind) Valid() bool {
 
 // CompanionType preserves the existing console coding ID. GitHub is coding too.
 func (kind ClientKind) CompanionType() string {
-	if kind == ClientCoding || kind == ClientGitHub {
+	if kind == ClientCoding {
 		return "1"
 	}
 	if !kind.Valid() {
@@ -40,4 +47,4 @@ func (kind ClientKind) CompanionType() string {
 	return string(kind)
 }
 
-func (a *App) ClientKind() ClientKind { return ClientKind(a.cfg.ClientRole) }
+func (a *App) ClientKind() ClientKind { return NormalizeClientKind(a.cfg.ClientRole) }
