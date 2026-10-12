@@ -48,3 +48,25 @@ func TestOutputIsBoundedWithoutFailingChildWrites(t *testing.T) {
 		t.Fatal("output bound failed")
 	}
 }
+
+func TestNativeKubernetesContextNamesRemainBoundArguments(t *testing.T) {
+	c := Config{Runtime: "kubernetes", Context: "handbook-dev/api.example.com:6443/user", Namespace: "handbook-dev", Resources: []string{"pod"}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	a := Adapter{Config: c, Run: func(_ context.Context, bin string, args ...string) ([]byte, error) {
+		if bin != "kubectl" || args[1] != c.Context || args[3] != c.Namespace {
+			t.Fatal(args)
+		}
+		return []byte("Running"), nil
+	}}
+	if _, err := a.Call(context.Background(), c.Target(), "status", json.RawMessage(`{"resource":"pod"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"--context=other", "context\nother", "context with spaces", "$(shell)"} {
+		c.Context = bad
+		if c.Validate() == nil {
+			t.Fatal("unsafe context accepted", bad)
+		}
+	}
+}

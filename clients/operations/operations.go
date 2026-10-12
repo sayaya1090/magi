@@ -24,12 +24,13 @@ type Adapter struct {
 }
 
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+var contextPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,255}$`)
 
 func (c Config) Validate() error {
 	if c.Runtime != "docker" && c.Runtime != "kubernetes" {
 		return errors.New("runtime must be docker or kubernetes")
 	}
-	if !namePattern.MatchString(c.Context) || (c.Runtime == "kubernetes" && !namePattern.MatchString(c.Namespace)) {
+	if !contextPattern.MatchString(c.Context) || (c.Runtime == "kubernetes" && !namePattern.MatchString(c.Namespace)) {
 		return errors.New("explicit valid context and namespace are required")
 	}
 	if len(c.Resources) == 0 {
