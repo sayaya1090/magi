@@ -6,9 +6,8 @@ export function mountProviderProfiles({ api, root = document, onSaved = () => {}
   button.type = 'button'; button.className = 'icon-btn'; button.id = 'manage-providers';
   button.title = '프로바이더 관리'; button.setAttribute('aria-label', '프로바이더 관리');
   button.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3l-.6 2.1-1.8 1.1-2.2-.5-2.5 4.3 1.5 1.6v2.1l-1.5 1.6 2.5 4.3 2.2-.5 1.8 1.1.6 2.1h5l.6-2.1 1.8-1.1 2.2.5 2.5-4.3-1.5-1.6v-2.1l1.5-1.6-2.5-4.3-2.2.5-1.8-1.1L14.5 3z"/><circle cx="12" cy="12" r="3"/></svg>';
-  const picker = root.querySelector('#pick-model');
-  if (picker) picker.insertBefore(button, picker.querySelector('#model-note'));
-  else advanced.append(button);
+  const group = root.querySelector('.advanced-tools .control-group:last-child');
+  if (group) group.append(button); else advanced.append(button);
   const dialog = root.createElement('dialog');
   dialog.id = 'provider-profiles-dialog'; dialog.className = 'provider-profiles-dialog';
   dialog.setAttribute('aria-labelledby', 'provider-profiles-title');

@@ -299,25 +299,28 @@ func (b *Bridge) readOnce(ctx context.Context, gen uint64, socket, sid string, s
 		cl.Close() // 읽는 중인 연결을 끊는 유일한 길
 	}()
 
-	// 붙었다 — 그러나 그 사이 옮겨 갔으면 「살아 있다」고 말할 자격이 없다.
-	if !b.forGen(ctx, gen, func() []StreamFrame {
-		b.live, b.empty = true, false
-		return []StreamFrame{{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{"live": true, "session": sid}))}}
-	}) {
-		return errStaleStream
+	markLive := func() {
+		b.forGen(ctx, gen, func() []StreamFrame {
+			if b.live && !b.empty {
+				return nil
+			}
+			b.live, b.empty = true, false
+			return []StreamFrame{{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{"live": true, "session": sid}))}}
+		})
 	}
 
-	return cl.Transcript(sid, since, func(why string) {
+	return cl.Follow(sid, since, daemon.Tail{CaughtUp: markLive, Restart: func(why string) {
 		// **서버가 커서를 거절하면 이벤트보다 먼저 이 프레임 하나가 온다**(`answerable`).
 		// 안 읽으면 화면에 있던 대화 뒤에 같은 대화의 처음이 붙는다 — 작업창은 PowerPoint 를
 		// 껐다 켤 때마다 새로 붙으므로 이 프레임을 제일 자주 받는 쪽이 우리다(§5.7).
 		b.deliver(ctx, gen, sid, StreamFrame{Kind: "restart", Data: json.RawMessage(mustJSON(map[string]any{"why": why}))}, -1)
-	}, func(ev event.Event) bool {
+	}, Each: func(ev event.Event) bool {
+		markLive()
 		// **커서를 미는 것은 `seq > 0` 인 이벤트뿐이다**(§5.7). 로그에 안 앉는 이벤트는 `Seq`
 		// 가 0 이고, 0 은 이 문의 계약에서 「전부」다 — 그대로 커서에 넣으면 다시 붙을 때 화면이
 		// 두 벌이 되고, 그 사고가 **아무 소리 없이** 일어난다.
 		return b.deliver(ctx, gen, sid, StreamFrame{Kind: "event", Data: json.RawMessage(mustJSON(ev))}, ev.Seq)
-	})
+	}})
 }
 
 // errStaleStream 은 「붙는 사이 묶음이 바뀌었다」 — 끊김이 아니다. stream 은 이것을 받아도 안내를 내지 않는다(forGen 이 먼저 거절한다).

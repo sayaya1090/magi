@@ -25,9 +25,8 @@ try {
     return {manage:rect('manage-providers'),provider:rect('provider'),model:rect('model'),advanced:rect('advanced'),icons:['fresh','rules','guides','council','repick'].map(rect),align:getComputedStyle(document.querySelector('.advanced-tools')).justifyContent,overflow:document.documentElement.scrollWidth>innerWidth};
    });
    assert.equal(layout.align,'flex-start'); assert.equal(layout.overflow,false);
-   assert.equal(layout.manage.height,layout.provider.height); assert.equal(layout.manage.height,40);
-   assert.equal(layout.manage.y,layout.provider.y,'management unnecessarily wrapped');
-   assert.equal(layout.manage.width,40);
+   assert.equal(layout.manage.height,32);
+   assert.equal(layout.manage.y,layout.icons[4].y);
    assert.equal(await page.locator('#manage-providers').getAttribute('aria-label'),'프로바이더 관리');
    assert.equal(await page.locator('#manage-providers svg').count(),1);
    for(let i=1;i<layout.icons.length;i++) if(layout.icons[i].y===layout.icons[i-1].y) assert.ok(Math.abs(layout.icons[i].x-layout.icons[i-1].right-(i===1 || i===3 ? 24 : 16))<1,'icon gap expanded');
@@ -41,6 +40,6 @@ try {
    if(app==='powerpoint' && width===600) await page.screenshot({path:'/tmp/magi-office-toolbar.png'});
    await page.close();
   }
-  console.log(`PASS ${app}: leading grouped icons with 16/24px gaps, management fits at 600px, matching 40px height, no overflow at 320/420/600, input capitalization disabled`);
+  console.log(`PASS ${app}: leading grouped icons with 16/24px gaps, management in upper 32px icon group, no overflow at 320/420/600, input capitalization disabled`);
  }
 }finally{await browser.close()}
