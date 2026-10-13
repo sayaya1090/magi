@@ -1012,6 +1012,10 @@ func (a *API) submit(w http.ResponseWriter, r *http.Request) { a.say(w, r, a.cha
 func (a *API) steer(w http.ResponseWriter, r *http.Request)  { a.say(w, r, a.chat(r).Steer) }
 
 func (a *API) say(w http.ResponseWriter, r *http.Request, fn func(string) error) {
+	if a.Bridges != nil && deckOf(r) == "" {
+		http.Error(w, "현재 창의 문서 연결을 아직 확인하지 못했습니다. 연결이 완료된 뒤 다시 보내 주세요.", http.StatusConflict)
+		return
+	}
 	var in struct {
 		Text string `json:"text"`
 	}

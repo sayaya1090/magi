@@ -202,24 +202,12 @@ func (h *HandHub) LeaveGen(c *handConn, gen int) {
 
 // Peek 은 보는 연결(role=viewer)이 볼 손을 돌려준다 — 붙지도 떼지도 않는다.
 //
-// 먼저 그 문서 키 그대로. 없으면 **손이 하나뿐일 때만** 그것을 보여 준다. 2021 판에서 그 자리를 봤다
-// (2026-09-05): 창이 이름을 못 지어 빈 이름을 들고 오고, COM 손은 파일 경로 지문으로 붙는다 — 키가
-// 같아야만 보게 하면 그 창은 영영 아무것도 못 본다. 손이 하나도 없으면 nil 이다 — 볼 것이 없다.
-//
-// ⚠ **손이 둘 이상일 때는 안 고른다.** 앞 판은 「가장 최근에 답한 손」으로 물러섰고, 그것이 실물에서
-// 사고가 됐다(2026-09-08, LTSC 2021 · 덱 둘): 두 창이 각자 이름을 들고 왔는데 둘 다 손과 안 맞아
-// **둘 다 같은 손을 봤다** — source 창의 작업창이 target 덱의 대화에 묶였다. 화면이 옆 덱을 보는 것은
-// 헛일에서 그치지 않는다. 그 창이 보내는 말과 누르는 단추가 **옆 덱의 대화로** 간다.
-//
-// 이름이 안 맞는 근본은 창 쪽에서 고쳤다(`OfficeDeck.stableDeckId` 의 `preferPath`). 여기서는 그것이
-// 다시 어긋나는 날 **조용히 엉뚱한 덱을 보여 주지 않는 것**까지만 진다 — pick 의 「둘이면 안 고른다」와 같은 규칙이다.
+// 문서 키가 정확히 일치하는 손만 반환한다. 빈 키와 불일치는 연결을 거절한다.
+// 손이 하나만 등록된 시점에도 다른 창이 열려 있을 수 있으므로 개수로 문서를 추측하지 않는다.
 func (h *HandHub) Peek(presentationID string) *handConn {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	c := h.conns[h.App.DocPrefix+presentationID]
-	if c == nil && (presentationID == "" || len(h.conns) == 1) {
-		c = h.bestLocked()
-	}
 	saw := ""
 	if c != nil {
 		saw = c.key

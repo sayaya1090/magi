@@ -323,7 +323,7 @@ func TestAViewerSeesTheStreamButNeverGetsACall(t *testing.T) {
 // 2021 판의 창은 자기 덱 이름을 태그(PowerPointApi 1.3)로 짓는데 그 호스트에는 태그 칸이 없어 빈 이름을 들고 오고,
 // COM 손은 파일 경로 지문으로 붙는다 — 둘의 키가 같을 길이 없다. 키가 같아야만 보게 하면 2021 의 창은 영영
 // 아무것도 못 본다(2026-09-05 실물). 보는 연결은 자기 키의 손이 없으면 **있는 손**을 본다.
-func TestAViewerWithAnotherKeyWatchesTheHandThatIsThere(t *testing.T) {
+func TestNewUnidentifiedViewerCannotWatchExistingDocument(t *testing.T) {
 	hub := NewHandHub(Word)
 	hh := &HandHTTP{Hub: hub, PingEvery: time.Hour}
 	mux := http.NewServeMux()
@@ -348,17 +348,8 @@ func TestAViewerWithAnotherKeyWatchesTheHandThatIsThere(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if viewer.StatusCode != http.StatusOK {
-			t.Fatalf("%s: 보는 연결이 %d 다 — 손이 있는데 못 본다", q, viewer.StatusCode)
-		}
-		vr := &sseReader{br: bufio.NewReader(viewer.Body)}
-		_, vd := vr.next(t)
-		var seen struct {
-			Document string `json:"document"`
-		}
-		_ = json.Unmarshal(vd, &seen)
-		if seen.Document != hello.Document {
-			t.Fatalf("%s: 창이 %q 를 보는데 손은 %q 다", q, seen.Document, hello.Document)
+		if viewer.StatusCode != http.StatusNotFound {
+			t.Fatalf("unidentified new document was linked to existing document: %d", viewer.StatusCode)
 		}
 		viewer.Body.Close()
 	}
@@ -413,8 +404,8 @@ func TestTheHubRecordsWhatEachViewerAskedAndSaw(t *testing.T) {
 	hub := NewHandHub(PPT)
 	hub.Join("com-aaaa", "a.pptx")
 	hub.Join("com-bbbb", "b.pptx")
-	if hub.Peek("com-aaaa") == nil || hub.Peek("") == nil {
-		t.Fatal("자기 키와 빈 키는 볼 것이 있어야 한다")
+	if hub.Peek("com-aaaa") == nil || hub.Peek("") != nil {
+		t.Fatal("자기 키만 연결되고 빈 키는 연결되면 안 된다")
 	}
 	// ⚠ **손이 둘일 때 모르는 키는 안 고른다**(2026-09-08 에 바뀐 규칙). 앞 판은 「가장 최근에 답한 손」을
 	// 보여 줬고, 실물에서 그것이 사고가 됐다: 두 창이 각자 이름을 들고 왔는데 둘 다 손과 안 맞아 **둘 다 같은
@@ -431,8 +422,8 @@ func TestTheHubRecordsWhatEachViewerAskedAndSaw(t *testing.T) {
 	if got[2].Asked != "com-aaaa" || got[2].Saw != "pid-com-aaaa" {
 		t.Fatalf("자기 키의 손을 봐야 한다: %+v", got[2])
 	}
-	if got[1].Asked != "" || got[1].Saw == "" {
-		t.Fatalf("빈 키는 있는 손을 봐야 한다: %+v", got[1])
+	if got[1].Asked != "" || got[1].Saw != "" {
+		t.Fatalf("빈 키는 아무 손도 선택하면 안 된다: %+v", got[1])
 	}
 	if got[0].Asked != "com-zzzz" || got[0].Saw != "" {
 		t.Fatalf("모르는 키는 아무 손도 안 봐야 한다 — 그리고 그 사실이 기록에 남아야 한다: %+v", got[0])
@@ -442,8 +433,8 @@ func TestTheHubRecordsWhatEachViewerAskedAndSaw(t *testing.T) {
 	// 일이 안 난다 — 그 경우 고를 것이 하나뿐이라 틀릴 수가 없다.
 	one := NewHandHub(PPT)
 	one.Join("com-only", "only.pptx")
-	if one.Peek("com-zzzz") == nil {
-		t.Fatal("손이 하나면 모르는 키도 그것을 봐야 한다")
+	if one.Peek("com-zzzz") != nil {
+		t.Fatal("손이 하나라도 다른 문서 키는 연결하면 안 된다")
 	}
 	for i := 0; i < peeksKept+3; i++ {
 		hub.Peek("")
