@@ -42,6 +42,8 @@ const deck = () => new FakeHand(structuredClone(fixture));
     if (!globalThis.crypto) globalThis.crypto = webcrypto;
     const id = await stableDeckId(() => { throw new Error('saved file must not create tag'); }, () => {}, { preferPath: true });
     ok('뷰어는 복구 경로로 COM과 같은 ID 사용', id === await comDeckId(path));
+    const taggedRunner = async fn => fn({ presentation: { tags: { getItemOrNullObject: () => ({ load() {}, isNullObject: false, value: 'DECK-SHARED' }) } }, sync: async () => {} });
+    ok('COM에 경로가 보여도 기존 공유 태그 보존', await stableDeckId(taggedRunner, () => {}, { preferPath: true, url: path }) === 'deck-shared');
   } finally {
     if (previous === undefined) delete globalThis.Office; else globalThis.Office = previous;
     if (previousCrypto === undefined) delete globalThis.crypto;

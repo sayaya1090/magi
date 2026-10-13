@@ -16,9 +16,9 @@ public static class DeckKey
 {
     public static string ForDocument(string fullName, bool saved, Func<string> readTag, Action<string> writeTag)
     {
-        if (saved) return Of(fullName);
         var id = (readTag() ?? "").Trim().ToLowerInvariant();
         if (id.Length != 0) return id;
+        if (saved) return Of(fullName);
         id = "deck-" + Guid.NewGuid().ToString("D");
         writeTag(id);
         return id;

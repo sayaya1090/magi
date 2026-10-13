@@ -28,7 +28,14 @@ public sealed partial class InteropOps : IOps
     }
 
     private static string Identity(PowerPoint.Presentation p) => DeckKey.ForDocument(
-        p.FullName, !string.IsNullOrEmpty(p.Path), () => p.Tags["MAGI.DECK"], value => p.Tags.Add("MAGI.DECK", value));
+        p.FullName, !string.IsNullOrEmpty(p.Path), () => ReadIdentityTag(p), value => p.Tags.Add("MAGI.DECK", value));
+
+    private static string ReadIdentityTag(PowerPoint.Presentation p)
+    {
+        var tag = p.Tags["MAGI.DECK"];
+        if (!string.IsNullOrEmpty(tag)) return tag;
+        return p.Slides.Count > 0 ? p.Slides[1].Tags["MAGI.DECK"] : "";
+    }
 
     /// <summary>떠 있는 PowerPoint 에 붙는다. 없으면 실패한다 — 몰래 띄우지 않는다.</summary>
     /// <summary>
@@ -57,7 +64,7 @@ public sealed partial class InteropOps : IOps
             var open = new List<string>();
             foreach (PowerPoint.Presentation p in app.Presentations)
             {
-                try { open.Add(string.IsNullOrEmpty(p.Path) ? "unsaved:" + Identity(p) : p.FullName); } catch { /* 그 덱만 못 읽었다 */ }
+                try { open.Add("unsaved:" + Identity(p)); } catch { /* 그 덱만 못 읽었다 */ }
             }
             return open;
         }
@@ -79,7 +86,8 @@ public sealed partial class InteropOps : IOps
         var open = new List<string>();
         foreach (PowerPoint.Presentation p in app.Presentations)
         {
-            if (Identity(p) == want) return new InteropOps(app, p);
+            if (Identity(p) == want || (!presentation.StartsWith("unsaved:", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(p.Path) && DeckKey.Of(p.FullName) == want)) return new InteropOps(app, p);
             open.Add(p.FullName);
         }
         throw new InvalidOperationException($"그 덱이 열려 있지 않습니다: {presentation} — 열린 것: {string.Join(" · ", open)}");

@@ -14,7 +14,8 @@ public class HandTests
         var b = DeckKey.ForDocument("Presentation1", false, () => second, v => second = v);
         Assert.NotEqual(a, b);
         Assert.Equal(a, DeckKey.ForDocument("Presentation1", false, () => first.ToUpperInvariant(), _ => throw new Exception("rewritten")));
-        Assert.Equal(DeckKey.Of("C:\\saved.pptx"), DeckKey.ForDocument("C:\\saved.pptx", true, () => throw new Exception("read unsaved tag"), _ => {}));
+        Assert.Equal(DeckKey.Of("C:\\saved.pptx"), DeckKey.ForDocument("C:\\saved.pptx", true, () => "", _ => {}));
+        Assert.Equal(a, DeckKey.ForDocument("C:\\saved.pptx", true, () => first.ToUpperInvariant(), _ => throw new Exception("rewritten")));
     }
     private static HandCall Call(string op, string argsJson = "{}") =>
         new("c1", op, JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argsJson, Json.Options));

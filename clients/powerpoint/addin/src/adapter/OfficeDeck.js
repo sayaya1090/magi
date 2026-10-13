@@ -85,6 +85,19 @@ export async function stableDeckId(runner, note, opts = {}) {
   // 창이 손인 판(365)에서는 반대다 — 거기서는 이 창이 곧 손이므로 제가 지은 태그가 정본이고,
   // 저장 안 한 덱에도 이름이 생긴다. 그래서 갈림은 **역할**이지 호스트 버전이 아니다.
   if (opts.preferPath && url) {
+    // A tag can have been created while this file was unsaved, or while Office.js
+    // could not read its path. Both adapters must keep that shared identity.
+    for (const where of ['presentation', 'slide']) { try {
+      const existing = await run(async context => {
+        const tags = where === 'presentation' ? context.presentation.tags : firstSlideTags(context);
+        if (!tags?.getItemOrNullObject) return '';
+        const item = tags.getItemOrNullObject(DECK_TAG);
+        item.load('value,isNullObject');
+        await context.sync();
+        return item.isNullObject !== true && item.value ? String(item.value).toLowerCase() : '';
+      });
+      if (existing) return existing;
+    } catch { /* No shared tag: use the saved path. */ } }
     try { return await comDeckId(url); } catch (e) { say(`경로로 이름을 못 지었습니다: ${e?.message ?? e}`); }
   }
 
