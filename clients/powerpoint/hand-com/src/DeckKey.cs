@@ -14,6 +14,15 @@ namespace Magi.Ppt.Hand;
 /// </summary>
 public static class DeckKey
 {
+    public static string ForDocument(string fullName, bool saved, Func<string> readTag, Action<string> writeTag)
+    {
+        if (saved) return Of(fullName);
+        var id = (readTag() ?? "").Trim().ToLowerInvariant();
+        if (id.Length != 0) return id;
+        id = "deck-" + Guid.NewGuid().ToString("D");
+        writeTag(id);
+        return id;
+    }
     public static string Normalize(string path)
     {
         var s = (path ?? "").Trim();

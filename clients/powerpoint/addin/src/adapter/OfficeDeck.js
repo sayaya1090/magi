@@ -94,7 +94,7 @@ export async function stableDeckId(runner, note, opts = {}) {
         const had = tags.getItemOrNullObject(DECK_TAG);
         had.load('value,isNullObject');
         await context.sync();
-        if (had.isNullObject !== true && had.value) return String(had.value);
+        if (had.isNullObject !== true && had.value) return String(had.value).toLowerCase();
         const made = newDeckId();
         tags.add(DECK_TAG, made);
         await context.sync();

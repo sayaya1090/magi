@@ -24,8 +24,11 @@ public sealed partial class InteropOps : IOps
         this.app = app; this.pres = pres;
         Label = pres.Name;
         // 헬퍼의 문서 키는 presentation 파라미터에서 나온다("pid-" + 값). 파일 경로의 짧은 지문 — 작업창과 같은 규칙(DeckKey).
-        DocumentKey = DeckKey.Of(pres.FullName);
+        DocumentKey = Identity(pres);
     }
+
+    private static string Identity(PowerPoint.Presentation p) => DeckKey.ForDocument(
+        p.FullName, !string.IsNullOrEmpty(p.Path), () => p.Tags["MAGI.DECK"], value => p.Tags.Add("MAGI.DECK", value));
 
     /// <summary>떠 있는 PowerPoint 에 붙는다. 없으면 실패한다 — 몰래 띄우지 않는다.</summary>
     /// <summary>
@@ -54,7 +57,7 @@ public sealed partial class InteropOps : IOps
             var open = new List<string>();
             foreach (PowerPoint.Presentation p in app.Presentations)
             {
-                try { open.Add(p.FullName); } catch { /* 그 덱만 못 읽었다 */ }
+                try { open.Add(string.IsNullOrEmpty(p.Path) ? "unsaved:" + Identity(p) : p.FullName); } catch { /* 그 덱만 못 읽었다 */ }
             }
             return open;
         }
@@ -71,11 +74,12 @@ public sealed partial class InteropOps : IOps
         var app = (PowerPoint.Application)GetActiveObject("PowerPoint.Application");
         if (app.Presentations.Count == 0) throw new InvalidOperationException("PowerPoint 는 떠 있는데 열린 프레젠테이션이 없습니다 — 덱을 먼저 여세요");
         if (string.IsNullOrWhiteSpace(presentation)) return new InteropOps(app, app.ActivePresentation);
-        var want = DeckKey.Of(presentation);
+        var want = presentation.StartsWith("unsaved:", StringComparison.OrdinalIgnoreCase)
+            ? presentation[8..].ToLowerInvariant() : DeckKey.Of(presentation);
         var open = new List<string>();
         foreach (PowerPoint.Presentation p in app.Presentations)
         {
-            if (DeckKey.Of(p.FullName) == want) return new InteropOps(app, p);
+            if (Identity(p) == want) return new InteropOps(app, p);
             open.Add(p.FullName);
         }
         throw new InvalidOperationException($"그 덱이 열려 있지 않습니다: {presentation} — 열린 것: {string.Join(" · ", open)}");

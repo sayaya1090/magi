@@ -2724,7 +2724,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('켜져 있으면 「끕니다」와 눌림', on.pressed === true && on.title.includes('끕니다') && on.title.includes('지금 켜짐'), on.title);
     ok('꺼져 있으면 「켭니다」', off.pressed === false && off.title.includes('켭니다') && off.title.includes('지금 꺼짐'), off.title);
     ok('모르면 모른다고 적는다', unk.pressed === false && unk.title.includes('모름'), unk.title);
-    ok('새 대화로 시작된다는 값을 미리 적는다', everyOf([on, off, unk], (b) => b.title.includes('새 대화')));
+    ok('다음 턴에 적용됨을 미리 적는다', everyOf([on, off, unk], (b) => b.title.includes('다음 턴')));
     const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
     ok('단추가 고급 줄에 있다', /id="advanced"[\s\S]*?id="council"[\s\S]*?id="repick"/.test(html));
     const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
@@ -4443,8 +4443,8 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
 {
   const on = confirmAsk('council', 'on'); const off = confirmAsk('council', 'off');
-  ok('카운슬 토글은 먼저 묻는다 — 데몬이 다시 뜨고 다른 창·플러그인도 끊긴다고', on && on.danger === true && on.head.includes('켭니다') && off.head.includes('끕니다') && on.body.includes('다시 뜹니다') && on.body.includes('플러그인'));
-  ok('덜 위험한 쪽이 그만두기다', on.cancel === '그만둡니다' && on.ok === '다시 띄웁니다');
+  ok('카운슬 토글은 다음 턴 적용과 컨텍스트 재처리를 먼저 알린다', on && on.danger === true && on.head.includes('켭니다') && off.head.includes('끕니다') && on.body.includes('컨텍스트') && on.body.includes('유지'));
+  ok('덜 위험한 쪽이 그만두기다', on.cancel === '그만둡니다' && on.ok === '변경합니다');
 }
 // 사람이 부르는 이름(2026-09-07) — 문서가 둘일 때 키 옆에 서는 손잡이. 저장한 문서의 URL 에서 파일 이름, 저장 전이면 빈 것.
 ok('URL 의 파일 이름이 라벨이다', documentName('https://x/y/%EB%B3%B4%EA%B3%A0%EC%84%9C.docx') === '보고서.docx' || documentName('C:\\a\\b\\deck.pptx') === 'deck.pptx');

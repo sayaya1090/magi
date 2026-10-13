@@ -6,6 +6,16 @@ using Xunit;
 // Windows 에서만 돌므로 여기서는 FakeOps 가 그 자리를 맡는다 — 규약이 같으면 둘 다 같은 Hand 를 쓴다.
 public class HandTests
 {
+    [Fact]
+    public void UnsavedFilesWithReusedNamesHaveDifferentSessionKeys()
+    {
+        string first = "", second = "";
+        var a = DeckKey.ForDocument("Presentation1", false, () => first, v => first = v);
+        var b = DeckKey.ForDocument("Presentation1", false, () => second, v => second = v);
+        Assert.NotEqual(a, b);
+        Assert.Equal(a, DeckKey.ForDocument("Presentation1", false, () => first.ToUpperInvariant(), _ => throw new Exception("rewritten")));
+        Assert.Equal(DeckKey.Of("C:\\saved.pptx"), DeckKey.ForDocument("C:\\saved.pptx", true, () => throw new Exception("read unsaved tag"), _ => {}));
+    }
     private static HandCall Call(string op, string argsJson = "{}") =>
         new("c1", op, JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argsJson, Json.Options));
 
