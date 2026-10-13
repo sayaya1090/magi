@@ -47,13 +47,28 @@ export function fileNameOf(url) {
   return last;
 }
 
+export async function readDocumentUrl(document, timeoutMs = 2000) {
+  if (document?.url) return document.url;
+  if (typeof document?.getFilePropertiesAsync !== 'function') return '';
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(''), timeoutMs);
+    try {
+      document.getFilePropertiesAsync(result => {
+        clearTimeout(timer);
+        resolve(result?.status === 'succeeded' ? String(result.value?.url ?? '') : '');
+      });
+    } catch { clearTimeout(timer); resolve(''); }
+  });
+}
+
 export async function stableDeckId(runner, note, opts = {}) {
   const say = note ?? ((m) => {
     if (typeof console !== 'undefined') console.warn('[magi] 덱 이름:', m);
   });
   const run = runner ?? (typeof PowerPoint === 'undefined' ? null : PowerPoint.run);
   if (!run) return '';
-  const url = opts.url ?? (typeof Office !== 'undefined' ? Office?.context?.document?.url : '');
+  const document = typeof Office !== 'undefined' ? Office?.context?.document : null;
+  const url = opts.url ?? (opts.preferPath ? await readDocumentUrl(document) : document?.url);
 
   // **이 창이 화면이면 손의 언어로 말한다 — 경로 지문이 먼저다.**
   //

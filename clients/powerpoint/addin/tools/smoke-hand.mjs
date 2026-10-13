@@ -14,6 +14,8 @@ import { HelperStream } from '../src/adapter/HelperStream.js';
 import { HelperApi } from '../src/adapter/helperApi.js';
 import { HelperChat, HelperStatus, HelperTranscript, pendingOf } from '../src/adapter/HelperPorts.js';
 import { fixture } from '../src/ui/deckFixture.js';
+import { readDocumentUrl, stableDeckId, comDeckId } from '../src/adapter/OfficeDeck.js';
+import { webcrypto } from 'node:crypto';
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -25,6 +27,26 @@ const threw = async (fn) => {
 };
 
 const deck = () => new FakeHand(structuredClone(fixture));
+
+{
+  const path = 'C:\\Users\\test\\saved.pptx';
+  const document = { url: '', getFilePropertiesAsync: cb => cb({ status: 'succeeded', value: { url: path } }) };
+  ok('파일 속성에서 누락된 문서 경로 복구', await readDocumentUrl(document) === path);
+  ok('미저장 파일은 경로를 만들지 않음', await readDocumentUrl({ getFilePropertiesAsync: cb => cb({ status: 'succeeded', value: { url: '' } }) }) === '');
+  ok('파일 속성 실패는 빈 경로', await readDocumentUrl({ getFilePropertiesAsync: cb => cb({ status: 'failed' }) }) === '');
+  ok('파일 속성 무응답은 종료', await readDocumentUrl({ getFilePropertiesAsync: () => {} }, 1) === '');
+  const previous = globalThis.Office;
+  const previousCrypto = globalThis.crypto;
+  try {
+    globalThis.Office = { context: { document } };
+    if (!globalThis.crypto) globalThis.crypto = webcrypto;
+    const id = await stableDeckId(() => { throw new Error('saved file must not create tag'); }, () => {}, { preferPath: true });
+    ok('뷰어는 복구 경로로 COM과 같은 ID 사용', id === await comDeckId(path));
+  } finally {
+    if (previous === undefined) delete globalThis.Office; else globalThis.Office = previous;
+    if (previousCrypto === undefined) delete globalThis.crypto;
+  }
+}
 
 // ── 손: 계약 넷 ───────────────────────────────────────────────────────────────
 
