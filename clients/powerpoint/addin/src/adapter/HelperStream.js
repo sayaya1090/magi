@@ -205,6 +205,9 @@ export class HelperStream {
       });
       if (!r || r.status !== 200 || typeof r.json !== 'function') return null;
       const j = await r.json();
+      if (Array.isArray(j?.documents) && this.presentation) {
+        return j.documents.some(row => row.document === 'pid-' + this.presentation);
+      }
       if (j?.attached === true) return true;
       if (j?.attached === false) return false;
       return null;

@@ -9,6 +9,7 @@ import { WatchPrompt } from './usecase/WatchPrompt.js';
 import { FakeDeck } from './adapter/FakeDeck.js';
 import { pickDeck, pickNote, lateNote, lateFailNote } from './adapter/pickDeck.js';
 import { stableDeckId, documentName } from './adapter/OfficeDeck.js';
+import { documentConnectionNote } from './ui/documentConnection.js';
 import { FakeChat } from './adapter/FakeChat.js';
 import { FakeStatus } from './adapter/FakeStatus.js';
 import { FakeTranscript } from './adapter/FakeTranscript.js';
@@ -137,13 +138,24 @@ async function boot() {
     });
   }
   view.mount();
+	let lastConnectionDiagnostic = 0;
+	const diagnoseDocument = async () => {
+		if (!api || api.deck || Date.now() - lastConnectionDiagnostic < 10000) return;
+		lastConnectionDiagnostic = Date.now();
+		try {
+			const report = await api.documents();
+			view.role(documentConnectionNote(deckId, report?.documents));
+		} catch {
+			view.role('문서 연결 상태를 확인하지 못했습니다. 로컬 헬퍼 연결을 확인해 주세요.');
+		}
+	};
   // **손과 화면의 구분은 사람에게 안 말한다**(2026-09-06, 사용자: 「둘을 구분할 필요가 없어」).
   // 말하는 것은 사람이 할 일이 있을 때 하나 — 편집하는 손(magi-ppt-hand)이 아직 안 떠 있을 때.
   // 스트림이 `nohand` 로 알려 주면 켜고, 손이 붙어 `hello` 가 오면 끈다. 붙는 과정이 덮는
   // 판 사실 칸(`where`)이 아니라 자기 칸(`role`)이다 — `where` 에 적었더니 「준비됐습니다 —
   // 도구 48 개」가 덮었다(실물 LTSC 2021, 2026-09-06).
   if (helperStream && role.role === 'viewer') {
-    helperStream.on('stream', (d) => { if (d?.reason === 'nohand') view.role(d.why); });
+    helperStream.on('stream', (d) => { if (d?.reason === 'nohand') { view.role(d.why); void diagnoseDocument(); } });
     helperStream.on('hello', () => view.role(''));
   }
   // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
@@ -826,6 +838,7 @@ async function boot() {
         new Promise((go) => { helperStream.on('hello', () => go()); }),
         new Promise((go) => { setTimeout(go, 3000); }),
       ]);
+		if (!api.deck) void diagnoseDocument();
     }
     // **명단은 안 그리고** 읽기만 한다 — 이미 붙어 있는지만 보면 된다.
     await showCompanions(false);
