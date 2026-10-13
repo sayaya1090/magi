@@ -33,7 +33,7 @@ public sealed class HelperClient
     /// <summary>손 스트림을 열고 프레임을 낸다. 끊기면 끝난다 — 다시 붙는 것은 부르는 쪽이 정한다.</summary>
     public async IAsyncEnumerable<SseFrame> StreamAsync(string presentation, string label, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
-        var url = $"{Origin}/hand/stream?token={Uri.EscapeDataString(Token ?? "")}&presentation={Uri.EscapeDataString(presentation)}&label={Uri.EscapeDataString(label)}";
+        var url = $"{Origin}/hand/stream?token={Uri.EscapeDataString(Token ?? "")}&presentation={Uri.EscapeDataString(presentation)}&label={Uri.EscapeDataString(label)}&identityRevision=shared-tag-v2";
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         res.EnsureSuccessStatusCode();

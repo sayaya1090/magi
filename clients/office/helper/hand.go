@@ -65,8 +65,9 @@ type HandReply struct {
 
 // handConn 은 붙어 있는 애드인 하나.
 type handConn struct {
-	key   string // 헬퍼가 발급한 문서 키. 도구의 `document` 인자가 이 값이다
-	label string // 사람이 부르는 이름(파일 이름). 키가 아니다(§5.6)
+	identityRevision string
+	key              string // 헬퍼가 발급한 문서 키. 도구의 `document` 인자가 이 값이다
+	label            string // 사람이 부르는 이름(파일 이름). 키가 아니다(§5.6)
 	// presentationID 는 애드인이 말한 `context.presentation.id`. **있으면 키의 재료가 되고
 	// 없으면 우리가 발급한다**(§5.6 — S11 이 아직 안 닫혔다. 저장 안 된 덱 둘이 다른 값을
 	// 받는지, 저장이 그 값을 바꾸는지를 문서가 안 적는다).
@@ -282,7 +283,7 @@ func (h *HandHub) Documents() []map[string]string {
 	defer h.mu.Unlock()
 	out := make([]map[string]string, 0, len(h.conns))
 	for _, c := range h.conns {
-		out = append(out, map[string]string{"document": c.key, "label": c.label})
+		out = append(out, map[string]string{"document": c.key, "label": c.label, "identityRevision": c.identityRevision})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i]["document"] < out[j]["document"] })
 	return out

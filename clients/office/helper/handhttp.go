@@ -98,6 +98,9 @@ func (h *HandHTTP) Stream(w http.ResponseWriter, r *http.Request) {
 	var superseded <-chan struct{}
 	if !viewer {
 		conn = h.Hub.Join(r.URL.Query().Get(h.Hub.App.DocParam), r.URL.Query().Get("label"))
+		h.Hub.mu.Lock()
+		conn.identityRevision = r.URL.Query().Get("identityRevision")
+		h.Hub.mu.Unlock()
 		gen, done := h.Hub.Lease(conn)
 		superseded = done
 		defer h.Hub.LeaveGen(conn, gen)
