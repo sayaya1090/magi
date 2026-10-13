@@ -50,7 +50,7 @@ $('provider-select').onchange=settingsGuard(async()=>{const name=$('provider-sel
 $('set-model').onclick=settingsGuard(async()=>{const name=$('model').value.trim();if(!name)throw Error('모델 이름을 입력해 주세요.');await request('model',{name});settingsStatus('모델을 변경했습니다. 다음 요청부터 적용됩니다.');});
 $('restart').onclick=settingsGuard(async()=>{if(!confirm('컴패니언을 재시작할까요? 진행 중인 작업이 중단될 수 있습니다.'))return;$('restart').disabled=true;try{await request('restart');lease=null;await stop();status('설정을 반영하기 위해 다시 연결하는 중입니다…');await new Promise(resolve=>setTimeout(resolve,500));await connect();}finally{$('restart').disabled=!binding;}});
 $('settings-close').onclick=()=>{clearProfileKey();$('settings-panel').hidden=true;$('settings').focus();};
-$('settings').onclick=async()=>{$('settings-panel').hidden=false;settingsStatus('설정을 불러오는 중입니다…');const version=epoch;const settingsSession=session;const jobs=[
+$('settings').onclick=async()=>{$('mcp-address').value=base()+'/mcp/'+binding+'/'+session;$('settings-panel').hidden=false;settingsStatus('설정을 불러오는 중입니다…');const version=epoch;const settingsSession=session;const jobs=[
  async()=>{const out=await request('status');if(version!==epoch||settingsSession!==session)return;if(typeof out.model==='string')$('model').value=out.model;if(typeof out.profile==='string')$('provider-select').dataset.current=out.profile;},
  async()=>{const out=await request('models');if(version!==epoch||settingsSession!==session)return;$('model-options').replaceChildren();for(const name of Array.isArray(out.models)?out.models:[])$('model-options').append(new Option(name,name));},
 

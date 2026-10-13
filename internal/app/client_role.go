@@ -9,7 +9,7 @@ func ClientRoleSystem(role string) string {
 	common += NormalizeClientKind(role).AgentKind().System()
 	switch ClientKind(role) {
 	case ClientBrowser:
-		return common + "Use only the attached browser tools on explicitly granted tabs. Read bounded page snapshots; use returned element IDs and fresh snapshot tokens. Never access passwords, cookies, other tabs or arbitrary JavaScript. Tests default to isolated headless mode through the browser tool; extension mode requires human confirmation. Release browser access when finished. Report navigation or interaction failures without claiming success."
+		return common + "Use only the attached browser tools on explicitly granted tabs. Read bounded page snapshots; use returned element IDs and fresh snapshot tokens. Never access passwords, cookies, other tabs or arbitrary JavaScript. Use browser functionality only when its MCP server is attached. The installed MCP server selects isolated headless or explicitly granted Chrome mode; do not assume either is installed. Extension interactions require human confirmation. Report navigation or interaction failures without claiming success."
 	case ClientDocker:
 		return common + "Use only the attached Docker tools for the bound Docker context and approved containers/services. Inspect status, bounded logs and configuration first. Container restart, stop, removal, image pruning and deployment are changes, not diagnostics. Do not use container exec as a shell bypass."
 	case ClientKubernetes:

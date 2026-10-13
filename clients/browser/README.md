@@ -30,20 +30,22 @@ Run `go test -race ./clients/browser/... ./clients/appbridge`, `go vet ./clients
 
 For live acceptance, load the unpacked extension and use a disposable local HTTP form. Grant only that tab, connect the helper and ask the model to read it. Confirm one fill/click, verify the DOM result, deny another action, and check the field stays unchanged. Navigate or alter the DOM before using an old element ID and confirm rejection. Check that ungranted tabs and password fields stay unavailable, then switch sessions during a pending action and confirm it cannot execute. Record the core commit, Chrome version and observed results. Do not use a real payment or messaging form for these checks.
 
-## On-demand use and delegated tests
+## Optional browser MCP registration
 
-The core registers a small `browser` tool. Its complete browser schemas are returned only when the model calls `browser({action: "connect"})`; they are not added to every model request. The session tool catalog is frozen for prompt-cache stability, so the same entry point forwards subsequent calls without changing that catalog. `mode` defaults to `headless`. Use `mode: "extension"` explicitly for user-granted tabs. There is no automatic fallback between modes.
+The core does not register a built-in `browser` tool. Browser tools are available only after the user installs and starts the helper and registers its MCP server. Connect the Chrome panel first; start headless mode with explicit allowed origins. Modes never fall back automatically.
 
-```text
-browser({action: "connect"})
-browser({action: "call", tool: "list_tabs", args: {}})
-browser({action: "call", tool: "read_page", args: {tabId: 1}})
-browser({action: "release"})
+```toml
+[mcp.servers.browser_runtime]
+url = "http://127.0.0.1:8737/mcp"
+[mcp.servers.browser_runtime.headers]
+Authorization = "Bearer ${MAGI_BROWSER_TOKEN}"
 ```
 
-Results are forwarded as original JSON without an intermediate model. Access is tied to the caller's daemon socket and session, expires after five idle minutes, and is revoked when the parent browser connection is closed or changes session. Reconnect after expiration. A busy extension rejects another simultaneous call; it does not replay it later. Already executing actions cannot be undone by releasing a lease. Read outcomes before retrying.
+Headless mode uses port 8739 by default. The token must match the helper. `/mcp` initializes only when exactly one browser connection exists and pins that window and conversation. It refuses ambiguous windows; use an explicit `/mcp/<binding>/<session>` address in that case. Reconnect MCP after closing the original window or changing its conversation.
 
-To delegate a complete test, use existing `companions`/`companion_can` to find the browser companion, then `hand_off(to, request, so_that, answer_as)`. The recipient gets its own conversation and calls `browser` there, so its lease and headless profile are separate from the requester and other delegated jobs. Include the URL, steps, success conditions and evidence format; use a normal working handoff for click/fill tests, not `looking:true`. `hand_off` returns a receipt immediately; its completed report later reaches the requester's conversation. No new collaboration protocol is added.
+Each MCP connection has a separate execution identity, keeping headless profiles separate. Chrome calls use the original panel's granted tabs and confirmation flow. Disconnect cleans up profiles and pending calls. Sending, purchasing and deletion still require the user's authorization; inspect results before retrying a timeout.
+
+Independent testing continues to use `companions`, `companion_can` and `hand_off`. The recipient must have a registered browser MCP server too. Missing installations are not treated as available browser functionality.
 
 ## Headless test startup
 

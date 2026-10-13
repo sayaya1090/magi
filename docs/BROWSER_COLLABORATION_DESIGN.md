@@ -1,5 +1,7 @@
 # Browser cooperation and headless testing
 
+Current contract (2026-10-13): browser execution is an optional registered MCP server. The built-in `browser` entry point is removed. Older entry-point examples and verification records below describe the previous implementation. See the browser manual for current setup.
+
 [한국어](BROWSER_COLLABORATION_DESIGN.ko.md) · [Browser manual](../clients/browser/README.md)
 
 The user requested both transparent browser tool access from an existing agent and independent test execution by a browser companion. Tests use isolated headless browsing by default. User-owned Chrome tabs use an explicitly selected extension mode. Existing collaboration and session ownership contracts remain in place.

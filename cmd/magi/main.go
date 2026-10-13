@@ -35,7 +35,6 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
-	browsertool "github.com/sayaya1090/magi/internal/adapter/tool/browser"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/adapter/tui"
@@ -843,7 +842,6 @@ func run() int {
 		Cache:     companionCache,
 		Ask:       describeCompanion,
 	})
-	reg.Register(&browsertool.Access{ConfigDir: plat.ConfigDir()})
 	dangerTools := app.DefaultDangerTools()
 	dangerTools["browser"] = true
 

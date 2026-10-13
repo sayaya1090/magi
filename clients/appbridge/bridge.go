@@ -152,6 +152,7 @@ func New(c Config) (*Server, error) {
 	s.Mux.Handle("/api/figma/result", s.Auth(http.HandlerFunc(s.resultHTTP)))
 	s.Mux.Handle("/mcp/", s.Auth(http.HandlerFunc(s.mcpHTTP)))
 	s.registerSettingsRoutes()
+	s.registerBrowserMCPGateway()
 	return s, nil
 }
 func (s *Server) Auth(next http.Handler) http.Handler {
