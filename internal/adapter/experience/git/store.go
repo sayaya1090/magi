@@ -22,6 +22,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/core/embed"
+	"github.com/sayaya1090/magi/internal/core/lexical"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/quietconsole"
 )
@@ -166,7 +167,11 @@ func (s *Store) Pool(ctx context.Context, query string, agentGroups []string) ([
 	if err != nil {
 		return nil, nil, err
 	}
-	return append(mems, managedMem...), append(skills, managedSkills...), nil
+	mems = append(mems, managedMem...)
+	skills = append(skills, managedSkills...)
+	RankCJK(query, mems, func(m port.Memory) string { return m.Text })
+	RankCJK(query, skills, func(s port.Skill) string { return s.Name + "\n" + s.Description + "\n" + s.Body })
+	return mems, skills, nil
 }
 
 // Propose writes a contribution directly into the retrievable store and commits
@@ -426,12 +431,15 @@ func readFile(p string) string {
 
 func tokenize(s string) map[string]bool {
 	out := map[string]bool{}
-	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+	for _, w := range strings.FieldsFunc(lexical.Normalize(s), func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
 	}) {
 		if len(w) >= 3 {
 			out[w] = true
 		}
+	}
+	for _, term := range lexical.NonASCII(s) {
+		out[term] = true
 	}
 	return out
 }
@@ -440,7 +448,7 @@ func overlap(terms map[string]bool, text string) int {
 	if len(terms) == 0 {
 		return 0
 	}
-	lower := strings.ToLower(text)
+	lower := lexical.Normalize(text)
 	n := 0
 	for t := range terms {
 		if strings.Contains(lower, t) {

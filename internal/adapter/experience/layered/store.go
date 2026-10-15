@@ -127,6 +127,8 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 	add(s.project, "[project]")
 	add(s.team, "[team]")
 	add(s.global, "[global]")
+	expgit.RankCJK(query, mems, func(m port.Memory) string { return m.Text })
+	expgit.RankCJK(query, skills, func(k port.Skill) string { return k.Name + "\n" + k.Description + "\n" + k.Body })
 
 	outMem := rank(ctx, s.emb, query, mems, memCap, func(m port.Memory) string { return m.Text })
 	outSkill := rank(ctx, s.emb, query, skills, skillCap, func(k port.Skill) string {

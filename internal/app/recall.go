@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/lexical"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -97,13 +98,13 @@ func mergeShardsByTopic(shards []event.ContextShard) []event.ContextShard {
 // when the top score is only a weak (token-overlap) tie, so the caller lists topics
 // instead of guessing. idx is -1 when nothing matches at all.
 func matchShard(query string, shards []event.ContextShard) (idx int, ambiguous bool) {
-	q := strings.ToLower(strings.TrimSpace(query))
+	q := lexical.Normalize(strings.TrimSpace(query))
 	if q == "" {
 		return -1, false
 	}
 	best, second, bestIdx := 0, 0, -1
 	for i, sh := range shards {
-		topic := strings.ToLower(sh.Topic)
+		topic := lexical.Normalize(sh.Topic)
 		score := 0
 		switch {
 		case topic == q:
@@ -218,14 +219,20 @@ func baseName(p string) string {
 	return p
 }
 
-// tokenOverlap counts how many alphanumeric tokens of a appear in b.
+// tokenOverlap preserves ASCII matching and adds normalized Unicode/CJK terms.
 func tokenOverlap(a, b string) int {
+	a, b = lexical.Normalize(a), lexical.Normalize(b)
 	split := func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
 	}
 	n := 0
 	for _, tok := range strings.FieldsFunc(a, split) {
 		if len(tok) >= 2 && strings.Contains(b, tok) {
+			n++
+		}
+	}
+	for _, term := range lexical.NonASCII(a) {
+		if strings.Contains(b, term) {
 			n++
 		}
 	}
@@ -273,7 +280,7 @@ func shardHints(evs []event.Event, query string) string {
 	texts := make([]string, len(shards))
 	df := map[string]int{}
 	for i, sh := range shards {
-		texts[i] = strings.ToLower(sh.Topic + " " + sh.Brief)
+		texts[i] = lexical.Normalize(sh.Topic + " " + sh.Brief)
 		for t := range qtoks {
 			if strings.Contains(texts[i], t) {
 				df[t]++
@@ -344,10 +351,10 @@ func shardHints(evs []event.Event, query string) string {
 	return b.String()
 }
 
-// tokenize lowercases and splits s into alphanumeric-ish tokens of length ≥ 3,
-// treating path separators and punctuation as boundaries.
+// tokenize preserves ASCII path/identifier terms and adds normalized CJK words
+// and bigrams. It is lexical retrieval, not morphological or semantic analysis.
 func tokenize(s string) []string {
-	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+	fields := strings.FieldsFunc(lexical.Normalize(s), func(r rune) bool {
 		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '.'
 	})
 	var out []string
@@ -357,5 +364,6 @@ func tokenize(s string) []string {
 			out = append(out, f)
 		}
 	}
+	out = append(out, lexical.NonASCII(s)...)
 	return out
 }

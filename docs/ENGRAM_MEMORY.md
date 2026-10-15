@@ -18,7 +18,15 @@ Kernel file locks serialize plugin-state and managed-record writes and release o
 
 Saved skill-body and verification-script snapshots protect later human edits from automatic overwrite, undo and archiving. Conflicting undo preserves the human file and withdraws the automatic projection. Inventory lists managed records as `managed:<id>`; forgetting writes a tombstone. Stale plugin writes conflict after external withdrawal instead of reviving the object.
 
-This stage does not implement Korean retrieval, committed-only reads, legacy `git add .` cleanup, fleet replication, authorization freshness, passage receipts or final Lua/D13 deduplication. Operation-history retention also remains open. Old independent D13 copies are not automatically corrected or withdrawn. Section 1 preserves the pre-change review; sections 2 onward remain target contracts.
+The first stage does not implement committed-only reads, legacy `git add .` cleanup, fleet replication, authorization freshness, passage receipts or final Lua/D13 deduplication. Operation-history retention also remains open. Old independent D13 copies are not automatically corrected or withdrawn. Section 1 preserves the pre-change review; sections 2 onward remain target contracts.
+
+### 0.1. Korean retrieval without embeddings
+
+`internal/core/lexical` provides NFKC normalization, lowercasing and CJK whole-word/bigram terms. CJK experience queries use BM25 (k1=1.2, b=0.75) multiplied by squared query-word coverage. A word's whole form and bigrams count as one coverage group. A regression covers long documents repeating a partial query and outranking more complete evidence. This weighting is a retrieval heuristic, not a general quality guarantee.
+
+Project/team/global candidates are reranked over the complete visible union. Existing English substring ranking and optional embedding fusion remain. No new model, configuration or network call is added. Compacted-topic retrieval and hints in `internal/app/recall.go` also use normalized Unicode terms. Retrieval normalization does not change original content or object IDs.
+
+Tests cover Korean inflections, decomposed Hangul, full-width Latin, mixed scripts, unrelated queries, repetitive distractors, cross-scope ranking, compacted context and existing English regressions. Morphology, synonyms, semantic negation and real-model task success are outside this validation. Larger frozen evaluation and heuristic calibration remain future work.
 
 ## 1. Implementation review
 
