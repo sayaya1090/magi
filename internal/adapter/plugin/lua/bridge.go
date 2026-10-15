@@ -15,6 +15,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/prompt"
 )
@@ -45,6 +46,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "json_encode", L.NewFunction(p.bridgeJSONEncode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
+	L.SetField(t, "apply_experience", L.NewFunction(p.bridgeApplyExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
 	L.SetField(t, "finish", L.NewFunction(p.bridgeFinish))
 	L.SetField(t, "remove_file", L.NewFunction(p.bridgeRemoveFile))
@@ -73,6 +75,7 @@ func installBridge(p *plugin) {
 	// Plugin custom settings: read [plugins.<name>], persist own values.
 	L.SetField(t, "store_get", L.NewFunction(p.bridgeStoreGet))
 	L.SetField(t, "store_set", L.NewFunction(p.bridgeStoreSet))
+	L.SetField(t, "store_compare_exchange", L.NewFunction(p.bridgeStoreCompareExchange))
 	// User config.toml access (dotted keys), gated by config:read/write permissions.
 	L.SetField(t, "get_config_key", L.NewFunction(p.bridgeGetConfigKey))
 	L.SetField(t, "set_config_key", L.NewFunction(p.bridgeSetConfigKey))
@@ -1096,7 +1099,7 @@ func (p *plugin) bridgeWriteFile(L *lua.LState) int {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return fail(L, err.Error())
 	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+	if err := atomicfile.Write(abs, []byte(content), 0o644); err != nil {
 		return fail(L, err.Error())
 	}
 	L.Push(lua.LTrue)
@@ -1184,10 +1187,9 @@ func (p *plugin) bridgeAnalyze(L *lua.LState) int {
 }
 
 // magi.propose_experience{scope=?, memories={{text=,tags={..}},…}, skills={{name=,description=,body=},…}}
-// → true (or nil, err). Routes a plugin's learned knowledge into the D13 shared
-// experience store's review queue (team tier via git), so plugin-captured
-// lessons/skills join the same curation pipeline as everything else. Capability
-// "experience" — it writes to a team-shared store.
+// → true (or nil, err). Writes a contribution immediately to the experience
+// store (project by default). Managed corrections use apply_experience instead.
+// Capability "experience".
 func (p *plugin) bridgeProposeExperience(L *lua.LState) int {
 	p.requireCap(L, "experience")
 	if p.host == nil || p.host.experience == nil {

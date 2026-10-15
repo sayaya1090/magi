@@ -162,7 +162,11 @@ func (s *Store) Pool(ctx context.Context, query string, agentGroups []string) ([
 		})
 	}
 
-	return mems, skills, nil
+	managedMem, managedSkills, err := s.managedPool(query)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(mems, managedMem...), append(skills, managedSkills...), nil
 }
 
 // Propose writes a contribution directly into the retrievable store and commits
@@ -537,6 +541,11 @@ func (s *Store) Inventory(ctx context.Context) ([]SkillInfo, error) {
 			Observed: 1, // a fact is written once; there is no second observation to count
 		})
 	}
+	managed, err := s.managedInventory()
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, managed...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
@@ -566,6 +575,9 @@ func parseMemory(text string) ([]string, string) {
 // — never joined as a path from a caller — so nothing outside this tier's skills directory can be
 // reached by asking for it.
 func (s *Store) Forget(ctx context.Context, name string) error {
+	if strings.HasPrefix(name, "managed:") {
+		return s.forgetManaged(ctx, strings.TrimPrefix(name, "managed:"))
+	}
 	// Both directories, one function: whichever kind the name turns out to be, the deletion has
 	// the same rule and the same danger, and a second copy of it would be the one that forgot to
 	// match against the listing instead of joining the caller's string to a path.

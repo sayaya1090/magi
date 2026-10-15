@@ -43,6 +43,18 @@ type Store struct {
 	global *expgit.Store
 }
 
+// Managed projections currently stay in the explicit project store. No fallback
+// to a wider scope: local undo must not acquire authority over a team copy.
+func (s *Store) ApplyExperience(ctx context.Context, c port.ExperienceChange) (port.ExperienceReceipt, error) {
+	if c.Scope != "" && c.Scope != "project" {
+		return port.ExperienceReceipt{}, fmt.Errorf("managed experience currently supports project scope only")
+	}
+	if s.project == nil {
+		return port.ExperienceReceipt{}, fmt.Errorf("project experience store is not configured")
+	}
+	return s.project.ApplyExperience(ctx, c)
+}
+
 // New returns a store with the three tiers rooted at the given directories. An empty dir disables
 // that tier — a companion that declares no team has no team tier, which is not an error.
 func New(projectDir, teamDir, globalDir string) *Store {

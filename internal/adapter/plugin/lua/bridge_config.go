@@ -1,10 +1,16 @@
 package lua
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/sayaya1090/magi/internal/atomicfile"
+	"github.com/sayaya1090/magi/internal/filelock"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -32,7 +38,7 @@ func (p *plugin) readStore() map[string]any {
 	}
 	pluginStoreMu.Lock()
 	defer pluginStoreMu.Unlock()
-	b, err := os.ReadFile(path)
+	b, err := atomicfile.ReadFile(path)
 	if err != nil {
 		return map[string]any{}
 	}
@@ -72,32 +78,76 @@ func (p *plugin) bridgeStoreGet(L *lua.LState) int {
 func (p *plugin) bridgeStoreSet(L *lua.LState) int {
 	key := L.CheckString(1)
 	val := luaToGo(L.Get(2))
+	if err := p.writeStoreValue(key, val, nil); err != nil {
+		return fail(L, err.Error())
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// Compare and replace one serialized state under the same cross-process lock as
+// ordinary store_set. A stale Lua read cannot overwrite another writer's queue.
+func (p *plugin) bridgeStoreCompareExchange(L *lua.LState) int {
+	key := L.CheckString(1)
+	expected := L.CheckString(2)
+	value := L.CheckString(3)
+	if err := p.writeStoreValue(key, value, &expected); err != nil {
+		return fail(L, err.Error())
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+func (p *plugin) writeStoreValue(key string, val any, expected *string) error {
 
 	path := p.storePath()
 	if path == "" {
-		return fail(L, "store_set: no data dir configured")
+		return fmt.Errorf("store_set: no data dir configured")
 	}
 
 	pluginStoreMu.Lock()
 	defer pluginStoreMu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	release, err := filelock.Acquire(ctx, path+".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
 	m := map[string]any{}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &m)
-		if m == nil {
-			m = map[string]any{}
+	if b, err := atomicfile.ReadFile(path); err == nil {
+		if err := json.Unmarshal(b, &m); err != nil || m == nil {
+			return fmt.Errorf("plugin store is invalid; refusing overwrite")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if expected != nil {
+		current := ""
+		if v, ok := m[key]; ok {
+			var valid bool
+			current, valid = v.(string)
+			if !valid {
+				return fmt.Errorf("plugin state is not a string")
+			}
+		}
+		if current != *expected {
+			return fmt.Errorf("plugin state revision conflict")
 		}
 	}
 	m[key] = val
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fail(L, "store_set: "+err.Error())
+		return err
 	}
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return fail(L, "store_set: "+err.Error())
+		return err
 	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return fail(L, "store_set: "+err.Error())
+	if err := atomicfile.Write(path, b, 0o600); err != nil {
+		return err
 	}
-	L.Push(lua.LTrue)
-	return 1
+	return nil
 }

@@ -113,7 +113,11 @@ func TestProbeEngramPluginEndToEnd(t *testing.T) {
 	var sawSave bool
 	for deadline = time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		notesMu.Lock()
-		sawSave = len(notes) > 0 && strings.Contains(notes[0], "자동 저장")
+		for _, note := range notes {
+			if strings.Contains(note, "자동 저장") {
+				sawSave = true
+			}
+		}
 		notesMu.Unlock()
 		if sawSave {
 			break

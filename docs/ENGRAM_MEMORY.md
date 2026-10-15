@@ -4,6 +4,22 @@
 
 Status: **target design for implementation handoff, 2026-09-11.** The requirements are to reduce repeated knowledge and share skills/memories between daemons. These contracts are targets, not completed behavior. Git is an optional export/audit mechanism.
 
+## 0. First implementation scope, 2026-10-15
+
+Automatic skill writes now require the host's `verified` outcome at the save boundary. Analyzer success or skill output cannot promote error/guard/unverified/ungated turns. Failed-turn lesson analysis remains enabled. This is a necessary gate, not proof that every proposed procedure in a successful turn was executed. Procedure-level evidence validation remains future work.
+
+New Engram learnings create project-local managed projections at `managed/<object_id>.json`. Existing memories, skills, ledger files and human-authored material are not automatically imported. Linked ledger corrections update the same object revision. Skill undo, restoration and unused-skill archiving update its withdrawn/active/archived state. This grants no authority to delete independent team copies.
+
+`port.ManagedExperienceStore` and Lua `magi.apply_experience` define the boundary. The host assigns owner/source from plugin identity. Non-project scope is rejected; an absent project store never widens scope. Random object/operation IDs and expected revisions identify writes. One atomic JSON file contains content, state and operation receipts. Replaying an operation after a lost acknowledgment creates neither a duplicate object nor another revision.
+
+Plugin state `managed_experience_v1:<workdir>` persists identity links and pending requests before calls. User/turn events retry requests; failure of one object does not block unrelated ones. A flush makes at most eight calls. A 256-entry queue rejects new registration and logs that local reconciliation is needed. State conflicts are not overwritten. There is no separate idle retry worker.
+
+Kernel file locks serialize plugin-state and managed-record writes and release on process death; lock files are not unlinked. Atomic replacement preserves complete files, and malformed stores are not overwritten. Compare-and-exchange protects identity/outbox updates against stale writers. Local Markdown and experience JSON are not one distributed transaction; partial failures remain pending or conflicted.
+
+Saved skill-body and verification-script snapshots protect later human edits from automatic overwrite, undo and archiving. Conflicting undo preserves the human file and withdraws the automatic projection. Inventory lists managed records as `managed:<id>`; forgetting writes a tombstone. Stale plugin writes conflict after external withdrawal instead of reviving the object.
+
+This stage does not implement Korean retrieval, committed-only reads, legacy `git add .` cleanup, fleet replication, authorization freshness, passage receipts or final Lua/D13 deduplication. Operation-history retention also remains open. Old independent D13 copies are not automatically corrected or withdrawn. Section 1 preserves the pre-change review; sections 2 onward remain target contracts.
+
 ## 1. Implementation review
 
 | Evidence | Current behavior | Gap |

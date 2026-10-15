@@ -354,6 +354,114 @@ local function lesson_is_duplicate(lesson_text)
   return false
 end
 
+-- Only new managed projections use this identity map. Legacy/independent D13
+-- records are not adopted by matching their text. Persist requests BEFORE the
+-- call; a retry reuses its operation ID even if the host saved before a crash.
+local managed_versions = setmetatable({}, { __mode = "k" })
+local function managed_state()
+  local raw = magi.store_get("managed_experience_v1:" .. magi.workdir())
+  if not raw or raw == "" then
+    local state = { links = {}, objects = {}, queue = {} }
+    managed_versions[state] = ""
+    return state
+  end
+  local state = magi.json_decode(raw)
+  if type(state) ~= "table" or type(state.links) ~= "table"
+    or type(state.objects) ~= "table" or type(state.queue) ~= "table" then
+    magi.log("engram: invalid managed identity map; refusing to replace it")
+    return nil
+  end
+  managed_versions[state] = raw
+  return state
+end
+
+local function persist_managed(state)
+  local encoded = magi.json_encode(state)
+  local ok, err = magi.store_compare_exchange("managed_experience_v1:" .. magi.workdir(), managed_versions[state] or "", encoded)
+  if ok then managed_versions[state] = encoded
+  else magi.log("engram: managed state not saved: " .. tostring(err)) end
+  return ok
+end
+
+local function flush_managed()
+  local state = managed_state()
+  if not state then return false end
+  -- Round-robin by object, preserving operation order within each object. A
+  -- group of repeatedly failing objects must not starve later unrelated work.
+  local order, groups = {}, {}
+  for _, request in ipairs(state.queue) do
+    if not groups[request.object_id] then
+      groups[request.object_id] = {}
+      order[#order + 1] = request.object_id
+    end
+    local group = groups[request.object_id]
+    group[#group + 1] = request
+  end
+  local start = 1
+  for index, id in ipairs(order) do if id == state.last_attempt then start = index % #order + 1 end end
+  local queue = {}
+  for offset = 0, #order - 1 do
+    for _, request in ipairs(groups[order[(start + offset - 1) % #order + 1]]) do queue[#queue + 1] = request end
+  end
+  state.queue = queue
+  local i, attempts, blocked = 1, 0, {}
+  while i <= #state.queue and attempts < 8 do
+    local request = state.queue[i]
+    if blocked[request.object_id] then
+      i = i + 1
+    else
+      local object = state.objects[request.object_id]
+      if not request.expected_revision then
+        request.expected_revision = object.revision or ""
+      end
+      state.last_attempt = request.object_id
+      if not persist_managed(state) then return false end
+      local receipt, err = magi.apply_experience(request)
+      attempts = attempts + 1
+      if not receipt then
+        magi.log("engram: managed experience pending: " .. tostring(err))
+        blocked[request.object_id] = true
+        i = i + 1
+      else
+        object.revision = receipt.revision
+        table.remove(state.queue, i)
+        if not persist_managed(state) then return false end
+      end
+    end
+  end
+  return #state.queue == 0
+end
+
+local function managed_payload(key)
+  local state = managed_state()
+  if not state then return nil end
+  local id = state.links[key]
+  local object = id and state.objects[id]
+  return object and object.payload or nil
+end
+
+local function enqueue_managed(key, payload, old_key)
+  local state = managed_state()
+  if not state then return false end
+  if #state.queue >= 256 then
+    magi.log("engram: managed outbox is full; local change requires reconciliation")
+    return false
+  end
+  local id = (old_key and state.links[old_key]) or state.links[key] or magi.nonce()
+  state.links[key] = id
+  local object = state.objects[id] or {}
+  state.objects[id] = object
+  object.payload = payload
+  local request = {}
+  for k, v in pairs(payload) do request[k] = v end
+  request.object_id = id
+  request.operation_id = magi.nonce()
+  request.observation_id = magi.nonce()
+  state.queue[#state.queue + 1] = request
+  if not persist_managed(state) then return false end
+  return flush_managed()
+end
+
 -- append_lesson lands one lesson row. replaces(행 번호)가 유효하면 그 행을 **제자리 교체**한다:
 -- 옛 행은 삭제가 아니라 아카이브 섹션으로 내려간다(사유 표기) — 정정된 주장과 새 주장이
 -- 나란히 남는 것도, 정정이 흔적 없이 사라지는 것도 원장의 실패이기 때문이다. 활성 표가
@@ -409,6 +517,7 @@ local function append_lesson(entry, replaces)
   end
 
   local anchored = false
+  local previous_row = nil
   if replaces and data_at[replaces] then
     -- 내용 앵커: 번호는 사이드카 호출 **전**의 다이제스트에서 왔고, 느린 호출 동안 다른
     -- 턴이나 사람이 원장을 고치면 번호가 밀린다(위치 주소의 숙명). 대상 행이 새 교훈과
@@ -421,6 +530,7 @@ local function append_lesson(entry, replaces)
       if a[w] then inter = inter + 1 end
     end
     if inter >= 2 then
+      previous_row = target
       to_archive(target, "정정됨(" .. row[1] .. ")")
       table.remove(lines, data_at[replaces])
       anchored = true
@@ -437,7 +547,8 @@ local function append_lesson(entry, replaces)
     magi.log("engram: 정정 강등+중복으로 미기록(대상 행 불일치) — " .. string.sub(sanitize_cell(entry.lesson), 1, 80))
     return false
   end
-  lines[#lines + 1] = "| " .. table.concat(row, " | ") .. " |"
+  local new_row = "| " .. table.concat(row, " | ") .. " |"
+  lines[#lines + 1] = new_row
 
   -- 상한: 오래된 데이터 행부터 아카이브로. (원장 행만 — 사람이 쓴 다른 표는 건드리지 않는다)
   local n = 0
@@ -457,8 +568,12 @@ local function append_lesson(entry, replaces)
 
   local out = table.concat(lines, "\n") .. "\n"
   if archive ~= "" then out = out .. "\n" .. string.gsub(archive, "%s+$", "\n") end
-  magi.write_file(SUMMARY, out)
-  return true
+  local written, err = magi.write_file(SUMMARY, out)
+  if not written then
+    magi.log("engram: lesson was not written: " .. tostring(err))
+    return false
+  end
+  return true, new_row, previous_row
 end
 
 -- YAML 큰따옴표 스칼라 이스케이프: 백슬래시를 먼저(이중 이스케이프 방지), 그 다음
@@ -518,6 +633,16 @@ end
 
 local function save_skill(skill)
   local slug = slugify(skill.name)
+  local existing = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md") or ""
+  local snapshot = magi.store_get("managed_skill_snapshot:" .. magi.workdir() .. ":" .. slug)
+  local verify_snapshot = magi.store_get("managed_verify_snapshot:" .. magi.workdir() .. ":" .. slug)
+  local current_verify = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh") or ""
+  if existing ~= "" and ((snapshot and snapshot ~= "" and existing ~= snapshot)
+    or (verify_snapshot and current_verify ~= verify_snapshot)
+    or not snapshot or snapshot == "") then
+    magi.log("engram: skill has independent edits; automatic overwrite refused: " .. slug)
+    return nil
+  end
   local desc = tostring(skill.description or skill.technique or "")
   if not skill_indexed(slug) then
     local twin = similar_skill(slug, desc)
@@ -556,7 +681,8 @@ local function save_skill(skill)
     if asScript then
       -- 긴 검증 스크립트는 부속 파일로 분리 — magi가 번들 리소스 매니페스트로
       -- 스킬 디렉토리 파일 목록을 본문에 노출하므로 상대 참조가 해석된다.
-      magi.write_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh", verify)
+      local written, err = magi.write_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh", verify)
+      if not written then magi.log("engram: verification script not written: " .. tostring(err)); return nil end
       body[#body + 1] = "scripts/verify.sh 를 실행해 확인한다(셸 스크립트)."
     else
       body[#body + 1] = verify
@@ -577,7 +703,10 @@ local function save_skill(skill)
     body[#body + 1] = ""
   end
   body[#body + 1] = "<!-- engram: 작업 이력에서 자동 추출된 스킬 -->"
-  magi.write_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md", table.concat(body, "\n"))
+  local written, err = magi.write_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md", table.concat(body, "\n"))
+  if not written then magi.log("engram: skill not written: " .. tostring(err)); return nil end
+  magi.store_set("managed_skill_snapshot:" .. magi.workdir() .. ":" .. slug, table.concat(body, "\n"))
+  magi.store_set("managed_verify_snapshot:" .. magi.workdir() .. ":" .. slug, magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh") or "")
   index_skill(slug, desc)
   -- 생성 시각이 망각 시계의 시작점이다. last-used가 로드 시에만 찍히던 시절, 정리의 표적인
   -- "한 번도 안 쓰인 스킬"이 바로 그 이유로 날짜가 없어 영원히 스킵됐다 — 망각 기전이
@@ -592,7 +721,7 @@ end
 
 -- 캡처: 결과가 확정된 턴 → 사이드카 분석 → 교훈 기록 + 검증된 스킬 저장.
 -- 이 핸들러는 호스트의 관찰 워커에서 돌므로 느린 사이드카가 턴을 막지 않는다.
-local function analyze_and_record(sid, hint, user, used_csv)
+local function analyze_and_record(sid, hint, user, used_csv, host_outcome)
   local r = recent[sid]
   if not r or #r < 2 then return end -- 직전 시도가 될 맥락 부족
   local input = render_window(r)
@@ -647,7 +776,7 @@ local function analyze_and_record(sid, hint, user, used_csv)
         if not replaces and lesson_is_duplicate(lesson.lesson) then
           magi.log("engram: 유사 교훈 이미 기록됨 — 스킵: " .. tostring(lesson.task))
         else
-          local ok = append_lesson({
+          local ok, new_row, previous_row = append_lesson({
             timestamp = magi.time(),
             username = magi.store_get("username") or user or "user",
             category = tostring(lesson.category or "기타"),
@@ -656,16 +785,12 @@ local function analyze_and_record(sid, hint, user, used_csv)
           }, replaces)
           if ok then
             magi.log("engram: 교훈 기록 — " .. tostring(lesson.task))
-            -- D13 공유 경험 스토어에도 제안(리뷰 큐 → 팀 tier). 스토어가 없거나
-            -- 실패해도 무시 — 원장이 1차 저장소다.
-            local _, perr = magi.propose_experience{
-              memories = { {
+            local synced = enqueue_managed("lesson:" .. new_row, {
+                kind = "memory", state = "active", host_outcome = host_outcome,
                 text = "[" .. tostring(lesson.category or "기타") .. "] " .. tostring(lesson.task)
                   .. " — " .. tostring(lesson.approach or "") .. " → " .. outcome .. ": " .. tostring(lesson.lesson),
-                tags = { "engram", tostring(lesson.category or "기타") },
-              } },
-            }
-            if perr then magi.log("engram: D13 제안 실패(무시): " .. tostring(perr)) end
+            }, previous_row and ("lesson:" .. previous_row) or nil)
+            if not synced then magi.notify(sid, "engram: 교훈은 로컬에 기록했지만 경험 저장소 반영은 대기 중입니다.") end
           end
         end
       end
@@ -677,6 +802,12 @@ local function analyze_and_record(sid, hint, user, used_csv)
   -- 손으로 쓴 스킬과 같은 자리에 광고돼 다음 런의 규칙이 된다 — 실물 2026-09-05(PPT): 지은 스킬
   -- 하나가 세 런에 걸쳐 존재하지 않는 검증 스크립트를 찾게 했다. 컴패니언마다 끌 수 있어야 한다.
   local skill = result.skill
+  -- The analyzer cannot certify its own output. Keep the host's structural
+  -- outcome separate from lesson.outcome and the natural-language hint.
+  if skill and host_outcome ~= "verified" then
+    magi.log("engram: skill promotion rejected: host outcome=" .. tostring(host_outcome))
+    skill = nil
+  end
   if skill and not authorSkills() then
     magi.log("engram: skill authoring is off for this companion ([plugins.engram] author_skills) — lesson only")
     skill = nil
@@ -688,6 +819,7 @@ local function analyze_and_record(sid, hint, user, used_csv)
     local pslug = slugify(skill.name)
     local prev_body = magi.read_file(SKILLS_DIR .. "/" .. pslug .. "/SKILL.md") or ""
     local prev_verify = magi.read_file(SKILLS_DIR .. "/" .. pslug .. "/scripts/verify.sh") or ""
+    local prev_managed = managed_payload("skill:" .. pslug)
     local slug = save_skill(skill)
     -- nil = 유사-스킬 백스톱이 생성을 막았다. 여기서 그대로 이어가면 nil 연결(concat)이
     -- 핸들러 전체를 죽여 이 턴의 prune까지 건너뛴다 — 백스톱이 발동할 때마다.
@@ -700,16 +832,18 @@ local function analyze_and_record(sid, hint, user, used_csv)
     magi.store_set("last_skill:" .. sid, sid .. "\t" .. slug)
     magi.store_set("last_skill_prev:" .. sid, prev_body)
     magi.store_set("last_skill_prev_verify:" .. sid, prev_verify)
+    magi.store_set("last_skill_saved:" .. sid, magi.read_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md") or "")
+    magi.store_set("last_skill_saved_verify:" .. sid, magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh") or "")
+    magi.store_set("last_skill_prev_managed:" .. sid, prev_managed and magi.json_encode(prev_managed) or "")
     magi.notify(sid, "engram: 검증된 성공에서 스킬 '" .. slug
       .. "' 을(를) 자동 저장했습니다. 잘못 저장됐으면 'N' 또는 '스킬 취소'라고 입력하면 되돌립니다.")
-    local _, perr = magi.propose_experience{
-      skills = { {
+    local synced = enqueue_managed("skill:" .. slug, {
+        kind = "skill", state = "active", host_outcome = host_outcome,
         name = slug,
         description = tostring(skill.description or ""),
         body = tostring(skill.technique or ""),
-      } },
-    }
-    if perr then magi.log("engram: D13 스킬 제안 실패(무시): " .. tostring(perr)) end
+    })
+    if not synced then magi.notify(sid, "engram: 스킬은 로컬에 저장했지만 경험 저장소 반영은 대기 중입니다.") end
   end
 end
 
@@ -731,6 +865,9 @@ local function clear_undo_window(sid)
   magi.store_set("last_skill:" .. sid, "")
   magi.store_set("last_skill_prev:" .. sid, "")
   magi.store_set("last_skill_prev_verify:" .. sid, "")
+  magi.store_set("last_skill_saved:" .. sid, "")
+  magi.store_set("last_skill_saved_verify:" .. sid, "")
+  magi.store_set("last_skill_prev_managed:" .. sid, "")
 end
 
 -- 마지막 자동 저장 스킬의 취소(undo): 저장 직후 "다음 사용자 메시지"까지가 취소 창.
@@ -741,9 +878,23 @@ local function undo_last_skill(sid)
   if not rec or rec == "" then return false end
   local owner, slug = string.match(rec, "^([^\t]*)\t(.*)$")
   if not slug or slug == "" or owner ~= sid then return false end
+  local saved = magi.store_get("last_skill_saved:" .. sid)
+  local current = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md") or ""
+  local current_verify = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh") or ""
+  if saved and saved ~= "" and (current ~= saved or current_verify ~= (magi.store_get("last_skill_saved_verify:" .. sid) or "")) then
+    enqueue_managed("skill:" .. slug, {kind = "skill", state = "withdrawn"})
+    magi.notify(sid, "engram: 저장 후 스킬이 변경되어 자동으로 되돌리지 않았습니다. 변경 내용을 확인해 주세요.")
+    clear_undo_window(sid)
+    return true
+  end
+  local old_payload = magi.store_get("last_skill_prev_managed:" .. sid) or ""
+  local payload = old_payload ~= "" and magi.json_decode(old_payload) or {kind = "skill", state = "withdrawn"}
+  local synced = enqueue_managed("skill:" .. slug, payload)
+  if not synced then magi.notify(sid, "engram: 경험 저장소의 스킬 되돌림은 대기 중입니다.") end
   local prev = magi.store_get("last_skill_prev:" .. sid) or ""
   if prev ~= "" then
     magi.write_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md", prev)
+    magi.store_set("managed_skill_snapshot:" .. magi.workdir() .. ":" .. slug, prev)
     local vpath = SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh"
     local pv = magi.store_get("last_skill_prev_verify:" .. sid) or ""
     if pv ~= "" then
@@ -751,6 +902,7 @@ local function undo_last_skill(sid)
     elseif magi.read_file(vpath) then
       magi.remove_file(vpath) -- 이번 저장이 새로 만든 부속 — 이전 판엔 없었다
     end
+    magi.store_set("managed_verify_snapshot:" .. magi.workdir() .. ":" .. slug, pv)
     -- 인덱스 설명도 이전 판의 frontmatter에서 되살린다. yaml_quote 역파싱 대신 원문 그대로 —
     -- 인덱스는 유사도 토큰용이라 따옴표가 남아도 무해하다. (사용실적·망각시계는 안 건드린다:
     -- 이 스킬은 이번 턴 전부터 있었고 시계도 그때부터 돌고 있었다.)
@@ -762,6 +914,8 @@ local function undo_last_skill(sid)
     return true
   end
   magi.remove_file(SKILLS_DIR .. "/" .. slug)
+  magi.store_set("managed_skill_snapshot:" .. magi.workdir() .. ":" .. slug, "")
+  magi.store_set("managed_verify_snapshot:" .. magi.workdir() .. ":" .. slug, "")
   -- 인덱스·사용실적·망각시계에서도 제거 — 시계를 남기면 같은 이름으로 재생성된 스킬이
   -- 취소된 전임자의 날짜를 물려받아 조기 아카이브된다.
   for _, key in ipairs({ "skill_index", "skill_usage", "skill_lastused" }) do
@@ -778,6 +932,7 @@ local function undo_last_skill(sid)
 end
 
 magi.on("user_message", function(ev)
+  flush_managed()
   -- 취소 창: 직전에 자동 저장된 스킬이 있으면, 이 메시지가 짧은 부정이면 되돌리고
   -- 아니면 창을 닫는다(one-shot — 다음-턴 취소 시맨틱).
   local last = magi.store_get("last_skill:" .. ev.session)
@@ -854,6 +1009,13 @@ local function prune_stale()
           lastused[slug] = string.sub(magi.time(), 1, 10)
           dated = true
         elseif (today - ld) >= cutoff then
+          local snapshot = magi.store_get("managed_skill_snapshot:" .. magi.workdir() .. ":" .. slug)
+          local verify_snapshot = magi.store_get("managed_verify_snapshot:" .. magi.workdir() .. ":" .. slug)
+          local current_verify = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh") or ""
+          if (snapshot and snapshot ~= "" and snapshot ~= body)
+            or (verify_snapshot and current_verify ~= verify_snapshot) then
+            magi.log("engram: edited skill preserved instead of archiving: " .. slug)
+          else
           magi.write_file(SKILLS_DIR .. "/.archive/" .. slug .. "/SKILL.md", body)
           -- 부속 스크립트도 함께 — 본문만 옮기면 verify.sh가 고아로 남는다.
           local verify = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh")
@@ -862,7 +1024,11 @@ local function prune_stale()
             magi.remove_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh")
           end
           magi.remove_file(path)
+          if managed_payload("skill:" .. slug) then
+            enqueue_managed("skill:" .. slug, {kind = "skill", state = "archived"})
+          end
           archived[slug] = true
+          end
         end
       end
     end
@@ -913,13 +1079,14 @@ local function update_usage(skills_csv, outcome)
 end
 
 magi.on("turn_finished", function(ev)
+  flush_managed()
   push_recent(ev.session, "assistant", ev.text)
   local outcome = ev.outcome or "done"
   update_usage(ev.skills, outcome)
   if ANALYZE_OUTCOMES[outcome] and recordLessons() then
     local user = ev.user
     if user == "" then user = nil end
-    analyze_and_record(ev.session, outcome_hint(outcome, ev.reason), user, ev.skills)
+    analyze_and_record(ev.session, outcome_hint(outcome, ev.reason), user, ev.skills, outcome)
   end
   prune_stale() -- archive engram-owned skills unused past the cutoff (count/date only)
 end)
