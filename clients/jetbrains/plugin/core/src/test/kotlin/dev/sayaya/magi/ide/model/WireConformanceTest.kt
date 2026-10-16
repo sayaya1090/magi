@@ -178,18 +178,22 @@ class WireConformanceTest {
             "Request" to setOf("minutes", "room", "keep", "owner"),
             // `minutes`: 회의를 안 한다(위). `live` 는 여기 있었고, 그 자리를 만들며 지워졌다 —
             // 「면제도 늙는다」가 이 줄을 지우게 만든 첫 사례다.
-            "Response" to setOf("minutes"),
+            // profile is the provider-detail response used by the web management screen.
+            // This client reads its provider roster and does not request that detail operation.
+            "Response" to setOf("minutes", "profile"),
             // 플릿 행에 그 슬롯이 없다. 코어가 이 칸들을 로스터에 실은 사유는 「콘솔이 빈칸을
             // 그리고 못 보여 준 값을 바꾸라고 내놓던」 것인데, 이 판은 그 자리를 안 그린다 —
             // 슬롯을 만드는 날 같이 읽는다.
-            "RosterRow" to setOf("permission", "backend", "model", "user"),
+            // type identifies non-coding companion roles; this native client binds coding workspaces.
+            "RosterRow" to setOf("permission", "backend", "model", "user", "type"),
             // `session-new` 에 이름을 실어 여는 클라이언트만 쓰는 칸(「문서 X의 대화」). 이쪽은
             // 이름 없이 열므로 늘 비어 있고, 비어 있는 것을 목록에 그리면 빈 칸만 는다.
             "SessionRow" to setOf("for"),
             // 소켓 옆의 공표 레코드. 이 플러그인이 읽는 것은 **어느 대화에 붙을지**뿐이고
             // (`SocketPath.Published` — 「최신 세션」으로 넘겨짚지 않으려고 있다), 아래는 플릿
             // 가십이 쓰는 칸이라 이 창에 그릴 자리가 없다.
-            "Published" to setOf("can", "does", "waiting", "handling", "addr", "account"),
+            // Discovery binds by workspace/socket, not by non-coding companion role.
+            "Published" to setOf("can", "does", "waiting", "handling", "addr", "account", "type"),
         )
 
         val missed = mutableListOf<String>()
