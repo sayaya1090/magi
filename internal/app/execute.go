@@ -514,6 +514,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			return a.recallContext(ctx, sid, query, guard)
 		},
 		RecallMemory: a.recallMemoryFn(ctx, agent),
+		CodingTask:   func(c context.Context, raw json.RawMessage) (string, error) { return a.codingTask(c, workdir, raw) },
 		WikiAdvise:   func(page string) string { return a.wikiNeighborNote(ctx, page) },
 		Schedule: func(c port.ScheduleChange) (string, error) {
 			return a.EditSchedule(s.Workdir, c)

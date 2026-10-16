@@ -281,6 +281,7 @@ func TestDefaultRegistry(t *testing.T) {
 		"bash", "bash_output", "bash_kill", "bash_input", "wait_for",
 		"todowrite", "label", "webfetch", "websearch", "remember", "skill",
 		"recall_context", "recall_memory", "search_sessions", "schedule", "council",
+		"coding_task", // prepares isolated workspaces without promoting source changes
 	}
 	if portOwnerSupported {
 		want = append(want, "port_owner")

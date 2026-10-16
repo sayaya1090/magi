@@ -81,6 +81,7 @@ func Default() *Registry {
 	r.Register(Skill{})
 	r.Register(RecallContext{})
 	r.Register(RecallMemory{})
+	r.Register(CodingTask{})
 	r.Register(SearchSessions{})
 	r.Register(Schedule{})
 	return r
