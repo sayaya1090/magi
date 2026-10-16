@@ -26,7 +26,7 @@ type globArgs struct {
 
 func (Glob) Name() string { return "glob" }
 func (Glob) Description() string {
-	return "List files matching a glob pattern (supports **), optionally under a subdirectory."
+	return "List files matching a glob pattern (supports **), optionally under a subdirectory." + fileToolScope
 }
 func (Glob) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`)

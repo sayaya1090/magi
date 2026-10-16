@@ -38,10 +38,12 @@ type grepArgs struct {
 	Path    string `json:"path"` // optional subdir to search (default workdir)
 }
 
-func (Grep) Name() string        { return "grep" }
-func (Grep) Description() string { return "Search file contents by regular expression." }
+func (Grep) Name() string { return "grep" }
+func (Grep) Description() string {
+	return "Search files inside the current session workdir by regular expression. path selects a subdirectory within that root, not another workspace; preparing a coding task or bash cd does not switch the root."
+}
 func (Grep) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"glob":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"glob":{"type":"string"},"path":{"type":"string","description":"Search root inside the current session workdir; defaults to that workdir. External coding-task paths are not allowed here."}},"required":["pattern"]}`)
 }
 
 // grepGlobMatch applies the grep tool's filename filter. Models trained on

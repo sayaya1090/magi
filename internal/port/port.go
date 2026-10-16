@@ -587,6 +587,9 @@ type ToolEnv struct {
 	// nothing is spent on context until it actually wants them. nil when the
 	// experience store is not configured. (recall_memory)
 	RecallMemory func(query string) (string, error)
+
+	// CodingTask prepares/inspects isolated coding workspaces; never promotes source files.
+	CodingTask func(context.Context, json.RawMessage) (string, error)
 	// SearchSessions ranks past TURNS in this workspace against a query, and with a non-empty open
 	// ("<session>#<seq>", as printed beside every hit) returns that turn whole and verbatim.
 	//

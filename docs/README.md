@@ -29,7 +29,7 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 | [ENGRAM_MEMORY](ENGRAM_MEMORY.md) · [한국어](ENGRAM_MEMORY.ko.md) | **Memory consolidation and sharing target**: canonical IDs, merging, correction, forgetting, daemon replication, authorization and acceptance. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages, and installed-environment acceptance. Not an as-built specification. |
 | [APPLICATION_CLIENTS_DESIGN](APPLICATION_CLIENTS_DESIGN.md) · [한국어](APPLICATION_CLIENTS_DESIGN.ko.md) | **Application client contracts**: Figma, IMAP/SMTP mail, Slack and GitHub surfaces, roles, bindings, authentication and acceptance. |
-| [CODING_WORKTREE_DESIGN](CODING_WORKTREE_DESIGN.md) · [한국어](CODING_WORKTREE_DESIGN.ko.md) | **Planned coding task service**: worktree preparation, dedicated companions, recovery and cleanup. Not implemented yet. |
+| [CODING_WORKTREE_DESIGN](CODING_WORKTREE_DESIGN.md) · [한국어](CODING_WORKTREE_DESIGN.ko.md) | **Coding workspace isolation and recovery**: Git worktrees, independent copies, CLI usage and validation; remaining companion/PR design. |
 | [MAIL_CLIENT](MAIL_CLIENT.md) · [한국어](MAIL_CLIENT.ko.md) | **Mail implementation reference**: IMAP/SMTP contracts, MIME limits and account acceptance. |
 | [PROJECT_REVIEW_2026-09-11](PROJECT_REVIEW_2026-09-11.md) · [한국어](PROJECT_REVIEW_2026-09-11.ko.md) | **Project Assessment (2026-09-11)**: Evaluation of council thought propagation, client integrations, and stabilization priorities. |
 

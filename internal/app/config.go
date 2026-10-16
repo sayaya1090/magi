@@ -179,11 +179,12 @@ func DefaultDangerTools() map[string]bool {
 
 // Config holds run-time policy for the agent loop and orchestration (D7).
 type Config struct {
-	ClientRole string
-	Model      session.ModelRef
-	System     string
-	MaxSteps   int
-	Permission string // "allow" | "deny" | "ask" | "auto" (approval axis)
+	CodingTasks port.CodingTasks
+	ClientRole  string
+	Model       session.ModelRef
+	System      string
+	MaxSteps    int
+	Permission  string // "allow" | "deny" | "ask" | "auto" (approval axis)
 	// Interactive is true only when a human can answer permission prompts (the TUI).
 	// Headless/automation leaves it false: a guardrail-forced prompt then resolves by
 	// policy instead of blocking forever on a decision no one will give (which, with a

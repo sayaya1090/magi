@@ -25,6 +25,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 
+	"github.com/sayaya1090/magi/internal/adapter/codingworkspace"
 	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	explayered "github.com/sayaya1090/magi/internal/adapter/experience/layered"
@@ -223,6 +224,9 @@ const restartSessionEnv = "MAGI_RESTART_SESSION"
 
 // main is the process entry point: it calls run and exits with its status.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "coding-task" {
+		os.Exit(codingTaskCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	// `magi office`: 파워포인트·엑셀·워드 애드인의 헬퍼를 한 프로세스·한 인증서·한 포트로 띄운다
 	// (clients/office/helper). 데몬과 한 바이너리라 받을 파일이 하나고, 헬퍼가 띄우는 데몬은 자기
 	// 자신이다.
@@ -364,7 +368,9 @@ var visionOf func(string) bool
 // run is the whole program: it parses flags, takes over the terminal, wires every adapter
 // and blocks on the event loop. What is worth testing has been pulled out into the helpers
 // around it — validateFlags, mergeConfig, profileDefs and the rest — and those are tested.
-func run() int {
+func run() int { return runWithContext(context.Background()) }
+
+func runWithContext(runCtx context.Context) int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
 		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "client kind: coding|figma|mail|slack|powerpoint|word|excel|docker|kubernetes|browser (empty: legacy coding alias)")
@@ -852,6 +858,7 @@ func run() int {
 		Model:       session.ModelRef{Provider: "openai", Model: modelID},
 		System:      clientSystem(*clientRole),
 		ClientRole:  *clientRole,
+		CodingTasks: codingworkspace.New(filepath.Join(plat.ConfigDir(), "coding-tasks")),
 		Permission:  perm,
 		Interactive: !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
 		AnswerWait:  answerWait(answerable),  // whether an answerer is elsewhere; app decides which modes wait
@@ -1007,7 +1014,7 @@ func run() int {
 	}, cfg, selfBinary(), meCalled(cfg, wd), os.Stderr)
 	ears.reconcile(context.Background())
 
-	ctx := context.Background()
+	ctx := runCtx
 	sockPath := daemon.SocketPath(plat.ConfigDir(), wd)
 	// Where a successor will be looked for, if this daemon ends by relaunching. Set before any of the
 	// three places below that can ask for a relaunch, so none of them can leave it empty.

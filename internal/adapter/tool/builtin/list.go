@@ -23,7 +23,7 @@ type listEntry struct {
 }
 
 func (List) Name() string        { return "list" }
-func (List) Description() string { return "List the entries of a directory." }
+func (List) Description() string { return "List the entries of a directory." + fileToolScope }
 func (List) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`)
 }
