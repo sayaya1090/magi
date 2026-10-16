@@ -56,7 +56,7 @@ func changes(before, after task.Manifest) []task.Change {
 	return out
 }
 func (m *Manager) Diff(ctx context.Context, source, id string) ([]task.Change, error) {
-	release, err := m.lock(ctx, id)
+	release, err := m.lockExisting(ctx, source, id)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (m *Manager) Apply(ctx context.Context, source, id string, paths []string) 
 	if len(paths) == 0 {
 		return empty, fmt.Errorf("select paths to apply after reviewing the task diff")
 	}
-	release, err := m.lock(ctx, id)
+	release, err := m.lockExisting(ctx, source, id)
 	if err != nil {
 		return empty, err
 	}
@@ -224,7 +224,7 @@ func (m *Manager) Apply(ctx context.Context, source, id string, paths []string) 
 // state even when an interrupted apply never recorded its final outcome.
 func (m *Manager) Restore(ctx context.Context, source, id string) (task.Journal, error) {
 	var j task.Journal
-	release, err := m.lock(ctx, id)
+	release, err := m.lockExisting(ctx, source, id)
 	if err != nil {
 		return j, err
 	}
@@ -322,7 +322,7 @@ func (m *Manager) Restore(ctx context.Context, source, id string) (task.Journal,
 // Run holds a per-task writer lease throughout the supplied execution. A crash
 // releases the kernel lock; stale 'running' state is exposed as recovery-needed.
 func (m *Manager) Run(ctx context.Context, source, id string, run func(context.Context, string) error) (task.Record, error) {
-	release, err := m.lock(ctx, id)
+	release, err := m.lockExisting(ctx, source, id)
 	if err != nil {
 		return task.Record{}, err
 	}

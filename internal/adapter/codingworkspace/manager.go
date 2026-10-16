@@ -403,3 +403,13 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 	_, err := b.Buffer.Write(p)
 	return n, err
 }
+
+// Reject a task belonging to another source before waiting on its writer lease.
+// Otherwise a model running inside its task workspace could wait on its own
+// execution lease using the original task ID and never finish the turn.
+func (m *Manager) lockExisting(ctx context.Context, source, id string) (func(), error) {
+	if _, err := m.Status(ctx, source, id); err != nil {
+		return nil, err
+	}
+	return m.lock(ctx, id)
+}

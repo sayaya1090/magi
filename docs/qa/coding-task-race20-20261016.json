@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-16",
+  "provider": "scripted; not twenty real-model runs",
+  "raceDetector": true,
+  "cliBinariesBuiltWithRace": true,
+  "shuffleSeed": 20261016,
+  "suites": {
+    "workspace_after_fix": {
+      "rawLogSHA256": "b8cac180c453f986908c3aba71ce4c9840a2d7782608a85edee1d770c68813f2",
+      "topLevelPasses": 400,
+      "nestedPasses": 120,
+      "tests": {
+        "TestDeletionRestore": 20,
+        "TestUnbornGitRequiresExplicitCopy": 20,
+        "TestRejectedStorageDoesNotModifySource": 20,
+        "TestRunLeaseBlocksConcurrentApplyAndRestore": 20,
+        "TestConcurrentPreparationHasOneTask": 20,
+        "TestGitIsolationAndRetry": 20,
+        "TestRetainedVersionsHaveBudget": 20,
+        "TestInterruptedRunRecoveryAndCancelledLease": 20,
+        "TestStorageAliasStableAcrossRestart": 20,
+        "TestReviewExactTextAndBinaryOmission": 20,
+        "TestConcurrentTasksCannotOverwriteOneAnother": 20,
+        "TestDamagedBackupFailsBeforeSourceMutation": 20,
+        "TestBrokenGitIsNotClassifiedAsNoGit": 20,
+        "TestConcurrentApplySameTaskHasOneJournal": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease/review": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease/diff": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease/apply": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease/restore": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease/recover": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease/run": 20,
+        "TestForeignSourceDoesNotWaitForActiveTaskLease": 20,
+        "TestNoGitEnvironmentUsesCopy": 20,
+        "TestWorkspaceRootReplacementRejected": 20,
+        "TestRestoreInterruptedWriteWithoutCompletionRecord": 20,
+        "TestSymlinkAndBudgetFailClosed": 20,
+        "TestCopyApplyRestartRestoreAndConflict": 20
+      },
+      "failures": []
+    },
+    "core_turns": {
+      "rawLogSHA256": "c1f0cde48c7579bf0f1bb366009b7a78a88aa6518d5a4b79e928b916ec227794",
+      "topLevelPasses": 220,
+      "nestedPasses": 80,
+      "tests": {
+        "TestSteerAfterAssistantTextRunsExactlyOnce": 20,
+        "TestProviderForNoRaceWithSetProfile": 20,
+        "TestCancelClearsAnUndetectedQueuedPrompt": 20,
+        "TestCancelDoesNotClearWhatArrivedAfterIt": 20,
+        "TestAnInterjectionInEveryWindowLandsAndGoesQuiet/immediately_after_the_prompt": 20,
+        "TestAnInterjectionInEveryWindowLandsAndGoesQuiet/while_the_first_step_is_in_flight": 20,
+        "TestAnInterjectionInEveryWindowLandsAndGoesQuiet/while_a_later_step_is_in_flight": 20,
+        "TestAnInterjectionInEveryWindowLandsAndGoesQuiet/at_the_finish_boundary": 20,
+        "TestAnInterjectionInEveryWindowLandsAndGoesQuiet": 20,
+        "TestARequestMadeAfterStopStillRuns": 20,
+        "TestQueuedSteerRoutedRunsAsOwnTurn": 20,
+        "TestSteerArrivingDuringTriageNotDropped": 20,
+        "TestCancelClearsQueue": 20,
+        "TestQueuedSteerAnsweredInlineNoNewTurn": 20,
+        "TestSteerDuringFinalStreamRunsAsOwnTurn": 20
+      },
+      "failures": []
+    },
+    "cli_turns": {
+      "rawLogSHA256": "6371e147253a6fd2d1e458482bf82ccbd09f20612688c1105ad19da9a0c907ab",
+      "topLevelPasses": 80,
+      "nestedPasses": 0,
+      "tests": {
+        "TestCodingTaskCLIPartialIsNotSuccessfulExit": 20,
+        "TestCodingTaskLiveCancellationPreservesWorkspace": 20,
+        "TestCodingTaskLiveRunIsBoundToWorkspace": 20,
+        "TestCodingTaskCLISelectionAndRestore": 20
+      },
+      "failures": []
+    },
+    "cross_process": {
+      "rawLogSHA256": "fa4141fb6241302458508568a6e21b81ee3346584fe643f19309389cab0042d7",
+      "topLevelPasses": 20,
+      "nestedPasses": 0,
+      "tests": {
+        "TestCodingTaskLiveConcurrentProcessesShareOneTask": 20
+      },
+      "failures": []
+    }
+  }
+}

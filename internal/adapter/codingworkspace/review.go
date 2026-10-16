@@ -14,7 +14,7 @@ import (
 // context. Digests remain available when an external editor is needed.
 func (m *Manager) Review(ctx context.Context, source, id, path string) (task.Review, error) {
 	var out task.Review
-	release, err := m.lock(ctx, id)
+	release, err := m.lockExisting(ctx, source, id)
 	if err != nil {
 		return out, err
 	}

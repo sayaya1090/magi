@@ -193,3 +193,22 @@ A separate real-model test used this machine's `qwen3.8:27b-mlx` to change an er
 Reproduce with `python3 tools/test-coding-task.py --binary /path/to/magi --model MODEL`. The script leaves logs and acceptance JSON in a temporary directory without modifying existing projects or configuration. It grants allow permissions within this disposable task, so use a test environment. It does not discover or download models.
 
 Remaining work includes dedicated IDE/TUI task UI, automatic session switching, durable direct-edit journaling, stop/remove and retention policy, and PR/CI/review integration. Windows coverage is cross-compilation, not native acceptance. Copies do not contain external shell, database or network effects. Uncooperative external writers can still race path checks; full filesystem durability under power loss is not guaranteed. Partial failure is never reported as complete success.
+
+### 16.4 Additional turn/concurrency validation (20 repetitions)
+
+The following tests were repeated with `-race` and fixed shuffle seed `20261016`. Built-CLI tests also compile the executed Magi binary with `-race`. These runs use a scripted provider to control ordering; they are not twenty real-model runs. Files, processes, Git, leases and durable events are real.
+
+| Suite | Top-level tests | Repetitions | Passes |
+| --- | --- | --- | --- |
+| Workspace/recovery/concurrency after ownership-check fix | 20 | 20 | 400 |
+| Core interjection/cancellation/finish-boundary/model-setting races | 11 | 20 | 220 |
+| CLI selected application/partial failure/normal turn/cancelled turn | 4 | 20 | 80 |
+| Two separate processes preparing the same task | 1 | 20 | 20 |
+
+The table does not double-count nested subtests. Normal and cancelled turns each ran twenty times. JSONL auditing checks session/workdir identity, increasing sequence numbers, exactly one result following each call, a single completion, and no conversation content after completion. The normal turn expects two foreground model requests. Engram's post-turn lesson analysis is classified separately and must not appear as another answer or completion.
+
+New contention tests verify that two tasks applying to the same source produce one winner and one conflict, that restoring the loser does not undo the winner, and that duplicate application of one task creates one journal. Application/restoration waits behind an active execution lease and can be cancelled without changing source files. Separate processes using the same request ID must prepare only one task.
+
+Testing reproduced an ownership-check ordering problem: using an active task ID from another source waited for its lease until timeout instead of immediately rejecting the source mismatch. A model inside the task workspace could consequently wait on its own execution lease when inspecting the original task ID. `lockExisting` now validates task/source identity before waiting; existing validation still runs after acquisition. The review/diff/apply/restore/recover/run paths each passed twenty repetitions. No failures or race detector reports remained in the repeated suites above.
+
+Reproduce with `go test -race -shuffle=20261016 -count=20 ./internal/adapter/codingworkspace` and `go test -race -shuffle=20261016 -count=20 -run '^TestCodingTask' ./cmd/magi`. The core run selected eleven tests from `interject_races_test.go`, `steer_finish_race_test.go`, `cancel_then_ask_test.go`, `cancel_clears_queue_test.go` and `routing_race_test.go`. Individual names, repetitions and raw-log digests are retained in `docs/qa/coding-task-race20-20261016.json`. Native Windows behavior, nondeterministic real-model decisions and every uncooperative external writer are outside this coverage.

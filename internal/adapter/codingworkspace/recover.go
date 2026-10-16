@@ -10,7 +10,7 @@ import (
 // A partially prepared workspace has no trustworthy baseline and is preserved
 // for inspection rather than silently blessing its contents as a new baseline.
 func (m *Manager) Recover(ctx context.Context, source, id string) (task.Record, error) {
-	unlock, err := m.lock(ctx, id)
+	unlock, err := m.lockExisting(ctx, source, id)
 	if err != nil {
 		return task.Record{}, err
 	}
