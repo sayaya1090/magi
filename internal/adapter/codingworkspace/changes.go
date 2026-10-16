@@ -69,7 +69,7 @@ func (m *Manager) Diff(ctx context.Context, source, id string) ([]task.Change, e
 		return nil, fmt.Errorf("task is not ready: %s", r.State)
 	}
 	dir, _ := m.dir(id)
-	current, _, err := m.snapshot(ctx, dir, r.Workspace)
+	current, _, err := m.snapshot(ctx, dir, r.Workspace, r.Baseline)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (m *Manager) Apply(ctx context.Context, source, id string, paths []string) 
 	} else if !os.IsNotExist(e) {
 		return empty, e
 	}
-	workspace, _, err := m.snapshot(ctx, dir, r.Workspace)
+	workspace, _, err := m.snapshot(ctx, dir, r.Workspace, r.Baseline)
 	if err != nil {
 		return empty, err
 	}
@@ -183,8 +183,7 @@ func (m *Manager) Apply(ctx context.Context, source, id string, paths []string) 
 	for _, change := range journal.Changes {
 		if err := ctx.Err(); err != nil {
 			journal.State = "uncertain"
-			_ = save(journalPath, journal)
-			return journal, err
+			return journal, errors.Join(err, save(journalPath, journal))
 		}
 		current, e := m.current(ctx, r.Source, change.Path)
 		if e != nil {
@@ -202,8 +201,7 @@ func (m *Manager) Apply(ctx context.Context, source, id string, paths []string) 
 		if err := m.writeFile(dir, r.Source, change.Path, change.After); err != nil {
 			journal.Outcomes = append(journal.Outcomes, task.Outcome{Path: change.Path, State: "uncertain", Reason: err.Error()})
 			journal.State = "uncertain"
-			_ = save(journalPath, journal)
-			return journal, err
+			return journal, errors.Join(err, save(journalPath, journal))
 		}
 		journal.Outcomes = append(journal.Outcomes, task.Outcome{Path: change.Path, State: "applied"})
 		if err := save(journalPath, journal); err != nil {

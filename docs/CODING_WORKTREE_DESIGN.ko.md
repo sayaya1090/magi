@@ -214,3 +214,24 @@ magi coding-task recover --id TASK_ID
 검사 중 소유 작업공간 확인보다 잠금 대기가 먼저인 문제를 재현했습니다. 실행 중인 작업 ID를 다른 source에서 사용하면 소유권 오류를 즉시 돌려주는 대신 시간 제한까지 기다렸습니다. 작업 폴더 안의 모델이 원래 작업 ID로 조회하면 자기 실행 잠금을 기다릴 수도 있습니다. `lockExisting`에서 source와 작업 식별을 먼저 확인하고, 잠금 획득 후 기존 검사를 다시 수행하도록 수정했습니다. review/diff/apply/restore/recover/run 여섯 경로를 각각 20회 검사했습니다. 수정 후 위 반복 검사에서 실패나 race detector 보고는 없었습니다.
 
 재실행은 `go test -race -shuffle=20261016 -count=20 ./internal/adapter/codingworkspace`와 `go test -race -shuffle=20261016 -count=20 -run '^TestCodingTask' ./cmd/magi`를 사용합니다. 코어 경합 테스트는 `interject_races_test.go`, `steer_finish_race_test.go`, `cancel_then_ask_test.go`, `cancel_clears_queue_test.go`, `routing_race_test.go`의 대상 11개를 선택했습니다. 개별 검사 이름·반복 수와 원본 로그 digest는 `docs/qa/coding-task-race20-20261016.json`에 보존했습니다. 이 검사는 Windows 실물, 실제 모델의 비결정적 판단, 모든 외부 writer의 경쟁을 검증한 것은 아닙니다.
+
+### 16.5 도구 계약과 Gradle 출력 처리 보완
+
+격리 폴더 준비와 그 폴더에서의 실행을 구분합니다. `coding_task`는 현재 세션을 옮기지 않습니다. prepare/status 응답에는 `sessionWorkdir`, `sessionWorkdirChanged:false`, 다음 행동과 별도 실행기의 `runCommand` 인자 배열을 제공합니다. 배열의 각 항목은 하나의 인자이므로 공백이 있는 경로를 따옴표 없이 셸 문자열로 합치면 안 됩니다. 현재 세션에서 작업 결과를 볼 때는 taskId로 diff/review를 호출합니다.
+
+| operation | 필수 입력 | 추가 입력과 범위 |
+| --- | --- | --- |
+| prepare | requestId | mode/base/purpose. path·taskId는 받지 않음. base는 Git 기준 commit/ref이며 copy와 함께 사용할 수 없음 |
+| list | 없음 | 현재 세션의 source에 속하는 작업 목록. taskId·path를 받지 않음 |
+| status / diff | taskId | prepare가 반환한 ID. path를 받지 않음 |
+| review | taskId, path | path는 `src/main.go`처럼 작업 폴더 기준의 상대 파일 경로 |
+
+알 수 없는 필드와 해당 operation에서 사용하지 않는 입력은 명확한 오류로 거절합니다. prepare의 path를 원본 폴더로 해석하거나 조용히 무시하지 않습니다. 파일 도구의 설명에도 같은 세션 경계를 표시하고, bash의 cd가 그 경계를 바꾸지 않음을 명시합니다. 기본 권한 정책과 sandbox는 유지합니다.
+
+Gradle 출력은 실제 모듈의 `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts` 옆에 있는 `build` 디렉터리로 인식합니다. `.gradle`, `.kotlin`, `.gradle-test-kit` 캐시 디렉터리도 제외합니다. 이 추가 규칙은 Git 추적 파일이나 기존 baseline 파일을 포함하는 디렉터리에는 적용하지 않습니다. `src/build`처럼 모듈 표시가 없는 소스 폴더를 이름만 보고 제외하지 않습니다. 기존 작업의 baseline을 새 제외 규칙으로 축소하지 않으므로 관리하던 파일을 삭제로 오인하지 않습니다. 기존의 비밀 파일·메타데이터 제외 규칙은 그대로 적용합니다.
+
+재현에 사용한 실제 Gradle 프로젝트는 이전에 생성된 `gradle-api-9.4.1.jar` 때문에 복사 예산을 초과했습니다. 수정한 실행기가 원본을 읽어 별도 임시 저장소에 copy 작업을 준비했을 때 93개 파일·454,829바이트로 ready가 됐으며, build/cache 제외 경로를 반환했습니다. 원본의 캐시나 빌드 디렉터리는 삭제하지 않았습니다. 이 검사는 원본을 읽는 준비 과정이며 해당 프로젝트의 빌드 성공을 뜻하지 않습니다.
+
+`bash.timeout`은 전경 실행 시간입니다. 백그라운드 작업에는 적용되지 않습니다. `wait_for`의 job 대기 시간만 끝나고 작업이 계속 실행 중이면 `IsError=false`인 상태 조회 결과를 반환합니다. 작업을 자동 재시작하거나 종료하지 않으며 다음 wait_for 호출을 안내합니다. 명시적 취소·없는 job·잘못된 인자는 오류로 유지합니다. 기존 문자열 응답 형식은 보존합니다.
+
+Gradle 출력 제외, 일반 소스·Git 추적 파일·기존 baseline 보존, 대기 시간 초과와 취소 구분, operation별 인자 검증과 실행 안내를 회귀 검사에 추가하고 각각 20회 반복했습니다. 대상 패키지의 전체 race 검사도 통과했습니다. 도구 정의는 실행 중인 데몬의 메모리에 있으므로 설치된 바이너리를 교체해도 기존 데몬에는 즉시 적용되지 않습니다. 진행 중인 작업이 끝난 뒤 데몬을 재시작해야 새 명세와 동작을 사용합니다.

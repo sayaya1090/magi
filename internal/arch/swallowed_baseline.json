@@ -1,5 +1,5 @@
 {
-  "total": 115,
+  "total": 111,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -8,7 +8,7 @@
     "clients/office/helper/mcp.go": 1,
     "clients/office/helper/own.go": 1,
     "clients/office/helper/page.go": 3,
-    "clients/office/helper/serve.go": 6,
+    "clients/office/helper/serve.go": 3,
     "clients/office/helper/skills.go": 1,
     "clients/office/helper/word_enums.go": 1,
     "clients/office/helper/xl_extra_windows.go": 2,
@@ -20,7 +20,6 @@
     "internal/adapter/experience/git/store.go": 1,
     "internal/adapter/idebridge/live_door.go": 1,
     "internal/adapter/mcp/manager.go": 1,
-    "internal/adapter/plugin/lua/bridge_config.go": 1,
     "internal/adapter/plugin/lua/bridge_net.go": 4,
     "internal/adapter/plugin/lua/bridge_pipe.go": 2,
     "internal/adapter/plugin/lua/plugin.go": 1,

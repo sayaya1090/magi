@@ -33,10 +33,10 @@ type waitForArgs struct {
 
 func (WaitFor) Name() string { return "wait_for" }
 func (WaitFor) Description() string {
-	return "Block until something finishes, then report it. Give `job` to wait for a background job (started with bash background=true) to exit — that is exact, and it ends the moment the job does. Give `condition` to wait on an external readiness signal magi did not start: a port opening, a reboot completing, a file appearing (a shell command re-run each interval; the first exit 0 ends the wait). Prefer either over a bash sleep/poll loop: one step (no stall), a longer wait allowed, and live progress. Waiting on a condition for something a background job is producing works but is indirect — if the job dies, the condition just keeps failing; `job` reports the death."
+	return "Wait up to timeout and report the observed state. A job still running at the wait deadline is a successful status observation, not job failure; the job continues and can be waited on again. timeout limits only this wait and never kills the job. Give `job` to wait for a background job (started with bash background=true) to exit — that is exact, and it ends the moment the job does. Give `condition` to wait on an external readiness signal magi did not start: a port opening, a reboot completing, a file appearing (a shell command re-run each interval; the first exit 0 ends the wait). Prefer either over a bash sleep/poll loop: one step (no stall), a longer wait allowed, and live progress. Waiting on a condition for something a background job is producing works but is indirect — if the job dies, the condition just keeps failing; `job` reports the death."
 }
 func (WaitFor) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"condition":{"type":"string","description":"shell command re-run each interval; exit 0 ends the wait. Omit when using job."},"job":{"type":"string","description":"background job id (e.g. bg_1) to wait for; the wait ends when it exits, with its status. Omit when using condition."},"timeout":{"type":"integer","description":"max seconds to wait (default 300, max 1800)"},"interval":{"type":"integer","description":"seconds between checks (default 5, max 60)"}}}`)
+	return json.RawMessage(`{"type":"object","properties":{"condition":{"type":"string","description":"shell command re-run each interval; exit 0 ends the wait. Omit when using job."},"job":{"type":"string","description":"background job id (e.g. bg_1) to wait for; the wait ends when it exits, with its status. Omit when using condition."},"timeout":{"type":"integer","description":"max seconds for THIS WAIT only (default 300, max 1800); does not stop a job. A still-running result means wait again, not rebuild/restart."},"interval":{"type":"integer","description":"seconds between checks (default 5, max 60)"}}}`)
 }
 
 const (
@@ -285,9 +285,9 @@ func waitForJob(ctx context.Context, env port.ToolEnv, id string, deadline time.
 			if ctx.Err() != nil {
 				return errResult("", fmt.Sprintf("wait cancelled after %s (%d checks): %s is still running", elapsed, checks, id))
 			}
-			return errResult("", fmt.Sprintf("%s is still running after %s (%d checks) — the wait timed out, "+
-				"the job did not. Poll it with bash_output{id:%q}, wait again, or stop it with bash_kill{id:%q}.",
-				id, elapsed, checks, id, id))
+			return okText("", fmt.Sprintf("%s is still running after %s (%d checks) — the wait timed out, "+
+				"the job did not. Wait again with wait_for{job:%q,timeout:300}. Read new logs with bash_output{id:%q}, or stop it with bash_kill{id:%q}; do not restart it just because this wait ended.",
+				id, elapsed, checks, id, id, id))
 		}
 		if env.EmitProgress != nil {
 			env.EmitProgress(fmt.Sprintf("%s — check %d, %s elapsed, still running",

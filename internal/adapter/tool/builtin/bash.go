@@ -33,7 +33,7 @@ const (
 
 type bashArgs struct {
 	Command    string   `json:"command"`
-	Timeout    FlexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (FlexInt)
+	Timeout    FlexInt  `json:"timeout"`    // FOREGROUND seconds only (default 120, max 600). Ignored with background=true; it does not stop a background job.; tolerant parse (FlexInt)
 	Background FlexBool `json:"background"` // run detached; returns an id to poll/kill
 	Pty        FlexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
 }
@@ -48,10 +48,10 @@ type bashArgs struct {
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code (a non-zero exit is normal output — never mask it with `|| true`). Each call is a FRESH shell. To keep a process (e.g. a server) alive across steps set background=true — it returns an id: poll with bash_output, stop with bash_kill, send input with bash_input. START a process and VERIFY it in SEPARATE calls: start it with background=true, then check it (netstat/pgrep/curl) in a foreground call so you see the result. Add pty=true (with background) for programs needing a real terminal (ssh password prompt, serial login, curses UI). When a command IS your build/test check, run it directly — piping it through tail/head gives you the pager's exit code, not the check's."
+	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code (a non-zero exit is normal output — never mask it with `|| true`). Each call is a FRESH shell: cd affects only that command and never changes the session file-tool root. timeout limits FOREGROUND calls only; background jobs have no automatic deadline. Use wait_for{job:ID} to wait, not repeated bash_output polling. To keep a process (e.g. a server) alive across steps set background=true — it returns an id: poll with bash_output, stop with bash_kill, send input with bash_input. START a process and VERIFY it in SEPARATE calls: start it with background=true, then check it (netstat/pgrep/curl) in a foreground call so you see the result. Add pty=true (with background) for programs needing a real terminal (ssh password prompt, serial login, curses UI). When a command IS your build/test check, run it directly — piping it through tail/head gives you the pager's exit code, not the check's."
 }
 func (Bash) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_input/bash_kill"},"pty":{"type":"boolean","description":"with background: real terminal for ssh/serial/curses programs"}},"required":["command"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"FOREGROUND seconds only (default 120, max 600). Ignored with background=true; it does not stop a background job."},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_input/bash_kill"},"pty":{"type":"boolean","description":"with background: real terminal for ssh/serial/curses programs"}},"required":["command"]}`)
 }
 
 func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {

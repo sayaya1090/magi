@@ -122,8 +122,11 @@ func (m *Manager) Status(ctx context.Context, source, id string) (task.Record, e
 	if err := json.Unmarshal(b, &r); err != nil {
 		return r, fmt.Errorf("coding task record is invalid: %w", err)
 	}
-	if r.Version != 1 || r.ID != id || r.Source != root || r.Workspace != filepath.Join(dir, "workspace") {
+	if r.Version != 1 || r.ID != id || r.Workspace != filepath.Join(dir, "workspace") {
 		return task.Record{}, fmt.Errorf("coding task identity/workspace mismatch")
+	}
+	if r.Source != root {
+		return task.Record{}, fmt.Errorf("task belongs to source %s; use that source session (or CLI --source). The isolated task directory is not the original source, and prepare never switches this session", r.Source)
 	}
 	for path, f := range r.Baseline {
 		if !validRelative(path) {
@@ -299,6 +302,9 @@ func (m *Manager) Prepare(ctx context.Context, source string, q task.Request) (r
 		if hasGit {
 			mode = "git"
 		}
+	}
+	if mode == "copy" && q.Base != "" {
+		return r, fmt.Errorf("base is only valid for Git tasks; copy mode has no commit base")
 	}
 	if mode == "git" && !hasGit {
 		return r, fmt.Errorf("git mode requested but no repository is available")

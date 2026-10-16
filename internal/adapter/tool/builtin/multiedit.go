@@ -54,7 +54,7 @@ type editHunk struct {
 
 func (MultiEdit) Name() string { return "multiedit" }
 func (MultiEdit) Description() string {
-	return "Apply multiple exact find/replace edits to one file atomically (all-or-nothing): {path, edits:[{old,new,replaceAll?}]}. Each 'old' must match uniquely unless replaceAll. Edits apply IN ORDER against already-edited content, so never overlap hunks — merge changes that touch the same or adjacent lines into one hunk."
+	return "Apply multiple exact find/replace edits to one file atomically (all-or-nothing): {path, edits:[{old,new,replaceAll?}]}. Each 'old' must match uniquely unless replaceAll. Edits apply IN ORDER against already-edited content, so never overlap hunks — merge changes that touch the same or adjacent lines into one hunk." + fileToolScope
 }
 func (MultiEdit) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["old","new"]}}},"required":["path","edits"]}`)

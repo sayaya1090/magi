@@ -36,10 +36,12 @@ type readArgs struct {
 	Limit  FlexInt `json:"limit"`  // max lines (optional); tolerant parse (FlexInt)
 }
 
-func (Read) Name() string        { return "read" }
-func (Read) Description() string { return "Read the contents of a file, optionally a line range." }
+func (Read) Name() string { return "read" }
+func (Read) Description() string {
+	return "Read a file inside the current session workdir, optionally a line range. Absolute paths must stay inside that root. Preparing a coding task or running bash cd does not change this root."
+}
 func (Read) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"File path relative to this session workdir, or absolute inside it; not an external task workspace."},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}`)
 }
 
 func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {

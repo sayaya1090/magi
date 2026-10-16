@@ -18,6 +18,13 @@ import (
 // that drops out must be removed so the list cannot rot into fiction. Computed statically over
 // every production file (all GOOSes at once), not via `go list`, so no build tag hides an edge.
 var consoleSurface = map[string]bool{
+	// Shared port contracts carry coding-task records through App; the console
+	// already includes that application layer. This adds data types, not the Git/
+	// filesystem workspace adapter. Lexical ranking is shared by compacted recall
+	// and experience queries; filelock protects their shared persistent state.
+	"internal/core/codingtask":        true,
+	"internal/core/lexical":           true,
+	"internal/filelock":               true,
 	"internal/adapter/daemon":         true,
 	"internal/adapter/experience/git": true,
 	"internal/adapter/fleet":          true,

@@ -704,7 +704,7 @@ type FileTool interface {
 매 기동마다 붙으러 가는 항목이 생기면 안 된다.
 
 전송은 루프백 HTTP다. JVM은 유닉스 소켓도 열 수 있지만, magi의 MCP 클라이언트가 자기가 띄우지 않은
-서버에 붙는 길이 Streamable HTTP이고(`manager.go` 의 `AddStdio`) 그 길이 이미 있다.
+서버에 붙는 길이 Streamable HTTP이고(`internal/adapter/mcp/manager.go` 의 `AddHTTPDynamic`) 그 길이 이미 있다.
 
 **대가 하나.** `mcp__` 접두가 붙은 도구는 전부 위험 도구로 취급된다(`internal/app/execute.go` 의 `dangerGated`).
 `apply_edit`에는 맞지만 `open_at`에도 걸리므로 파일 하나 여는 데 매번 확인이 뜬다. 오퍼레이터가

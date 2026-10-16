@@ -212,3 +212,24 @@ New contention tests verify that two tasks applying to the same source produce o
 Testing reproduced an ownership-check ordering problem: using an active task ID from another source waited for its lease until timeout instead of immediately rejecting the source mismatch. A model inside the task workspace could consequently wait on its own execution lease when inspecting the original task ID. `lockExisting` now validates task/source identity before waiting; existing validation still runs after acquisition. The review/diff/apply/restore/recover/run paths each passed twenty repetitions. No failures or race detector reports remained in the repeated suites above.
 
 Reproduce with `go test -race -shuffle=20261016 -count=20 ./internal/adapter/codingworkspace` and `go test -race -shuffle=20261016 -count=20 -run '^TestCodingTask' ./cmd/magi`. The core run selected eleven tests from `interject_races_test.go`, `steer_finish_race_test.go`, `cancel_then_ask_test.go`, `cancel_clears_queue_test.go` and `routing_race_test.go`. Individual names, repetitions and raw-log digests are retained in `docs/qa/coding-task-race20-20261016.json`. Native Windows behavior, nondeterministic real-model decisions and every uncooperative external writer are outside this coverage.
+
+### 16.5 Tool contracts and Gradle output handling
+
+Preparation and execution are separate operations. `coding_task` does not move the current session. Prepare/status responses include `sessionWorkdir`, `sessionWorkdirChanged:false`, guidance and a `runCommand` argument array for a separate runner. Preserve argument boundaries when a path contains spaces. Inspect task results from the source session using taskId with diff/review.
+
+| operation | Required inputs | Additional inputs and scope |
+| --- | --- | --- |
+| prepare | requestId | mode/base/purpose. No path or taskId. base selects a Git commit/ref and cannot be combined with copy |
+| list | none | Tasks belonging to the current session source. No taskId or path |
+| status / diff | taskId | ID returned by prepare. No path |
+| review | taskId, path | File-relative path within the task, such as `src/main.go` |
+
+Unknown fields and fields unused by an operation are rejected with guidance. Prepare never interprets path as a source selector or silently ignores it. File-tool descriptions state their session boundary and explain that bash cd does not change it. Existing permission and sandbox policies remain in force.
+
+Gradle output is recognized as a `build` directory beside `build.gradle`, `build.gradle.kts`, `settings.gradle` or `settings.gradle.kts`. Cache directories `.gradle`, `.kotlin` and `.gradle-test-kit` are also excluded. These additional rules do not exclude directories containing Git-tracked or existing baseline files. A source directory such as `src/build` without a module marker is retained. Existing baseline scope is preserved, preventing the new policy from turning managed files into apparent deletions. Existing secret/metadata exclusions remain in effect.
+
+The real Gradle project used for reproduction previously exceeded the copy budget at a generated `gradle-api-9.4.1.jar`. The fixed runner prepared a copy in separate temporary storage: 93 files and 454,829 bytes, state ready, with output/cache exclusions disclosed. Source caches and build directories were not deleted. This read-only-source preparation check does not establish that the project's build succeeds.
+
+`bash.timeout` limits foreground execution only, not background jobs. When a job wait expires while the job remains running, `wait_for` returns a status observation with `IsError=false` and guidance to wait again. It neither restarts nor terminates the job. Explicit cancellation, missing jobs and invalid arguments remain errors. The existing string response format is retained.
+
+Regression tests cover generated output, preservation of ordinary/tracked/baseline source, wait expiry versus cancellation, operation argument validation and execution guidance. Each targeted test passed twenty repetitions; full race tests for the affected packages also passed. Running daemons hold tool definitions in memory: replacing the installed binary does not update an existing daemon. Restart it after its active work finishes to use the new contracts and behavior.

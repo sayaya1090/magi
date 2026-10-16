@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+const fileToolScope = " Paths stay inside this session workdir; coding_task prepare and bash cd never switch the file-tool root."
+
 // symlinkEscapesJail reports whether the walked entry at absolute path p is a
 // symlink that resolves outside workdir. filepath.WalkDir does not descend into
 // symlinked directories, but it still yields symlinked FILES as entries, and a

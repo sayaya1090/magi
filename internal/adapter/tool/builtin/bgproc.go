@@ -410,7 +410,7 @@ type BashOutput struct{}
 
 func (BashOutput) Name() string { return "bash_output" }
 func (BashOutput) Description() string {
-	return "Read new output from a background command started with bash (background=true), since the last read. Returns a status header ([id running …] or [id exited N]) and any new output."
+	return "Read new output from a background command started with bash (background=true), since the last read. Returns a status header ([id running …] or [id exited N]) and any new output. running with no new output is not failure. To wait for completion, prefer wait_for{job:ID,timeout:300}; do not repeatedly poll unchanged output."
 }
 func (BashOutput) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"}},"required":["id"]}`)

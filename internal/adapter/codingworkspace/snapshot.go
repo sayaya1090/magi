@@ -30,8 +30,35 @@ func excluded(name string) bool {
 	}
 	return name == ".env" || (strings.HasPrefix(name, ".env.") && name != ".env.example")
 }
-func (m *Manager) snapshot(ctx context.Context, dir, root string) (task.Manifest, []string, error) {
+func (m *Manager) snapshot(ctx context.Context, dir, root string, baselines ...task.Manifest) (task.Manifest, []string, error) {
 	manifest := task.Manifest{}
+	// Never infer that a tracked or already-managed source directory is merely
+	// generated output. In particular, old task baselines keep their scope.
+	protected := map[string]bool{}
+	protect := func(path string) {
+		for parent := filepath.ToSlash(filepath.Dir(filepath.FromSlash(path))); parent != "." && parent != "/"; parent = filepath.ToSlash(filepath.Dir(filepath.FromSlash(parent))) {
+			protected[parent] = true
+		}
+	}
+	for _, baseline := range baselines {
+		for path := range baseline {
+			protect(path)
+		}
+	}
+	if insideGit, e := git(ctx, root, "rev-parse", "--is-inside-work-tree"); e == nil && insideGit == "true" {
+		tracked, e := git(ctx, root, "ls-files", "-z", "--cached")
+		if e != nil {
+			return nil, nil, fmt.Errorf("cannot protect tracked source paths: %w", e)
+		}
+		for _, path := range strings.Split(tracked, "\x00") {
+			if path != "" {
+				protect(filepath.ToSlash(path))
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	skipped := []string{}
 	var total int64
 	maxFiles, maxBytes := m.MaxFiles, m.MaxBytes
@@ -92,6 +119,10 @@ func (m *Manager) snapshot(ctx context.Context, dir, root string) (task.Manifest
 			return nil
 		}
 		if entry.IsDir() {
+			if !protected[rel] && generatedDirectory(path, entry.Name()) {
+				skipped = append(skipped, rel)
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if len(manifest) >= maxFiles {
@@ -260,4 +291,22 @@ func (m *Manager) writeFile(dir, root, rel string, f *task.File) error {
 		return err
 	}
 	return os.Chmod(path, fs.FileMode(f.Mode))
+}
+
+// Gradle marks its own build directory through the sibling module definition.
+// Do not blanket-exclude every directory named build: src/build may be source.
+func generatedDirectory(path, name string) bool {
+	switch name {
+	case ".gradle", ".kotlin", ".gradle-test-kit":
+		return true
+	}
+	if name != "build" {
+		return false
+	}
+	for _, marker := range []string{"build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"} {
+		if info, err := os.Lstat(filepath.Join(filepath.Dir(path), marker)); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }

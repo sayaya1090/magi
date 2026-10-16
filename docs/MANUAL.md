@@ -1245,6 +1245,9 @@ writes the narrowest rule the tool allows: approving `curl https://x` records `b
 `bash(**)`.
 
 ### File & search
+
+File/search paths stay inside the current session workdir. An absolute path must also be inside that root. `coding_task prepare` and a shell `cd` do not move the session or its file-tool root.
+
 | Tool | Description | Permission |
 |---|---|---|
 | `read` | read a file (line numbers, offset/limit) | — |
@@ -1262,8 +1265,13 @@ writes the narrowest rule the tool allows: approving `curl https://x` records `b
 | `bash_output` | fetch new output from a background command since the last read | — |
 | `bash_input` | send a line to the **stdin of a background command** — drives a REPL/line-debugger (`python3`, `psql`, `gdb`); `eof=true` closes stdin. A pipe, not a TTY (curses/password prompts won't work) | — |
 | `bash_kill` | terminate a background command | — |
-| `wait_for` | block until a condition holds (a file appears, a port answers, a background job exits) instead of spinning on `sleep` + re-check | ask |
+| `wait_for` | wait up to a deadline for a condition or job; a job still running at the deadline is a normal status result and continues running | ask |
+| `coding_task` | coding-only preparation/inspection of isolated tasks; creates a workspace without moving this session or starting another agent | — |
 | `port_owner` | what is listening on a port, and which process owns it — portable, where `ss`/`lsof`/`netstat` may not be installed | ask |
+
+`bash.timeout` bounds foreground execution only. With `background=true`, the job has no automatic deadline. Use `wait_for` with `{"job":"bg_1","timeout":300}` to wait for completion; its timeout ends the wait without killing the job. Use `bash_output` to inspect new output and `bash_kill` to stop the job. A still-running result is not a reason to launch a duplicate build.
+
+For isolated coding, prepare returns `sessionWorkdirChanged:false`, the unchanged file-tool root, and a `runCommand` argument array for a separate coding session. Preserve argument boundaries when paths contain spaces. `path` is accepted only by `review` and names a file relative to the task root; source always comes from the current session. See [coding workspace usage](CODING_WORKTREE_DESIGN.md#162-usage) for commands and limits.
 
 A pipeline is where an exit code lies, so magi does not take the last stage's word for it:
 

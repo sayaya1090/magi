@@ -26,7 +26,7 @@ func (m *Manager) Recover(ctx context.Context, source, id string) (task.Record, 
 		return r, fmt.Errorf("incomplete preparation preserved at %s; inspect it and prepare a new request ID", r.Workspace)
 	}
 	dir, _ := m.dir(id)
-	if _, _, err = m.snapshot(ctx, dir, r.Workspace); err != nil {
+	if _, _, err = m.snapshot(ctx, dir, r.Workspace, r.Baseline); err != nil {
 		return r, err
 	}
 	if r.Mode == "git" {

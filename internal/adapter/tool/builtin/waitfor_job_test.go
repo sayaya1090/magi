@@ -144,3 +144,32 @@ func TestAConditionWaitWithNoJobsIsUnchanged(t *testing.T) {
 		t.Errorf("the ordinary timeout message should stand:\n%s", got)
 	}
 }
+
+func TestJobWaitDeadlineIsStatusNotToolFailure(t *testing.T) {
+	id := startJob(t, "sleep 30")
+	defer func() {
+		if _, err := (BashKill{}).Execute(context.Background(), jsonArgs(map[string]any{"id": id}), port.ToolEnv{}); err != nil {
+			t.Error(err)
+		}
+	}()
+	env := port.ToolEnv{SessionID: session.SessionID("s-wait")}
+	result := waitForJob(context.Background(), env, id, time.Now().Add(-time.Second), time.Second)
+	if result.IsError {
+		t.Fatalf("normal wait deadline is not a failed tool: %s", result.Content)
+	}
+	var text string
+	if e := json.Unmarshal(result.Content, &text); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(text, "still running") || !strings.Contains(text, "wait_for") {
+		t.Fatal(text)
+	}
+	if job, ok := findJob(id); !ok || !job.Running {
+		t.Fatal("wait deadline killed the job")
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if result := waitForJob(cancelled, env, id, time.Now().Add(time.Hour), time.Second); !result.IsError {
+		t.Fatal("cancelled wait reported as ordinary status")
+	}
+}

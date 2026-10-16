@@ -27,7 +27,7 @@ func (m *Manager) Review(ctx context.Context, source, id, path string) (task.Rev
 		return out, fmt.Errorf("task is not ready: %s", r.State)
 	}
 	dir, _ := m.dir(id)
-	current, _, err := m.snapshot(ctx, dir, r.Workspace)
+	current, _, err := m.snapshot(ctx, dir, r.Workspace, r.Baseline)
 	if err != nil {
 		return out, err
 	}

@@ -20,8 +20,10 @@ type writeArgs struct {
 	Content string `json:"content"`
 }
 
-func (Write) Name() string        { return "write" }
-func (Write) Description() string { return "Create or overwrite a file with the given content." }
+func (Write) Name() string { return "write" }
+func (Write) Description() string {
+	return "Create or overwrite a file with the given content." + fileToolScope
+}
 func (Write) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`)
 }

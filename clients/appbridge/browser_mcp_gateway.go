@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -27,7 +28,9 @@ func (s *Server) registerBrowserMCPGateway() {
 		delete(s.bindings, id)
 		s.mu.Unlock()
 		if s.Config.Release != nil {
-			_ = s.Config.Release(id)
+			if err := s.Config.Release(id); err != nil {
+				log.Printf("magi: browser MCP binding release failed: %v", err)
+			}
 		}
 	}
 	s.Mux.Handle("/mcp", s.Auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
