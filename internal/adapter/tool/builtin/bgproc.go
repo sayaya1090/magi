@@ -410,14 +410,15 @@ type BashOutput struct{}
 
 func (BashOutput) Name() string { return "bash_output" }
 func (BashOutput) Description() string {
-	return "Read new output from a background command started with bash (background=true), since the last read. Returns a status header ([id running …] or [id exited N]) and any new output. running with no new output is not failure. To wait for completion, prefer wait_for{job:ID,timeout:300}; do not repeatedly poll unchanged output."
+	return "Read new output from a background command started with bash (background=true), since the last read. Returns a status header ([id running …] or [id exited N]) and any new output. When running with no unread output, waits up to 30 seconds inside this tool for output or exit; wait:0 reads immediately. A running job is not a failure. For builds/tests, prefer wait_for{job:ID} (default 300 seconds) until completion; do not relaunch the job or repeatedly poll unchanged output."
 }
 func (BashOutput) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"}},"required":["id"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"},"wait":{"type":"integer","minimum":0,"maximum":60,"description":"wait seconds when no output is buffered (default 30); 0 reads immediately. Does not stop the job."}},"required":["id"]}`)
 }
 func (BashOutput) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var a struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Wait *int   `json:"wait"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
@@ -428,6 +429,16 @@ func (BashOutput) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	p := bg.get(a.ID)
 	if p == nil {
 		return errResult("", "no such background process: "+a.ID), nil
+	}
+	wait := 30
+	if a.Wait != nil {
+		wait = *a.Wait
+	}
+	if wait < 0 || wait > 60 {
+		return errResult("", "wait must be between 0 and 60 seconds"), nil
+	}
+	if err := waitForBackgroundOutput(ctx, p, time.Duration(wait)*time.Second, env.EmitProgress); err != nil {
+		return errResult("", "output wait cancelled; the background job was not stopped"), nil
 	}
 	p.mu.Lock()
 	since := p.read
@@ -450,6 +461,43 @@ func (BashOutput) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 		body += fmt.Sprintf("\n…(log exceeded %d MiB — rotated, older output dropped)", hardLogCap>>20)
 	}
 	return okText("", body), nil
+}
+
+// Waiting stays inside the tool: a quiet compiler must not need another model
+// request just to discover that it is still running. Buffered output and exited
+// jobs remain immediate, including pagination. Cancellation never kills the job.
+func waitForBackgroundOutput(ctx context.Context, p *bgProc, wait time.Duration, progress func(string)) error {
+	if wait == 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	beat := time.NewTicker(5 * time.Second)
+	defer beat.Stop()
+	for {
+		p.mu.Lock()
+		done, since := p.done, p.read
+		p.mu.Unlock()
+		if done {
+			return ctx.Err()
+		}
+		if fi, err := os.Stat(p.logPath); err != nil || fi.Size() != int64(since) {
+			return ctx.Err()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		case <-tick.C:
+		case <-beat.C:
+			if progress != nil {
+				progress(p.id + " — waiting for new output or exit; use wait_for for build completion")
+			}
+		}
+	}
 }
 
 // BashKill terminates a background command.

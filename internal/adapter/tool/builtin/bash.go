@@ -84,7 +84,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		if err != nil {
 			return errResult("", "failed to start background command: "+err.Error()), nil
 		}
-		msg := fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)
+		msg := fmt.Sprintf("started background command %s — wait for completion with wait_for{job:%q} (default 300s); read output with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id, p.id)
 		if stripped {
 			msg += " (note: dropped a redundant `&`/`nohup` — background=true already keeps it running as this job; poll bash_output to see it stay up)"
 		} else if detachIndex(cmd) >= 0 {
