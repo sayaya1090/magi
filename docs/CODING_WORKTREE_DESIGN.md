@@ -2,9 +2,9 @@
 
 [한국어](CODING_WORKTREE_DESIGN.ko.md) · [Application client design](APPLICATION_CLIENTS_DESIGN.md)
 
-This is a design, not an implemented service. The repository currently has no common service managing user worktrees. Running `git worktree` alone does not manage task lifetime or companion ownership. The service will support existing terminal, VS Code and JetBrains coding agents.
+This document combines the coding-task design with the implementation and validation recorded in §16. Shared preparation/inspection and isolated CLI execution are available; dedicated task UI, automatic companion switching and PR orchestration remain planned. Running `git worktree` alone does not manage task lifetime or companion ownership.
 
-2026-10-16 refinement: this is a coding-agent-only feature. Support Git-free work without silently running `git init`. Sections 7–15 extend the Git preparation/execution/cleanup contracts in sections 1–6 with environment selection, a durable mutation journal, recovery and PR/integration lifecycle. All APIs and states below are proposed, not implemented.
+2026-10-16 refinement: this is a coding-agent-only feature. Support Git-free work without silently running `git init`. Sections 7–15 extend the Git preparation/execution/cleanup contracts in sections 1–6 with environment selection, a durable mutation journal, recovery and PR/integration lifecycle. Sections 1–15 describe target contracts; §16 distinguishes implemented behavior from remaining work.
 
 ## 1. Placement
 
@@ -151,7 +151,7 @@ Record command, mode, observation and untested scope. Use disposable repositorie
 
 ## 16. Implemented scope and usage (2026-10-16)
 
-This section describes the `feat/coding-task-recovery` branch, not completion of every preceding design goal. `internal/adapter/codingworkspace` implements filesystem/Git operations behind `port.CodingTasks`. The application checks the coding role and takes the source from the actual session workdir.
+This section records the initial implemented scope, not completion of every preceding design goal. `internal/adapter/codingworkspace` implements filesystem/Git operations behind `port.CodingTasks`. The application checks the coding role and takes the source from the actual session workdir.
 
 ### 16.1 Available operations
 
