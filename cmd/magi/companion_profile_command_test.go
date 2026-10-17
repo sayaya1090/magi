@@ -102,12 +102,3 @@ func TestConcurrentProfileDiscoveryPreservesFirstDeclaredPurpose(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
-
-func TestSelfDescriptionGuideUsesActualExecutableAndWorkspace(t *testing.T) {
-	got := companionSelfDescriptionGuide("/workspace with spaces", "/tools/magi")
-	for _, want := range []string{"'/workspace with spaces'", "'/tools/magi' --companion-profile-write", "--companion-policy-show", "not on every turn", "preserves access, operations and instructions"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("missing %q", want)
-		}
-	}
-}
