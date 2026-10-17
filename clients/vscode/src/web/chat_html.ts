@@ -40,6 +40,9 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #rows { margin:0; padding:0; }
   #scroll { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
   .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
+  .tool-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:middle; animation:tool-spin 1s linear infinite; }
+  @keyframes tool-spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .tool-spinner { animation:none; } }
   .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
   .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
   .system { border:1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground)); border-radius:8px; padding:6px 10px; background:var(--vscode-editor-background); }

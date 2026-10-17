@@ -27,6 +27,10 @@ import (
 
 // App is the application service implementing the command/event boundary.
 type App struct {
+	backgroundAuthority atomic.Bool
+	backgroundMu        sync.Mutex
+	backgroundOwned     map[string]bool
+
 	// subJobs is the register the pane strip polls for running children — see subagent_jobs.go.
 	subJobs subagentJobs
 	// journals records, per CHILD session, the first state magi saw of every path that child
@@ -1109,6 +1113,9 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 // Subscribe replays persisted events from fromSeq, then streams live events,
 // de-duplicating any fact events that appear in both (F-STORE-READ-REPLAY).
 func (a *App) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error) {
+	if a.backgroundAuthority.Load() {
+		a.reconcileBackground(ctx, sid)
+	}
 	live, cancel := a.bus.Subscribe(ctx, sid)
 	past, err := a.store.Read(ctx, sid, fromSeq)
 	if err != nil {

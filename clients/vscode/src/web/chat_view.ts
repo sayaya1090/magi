@@ -476,6 +476,14 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     const w = document.createElement('div');
     w.className = 'who';
     w.textContent = r.label;
+    if (r.who === 'tool' && r.background) {
+      d.setAttribute('aria-busy', 'true');
+      const spinner = document.createElement('span');
+      spinner.className = 'tool-spinner';
+      spinner.setAttribute('role', 'status');
+      spinner.setAttribute('aria-label', '백그라운드 실행 중');
+      w.prepend(spinner);
+    }
     if (r.outputId) {
       const boundOutputId = r.outputId;
       const openOutputBtn = document.createElement('button');

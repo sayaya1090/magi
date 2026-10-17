@@ -143,9 +143,11 @@ type ToolCall struct {
 
 // ToolResult is the outcome of executing a ToolCall.
 type ToolResult struct {
-	CallID  string          `json:"callId"`
-	Content json.RawMessage `json:"content"`
-	IsError bool            `json:"isError,omitempty"`
+	// Background means the call launched work; success is confirmed by a later tool.background fact.
+	Background bool            `json:"background,omitempty"`
+	CallID     string          `json:"callId"`
+	Content    json.RawMessage `json:"content"`
+	IsError    bool            `json:"isError,omitempty"`
 	// Advisory marks a call that DID what it was asked and has something attached the agent must
 	// read: a post-edit hook's output, or a language server's complaint about the file it just
 	// wrote. Those set IsError, deliberately — that is what makes the model stop and act on them

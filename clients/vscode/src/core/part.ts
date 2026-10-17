@@ -14,7 +14,7 @@ export interface PartLike {
   /** `image` parts: where the picture is, and what it is. */
   image?: { path?: string; mime?: string };
   toolCall?: { callId?: string; name?: string; args?: unknown };
-  toolResult?: { callId?: string; content?: unknown; isError?: boolean; advisory?: boolean };
+  toolResult?: { callId?: string; content?: unknown; isError?: boolean; advisory?: boolean; background?: boolean };
   error?: string;
 }
 

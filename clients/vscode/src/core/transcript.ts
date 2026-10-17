@@ -49,6 +49,7 @@ export interface Row {
   fileNav?: FileNav;
   /** Tool rows only, once the result arrives. Absent means still running. */
   ok?: boolean;
+  background?: boolean;
   /**
    * Tool rows only: it DID the work and left something the agent must read.
    *
@@ -216,6 +217,18 @@ export function rows(events: Event[]): Row[] {
   for (const e of events) {
     const d = (e.data ?? {}) as Record<string, unknown>;
     switch (e.type) {
+      case 'tool.background': {
+        const d = e.data as { callId?: string; state?: string };
+        if (!d || !['succeeded', 'failed', 'killed', 'unknown'].includes(d.state ?? '')) break;
+        const row = [...out].reverse().find((r) => r.who === 'tool' && r.callId === d.callId);
+        if (row) {
+          delete row.background;
+          if (d.state !== 'succeeded') delete row.note;
+          if (d.state === 'unknown') delete row.ok;
+          else row.ok = d.state === 'succeeded';
+        }
+        break;
+      }
       case 'part.delta': {
         const kind = String(d.kind ?? 'text');
         const text = String(d.text ?? '');
@@ -342,6 +355,7 @@ export function rows(events: Event[]): Row[] {
             // Two questions, not one — see Row.note. An advisory result DID the work.
             const advisory = p.toolResult.advisory === true;
             row.ok = !p.toolResult.isError || advisory;
+            if (p.toolResult.background === true) { row.background = true; delete row.ok; }
             if (advisory) row.note = true;   // set only when true, like every other row flag
             // The reason travels with the failure. Read the VALUE, not its rendering: `content` is
             // often a JSON string, and stringifying it again leaves the escapes on the screen.

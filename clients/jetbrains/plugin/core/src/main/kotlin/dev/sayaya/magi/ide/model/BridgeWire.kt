@@ -22,6 +22,7 @@ data class BridgeRow(
     val callId: String = "",
     val args: String = "",
     val ok: Boolean? = null,
+    val background: Boolean = false,
     val note: Boolean = false,
     val round: Int = 0,
     val decision: String = "",

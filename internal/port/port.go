@@ -473,9 +473,18 @@ type Question struct {
 	Index, Total int
 }
 
+// BackgroundCompletion is the observed exit of a detached process.
+type BackgroundCompletion struct {
+	Exit   int
+	Killed bool
+}
+
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
-	SessionID session.SessionID
+	// ObserveBackground registers a completion signal synchronously before Execute returns.
+	// The signal outlives the turn context; closing it without an exit means unknown.
+	ObserveBackground func(<-chan BackgroundCompletion)
+	SessionID         session.SessionID
 	// TurnSteps lists the tool calls of THIS session's current turn (since the last user
 	// prompt), oldest first, each with its arguments and whether it failed; the call still
 	// running (the caller's own) is not in it. It is how a plugin door can ask what the turn

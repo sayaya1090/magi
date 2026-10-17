@@ -117,7 +117,8 @@ type Row struct {
 	FileNav *FileNav `json:"fileNav,omitempty"`
 
 	// Ok is a tool result. Absent means still running, which is why it is a pointer.
-	Ok *bool `json:"ok,omitempty"`
+	Ok         *bool `json:"ok,omitempty"`
+	Background bool  `json:"background,omitempty"`
 
 	// Note marks a result that DID the work and left something the agent must read.
 	//

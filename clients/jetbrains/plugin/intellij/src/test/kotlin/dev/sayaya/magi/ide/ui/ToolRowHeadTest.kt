@@ -17,6 +17,26 @@ import javax.swing.JPanel
  * the time to an edge).
  */
 class ToolRowHeadTest : BasePlatformTestCase() {
+    fun testBackgroundHeaderUsesSpinnerInsteadOfCompletedGlyph() {
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
+        val row = dev.sayaya.magi.ide.usecase.Row(who = dev.sayaya.magi.ide.usecase.Who.Tool, text = "bash", tool = "bash", background = true)
+        val panel = render.invoke(view, row) as Container
+        fun spinners(c: Container): List<com.intellij.util.ui.AsyncProcessIcon> = c.components.flatMap {
+            (if (it is com.intellij.util.ui.AsyncProcessIcon) listOf(it) else emptyList()) +
+                (if (it is Container) spinners(it) else emptyList())
+        }
+        val spinner = spinners(panel).single()
+        val head = spinner.parent
+        assertFalse(labels(head).any { it.text == "✓" })
+        assertEquals(MagiBundle.msg("chat.tool.background"), spinner.toolTipText)
+        com.intellij.openapi.util.Disposer.dispose(spinner)
+        com.intellij.openapi.util.Disposer.dispose(view)
+        val finished = Look.toolHead("bash", "✓", Look.success, "build", "12:00")
+        assertTrue(finished.components.none { it is com.intellij.util.ui.AsyncProcessIcon })
+        assertTrue(labels(finished).any { it.text == "✓" })
+    }
+
     private fun labels(c: Container): List<JBLabel> = c.components.flatMap {
         (if (it is JBLabel) listOf(it) else emptyList()) + (if (it is Container) labels(it) else emptyList())
     }

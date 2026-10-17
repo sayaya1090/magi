@@ -92,6 +92,8 @@ const (
 	// about work that happened, and no later pass can derive it from a transcript that never
 	// wrote it down — the same argument labels.changed carries.
 	TypeModelChanged Type = "model.changed"
+	// TypeToolBackground records the actual exit of a detached tool process.
+	TypeToolBackground Type = "tool.background"
 )
 
 // Transient events — bus only, not persisted.
