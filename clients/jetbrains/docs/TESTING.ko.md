@@ -2004,3 +2004,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 `DraftArchiveStoreTest`는 실제 파일 저장과 저장소 재생성, 손상 파일 보존, workspace·owner 검증, 오래된 revision 거부 및 쓰기 실패 후 재시도를 검사합니다. 저장소 호출은 EDT 밖에서 수행해야 하며, 다중 창 잠금과 UI 연결은 후속 작업입니다.
 
 #202 답변 모델 검증: 비활성 세션을 포함한 일반·질문 초안과 전송 당시 원문을 내보냅니다. 가져오기는 현재 입력·답변 모드·전송 잠금을 바꾸지 않고 복구 목록에 추가합니다. 중복 가져오기와 삭제 후 옛 저장본 재수입, 삭제 기록을 저장한 뒤 재시작한 경우의 부활 방지를 검사합니다. 일반 전송 첨부와 실제 파일 저장소 연결은 이 검증 범위에 포함하지 않습니다.
+
+
+## 2026-10-17 하단 추적 회귀 검사
+
+`TailScrollTest`는 실제 Swing 스크롤 모델과 IntelliJ 테스트 플랫폼에서 지연된 높이 변경을 검사합니다. 두 번의 `invokeLater` 뒤에도 계속 커지는 행 네 단계와 뷰포트 축소, CEF 휠 전달로 추적 중지·재개, 이미 예약된 하단 이동의 취소, 기본 Swing 휠, dispose 뒤 콜백 무효화를 확인합니다. 실제 `MagiToolWindow.View`에 붙은 스크롤 판도 별도로 검사하므로 보조 클래스만 통과하고 화면 연결이 빠지는 경우를 잡습니다. 모의 높이 변경 검사이며 실물 CEF 렌더러의 모든 문서·입력 장치를 인수한 결과로 세지 않습니다.
+
+```sh
+./gradlew :intellij:test --tests '*TailScrollTest' --no-daemon
+```

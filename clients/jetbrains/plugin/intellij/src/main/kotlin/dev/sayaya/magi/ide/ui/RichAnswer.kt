@@ -135,7 +135,7 @@ internal object RichAnswer {
                     javax.swing.SwingUtilities.invokeLater {
                         val scroll = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, holder)
                             as? javax.swing.JScrollPane
-                        scroll?.verticalScrollBar?.let { bar -> bar.value += kotlin.math.round(delta).toInt() }
+                        scroll?.let { TailScroll.forwardWheel(it, delta) }
                     }
                 }
             } else said.trim().toIntOrNull()?.takeIf { it > 0 }?.let { px ->

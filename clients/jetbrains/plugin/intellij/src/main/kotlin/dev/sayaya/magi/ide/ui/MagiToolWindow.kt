@@ -300,6 +300,7 @@ class MagiToolWindow : ToolWindowFactory {
             border = JBUI.Borders.empty()
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
+        private val tailScroll = TailScroll(scroll)
 
         /** 트랜스크립트 셰이퍼. 이벤트 파싱은 워커 스레드에서 수행하며, 렌더링은 EDT에서 스냅샷 기반으로 실행합니다. */
         private val shaper = Rows()
@@ -840,6 +841,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
             inputGate.dispose()
+            tailScroll.close()
             runCatching { following?.close() }
             following = null
             runCatching { handRegistration.close() }
@@ -923,7 +925,10 @@ class MagiToolWindow : ToolWindowFactory {
             // 던진 것을 **그대로** 싣는다. `getOrNull` 로 버리고 여기서 문장을 지으면 「데몬이
             // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
             // 사유가 하나뿐이라 더 그럴듯해서 더 나쁘다.
-            if (sid != followedSid) lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
+            if (sid != followedSid) {
+                lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
+                SwingUtilities.invokeLater { tailScroll.followEnd() }
+            }
             val since = lastSeq.takeIf { it > 0 }
             if (since == null) {
                 // 전량 재생이 온다 — 두 벌이 안 쌓이게 비우고 받는다. 커서가 서면 증분이라 비울
@@ -1088,12 +1093,7 @@ class MagiToolWindow : ToolWindowFactory {
                     rows0.filter { it.who == Who.Agent && RichAnswer.needsRich(it.text) }
                         .takeLast(RichAnswer.KEEP).map { RowText.richKey(it) },
                 )
-                // 바닥 고정은 **바닥에 있던 사람에게만**. 무조건 고정이던 동안, 턴이 도는 중에
-                // 위로 스크롤해 과거를 읽으면 새 이벤트마다 바닥으로 낚아채였다(라이브 실측 —
-                // 지나간 편집을 찾아 올라가는 손이 매번 튕겼다). 떠나 있던 사람의 자리는
-                // 그대로 두고, 꼬리를 따르던 사람만 계속 따르게 한다.
-                val bar = scroll.verticalScrollBar
-                val atBottom = bar.value + bar.visibleAmount >= bar.maximum - 48
+                // Delayed row sizing changes geometry, not the user's follow intent.
                 column.removeAll()
                 // 다시 그릴 때마다 선택의 손도 새 패널을 잡는다 — 지나간 패널을 들고 있으면
                 // 안 보이는 것을 칠한다. 고른 것 자체는 행 열쇠로 들고 있어 살아남는다.
@@ -1118,16 +1118,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 column.revalidate()
                 column.repaint()
-                if (atBottom) SwingUtilities.invokeLater {
-                    scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
-                    // 줄바꿈 판의 2-패스 레이아웃이 pin 직후 높이를 더 키우면, 한 번의 미착지로
-                    // 꼬리 추적이 영구 이탈한다(리뷰 F4 — 종전 무조건 고정은 다음 이벤트가
-                    // 자가 치유했었다). 다음 프레임에 한 번 더 주장한다. 슬랙 48px 은 한 줄
-                    // 행 하나 미만이라 "바닥에 있던 사람"만 문다.
-                    SwingUtilities.invokeLater {
-                        scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
-                    }
-                }
+                tailScroll.contentChanged()
             }
         }
 
@@ -1959,7 +1950,7 @@ class MagiToolWindow : ToolWindowFactory {
                 if (outcome.clearInput) {
                     input.text = ""
                     dropSuggestion()
-                    scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                    tailScroll.followEnd()
                 }
                 synchronized(refs) { refs.removeAll(attempt.refs) }
                 drawChips()
