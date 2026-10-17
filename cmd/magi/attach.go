@@ -681,3 +681,28 @@ func runAttachMode(ctx context.Context, a *app.App, host *pluginlua.Host, sockPa
 	}
 	return 0
 }
+
+// InteractiveOpened belongs to the daemon, never the attached process's local
+// App. Its own live link also cancels an unanswered introduction on detach.
+func (a attached) InteractiveOpened(ctx context.Context, sid session.SessionID, locale string) {
+	if a.sock == "" {
+		return
+	}
+	go func() {
+		cl, err := daemon.DialWithin(a.sock, 3*time.Second, 0)
+		if err != nil {
+			return
+		}
+		defer cl.Close()
+		stop := context.AfterFunc(ctx, func() { cl.Close() })
+		defer stop()
+		head, _, err := a.App.NewSince(ctx, sid, 0)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "magi: cannot locate introduction stream cursor: %v\n", err)
+			return
+		}
+		if err := cl.Follow(string(sid), head, daemon.Tail{Interactive: true, Locale: locale, Each: func(event.Event) bool { return ctx.Err() == nil }}); err != nil && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "magi: interactive introduction stream: %v\n", err)
+		}
+	}()
+}

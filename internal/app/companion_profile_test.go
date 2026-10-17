@@ -208,3 +208,110 @@ func TestInteractiveModelActuallyReceivesStartupNudge(t *testing.T) {
 		}
 	}
 }
+
+func TestInteractiveOpenAsksBeforeAnyRequestAndRequiresExplicitApproval(t *testing.T) {
+	for _, answerIndex := range []int{-1, 0, 1} {
+		store, err := jsonl.New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		llm := &acCapLLM{text: "Survey summary"}
+		a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Interactive: true, CompanionProfileUnpublished: func(string) bool { return true }}))
+		sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		events, unsub, err := a.Subscribe(ctx, sid, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unsub()
+		a.InteractiveOpened(ctx, sid, "ko")
+		var q event.QuestionRequestedData
+		select {
+		case ev := <-events:
+			if ev.Type != event.TypeQuestionRequested {
+				t.Fatalf("unexpected startup event %s", ev.Type)
+			}
+			if err = json.Unmarshal(ev.Data, &q); err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("opening UI without a user prompt did not ask")
+		}
+		if llm.called() {
+			t.Fatal("model called before approval")
+		}
+		a.InteractiveOpened(ctx, sid, "ko")
+		answer := ""
+		if answerIndex >= 0 {
+			answer = q.Options[answerIndex]
+		}
+		if err = a.RespondQuestion(ctx, command.RespondQuestion{SessionID: sid, CallID: q.CallID, Answer: answer}); err != nil {
+			t.Fatal(err)
+		}
+		if answerIndex == 0 {
+			deadline := time.Now().Add(2 * time.Second)
+			for !llm.called() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			if !llm.called() {
+				t.Fatal("approved survey did not start")
+			}
+			if !strings.Contains(llm.request().Messages[len(llm.request().Messages)-1].Parts[0].Text, "프로젝트") {
+				t.Fatal("scoped survey request missing")
+			}
+		} else {
+			time.Sleep(30 * time.Millisecond)
+			if llm.called() {
+				t.Fatal("deferred/dismissed survey called model")
+			}
+		}
+	}
+}
+
+func TestCancellingStartupApprovalClearsTheVisibleQuestion(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	llm := &acCapLLM{text: "must not run"}
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Interactive: true, CompanionProfileUnpublished: func(string) bool { return true }}))
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, unsub, err := a.Subscribe(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub()
+	a.InteractiveOpened(ctx, sid, "en")
+	select {
+	case e := <-ch:
+		if e.Type != event.TypeQuestionRequested {
+			t.Fatal(e.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no startup question")
+	}
+	a.CancelCompanionProfile()
+	select {
+	case e := <-ch:
+		if e.Type != event.TypeQuestionAnswered {
+			t.Fatal("cancel did not clear visible question", e.Type)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("question stayed visible after cancel")
+	}
+	if llm.called() {
+		t.Fatal("cancelling started model")
+	}
+	if _, waiting := a.Waiting(sid); waiting {
+		t.Fatal("cancelled startup question still pending")
+	}
+}

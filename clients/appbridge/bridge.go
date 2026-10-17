@@ -565,7 +565,7 @@ func (s *Server) Events(ctx context.Context, id string, since int64, each func(e
 		case <-done:
 		}
 	}()
-	return cl.Follow(b.Session, since, daemon.Tail{Each: func(e event.Event) bool {
+	return cl.Follow(b.Session, since, daemon.Tail{Interactive: true, Each: func(e event.Event) bool {
 		current, err := s.binding(id)
 		if err != nil || current.Session != b.Session {
 			return false

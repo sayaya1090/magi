@@ -198,7 +198,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
      */
     this.events = [];
     this.draw();
-    s.stream({ method: 'transcript', session: sid }, (r) => {
+    s.stream({ method: 'transcript', session: sid, name: 'interactive', text: vscode.env.language }, (r) => {
       if (r.event) {
         this.events.push(r.event);
         if (this.sid) {

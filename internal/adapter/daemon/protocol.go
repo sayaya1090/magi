@@ -606,6 +606,11 @@ type Transcriber interface {
 
 // Request is one line on the wire. One object per line, so a reader needs no framing beyond what
 // bufio already does and a person can watch the socket with `nc` and read it.
+// InteractiveViewer is notified only by streams explicitly opened by a live UI.
+type InteractiveViewer interface {
+	InteractiveOpened(context.Context, session.SessionID, string)
+}
+
 type Request struct {
 	Method  string `json:"method"`
 	Session string `json:"session,omitempty"`

@@ -51,14 +51,21 @@ func (m *Model) startSub(sid session.SessionID, fromSeq int64) tea.Cmd {
 	if m.subCancel != nil {
 		m.subCancel()
 	}
-	ch, cancel, err := m.app.Subscribe(m.ctx, sid, fromSeq)
+	subCtx, stopSub := context.WithCancel(m.ctx)
+	ch, cancel, err := m.app.Subscribe(subCtx, sid, fromSeq)
 	if err != nil {
+		stopSub()
 		return nil
 	}
 	m.subCh = ch
-	m.subCancel = cancel
+	m.subCancel = func() { cancel(); stopSub() }
 	m.subID++
 	m.mainSub = m.subID
+	if viewer, ok := m.app.(interface {
+		InteractiveOpened(context.Context, session.SessionID, string)
+	}); ok {
+		viewer.InteractiveOpened(subCtx, sid, "")
+	}
 	m.closePanes() // switching primary session retires any subagent panes
 	return waitEvent(ch, sid, m.mainSub)
 }

@@ -362,6 +362,11 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 		_ = w.enc.Encode(Response{Err: serr.Error()})
 		return done
 	}
+	if req.Name == "interactive" {
+		if viewer, ok := eng.(InteractiveViewer); ok {
+			viewer.InteractiveOpened(rctx, sid, req.Text)
+		}
+	}
 	// Said BEFORE the first event, because it changes what the events that follow mean: a
 	// client that asked for a tail and is being sent a whole conversation has to know, or
 	// it appends the beginning of the session to the end of what it is showing.

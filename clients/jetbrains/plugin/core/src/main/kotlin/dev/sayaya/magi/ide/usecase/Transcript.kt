@@ -189,7 +189,7 @@ class Transcript(
         sink.began()
         val worker = Thread {
             try {
-                conn.stream(Request(method = "transcript", session = session, since = since)) { r ->
+                conn.stream(Request(method = "transcript", session = session, since = since, name = "interactive", text = java.util.Locale.getDefault().toLanguageTag())) { r ->
                     when {
                         stopped.get() -> false
                         r.event != null -> { sink.frame(r.event); true }

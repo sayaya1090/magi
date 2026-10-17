@@ -180,6 +180,10 @@ const companionProfilePrompt = `Describe a coding companion's workspace for peer
 func (a *App) CancelCompanionProfile() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.profileIntroCancel != nil {
+		a.profileIntroCancel()
+		a.profileIntroCancel = nil
+	}
 	if a.profileCancel != nil {
 		a.profileCancel()
 		a.profileCancel = nil

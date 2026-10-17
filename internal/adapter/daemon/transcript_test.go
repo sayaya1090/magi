@@ -753,3 +753,46 @@ func TestTheSilenceBoundDoesNotCutOffASlowReplay(t *testing.T) {
 		t.Errorf("사건 %d 개를 받았다, %d 개여야 한다 — 전사가 앞 절반만 그려진다", len(got), frames)
 	}
 }
+
+type introductionTranscriptEngine struct {
+	*transcriptEngine
+	opened int
+}
+
+func (e *introductionTranscriptEngine) InteractiveOpened(_ context.Context, _ session.SessionID, _ string) {
+	e.opened++
+}
+
+func TestOnlyExplicitInteractiveStreamsNotifyStartupIntroduction(t *testing.T) {
+	for _, name := range []string{"", "interactive"} {
+		ctx, cancel := context.WithCancel(context.Background())
+		reader, writer := io.Pipe()
+		e := &introductionTranscriptEngine{transcriptEngine: &transcriptEngine{fakeEngine: &fakeEngine{}}}
+		done := make(chan struct{})
+		go func() {
+			streamTranscript(ctx, e, Request{Method: "transcript", Session: "s1", Name: name, Text: "ko"}, wire{enc: json.NewEncoder(io.Discard), sc: bufio.NewScanner(reader)})
+			close(done)
+		}()
+		// Let the stream establish its subscription before ending it. Its cursor list
+		// is locked, so no unsynchronised fixture state is read while the stream runs.
+		deadline := time.Now().Add(time.Second)
+		for len(e.cursors()) == 0 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		cancel()
+		writer.Close()
+		reader.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("stream did not stop")
+		}
+		want := 0
+		if name == "interactive" {
+			want = 1
+		}
+		if e.opened != want {
+			t.Fatalf("stream name %q: introductions=%d want=%d", name, e.opened, want)
+		}
+	}
+}
