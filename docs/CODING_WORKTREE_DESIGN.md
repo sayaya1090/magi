@@ -233,3 +233,10 @@ The real Gradle project used for reproduction previously exceeded the copy budge
 `bash.timeout` limits foreground execution only, not background jobs. When a job wait expires while the job remains running, `wait_for` returns a status observation with `IsError=false` and guidance to wait again. It neither restarts nor terminates the job. Explicit cancellation, missing jobs and invalid arguments remain errors. The existing string response format is retained.
 
 Regression tests cover generated output, preservation of ordinary/tracked/baseline source, wait expiry versus cancellation, operation argument validation and execution guidance. Each targeted test passed twenty repetitions; full race tests for the affected packages also passed. Running daemons hold tool definitions in memory: replacing the installed binary does not update an existing daemon. Restart it after its active work finishes to use the new contracts and behavior.
+
+
+### 16.6 Default coding workflow instructions
+
+When the coding workspace service is available, coding clients receive a required Git-development workflow in their stable system context. Read-only analysis does not require a task. Before new Git source changes, the agent must prepare a Git task and work/test in its workspace, preserving pre-existing source edits. Preparation still does not switch the current session. Existing linked worktrees are reused; non-Git work uses a recoverable copy rather than initializing Git. Explicit user workflow instructions take precedence.
+
+The trusted CLI task runner marks its execution through an internal context value. Its model request says the prepared workspace is already bound, so a child does not recursively prepare another task. The normal workflow requires verification and authorized integration before reporting full completion. This is model guidance, not a host-enforced filesystem write gate or a persistent pending-task ledger; those must not be claimed as implemented. Tests check role/service scope and the actual built CLI request received by a scripted provider.
