@@ -14,6 +14,7 @@ import * as activity from '../core/activity';
 export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposable[] {
   return [
     vscode.commands.registerCommand('magi.chooseModel', async () => {
+      const session = chat.session;
       const resp = await companion.ask('models');
       const names = resp?.models ?? [];
       if (!resp?.ok || !names.length) {
@@ -34,10 +35,10 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
         .map((label) => ({ label, description: label === now ? 'current' : undefined }));
       const picked = await vscode.window.showQuickPick(items, { title: 'magi — model' });
       const pick = picked?.label;
-      if (!pick || pick === now) return;
+      if (!pick || pick === now || session !== chat.session) return;
       const set = await companion.ask('set-model', {
         name: pick,
-        ...(chat.session ? { session: chat.session } : {}),
+        ...(session ? { session } : {}),
       });
       if (!set?.ok) void vscode.window.showWarningMessage(`magi: ${set?.error ?? 'the model did not change'}`);
       else await companion.refresh();

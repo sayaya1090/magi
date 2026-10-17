@@ -4,6 +4,7 @@ const Module = require('module');
 
 // Stub 'vscode' module before loading Chat
 const hostCommands = new Map<string, () => Promise<void>>();
+const clipboardWrites: string[] = [];
 let modelPick: { label: string } | undefined;
 const origLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: any, isMain: boolean) {
@@ -33,6 +34,7 @@ const origLoad = (Module as any)._load;
         onDidCloseTextDocument: () => ({ dispose() {} }),
         getConfiguration: () => ({ get: () => true }),
       },
+      env: { clipboard: { writeText: async (text: string) => { clipboardWrites.push(text); } } },
       commands: {
         registerCommand: (id: string, run: () => Promise<void>) => {
           hostCommands.set(id, run);
@@ -754,4 +756,17 @@ test('successful model selection immediately refreshes status', async () => {
     await hostCommands.get('magi.chooseModel')!();
     assert.deepEqual(calls, ['models', 'status', 'set-model', 'refresh']);
   } finally { modelPick = undefined; hostCommands.clear(); }
+});
+
+
+test('copy writes exact text only for the displayed session', async () => {
+  const companion = createMockCompanion();
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).sid = 'copy-session';
+  const before = clipboardWrites.length;
+  await chat.fromView({ kind: 'copy', session: 'old', text: 'stale' });
+  assert.equal(clipboardWrites.length, before);
+  await chat.fromView({ kind: 'copy', session: chat.session, text: '  original\n\n' });
+  assert.deepEqual(clipboardWrites.slice(before), ['  original\n\n']);
+  chat.dispose();
 });

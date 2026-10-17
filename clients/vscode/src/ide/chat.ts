@@ -212,10 +212,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       ? { ...rawAsk, diffKind: determineApprovalDiffKind(rawAsk), filePath: extractAskFilePath(rawAsk) }
       : null;
     if (ask) this.asks.record(ask, this.companion.workdir, this.session);
+    const rowTimes = new Map(this.events.filter(e => e.seq > 0).map(e => [e.seq, e.ts]));
     this.post({
       kind: 'rows',
       session: this.session,
-      rows: rows(this.events).map((r) => paint(r, this.companion.you)),
+      rows: rows(this.events).map((r) => paint(r, this.companion.you, rowTimes.get(r.seq))),
       ask,
       refs: this.refs.map(refText),
       companionKey: this.companion.workdir,
@@ -606,6 +607,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         });
         break;
       }
+      case 'copy': {
+        if (m.session !== this.session) break;
+        try { await vscode.env.clipboard.writeText(m.text); }
+        catch (error) { this.post({ kind: 'note', text: '복사하지 못했습니다: ' + String(error) }); }
+        break;
+      }
       case 'output': {
         if (!m.session || !m.outputId) break;
         if (this.session && m.session !== this.session) {
@@ -799,12 +806,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 /** The one place a row gets its visible label, so two screens cannot spell it differently. */
-function paint(r: Row, you?: string): Row & { label: string } {
+function paint(r: Row, you?: string, at?: string): Row & { label: string } {
   // The person's own name when something has told us one. Every screen said "user" at whoever
   // had logged in, because the field the daemon fills for exactly this was never read.
   const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase()
     : r.who === 'user' && you ? you
-    : r.who;
+    : r.who === 'agent' ? 'magi' : r.who === 'user' ? '나' : r.who;
   // A council row's label carries the vote and the round. Without them nine rows over three rounds
   // read as one undifferentiated block, and the one thing a verdict IS — how they voted — is absent.
   const v = r.who === 'council' ? verdictWord(r.decision, r.silent) : { icon: '', word: '' };
@@ -825,5 +832,5 @@ function paint(r: Row, you?: string): Row & { label: string } {
   // into ✗ is the defect the core measured on a live run — a file that was written and then
   // linted drew as a write that failed.
   const mark = r.who !== 'tool' || r.ok === undefined ? '' : r.note ? ' ⚑' : r.ok ? ' ✓' : ' ✗';
-  return { ...r, label: who + vote + mark };
+  return { ...r, ...(at ? { at } : {}), label: who + vote + mark };
 }

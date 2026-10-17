@@ -683,13 +683,14 @@ export const diffScenarios = [
           await page.waitForSelector('.row.agent .output-open-btn');
           const agentBtn = page.locator('.row.agent .output-open-btn');
           assert.equal(await agentBtn.count(), 1, 'only finalized assistant row has output open button');
-          assert.equal(await agentBtn.textContent(), '편집창에서 열기');
+          assert.equal(await agentBtn.getAttribute('aria-label'), '편집창에서 열기 (읽기 전용)');
+          assert.equal(await agentBtn.locator('svg').count(), 1);
           assert.equal(await agentBtn.isDisabled(), false, 'button is enabled when session is confirmed');
 
           await page.waitForSelector('.row.tool .output-open-btn');
           const toolBtn = page.locator('.row.tool .output-open-btn');
           assert.equal(await toolBtn.count(), 1, 'tool row with outputId has output open button');
-          assert.equal(await toolBtn.textContent(), '편집창에서 열기');
+          assert.equal(await toolBtn.getAttribute('aria-label'), '편집창에서 열기 (읽기 전용)');
           assert.equal(await toolBtn.isDisabled(), false);
 
           // Click assistant button: verify postMessage sends kind: 'output' with exact session and outputId

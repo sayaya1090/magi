@@ -183,11 +183,20 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
     border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
     padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; }
   .args-toggle-btn:hover { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
-  .output-open-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
-    border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
-    padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; margin-left:6px; }
-  .output-open-btn:hover:not(:disabled) { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
-  .output-open-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .who { display:flex; align-items:center; gap:6px; min-height:24px; }
+  .row-label { flex:1; min-width:0; }
+  .row-actions { display:inline-flex; gap:2px; flex:none; }
+  .row-time { white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .row-icon-btn { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:4px; margin:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; box-sizing:border-box; }
+  .row-icon-btn svg { width:16px; height:16px; fill:currentColor; }
+  .row-icon-btn:hover:not(:disabled) { background:var(--vscode-toolbar-hoverBackground, #80808026); }
+  .row-icon-btn:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
+  .row-icon-btn:disabled { opacity:.5; cursor:default; }
+  body { --bubble-user:#ff7a1a; --bubble-agent:#5cd8e6; }
+  body.vscode-light, body.vscode-high-contrast-light { --bubble-user:#b45309; --bubble-agent:#0e7490; }
+  .user, .agent { background:color-mix(in srgb, var(--bubble-tone) 7.06%, var(--vscode-editor-background, #1e1e1e)); border-color:color-mix(in srgb, var(--bubble-tone) 25.49%, transparent); }
+  .user { --bubble-tone:var(--bubble-user); }
+  .agent { --bubble-tone:var(--bubble-agent); }
   pre.raw-args { font-family:var(--vscode-editor-font-family); font-size:.85em; margin:4px 0 6px;
     padding:4px 6px; background:var(--vscode-editor-background, rgba(0, 0, 0, 0.02));
     border-left:2px solid var(--vscode-textLink-foreground); border-radius:2px;

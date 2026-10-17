@@ -7,7 +7,7 @@ export const layoutScenarios = [
         name: '스트리밍 중 완료 행 DOM·위치·선택 보존과 말풍선 색 구분',
         run: async (page) => {
           const history = [
-            { seq: 1, who: 'user', label: 'you', text: 'my previous request' },
+            { seq: 1, who: 'user', label: 'you', text: 'my previous request', at: '2026-10-17T12:30:00+09:00' },
             { seq: 2, who: 'agent', label: 'magi', text: 'previous completed answer\n'.repeat(50) },
           ];
           const send = (text, draft = true) => page.evaluate((m) => window.postMessage(m, '*'),
@@ -52,6 +52,17 @@ export const layoutScenarios = [
             assert.equal(snapshot.removed, 0);
             assert.equal(snapshot.selected, 'my');
           }
+          const copiedBefore = await page.evaluate(() => window.__posted.length);
+          await page.locator('#rows .row:last-child .copy-btn').click();
+          await page.waitForFunction(({ before, text }) => window.__posted.slice(before).some(m => m.kind === 'copy' && m.text === text), { before: copiedBefore, text });
+          assert.match(await page.locator('#rows .row:first-child .row-time').textContent(), /^\d{2}:\d{2}:00$/);
+          const header = await page.locator('#rows .row:first-child').evaluate(row => {
+            const label = row.querySelector('.row-label').getBoundingClientRect();
+            const copy = row.querySelector('.copy-btn').getBoundingClientRect();
+            const time = row.querySelector('.row-time').getBoundingClientRect();
+            return { ordered: label.right <= copy.left && copy.right <= time.left, width: copy.width, height: copy.height };
+          });
+          assert.deepEqual(header, { ordered: true, width: 24, height: 24 });
           const colors = await page.evaluate(() => ['.user', '.agent'].map((s) => getComputedStyle(document.querySelector(s)).backgroundColor));
           assert.notEqual(colors[0], colors[1], '사용자와 마기 말풍선의 배경이 달라야 한다');
           await send('```js\nconst final = true;\n```', false);

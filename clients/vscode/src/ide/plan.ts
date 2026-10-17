@@ -20,6 +20,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | null = null;
   private timer: NodeJS.Timeout | null = null;
   private compacting = false;
+  private changingCouncil = false;
   private readonly subs: vscode.Disposable[] = [];
 
   constructor(private readonly companion: Companion) {
@@ -30,9 +31,25 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     this.view = view;
     view.webview.options = { enableScripts: true };
     view.webview.html = this.html(view.webview);
-    this.subs.push(view.webview.onDidReceiveMessage((m: { kind?: unknown; session?: unknown }) => {
+    this.subs.push(view.webview.onDidReceiveMessage((m: { kind?: unknown; session?: unknown; command?: unknown }) => {
       if (!m) return;
       if (m.kind === 'ready') void this.refresh();
+      if (m.kind === 'council' && typeof m.session === 'string' && m.session
+          && m.session === this.companion.session && !this.changingCouncil) {
+        this.changingCouncil = true;
+        void this.changeCouncil(m.session).catch(error => {
+          void vscode.window.showWarningMessage('카운슬을 변경하지 못했습니다: ' + String(error));
+        }).finally(() => { this.changingCouncil = false; void this.refresh(); });
+      }
+      const controls = new Set(['magi.chooseModel', 'magi.chooseBackend', 'magi.choosePermission',
+        'magi.openConversation', 'magi.newConversation', 'magi.changeSetting', 'magi.setup']);
+      if (m.kind === 'control' && typeof m.command === 'string' && controls.has(m.command)
+          && typeof m.session === 'string' && m.session === this.companion.session) {
+        void Promise.resolve(vscode.commands.executeCommand(m.command)).catch(error => {
+          void vscode.window.showWarningMessage('magi: ' + String(error));
+        }).finally(() => void this.refresh());
+      }
+
       if (m.kind === 'compact' && typeof m.session === 'string' && m.session.length > 0 && m.session === this.companion.session && !this.compacting) {
         this.compacting = true;
         void this.refresh();
@@ -49,6 +66,19 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     tick();
   }
 
+  private async changeCouncil(session: string): Promise<void> {
+    const status = await this.companion.ask('status', { session });
+    if (!status?.ok || session !== this.companion.session) return;
+    const enabled = status.council !== true;
+    const answer = await vscode.window.showWarningMessage(
+      `카운슬을 ${enabled ? '켜시겠습니까' : '끄시겠습니까'}? 다음 요청부터 적용됩니다. 지침 변경으로 다음 요청의 컨텍스트 캐시가 일부 다시 생성될 수 있습니다.`,
+      { modal: true }, '변경');
+    if (answer !== '변경' || session !== this.companion.session) return;
+    const result = await this.companion.ask('set-council', { session, name: String(enabled) });
+    if (!result?.ok) throw new Error(result?.error || '데몬이 변경을 확인하지 못했습니다.');
+    await this.companion.refresh();
+  }
+
   private async refresh(): Promise<void> {
     if (!this.view) return;
     const session = this.companion.session;
@@ -57,7 +87,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     // draw an empty panel for an old build.
     // Nothing to talk to draws nothing — the same panel an old build with no doors draws.
     const caps = (await this.companion.caps()) ?? new Set<string>();
-    const [jobs, ctx, fleet, cron] = await Promise.all([
+    const [jobs, ctx, fleet, cron, status] = await Promise.all([
       caps.has('job-kill') ? this.companion.ask('jobs') : null,
       /**
        * ⚠ **This door needs the conversation named, and asking without one is refused outright.**
@@ -80,11 +110,13 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
         : null,
       caps.has('roster') ? this.companion.ask('roster') : null,
       caps.has('cron') ? this.companion.ask('cron') : null,
+      caps.has('settings') && session ? this.companion.ask('status', { session }) : null,
     ]);
     if (!this.view || session !== this.companion.session) return;
     this.view.webview.postMessage({
       kind: 'plan',
       state: activity.label(this.companion.state),
+      connection: this.companion.state.state,
       // "not asked" and "asked and empty" are different facts, and the panel says which.
       // ⚠ From the STRUCTURED fields. These four never fill `out` — measured against a live daemon —
       // and reading `out` drew three empty sections on every build, without failing: an absent field
@@ -98,6 +130,8 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       gauge: ctx === null ? null : gaugeOf(ctx),
       session,
       compacting: this.compacting,
+      settings: status?.ok ? { model: status.model, backend: status.profile || status.backend, permission: status.permission, council: status.council === true } : null,
+      changingCouncil: this.changingCouncil,
       fleet: fleet === null ? null : fleetRows(fleet),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
@@ -179,6 +213,15 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
   .context-compact { color:var(--vscode-button-foreground); background:var(--vscode-button-background); border:1px solid var(--vscode-contrastBorder, transparent); border-radius:3px; padding:4px 8px; cursor:pointer; }
   .context-compact:hover:not(:disabled) { background:var(--vscode-button-hoverBackground); }
   .context-compact:disabled { opacity:.5; cursor:default; }
+  .connection { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
+  .connection::before { content:''; width:9px; height:9px; border-radius:50%; flex:none; background:var(--vscode-descriptionForeground); }
+  .connection.attached::before, .connection.working::before { background:var(--vscode-testing-iconPassed, #73c991); }
+  .connection.waiting::before { background:var(--vscode-charts-yellow, #cca700); }
+  .connection.not-running::before { background:var(--vscode-testing-iconFailed, #f14c4c); }
+  .controls { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px; }
+  .controls button { color:var(--vscode-button-secondaryForeground); background:var(--vscode-button-secondaryBackground); border:1px solid var(--vscode-contrastBorder, transparent); border-radius:3px; padding:4px 8px; cursor:pointer; }
+  .controls button:hover { background:var(--vscode-button-secondaryHoverBackground); }
+  button:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
   pre { margin:0; white-space:pre-wrap; word-break:break-word;
         font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .none { opacity:.6; font-style:italic; }
@@ -260,7 +303,35 @@ window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.kind !== 'plan') return;
   body.textContent = '';
-  section('now', m.state);
+  const connection = document.createElement('div'); connection.className = 'connection';
+  const states = { attached: '데몬 연결됨', working: '데몬 연결됨 · 작업 중', waiting: '데몬 연결됨 · 사용자 응답 대기', 'not-running': '데몬 연결 끊김', unknown: '데몬 연결 확인 불가' };
+  if (Object.hasOwn(states, m.connection)) connection.classList.add(m.connection);
+  connection.textContent = states[m.connection] || states.unknown;
+  connection.title = m.state || ''; connection.setAttribute('role', 'status');
+  body.append(connection);
+  section('현재 상태', m.state);
+  const controls = document.createElement('div'); controls.className = 'controls';
+  for (const [label, command] of [['세션 선택', 'magi.openConversation'], ['새 세션', 'magi.newConversation'],
+      ['모델 변경', 'magi.chooseModel'], ['프로바이더 변경', 'magi.chooseBackend'],
+      ['승인 방식', 'magi.choosePermission'], ['에이전트 설정', 'magi.changeSetting'], ['연결 설정', 'magi.setup']]) {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+    button.addEventListener('click', () => vs.postMessage({ kind: 'control', command, session: m.session }));
+    controls.append(button);
+  }
+  if (m.settings) {
+    const current = document.createElement('pre');
+    current.textContent = ['모델: ' + (m.settings.model || '미설정'), '프로바이더: ' + (m.settings.backend || '기본값'),
+      '승인: ' + (m.settings.permission || '미설정')].join('\\n');
+    body.append(current);
+    if (typeof m.settings.council === 'boolean') {
+      const council = document.createElement('button'); council.type = 'button';
+      council.textContent = '카운슬: ' + (m.settings.council ? '켜짐' : '꺼짐');
+      council.disabled = m.changingCouncil || !m.session;
+      council.addEventListener('click', () => vs.postMessage({ kind: 'council', session: m.session }));
+      controls.append(council);
+    }
+  }
+  body.append(controls);
   section('plan', m.plan);
   section('jobs', m.jobs);
   section('handed over', m.handed);

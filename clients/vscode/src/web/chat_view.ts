@@ -480,6 +480,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     const old = paintedChatRows.get(key);
     if (old && (old.signature === signature || (r.who === 'agent' && r.draft && old.draftSignature === draftSignature))) {
       if (old.signature !== signature) old.node.querySelector<HTMLElement>('.body')!.textContent = r.text;
+      old.node.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
       nextPainted.set(key, { signature, draftSignature, node: old.node });
       nextNodes.push(old.node);
       continue;
@@ -489,7 +490,17 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
       + (r.queued ? ' queued' : '') + (r.abandoned ? ' abandoned' : '');
     const w = document.createElement('div');
     w.className = 'who';
-    w.textContent = r.label;
+    const label = document.createElement('span'); label.className = 'row-label'; label.textContent = r.label;
+    const controls = document.createElement('span'); controls.className = 'row-actions';
+    w.append(label, controls);
+    function iconButton(cls: string, title: string, path: string): HTMLButtonElement {
+      const button = document.createElement('button'); button.type = 'button'; button.className = cls + ' row-icon-btn';
+      button.title = title; button.setAttribute('aria-label', title);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('aria-hidden', 'true');
+      const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path'); shape.setAttribute('d', path);
+      svg.append(shape); button.append(svg); return button;
+    }
     if (r.who === 'tool' && r.background) {
       d.setAttribute('aria-busy', 'true');
       const spinner = document.createElement('span');
@@ -500,10 +511,8 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     }
     if (r.outputId) {
       const boundOutputId = r.outputId;
-      const openOutputBtn = document.createElement('button');
+      const openOutputBtn = iconButton('output-open-btn', '편집창에서 열기 (읽기 전용)', 'M3 2h6v1H3v10h10V7h1v7H2V2zm7-1h5v5h-1V2.7L7.7 9 7 8.3 13.3 2H10z');
       openOutputBtn.type = 'button';
-      openOutputBtn.className = 'output-open-btn';
-      openOutputBtn.textContent = '편집창에서 열기';
       openOutputBtn.title = '편집창에서 열기 (읽기 전용)';
       openOutputBtn.setAttribute('aria-label', '편집창에서 열기 (읽기 전용)');
       openOutputBtn.dataset.outputId = boundOutputId;
@@ -515,7 +524,21 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
           actions.openOutput(boundSession, boundOutputId);
         });
       }
-      w.append(' ', openOutputBtn);
+      controls.append(openOutputBtn);
+    }
+    d.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
+    const copy = iconButton('copy-btn', '복사', 'M5 1h9v11h-3v3H1V4h4zm1 3h5v7h2V2H6zM2 5v9h8V5z');
+    copy.disabled = !boundSession;
+    copy.addEventListener('click', ev => {
+      ev.stopPropagation();
+      actions.copyText(boundSession || '', d.dataset.copyText || '');
+    });
+    controls.append(copy);
+    if (r.at && Number.isFinite(Date.parse(r.at))) {
+      const time = document.createElement('time'); time.className = 'row-time'; time.dateTime = r.at;
+      const stamp = new Date(r.at);
+      time.textContent = [stamp.getHours(), stamp.getMinutes(), stamp.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+      time.title = stamp.toLocaleString(); w.append(time);
     }
     const b = document.createElement('div');
     b.className = 'body';

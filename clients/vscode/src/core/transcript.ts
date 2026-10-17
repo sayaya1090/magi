@@ -18,6 +18,8 @@ export type Who = 'user' | 'agent' | 'tool' | 'thinking' | 'council' | 'system' 
 export interface Row {
   /** The event that put this row here, so a later frame can find it again. */
   seq: number;
+  /** Original event time for the row header, never synthesized from repaint time. */
+  at?: string;
   /**
    * A row built from streaming chunks, not yet written as a fact.
    *

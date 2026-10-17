@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 const Module = require('module');
 const originalLoad = Module._load;
 const calls: unknown[][] = [];
+let confirmation: string | undefined;
 let finish: (() => void) | undefined;
 Module._load = function (id: string, ...args: unknown[]) {
   if (id === 'vscode') return {
@@ -10,7 +11,7 @@ Module._load = function (id: string, ...args: unknown[]) {
       calls.push(args);
       return new Promise<void>(resolve => { finish = resolve; });
     } },
-    window: { showWarningMessage: async () => {} },
+    window: { showWarningMessage: async () => confirmation },
   };
   return originalLoad.call(this, id, ...args);
 };
@@ -70,4 +71,51 @@ test('a delayed context read cannot label the old graph with a new session', asy
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(messages.length, 0, 'stale context must not be rendered or rebound');
   } finally { plan.dispose(); }
+});
+
+test('panel controls whitelist commands and reject buttons from another session', async () => {
+  let receive: (m: unknown) => void = () => {};
+  const companion = { session: 's1', state: { state: 'attached' },
+    caps: async () => new Set(), onChanged: () => ({ dispose() {} }) };
+  const plan = new Plan(companion);
+  const before = calls.length;
+  try {
+    plan.resolveWebviewView({ webview: { cspSource: '', options: {}, html: '',
+      postMessage() {}, onDidReceiveMessage: (fn: typeof receive) => { receive = fn; return { dispose() {} }; } },
+      onDidDispose: () => ({ dispose() {} }) });
+    receive({ kind: 'control', command: 'workbench.action.closeWindow', session: 's1' });
+    receive({ kind: 'control', command: 'magi.chooseModel', session: 'old' });
+    assert.equal(calls.length, before);
+    receive({ kind: 'control', command: 'magi.chooseModel', session: 's1' });
+    assert.deepEqual(calls.slice(before), [['magi.chooseModel']]);
+    finish?.();
+    await new Promise(resolve => setImmediate(resolve));
+  } finally { plan.dispose(); }
+});
+
+
+test('council toggle confirms, accepts omitted false and targets the captured session', async () => {
+  let receive: (m: unknown) => void = () => {};
+  const requests: any[] = [];
+  const companion = { session: 's1', state: { state: 'attached' },
+    caps: async () => new Set(), onChanged: () => ({ dispose() {} }), refresh: async () => {},
+    ask: async (method: string, payload: any) => { requests.push([method, payload]); return { ok: true }; } };
+  const plan = new Plan(companion);
+  try {
+    plan.resolveWebviewView({ webview: { cspSource: '', options: {}, html: '', postMessage() {},
+      onDidReceiveMessage: (fn: typeof receive) => { receive = fn; return { dispose() {} }; } },
+      onDidDispose: () => ({ dispose() {} }) });
+    confirmation = undefined;
+    receive({ kind: 'council', session: 's1' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.filter(r => r[0] === 'set-council').length, 0);
+    confirmation = '변경';
+    receive({ kind: 'council', session: 's1' });
+    receive({ kind: 'council', session: 's1' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(requests.filter(r => r[0] === 'set-council'), [['set-council', { session: 's1', name: 'true' }]]);
+    companion.session = 's2';
+    receive({ kind: 'council', session: 's1' });
+    assert.equal(requests.filter(r => r[0] === 'set-council').length, 1);
+  } finally { confirmation = undefined; plan.dispose(); }
 });

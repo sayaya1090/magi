@@ -98,6 +98,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
      * person stuck on whichever gateway they tried.
      */
     reg('magi.chooseBackend', async () => {
+      const session = chat.session;
       if (!await has('settings', 'backend switching')) return;
       const r = await call('profiles');
       if (!r) return;
@@ -107,10 +108,10 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
         ...list.filter((p) => p.name).map((p) => ({ label: p.name!, description: p.tier ?? '', name: p.name! })),
       ];
       const pick = await vscode.window.showQuickPick(items, { title: 'magi — backend' });
-      if (!pick) return;
-      if (await call('use-backend', {
+      if (!pick || session !== chat.session) return;
+      if (await call(pick.name ? 'use-profile' : 'use-backend', {
         name: pick.name,
-        ...(chat.session ? { session: chat.session } : {}),
+        ...(session ? { session } : {}),
       })) void companion.refresh();
     }),
 
