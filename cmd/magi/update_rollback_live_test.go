@@ -80,13 +80,10 @@ func TestABuildThatDoesNotStayUpIsRolledBackOnTheNextStart(t *testing.T) {
 	// the code that simply serves on the bad image would hang here until the suite's own timeout,
 	// ten minutes later, and report as a stall rather than as the defect it is.
 	//
-	// ⚠ **Seen to fail once, on 2026-09-12, and not reproduced.** Under a full parallel `go test ./...`
-	// this bound expired (62.17s, "kept serving instead of rolling back"); the same test passed alone
-	// (3.1s), with its own package (33.7s), and on a later full run under the same load. The cause is
-	// NOT established — do not read a guess here. What a next occurrence should check first, in order:
-	// whether generation one outlived update.StableWindow (60s) and so was legitimately confirmed,
-	// which would make this test's premise false rather than the code wrong; and whether the install
-	// lock was held by another process in the tree.
+	// The earlier socket-existence readiness check could kill generation one before Resume
+	// recorded its trial. waitForDaemonUp now requires an RPC response, establishing that the
+	// trial was recorded before the kill. Keep this bound: serving on the bad image is a failure.
+
 	tctx, tcancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer tcancel()
 	two := exec.CommandContext(tctx, exe, "--daemon")
@@ -232,17 +229,29 @@ func TestADeliberateStopInsideTheWindowIsNotARollback(t *testing.T) {
 	}
 }
 
-// waitForDaemonUp blocks until the daemon has published its socket, or fails the test.
+// waitForDaemonUp waits for a successful RPC, not just a bound socket. main binds before
+// runDaemonMode records the update trial. Killing on socket existence can therefore kill the
+// candidate before Resume ran, so the next start is legitimately its first observed generation.
 func waitForDaemonUp(t *testing.T, sock string, p *os.Process) {
 	t.Helper()
-	for i := 0; i < 300; i++ {
-		if _, err := os.Stat(sock); err == nil {
-			return
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		cl, err := daemon.DialWithin(sock, 100*time.Millisecond, 500*time.Millisecond)
+		if err == nil {
+			_, probeErr := cl.About()
+			if closeErr := cl.Close(); closeErr != nil {
+				t.Logf("close readiness probe: %v", closeErr)
+			}
+			if probeErr == nil {
+				return
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	_ = p.Kill()
-	t.Fatal("the daemon never came up, so nothing was on trial")
+	if err := p.Kill(); err != nil {
+		t.Logf("stop unready daemon: %v", err)
+	}
+	t.Fatal("the daemon never answered, so nothing was on trial")
 }
 
 // A replacement interrupted before anything recorded it — a `.prev` and no journal, which is what a
