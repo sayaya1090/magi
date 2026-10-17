@@ -1528,6 +1528,8 @@ says so.
 
 ## 7. Memory & Context
 
+The live context gauge uses the current provider/model window, including metadata learned after the previous turn. A reader without a provider uses the window recorded in that turn instead. For example, 369k tokens in a 1M-token window is about 37%, even if the previous request recorded a 200k-token window. Automatic compaction defaults to 80%; its message budget reserves space for the system prompt and tool catalog. Bulky-result elision can happen before a summary fold and is recorded separately.
+
 A turn's context is assembled, not accumulated. Some of it is written by you and never leaves;
 some is what the agent has learned and is pulled in when it looks relevant; most of it is the
 conversation, and that is the part with a ceiling.

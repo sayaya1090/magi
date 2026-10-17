@@ -37,20 +37,23 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// default roster — and the estimate never counted it, so on a backend that reports no real
 	// prompt_tokens (many local ones) the meter and this trigger ran that much light and compaction
 	// fired late. Cheap to add: summing lengths, no marshalling.
-	if est := estimateTokens(sys, msgs) + toolSpecTokens(a.sessionToolSpecs(s.ID, agent)); est > tokens {
+	fixed := estimateTokens(sys, nil) + toolSpecTokens(a.sessionToolSpecs(s.ID, agent))
+	if est := fixed + estimateTokens("", msgs); est > tokens {
 		tokens = est
 	}
 	if tokens <= budget {
 		return false
 	}
-	// Folding can only shrink the messages, never the system prompt. When the messages ALONE
-	// already fit the budget, the overage is the system prompt (or the real-count lag) and no fold
-	// gets under it — without this guard the trigger fired every step, each paying a summarizer
-	// call that reclaimed nothing: 18 folds for 25 tool calls was measured, messages sitting at
-	// ~800 tokens against a 6000 budget while the prompt alone was ~6000. The backend's own limit
-	// stays the authority there (the reactive fold on a provider rejection still runs); this stops
-	// the estimate from spinning. Messages that are themselves over budget still fold.
-	if estimateTokens("", msgs) <= budget {
+	// Reserve the fixed prompt/catalog before deciding whether messages fit.
+	// Comparing messages with the entire budget skipped requests whose combined
+	// size was already over it. If fixed content alone consumes the budget,
+	// retain the old guard: shrink oversized history, but do not repeatedly
+	// summarize a small conversation to try to reclaim immutable instructions.
+	messageBudget := budget - fixed
+	if messageBudget <= 0 {
+		messageBudget = budget
+	}
+	if estimateTokens("", msgs) <= messageBudget {
 		return false
 	}
 	// Before the fold, the cheaper cut: give up recent bulky tool results instead of the oldest
@@ -61,7 +64,7 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// a result meant, eliding it deletes knowledge that exists nowhere else, and that is exactly
 	// what the fold's summary is for. When eliding reclaims enough, the fold does not run at all;
 	// when it cannot, the fold runs over what remains.
-	if n, covered := a.elideRecentResults(ctx, s, actor, evs, estimateTokens("", msgs)-budget); n > 0 {
+	if n, covered := a.elideRecentResults(ctx, s, actor, evs, estimateTokens("", msgs)-messageBudget); n > 0 {
 		if covered {
 			return true
 		}
