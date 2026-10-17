@@ -44,6 +44,11 @@ class RowTextTest {
      *
      * `keep` 은 **승인에도** 온다 — 남의 반대 때문에 다시 쓸 때 버려질 뻔한 것이 거기 있다.
      */
+    @Test fun `clock retains zero seconds`() {
+        val clock = RowText.clock("2026-10-17T12:02:00Z")
+        assertTrue(Regex("[0-9]{2}:[0-9]{2}:00").matches(clock), clock)
+    }
+
     @Test
     fun `옮겨 적은 판정이 무엇 위에 섰는지와 무엇을 지킬지를 싣는다`() {
         val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile

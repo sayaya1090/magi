@@ -1223,6 +1223,12 @@ class MagiToolWindow : ToolWindowFactory {
                     isFocusPainted = false
                     margin = JBUI.emptyInsets()
                     border = JBUI.Borders.empty(2)
+                    val iconSize = java.awt.Dimension(icon.iconWidth + JBUI.scale(4), icon.iconHeight + JBUI.scale(4))
+                    preferredSize = iconSize
+                    minimumSize = iconSize
+                    maximumSize = iconSize
+                    iconTextGap = 0
+                    putClientProperty("magi.action", true)
                     cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                     addActionListener { openOutput(r, sourceSession) }
                 })

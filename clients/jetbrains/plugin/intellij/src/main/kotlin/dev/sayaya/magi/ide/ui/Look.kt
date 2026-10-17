@@ -687,7 +687,7 @@ internal object Look {
      * HTML 파싱 단계에서 XSS 및 불필요한 태그 주입을 방어하기 위해 원본 텍스트 유효성 검증을 거친다.
      */
     fun rich(md: String): JComponent = javax.swing.JEditorPane(
-        "text/html", "<html><body>" + Markup.markdown(md) + "</body></html>",
+        "text/html", "<html><head><style>html,body { background: transparent; }</style></head><body>" + Markup.markdown(md) + "</body></html>",
     ).apply {
         isEditable = false
         (caret as? javax.swing.text.DefaultCaret)?.updatePolicy = javax.swing.text.DefaultCaret.NEVER_UPDATE
