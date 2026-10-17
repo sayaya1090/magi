@@ -54,6 +54,8 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		"ScheduledJobs": true,
 		// Searching past sessions reads the same append-only logs, and reads them the same way.
 		"RankSessions": true,
+		// Composer recall reads the same persisted prompt events across this workspace.
+		"RecentPrompts": true,
 	}
 	// hybrid: done HERE, and then the daemon is told.
 	//

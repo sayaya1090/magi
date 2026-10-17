@@ -66,3 +66,38 @@ func TestRecentPromptsCrossSessionsAndKeepsOnlyTyped(t *testing.T) {
 		t.Fatalf("limit is honoured: %d rows", len(two))
 	}
 }
+
+func TestRecentPromptsOrdersByInputTimeRatherThanConversationActivity(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	wd := t.TempDir()
+	first, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	appendAt := func(sid session.SessionID, actor event.ActorKind, text string, at time.Time) {
+		t.Helper()
+		b, _ := json.Marshal(event.PromptSubmittedData{MessageID: "m", Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+		if _, err := a.store.Append(ctx, sid, event.Event{Type: event.TypePromptSubmitted, Data: b, TS: at, Actor: event.Actor{Kind: actor}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendAt(first, event.ActorUser, "shared", now)
+	appendAt(second, event.ActorUser, "shared", now.Add(time.Second))
+	appendAt(first, event.ActorUser, "latest typed", now.Add(2*time.Second))
+	appendAt(second, event.ActorSystem, "later background activity", now.Add(3*time.Second))
+	got, err := a.RecentPrompts(ctx, wd, 1)
+	if err != nil || len(got) != 1 || got[0].Text != "latest typed" {
+		t.Fatalf("top input must not come from the session with the latest background activity: %+v %v", got, err)
+	}
+	appendAt(first, event.ActorSystem, "even later background activity", now.Add(4*time.Second))
+	got, err = a.RecentPrompts(ctx, wd, 2)
+	if err != nil || len(got) != 2 || got[0].Text != "latest typed" || got[1].Text != "shared" || got[1].Session != second {
+		t.Fatalf("deduplicate after sorting actual prompt times: %+v %v", got, err)
+	}
+}
