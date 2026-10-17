@@ -116,3 +116,19 @@ func open(t *testing.T, a *App) session.SessionID {
 	})
 	return sid
 }
+
+func TestStartupBackendReconcilesRestoredModel(t *testing.T) {
+	llm := &redirectableLLM{models: []string{"opus", "sonnet"}}
+	a := newAppWith(t, llm)
+	sid := open(t, a)
+	a.SetModel(sid, "qwen3.8:27b-mlx")
+	a.ReconcileBackendModel(sid)
+	if got := modelOf(t, a, sid); got != "opus" {
+		t.Fatalf("restored model = %q", got)
+	}
+	a.SetModel(sid, "sonnet")
+	a.ReconcileBackendModel(sid)
+	if got := modelOf(t, a, sid); got != "sonnet" {
+		t.Fatalf("valid choice changed: %q", got)
+	}
+}

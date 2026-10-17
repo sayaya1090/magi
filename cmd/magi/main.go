@@ -1117,6 +1117,9 @@ func runWithContext(runCtx context.Context) int {
 		}
 	}
 	host.FireEvent("session_start") // plugins may react to a new session
+	// Plugins can redirect the default endpoint before the restored model is reconciled.
+	a.ReconcileBackendModel(sid)
+	modelID = a.SessionModel(sid)
 
 	// Context-window probe, deferred to here on purpose. Plugin startup and
 	// session_start handlers have now run, so a plugin that repoints the LLM at a
