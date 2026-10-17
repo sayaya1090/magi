@@ -19,6 +19,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private view: vscode.WebviewView | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private compacting = false;
   private readonly subs: vscode.Disposable[] = [];
 
   constructor(private readonly companion: Companion) {
@@ -29,8 +30,19 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     this.view = view;
     view.webview.options = { enableScripts: true };
     view.webview.html = this.html(view.webview);
-    this.subs.push(view.webview.onDidReceiveMessage((m: { kind: string }) => {
+    this.subs.push(view.webview.onDidReceiveMessage((m: { kind?: unknown; session?: unknown }) => {
+      if (!m) return;
       if (m.kind === 'ready') void this.refresh();
+      if (m.kind === 'compact' && typeof m.session === 'string' && m.session.length > 0 && m.session === this.companion.session && !this.compacting) {
+        this.compacting = true;
+        void this.refresh();
+        void Promise.resolve(vscode.commands.executeCommand('magi.compact', m.session)).catch(error => {
+          void vscode.window.showWarningMessage('magi: ' + String(error));
+        }).finally(() => {
+          this.compacting = false;
+          void this.refresh();
+        });
+      }
     }));
     view.onDidDispose(() => { this.view = null; if (this.timer) clearTimeout(this.timer); });
     const tick = () => { void this.refresh(); this.timer = setTimeout(tick, 5000); };
@@ -82,6 +94,8 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       context: ctx === null ? (this.usage || null) : (contextOf(ctx) || this.usage),
       // The same door, as a gauge (see `panel.gauge`); the text above stays the fallback when there is none.
       gauge: ctx === null ? null : gaugeOf(ctx),
+      session: this.companion.session,
+      compacting: this.compacting,
       fleet: fleet === null ? null : fleetRows(fleet),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
@@ -158,6 +172,11 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
   h3 { font-size:.85em; text-transform:uppercase; letter-spacing:.04em; opacity:.7;
        margin:14px 0 4px; font-weight:600; }
   h3:first-child { margin-top:0; }
+  .context-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:14px; }
+  .context-heading h3 { margin:0; }
+  .context-compact { color:var(--vscode-button-foreground); background:var(--vscode-button-background); border:1px solid var(--vscode-contrastBorder, transparent); border-radius:3px; padding:4px 8px; cursor:pointer; }
+  .context-compact:hover:not(:disabled) { background:var(--vscode-button-hoverBackground); }
+  .context-compact:disabled { opacity:.5; cursor:default; }
   pre { margin:0; white-space:pre-wrap; word-break:break-word;
         font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .none { opacity:.6; font-style:italic; }
@@ -199,9 +218,16 @@ function section(title, text) {
   body.append(h, p);
 }
 function head(title) { const h = document.createElement('h3'); h.textContent = title; body.append(h); }
-function contextSection(g, text) {
-  if (!g) { section('context', text); return; }
-  head('context');
+function contextSection(g, text, session, compacting) {
+  const heading = document.createElement('div'); heading.className = 'context-heading';
+  const title = document.createElement('h3'); title.textContent = 'context';
+  const compact = document.createElement('button'); compact.type = 'button'; compact.className = 'context-compact';
+  compact.textContent = compacting ? '압축 요청 중…' : '컨텍스트 압축';
+  compact.disabled = !session || compacting;
+  compact.setAttribute('aria-busy', String(Boolean(compacting)));
+  compact.addEventListener('click', () => vs.postMessage({ kind: 'compact', session }));
+  heading.append(title, compact); body.append(heading);
+  if (!g) { const fallback = document.createElement('pre'); fallback.textContent = text || '사용량 정보 없음'; body.append(fallback); return; }
   const row = document.createElement('div'); row.className = 'gauge';
   const bar = document.createElement('div'); bar.className = 'bar';
   for (const s of g.segments) {
@@ -236,7 +262,7 @@ window.addEventListener('message', (e) => {
   section('plan', m.plan);
   section('jobs', m.jobs);
   section('handed over', m.handed);
-  contextSection(m.gauge, m.context);
+  contextSection(m.gauge, m.context, m.session, m.compacting);
   fleetSection(m.fleet);
   section('scheduled', m.cron);
   section("this editor's tools", m.hand);

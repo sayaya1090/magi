@@ -67,11 +67,16 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
         assertTrue("the plan window does not scroll that root", "JBScrollPane(root)" in text)
     }
 
-    /** The two verbs stand on one row under the combos; they were scattered (one beside a combo, one alone). */
-    fun `test the two control buttons share one row`() {
-        val text = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/ui/PlanToolWindow.kt").readText()
-        val row = Regex("""add\(JBPanel<JBPanel<\*>>\(java\.awt\.FlowLayout[^\n]*\n(?:[^\n]*\n){1,3}?\s*add\(fresh\)\s*\n\s*add\(compact\)""")
-        assertTrue("「새 채팅」 and 「채팅 요약」 are not in one row panel", row.containsMatchIn(text))
+    fun testContextHeadingKeepsCompressionActionBesideGraphTitle() {
+        val action = JButton(MagiBundle.msg("plan.compact"))
+        val heading = Look.sectionHeading(MagiBundle.msg("plan.usage"), action)
+        for (width in listOf(280, 420, 800)) {
+            heading.setSize(width, 40)
+            heading.doLayout()
+            assertTrue("action outside narrow panel", action.x >= 0 && action.x + action.width <= width)
+            assertTrue("action must remain on the title row", action.height > 0 && action.y + action.height <= 40)
+            assertEquals("context heading must retain the actual action", heading, action.parent)
+        }
     }
 
     /**

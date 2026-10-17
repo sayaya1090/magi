@@ -332,7 +332,7 @@ VS Code 설정(`settings.json` 또는 GUI 설정 편집기)에서 `magi` 네임�
 | Change one of magi's own settings | 데몬 고유 설정을 변경합니다 | §5.1 |
 | Start a new conversation | 새 대화 세션을 개시합니다 | §7.1 |
 | Resume a conversation | 이전 대화 세션을 재개합니다 | §7.1 |
-| Fold this conversation | 컨텍스트를 압축 요약합니다 (확인 대화상자 선행) | §7.1 |
+| Compact context | 컨텍스트를 압축 요약합니다 (확인 대화상자 선행) | §7.1 |
 | Go back to an earlier point | 이전 턴 위치로 대화를 되감습니다 (확인 대화상자 선행) | §7.1 |
 | Stop a background job | 백그라운드 작업을 중단합니다 | §7.2 |
 | Show child conversations | 서브에이전트 자식 대화 세션 목록을 조회합니다 | §7.1 |
@@ -350,7 +350,7 @@ VS Code 설정(`settings.json` 또는 GUI 설정 편집기)에서 `magi` 네임�
 | Start a new conversation | `session-new` | 신규 세션 ID는 데몬이 생성합니다 |
 | Resume a conversation | `sessions` → `resume` | 과거 세션을 로드하여 활성 대화로 지정합니다 |
 | Open another conversation | `sessions` | 현재 활성 세션을 유지한 채 읽기 전용으로 타 세션을 조회합니다 |
-| Fold this conversation | `compact` | **사전 확인 후 실행.** 이전 대화를 압축 요약본으로 치환합니다 |
+| Compact context | `compact` | **사전 확인 후 실행.** 이전 대화를 압축 요약본으로 치환합니다 |
 | Go back to an earlier point | `rewind` | **사전 확인 후 실행.** 사용자가 질의한 시점을 기준으로 턴 수 단위를 산정하여 되감기를 수행합니다 |
 | Show child conversations | `children` | 서브에이전트 및 회의 세션을 읽기 전용으로 조회합니다 |
 
@@ -416,3 +416,5 @@ JetBrains 클라이언트와의 기능 대조 검증 결과(2026-09-09 실측): 
 - **스크롤 고정 지원:** 사용자가 이전 대화를 스크롤하여 읽고 있을 때는 새 응답이 도착해도 스크롤을 강제로 하단으로 끌어내리지 않습니다.
 - **연결 단절 시 복구 버튼 제공:** 컴패니언 연결이 끊어졌을 때 대화 패널에 즉시 「Start one」 버튼을 제공하여 빠른 복구를 돕습니다.
 - **비활성 시 폴링 간격 자동 조정:** 컴패니언 미실행 시에는 소켓 폴링 주기를 10초로 완화하여 리소스 낭비를 방지합니다(실행 중에는 2초 주기).
+
+컨텍스트 그래프 제목 오른쪽의 **컨텍스트 압축** 버튼도 같은 명령을 실행합니다. 그래프에 표시된 세션을 대상으로 확인 대화상자를 띄우며, 요청 중에는 중복 클릭을 막습니다.

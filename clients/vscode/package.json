@@ -166,7 +166,7 @@
       },
       {
         "command": "magi.compact",
-        "title": "Fold this conversation",
+        "title": "Compact context",
         "category": "magi"
       },
       {
