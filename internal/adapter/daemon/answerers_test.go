@@ -176,7 +176,7 @@ func TestAnswerersRefuseInWords(t *testing.T) {
 		"git-pr": answerGitPR, "pr-facts": answerPRFacts, "git-msg": answerGitMsg,
 		"look-over": answerLookOver, "complete": answerComplete, "open-file": answerOpenFile,
 		"suggest": answerSuggest, "shell": answerShell, "about": answerAbout,
-		"sessions": answerSessions, "session-new": answerSessionNew,
+		"sessions": answerSessions, "session-new": answerSessionNew, "prompts": answerPrompts,
 		"cron": answerCron, "job-kill": answerJobKill,
 	} {
 		resp := fn(ctx, bare, Request{Method: method, Name: "x", Text: "y"})
@@ -922,5 +922,30 @@ func TestContextAnswersTheWindowAndItsParts(t *testing.T) {
 	}
 	if r := answerContext(ctx, &fakeEngine{}, Request{Session: "s1"}); r.OK || !strings.Contains(r.Err, "cannot say") {
 		t.Fatalf("an engine without the reading refuses with the table's reason: %+v", r)
+	}
+}
+
+type promptEngine struct {
+	fakeEngine
+	asked int
+}
+
+func (p *promptEngine) RecentPrompts(_ context.Context, limit int) ([]PromptRow, error) {
+	p.asked = limit
+	return []PromptRow{{Text: "run the tests", At: "2026-10-17T01:00:00Z", Session: "s1"}}, nil
+}
+
+// The recall door carries the limit in (100 unsaid, 500 at most) and the rows out.
+func TestAnswerPromptsMapsLimitAndRows(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct{ n, want int }{{0, 100}, {7, 7}, {9000, 500}} {
+		e := &promptEngine{}
+		r := answerPrompts(ctx, e, Request{Method: "prompts", N: c.n})
+		if !r.OK || len(r.Prompts) != 1 || r.Prompts[0].Text != "run the tests" || r.Prompts[0].Session != "s1" {
+			t.Fatalf("n=%d: rows lost on the way out: %+v", c.n, r)
+		}
+		if e.asked != c.want {
+			t.Errorf("n=%d: door asked for %d, want %d", c.n, e.asked, c.want)
+		}
 	}
 }

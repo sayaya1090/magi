@@ -187,6 +187,7 @@ func init() {
 		"mcp-detach":    {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
 		"mcp-detach-if": {run: answerMCPDetachIf, needs: (*ConditionalToolServerHost)(nil), why: "this daemon cannot conditionally detach tool servers", cap: "tool-servers-detach-if"},
 		"sessions":      {run: answerSessions, needs: (*ConversationKeeper)(nil), why: "this daemon cannot list its conversations", cap: "sessions"},
+		"prompts":       {run: answerPrompts, needs: (*PromptKeeper)(nil), why: "this daemon cannot recall what was typed to it", cap: "prompts"},
 		"context":       {run: answerContext, needs: (*ContextTeller)(nil), why: "this daemon cannot say what fills its context window", cap: "context"},
 		"session-new":   {run: answerSessionNew, needs: (*ConversationKeeper)(nil), why: "this daemon cannot open a new conversation", cap: "session-new"},
 		"children":      {run: answerChildren, needs: (*ChildLister)(nil), why: "this daemon cannot list a conversation's subagents", cap: "children"},
@@ -322,6 +323,27 @@ func answerSessions(ctx context.Context, eng Engine, req Request) Response {
 		rows = append(rows, r)
 	}
 	return Response{OK: true, Sessions: rows}
+}
+
+// answerPrompts is the composer's ↑/↓ recall (PromptKeeper). N bounds the answer: 100 when
+// unsaid, 500 at most — a recall list is for stepping through, not for exporting a history.
+func answerPrompts(ctx context.Context, eng Engine, req Request) Response {
+	k, ok := eng.(PromptKeeper)
+	if !ok {
+		return Response{Err: "this daemon cannot recall what was typed to it"}
+	}
+	limit := req.N
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := k.RecentPrompts(ctx, limit)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Prompts: rows}
 }
 
 // answerChildren lists the subagent conversations a session spawned, newest activity first.

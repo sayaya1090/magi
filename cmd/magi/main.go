@@ -1062,6 +1062,15 @@ func runWithContext(runCtx context.Context) int {
 			sid = session.SessionID(resume)
 		}
 	}
+	// A daemon that simply started — a stop, a crash, the IDE reopening — continues this workspace's
+	// most recent conversation too. Opening a fresh one each time moved every screen onto an empty
+	// conversation: the agent had no history unless somebody noticed and switched back, and the
+	// context gauge read "system and tools only" mid-task (2026-10-17; asked for in so many words).
+	if sid == "" && *daemonMode {
+		if metas, lerr := a.ListSessions(ctx, wd); lerr == nil {
+			sid = latestConversation(metas)
+		}
+	}
 	if sid == "" {
 		sid, err = a.CreateSession(ctx, command.CreateSession{
 			Workdir: wd,
@@ -2519,6 +2528,24 @@ func (d daemonEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, 
 	return metas, nil
 }
 
+// RecentPrompts satisfies daemon.PromptKeeper: the composer recall, read from this workspace's
+// conversations (App.RecentPrompts says which messages count).
+func (d daemonEngine) RecentPrompts(ctx context.Context, limit int) ([]daemon.PromptRow, error) {
+	ps, err := d.App.RecentPrompts(ctx, d.workdir, limit)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]daemon.PromptRow, 0, len(ps))
+	for _, p := range ps {
+		r := daemon.PromptRow{Text: p.Text, Session: string(p.Session)}
+		if !p.At.IsZero() {
+			r.At = p.At.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
+}
+
 // EditCron satisfies daemon.CronEditor: one change to this workspace's standing schedule.
 //
 // The same App call the agent's own `schedule` tool makes, so a job written from a screen and a
@@ -3294,4 +3321,24 @@ func (d daemonEngine) UseProfile(sid session.SessionID, name string) error {
 		return fmt.Errorf("saved provider profile not found")
 	}
 	return d.App.ApplySessionProfile(sid, app.ProfileDef{Name: name, BaseURL: p.BaseURL, APIKey: p.APIKey, Model: p.Model, Headers: p.Headers})
+}
+
+// latestConversation is the conversation a starting daemon continues: the most recently active one a
+// person was having here. Not a subagent's (it has a parent), not one an Office document opened for
+// itself (For — the helper binds those by document), not a scheduled run's. Empty when there is none.
+func latestConversation(metas []session.SessionMeta) session.SessionID {
+	var best *session.SessionMeta
+	for i := range metas {
+		m := &metas[i]
+		if m.Parent != "" || m.For != "" || strings.HasPrefix(m.Origin, "cron:") {
+			continue
+		}
+		if best == nil || m.LastActivity.After(best.LastActivity) {
+			best = m
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return best.ID
 }

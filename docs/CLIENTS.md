@@ -543,6 +543,7 @@ flowchart LR
 | `jobs` | Background commands and their state | always |
 | `about` | Who this companion is and what it can be asked to do, plus `caps` | always (the handshake) |
 | `sessions` | This workspace's conversations, newest activity first (id, title, model, label, `for`) | `sessions` |
+| `prompts` | What a person typed to this workspace's companion, across conversations, newest first, each text once — the composer's ↑/↓ recall (`n` bounds it: 100 unsaid, 500 at most) | `prompts` |
 | `session-new` | Open a new conversation and move the companion onto it; answers its id | `session-new` |
 | `children` | A conversation's subagent sessions | `children` |
 | `context` | How full a conversation's window is and what fills it (parts are an estimate — draw them as shares) | `context` |

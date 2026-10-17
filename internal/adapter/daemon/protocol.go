@@ -527,6 +527,20 @@ type ConversationKeeper interface {
 	NewSession(ctx context.Context) (session.SessionID, error)
 }
 
+// PromptKeeper is this workspace's ↑/↓ recall: what a person typed to the companion, newest
+// first, across conversations, each text once. One answer for every screen — each kept its own,
+// and the terminal's died with the session on screen (2026-10-17).
+type PromptKeeper interface {
+	RecentPrompts(ctx context.Context, limit int) ([]PromptRow, error)
+}
+
+// PromptRow is one recalled prompt. At is RFC 3339 when the log carried a time.
+type PromptRow struct {
+	Text    string `json:"text"`
+	At      string `json:"at,omitempty"`
+	Session string `json:"session,omitempty"`
+}
+
 // JobKiller stops a background command — the same stop bash_kill performs, offered to the
 // person watching the row. Split from JobRunner the way CronTeller is from CronController:
 // showing and stopping are different grants for a fake to give.
@@ -842,6 +856,9 @@ type Response struct {
 	Roster []RosterRow `json:"roster,omitempty"`
 	// Sessions answers the `sessions` method: this workspace's conversations, newest first.
 	Sessions []SessionRow `json:"sessions,omitempty"`
+	// Prompts answers the `prompts` method: what a person typed here, newest first, each once.
+	// Absent with ok = nothing typed yet.
+	Prompts []PromptRow `json:"prompts,omitempty"`
 	// Config answers config-get and config-set: what a settings key is, where the value came
 	// from, and when a change to it takes effect.
 	Config []ConfigItem `json:"config,omitempty"`
