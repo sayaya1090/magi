@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/sayaya1090/magi/internal/core/companion"
 	"strings"
 	"testing"
 	"time"
@@ -332,5 +334,81 @@ func TestCancellingStartupApprovalClearsTheVisibleQuestion(t *testing.T) {
 	}
 	if _, waiting := a.Waiting(sid); waiting {
 		t.Fatal("cancelled startup question still pending")
+	}
+}
+
+func TestCompanionProfileReportsVerifiedSavedWorkInTranscript(t *testing.T) {
+	for _, tc := range []struct {
+		name, result, want string
+		saveErr, readErr   error
+	}{
+		{name: "verified", result: `{"purpose":"model proposal","tasks":[{"id":"guessed","description":"guessed work"}]}`, want: "saved-work"},
+		{name: "null", result: "null", want: "근거가 부족"},
+		{name: "save failure", result: `{}`, saveErr: errors.New("secret-backend-detail"), want: "등록을 확인하지 못"},
+		{name: "readback failure", result: `{}`, readErr: errors.New("secret-file-detail"), want: "목적과 제공 작업을 확인하지 못"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := jsonl.New(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved := false
+			a := closeAfter(t, New(store, &acCapLLM{text: tc.result}, builtin.Default(), bus.New(), nil, Config{
+				Interactive:            true,
+				CompanionProfileNeeded: func(string) bool { return true },
+				CompanionProfileSave:   func(string, string) error { saved = true; return tc.saveErr },
+				CompanionProfileRead: func(string) (companion.Contract, error) {
+					return companion.Contract{Purpose: "사용자가 보존한 목적", Tasks: []companion.Task{{ID: "saved-work", Description: "실제 저장된 작업", Constraints: []string{"문서 범위"}}}}, tc.readErr
+				},
+			}))
+			sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, _ := json.Marshal(event.PromptSubmittedData{MessageID: "question", Parts: []session.Part{{Kind: session.PartText, Text: "개발문서 읽고 제공 작업을 정리해 주세요"}}})
+			_, err = a.store.Append(context.Background(), sid, event.Event{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser, ID: "companion-introduction"}, Data: data}, evToolCall("read-doc", "read"), evToolResult("read-doc", "project documentation", false))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.scheduleCompanionProfile(sid)
+			deadline := time.Now().Add(3 * time.Second)
+			for a.profileBusy.Load() && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			if a.profileBusy.Load() {
+				t.Fatal("publication did not finish")
+			}
+			events, err := a.store.Read(context.Background(), sid, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var notes []string
+			for _, e := range events {
+				if e.Actor.Kind == event.ActorSystem && e.Actor.ID == "companion-profile" {
+					var d event.PromptSubmittedData
+					if err := json.Unmarshal(e.Data, &d); err != nil {
+						t.Fatal(err)
+					}
+					notes = append(notes, partsText(d.Parts))
+				}
+			}
+			if len(notes) != 2 || !strings.Contains(notes[1], tc.want) {
+				t.Fatalf("outcome not visible in transcript: %q", notes)
+			}
+			if strings.Contains(notes[1], "secret-") {
+				t.Fatal("raw backend errors exposed")
+			}
+			if tc.name == "verified" {
+				if !strings.Contains(notes[1], "사용자가 보존한 목적") {
+					t.Fatal("saved purpose missing")
+				}
+				if !strings.Contains(notes[1], "문서 범위") || strings.Contains(notes[1], "guessed work") {
+					t.Fatal("summary must describe saved work and limits, not proposal")
+				}
+			}
+			if tc.result == "null" && saved {
+				t.Fatal("null was saved")
+			}
+		})
 	}
 }

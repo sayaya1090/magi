@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/config"
+	"github.com/sayaya1090/magi/internal/core/companion"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -184,6 +185,8 @@ type Config struct {
 	CompanionProfileNeeded      func(workdir string) bool
 	CompanionProfileUnpublished func(workdir string) bool
 	CompanionProfileSave        func(workdir, profile string) error
+	// CompanionProfileRead verifies the saved description before announcing publication.
+	CompanionProfileRead func(workdir string) (companion.Contract, error)
 
 	CodingTasks port.CodingTasks
 	// CodingTaskExecution is set by the trusted CLI runner after it binds and locks

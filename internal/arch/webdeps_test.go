@@ -22,6 +22,10 @@ var consoleSurface = map[string]bool{
 	// already includes that application layer. This adds data types, not the Git/
 	// filesystem workspace adapter. Lexical ranking is shared by compacted recall
 	// and experience queries; filelock protects their shared persistent state.
+	// App reports verified saved companion descriptions in every transcript.
+	// Share the data-only contract with the console; policy storage and publication
+	// adapters remain owned by cmd/magi.
+	"internal/core/companion":         true,
 	"internal/core/codingtask":        true,
 	"internal/core/lexical":           true,
 	"internal/filelock":               true,

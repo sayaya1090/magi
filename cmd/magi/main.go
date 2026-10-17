@@ -903,6 +903,9 @@ func runWithContext(runCtx context.Context) int {
 			}
 			return companionProfileNeeded(plat.ConfigDir(), workdir)
 		},
+		CompanionProfileRead: func(workdir string) (corecompanion.Contract, error) {
+			return companionpolicy.Load(plat.ConfigDir(), workdir)
+		},
 		CompanionProfileSave: func(workdir, profile string) error {
 			if !companionProfileNeeded(plat.ConfigDir(), workdir) {
 				return nil
