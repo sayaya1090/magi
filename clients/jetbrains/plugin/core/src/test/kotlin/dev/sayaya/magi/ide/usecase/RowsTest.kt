@@ -22,7 +22,7 @@ class RowsTest {
         for (state in listOf("succeeded", "failed", "killed", "unknown")) {
             val rows = Rows()
             rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"bash","callId":"job"}}}"""))
-            rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"job","background":true,"content":"started"}}}"""))
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"job","background":true,"advisory":true,"isError":true,"content":"started"}}}"""))
             org.junit.jupiter.api.Assertions.assertTrue(rows.list().single().background)
             org.junit.jupiter.api.Assertions.assertNull(rows.list().single().ok)
             rows.feed(ev("tool.background", """{"callId":"other","state":"succeeded"}"""))
@@ -30,6 +30,7 @@ class RowsTest {
             rows.feed(ev("tool.background", """{"callId":"job","state":"$state"}"""))
             val result = rows.list().single()
             org.junit.jupiter.api.Assertions.assertFalse(result.background)
+            if (state != "succeeded") org.junit.jupiter.api.Assertions.assertFalse(result.note)
             org.junit.jupiter.api.Assertions.assertEquals(if (state == "unknown") null else state == "succeeded", result.ok)
         }
     }

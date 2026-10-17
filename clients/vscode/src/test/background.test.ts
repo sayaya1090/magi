@@ -6,7 +6,7 @@ import { Event } from '../core/protocol';
 test('background launch stays busy until its own process exit; replay keeps terminal outcome', () => {
   const events: Event[] = [
     { seq: 1, type: 'part.appended', data: { part: { kind: 'tool-call', toolCall: { callId: 'job', name: 'bash' } } } },
-    { seq: 2, type: 'part.appended', data: { part: { kind: 'tool-result', toolResult: { callId: 'job', background: true, content: 'started' } } } },
+    { seq: 2, type: 'part.appended', data: { part: { kind: 'tool-result', toolResult: { callId: 'job', background: true, advisory: true, isError: true, content: 'started' } } } },
   ];
   assert.equal(rows(events)[0].background, true);
   assert.equal(rows(events)[0].ok, undefined);
@@ -15,6 +15,7 @@ test('background launch stays busy until its own process exit; replay keeps term
   for (const state of ['succeeded', 'failed', 'killed', 'unknown']) {
     const result = rows([...events, { seq: 4, type: 'tool.background', data: { callId: 'job', state } }])[0];
     assert.equal(result.background, undefined);
+    if (state !== 'succeeded') assert.equal(result.note, undefined);
     assert.equal(result.ok, state === 'unknown' ? undefined : state === 'succeeded');
   }
 });

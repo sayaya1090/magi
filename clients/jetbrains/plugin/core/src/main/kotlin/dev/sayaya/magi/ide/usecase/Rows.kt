@@ -215,7 +215,7 @@ class Rows {
                 val i = rows.indexOfLast { it.who == Who.Tool && it.callId == str(e, "callId") }
                 if (i < 0 || state !in listOf("succeeded", "failed", "killed", "unknown")) false
                 else {
-                    rows[i] = rows[i].copy(background = false, ok = if (state == "unknown") null else state == "succeeded")
+                    rows[i] = rows[i].copy(background = false, ok = if (state == "unknown") null else state == "succeeded", note = state == "succeeded" && rows[i].note)
                     true
                 }
             }

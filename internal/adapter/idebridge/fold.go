@@ -210,6 +210,9 @@ func fold(events []event.Event) ([]Row, foldStats) {
 			for i := len(out) - 1; i >= 0; i-- {
 				if out[i].Who == WhoTool && out[i].CallID == call {
 					out[i].Background = false
+					if state != "succeeded" {
+						out[i].Note = false
+					}
 					if state == "unknown" {
 						out[i].Ok = nil
 					} else {

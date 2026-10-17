@@ -223,6 +223,7 @@ export function rows(events: Event[]): Row[] {
         const row = [...out].reverse().find((r) => r.who === 'tool' && r.callId === d.callId);
         if (row) {
           delete row.background;
+          if (d.state !== 'succeeded') delete row.note;
           if (d.state === 'unknown') delete row.ok;
           else row.ok = d.state === 'succeeded';
         }

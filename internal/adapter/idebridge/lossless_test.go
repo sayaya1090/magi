@@ -536,7 +536,7 @@ func TestBackgroundRowsFollowProcessExit(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			events := []event.Event{
 				mk(1, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{"callId": "bg-call", "name": "bash"}}}, nil),
-				mk(2, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{"callId": "bg-call", "background": true, "content": "started"}}}, nil),
+				mk(2, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{"callId": "bg-call", "background": true, "advisory": true, "isError": true, "content": "started"}}}, nil),
 			}
 			running := Rows(events)
 			if len(running) != 1 || !running[0].Background || running[0].Ok != nil {
@@ -550,6 +550,9 @@ func TestBackgroundRowsFollowProcessExit(t *testing.T) {
 			row := Rows(events)[0]
 			if row.Background {
 				t.Fatal("spinner remained after terminal event")
+			}
+			if state != "succeeded" && row.Note {
+				t.Fatal("launch advisory hid terminal failure")
 			}
 			if state == "unknown" {
 				if row.Ok != nil {
