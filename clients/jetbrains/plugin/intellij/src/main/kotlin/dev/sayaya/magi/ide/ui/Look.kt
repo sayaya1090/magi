@@ -157,7 +157,7 @@ internal object Look {
     fun copyButton(tip: String, onClick: () -> Unit): JComponent =
         JBLabel(com.intellij.icons.AllIcons.Actions.Copy).apply {
             toolTipText = tip
-            border = JBUI.Borders.empty(2, 6, 0, 0)
+            border = JBUI.Borders.empty(2)
             alignmentY = 0.5f
             cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
             putClientProperty("magi.action", true)
@@ -514,6 +514,15 @@ internal object Look {
                 add(javax.swing.Box.createHorizontalStrut(8))
                 add(JBLabel(t).apply { font = JBFont.small(); foreground = c })
             }
+            add(javax.swing.Box.createHorizontalGlue())
+            tail(this, actions, time)
+        }
+
+    fun rowFooter(time: String, actions: JComponent): JComponent =
+        JBPanel<JBPanel<*>>().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
+            isOpaque = false
+            border = JBUI.Borders.emptyTop(4)
             add(javax.swing.Box.createHorizontalGlue())
             tail(this, actions, time)
         }

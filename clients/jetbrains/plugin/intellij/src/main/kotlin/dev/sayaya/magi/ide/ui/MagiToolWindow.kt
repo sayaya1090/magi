@@ -643,14 +643,26 @@ class MagiToolWindow : ToolWindowFactory {
 
         init {
             // 물음 띠가 창 가장자리에 붙어 섰다(2026-10-17 사용자 지적: 「마진이 너무 없어」) — 바깥 여백을 둔다.
-            val top = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.empty(8, 8, 2, 8) }
+            val top = JBPanel<JBPanel<*>>(BorderLayout()).apply { isOpaque = false; border = JBUI.Borders.empty(8, 8, 6, 8) }
             top.add(prompt, BorderLayout.CENTER) // diff 판이 빠지며 한 장짜리가 된 래퍼는 접었다(리뷰)
             top.add(buttons, BorderLayout.SOUTH)
             // 질문과 선택 버튼은 채팅 입력 바로 위에 둔다. 전사 상단에 고정하면
             // 입력하는 곳에서 멀어져 질문이 온 것을 놓치기 쉽다.
-            head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            head = object : JBPanel<JBPanel<*>>(BorderLayout()) {
+                override fun paintComponent(g: java.awt.Graphics) {
+                    super.paintComponent(g)
+                    val canvas = g.create() as java.awt.Graphics2D
+                    try {
+                        canvas.color = java.awt.Color(Look.warn.red, Look.warn.green, Look.warn.blue, 32)
+                        canvas.fillRect(0, 0, width, height)
+                        canvas.color = Look.warn
+                        canvas.fillRect(0, 0, JBUI.scale(3), height)
+                    } finally { canvas.dispose() }
+                }
+            }.apply {
+                isOpaque = false
+                buttons.isOpaque = false
                 add(top, BorderLayout.CENTER)
-                add(Look.rule(), BorderLayout.NORTH)
                 isVisible = false // 물음이 올 때 [drawPrompt] 가 편다
             }
 
@@ -1210,7 +1222,7 @@ class MagiToolWindow : ToolWindowFactory {
                     isContentAreaFilled = false
                     isFocusPainted = false
                     margin = JBUI.emptyInsets()
-                    border = JBUI.Borders.empty(2, 6, 0, 0)
+                    border = JBUI.Borders.empty(2)
                     cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                     addActionListener { openOutput(r, sourceSession) }
                 })
@@ -1232,7 +1244,9 @@ class MagiToolWindow : ToolWindowFactory {
                     val name = if (r.who == Who.User) (youName ?: MagiBundle.msg("chat.who.you"))
                     else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
-                    p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at), headActions()), BorderLayout.NORTH)
+                    p.add(Look.rowHead(name, hue, marks, ""), BorderLayout.NORTH)
+                    headTookActions = true
+                    p.add(Look.rowFooter(RowText.clock(r.at), actions), BorderLayout.SOUTH)
                     if (r.who == Who.Agent) {
                         // 에이전트 마크다운 답변 렌더링:
                         // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,

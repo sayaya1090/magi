@@ -17,6 +17,31 @@ import javax.swing.JPanel
  * the time to an edge).
  */
 class ToolRowHeadTest : BasePlatformTestCase() {
+    fun testMessageActionsAreBelowBodyAndHaveBalancedInsets() {
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        try {
+            val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
+            for (who in listOf(dev.sayaya.magi.ide.usecase.Who.User, dev.sayaya.magi.ide.usecase.Who.Agent)) {
+                val panel = render.invoke(view, dev.sayaya.magi.ide.usecase.Row(who = who, text = "hello")) as JPanel
+                val layout = panel.layout as java.awt.BorderLayout
+                val footer = layout.getLayoutComponent(java.awt.BorderLayout.SOUTH) as JComponent
+                assertNotNull(layout.getLayoutComponent(java.awt.BorderLayout.CENTER))
+                fun hasCopy(c: Container): Boolean = c.components.any {
+                    (it is JComponent && it.toolTipText == MagiBundle.msg("chat.copy.one")) || (it is Container && hasCopy(it))
+                }
+                assertTrue(hasCopy(footer))
+                assertFalse(hasCopy(layout.getLayoutComponent(java.awt.BorderLayout.NORTH) as Container))
+            }
+        } finally { com.intellij.openapi.util.Disposer.dispose(view) }
+    }
+
+    fun testFooterKeepsActionsAndTimeAtRightEdge() {
+        val a = actions()
+        assertTimeAtRightEdgeAfterIcons(Look.rowFooter("22:11:12", a), a)
+        val copy = Look.copyButton("copy") {}
+        assertEquals(copy.insets.left, copy.insets.right)
+    }
+
     fun testUserAndMagiMessagesHaveDifferentSurfaces() {
         val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
         try {
