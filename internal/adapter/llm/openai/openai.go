@@ -633,12 +633,21 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 	)
 
 	sawFrame := false
+	var apiErr error
 	sawDone, err := sseEvents(body, func(data []byte) error {
 		sawFrame = true
 		var chunk streamChunk
 		if err := json.Unmarshal(data, &chunk); err != nil {
 			// Skip malformed lines; stream continues (F-LLM-SSE sse-4).
 			return nil
+		}
+		if chunk.Error != nil {
+			message := strings.TrimSpace(chunk.Error.Message)
+			if message == "" {
+				message = "backend reported an error"
+			}
+			apiErr = fmt.Errorf("provider stream: %s", message)
+			return apiErr
 		}
 		if chunk.Usage != nil {
 			sawUsage = true
@@ -710,6 +719,10 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 		epilogue.Stop()
 	}
 	switch {
+	case apiErr != nil:
+		// A backend error envelope is a failure even if some text or a finish
+		// frame preceded it. Do not silently turn it into an empty answer.
+		emit(ctx, ch, port.ProviderEvent{Type: port.ProviderError, Err: apiErr})
 	case err == nil && sawFrame && !sawDone && !sawFinish:
 		// The stream simply stopped. Nothing declared an end — no finish_reason, no `[DONE]` —
 		// so what arrived is a fragment of an answer, and it used to be handed on as if it were
