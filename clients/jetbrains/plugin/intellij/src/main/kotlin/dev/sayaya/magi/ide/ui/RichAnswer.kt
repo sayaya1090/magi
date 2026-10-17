@@ -186,10 +186,21 @@ internal class RichAnswer {
                 document.head.appendChild(style);
                 document.documentElement.style.setProperty('background', 'transparent', 'important');
                 document.body.style.setProperty('background', 'transparent', 'important');
-                ${query.inject("'surface:' + JSON.stringify({html:getComputedStyle(document.documentElement).backgroundColor,body:getComputedStyle(document.body).backgroundColor,root:document.body.firstElementChild ? getComputedStyle(document.body.firstElementChild).backgroundColor : null})")}
                 let last = -1;
+                let surfaceLogged = false;
                 const measure = window.__magiMeasure = function() {
                     const body = document.body;
+                    if (!body) return;
+                    if (!style.isConnected) document.head.appendChild(style);
+                    for (const root of [document.documentElement, body, ...body.querySelectorAll(':scope > div, :scope > main, .markdown-body')]) {
+                        if (root.style.getPropertyValue('background') !== 'transparent' || root.style.getPropertyPriority('background') !== 'important') {
+                            root.style.setProperty('background', 'transparent', 'important');
+                        }
+                    }
+                    if (!surfaceLogged && body.textContent.trim().length > 0) {
+                        surfaceLogged = true;
+                        ${query.inject("'surface:' + JSON.stringify({html:getComputedStyle(document.documentElement).backgroundColor,body:getComputedStyle(body).backgroundColor,root:body.firstElementChild ? getComputedStyle(body.firstElementChild).backgroundColor : null,characters:body.textContent.trim().length,table:body.querySelector('table') ? getComputedStyle(body.querySelector('table')).backgroundColor : null})")}
+                    }
                     const css = getComputedStyle(body);
                     const h = Math.ceil(Math.max(0,
                         ...Array.from(body.children).map(e => e.getBoundingClientRect().bottom + window.scrollY)) +
