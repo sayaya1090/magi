@@ -100,6 +100,11 @@ func (a *App) systemFragments(agent AgentSpec, workdir string) []contextFragment
 		contextFragment{id: "system/agent", source: "agent", lane: turnSystem, text: agent.System},
 		contextFragment{id: "system/environment", source: "envInfo", lane: turnSystem, text: "\n\n" + envInfo(workdir)},
 		contextFragment{id: "system/output", source: "outputFormatGuide", lane: turnSystem, text: outputFormatGuide})
+	if a.cfg.CompanionInstructions != nil {
+		if guide := a.cfg.CompanionInstructions(workdir); guide != "" {
+			parts = append(parts, contextFragment{id: "system/companion-purpose", source: "userCompanionPolicy", lane: turnSystem, text: guide})
+		}
+	}
 	return parts
 }
 

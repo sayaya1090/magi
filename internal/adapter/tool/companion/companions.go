@@ -153,6 +153,9 @@ func (l List) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 		if a.Role != "" {
 			fmt.Fprintf(&b, "  %s\n", a.Role)
 		}
+		if abilities := fleet.Abilities(a); abilities != "" {
+			fmt.Fprintf(&b, "  declared procedures/servers/operations: %s\n", abilities)
+		}
 		fmt.Fprintf(&b, "  workspace: %s\n", a.Workdir)
 		switch {
 		case a.Asking != "":
@@ -184,8 +187,8 @@ func (l List) Execute(ctx context.Context, args json.RawMessage, env port.ToolEn
 		b.WriteString("Nobody else matched those words. That is not the same as nobody being there.\n")
 	}
 	b.WriteString("\nThis is the whole list: reading it is all this tool does. To have one of them " +
-		"do something, ask the person supervising them — nothing here can start or stop another " +
-		"companion's work.")
+		"do something, use hand_off for model work, or companion_call list to discover explicitly " +
+		"published operations that can run directly without another model. This list starts no work.")
 	return session.ToolResult{Content: json.RawMessage(mustJSON(b.String()))}, nil
 }
 
@@ -205,7 +208,7 @@ func narrow(list []fleet.Agent, query string, learned map[string]string) ([]flee
 	for _, a := range list {
 		// Its own row is always kept: a caller that asked "who does design" and cannot see itself
 		// in the answer may hand its own work away.
-		if a.Here || matches(terms, a.Name+" "+a.Role+" "+a.Task+" "+learned[a.Socket]) {
+		if a.Here || matches(terms, a.Name+" "+a.Role+" "+a.Task+" "+strings.Join(a.Does, " ")+" "+learned[a.Socket]) {
 			kept = append(kept, a)
 		}
 	}

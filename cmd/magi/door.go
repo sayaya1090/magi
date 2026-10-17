@@ -32,8 +32,8 @@ import (
 //
 //   - the caller may only reach a companion this account has PUBLISHED, named by its socket, which
 //     is checked against the record beside it rather than taken on trust;
-//   - only four methods cross — ask what a companion is, hand it work, ask how that work went, and
-//     watch for how it goes. Everything else is refused here, without being forwarded, in the
+//   - only the published-operation and collaboration methods cross; shell and unrestricted tools
+//     never do. Everything else is refused here, without being forwarded, in the
 //     daemon's own error shape.
 //
 // So an authorized_keys line can now mean "this key may ask my companions for things" instead of
@@ -50,7 +50,7 @@ import (
 // the conversation says which companion is wanted, and that line is checked. It is also the reason
 // the far side dials nothing until the caller has said something — a door that connects first and
 // asks later has already spent the thing it was guarding.
-const doorMethods = "about, hand, hand-state, watch"
+const doorMethods = "about, hand, hand-state, watch, capabilities, capability, capability-call"
 
 // doorOpen is the first line a caller sends: which companion, on this machine.
 type doorOpen struct {
@@ -70,14 +70,14 @@ type doorOpen struct {
 // streaming relay, which doorCarry provides for exactly this one method.
 func doorAllows(method string) bool {
 	switch method {
-	case "about", "hand", "hand-state", "watch":
+	case "about", "hand", "hand-state", "watch", "capabilities", "capability", "capability-call":
 		return true
 	}
 	return false
 }
 
 // fleetDoor serves one connection from another machine: read the companion it wants, check it is
-// ours, then carry the four methods and refuse the rest.
+// ours, then carry the allowed methods and refuse the rest.
 func fleetDoor(in io.Reader, out io.Writer, errOut io.Writer, configDir string) int {
 	br := bufio.NewReader(in)
 	first, err := br.ReadString('\n')
@@ -108,7 +108,7 @@ func fleetDoor(in io.Reader, out io.Writer, errOut io.Writer, configDir string) 
 
 // doorCarry carries one request at a time and waits for its answer before reading the next.
 //
-// Strictly alternating for three of the four methods, which is not a restriction but a
+// Strictly alternating for every method except watch, which is not a restriction but a
 // description: hand it work, ask what it is, ask how the work went are each one request and one
 // reply. `watch` is the exception — the daemon pushes a frame per change and closes the
 // connection when there is nothing more coming — so on a watch the door becomes a one-way relay

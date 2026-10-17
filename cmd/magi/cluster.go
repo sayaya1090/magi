@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/companionpolicy"
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -53,7 +54,7 @@ import (
 // Called once, where a daemon publishes itself. Nobody else counts: the number travels on the
 // record and then over the wire, so every reader on every machine has the one this process worked
 // out, rather than a second answer derived from files it cannot see.
-func countCan(store *jsonl.Store, workdir string) (int, []string) {
+func countCan(store *jsonl.Store, workdir string, policyConfigDir ...string) (int, []string) {
 	if workdir == "" {
 		return 0, nil
 	}
@@ -63,6 +64,13 @@ func countCan(store *jsonl.Store, workdir string) (int, []string) {
 		names = append(names, sk.Name)
 	}
 	names = append(names, reachableServers(workdir)...)
+	if len(policyConfigDir) > 0 {
+		if c, err := companionpolicy.Load(policyConfigDir[0], workdir); err == nil {
+			for _, op := range c.Operations {
+				names = append(names, "call:"+op.ID)
+			}
+		}
+	}
 	// The count is of everything; the names are the first few. Returned together, from one read of
 	// one workspace, so the number and the list cannot describe different moments.
 	n := len(names)

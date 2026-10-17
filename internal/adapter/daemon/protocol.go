@@ -12,6 +12,11 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
+// CapabilityHost provides only user-published operations, independently of model turns.
+type CapabilityHost interface {
+	CompanionOperation(ctx context.Context, action, id string, args json.RawMessage) (json.RawMessage, *session.ToolResult, error)
+}
+
 // Engine is the part of the app a daemon exposes: the calls that only the process holding the run
 // can make. Declared here rather than imported so this package depends on behaviour, not on App.
 type Engine interface {
@@ -708,8 +713,10 @@ type Request struct {
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
 // failed cannot tell a rejected session id from a dead engine, and would retry both.
 type Response struct {
-	OK  bool   `json:"ok"`
-	Err string `json:"error,omitempty"`
+	Declaration     json.RawMessage     `json:"declaration,omitempty"`
+	OperationResult *session.ToolResult `json:"operationResult,omitempty"`
+	OK              bool                `json:"ok"`
+	Err             string              `json:"error,omitempty"`
 	// Minutes is the meeting document as the speaker just revised it, on a meet reply. Its own
 	// field rather than folded into Out, which carries what was SAID: a screen draws those two in
 	// different places, and one field meaning "the sentence, or the document, depending" is a wire

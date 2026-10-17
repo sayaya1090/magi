@@ -3,6 +3,7 @@ package mcpserve
 import (
 	"context"
 	"encoding/json"
+	"github.com/sayaya1090/magi/internal/core/companion"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -493,5 +494,16 @@ func TestACompanionAdvertisesTheSkillsItHasNow(t *testing.T) {
 	skills = append(skills, port.Skill{Name: "token-audit", Description: "find hardcoded colours"})
 	if got := textOf(t, call(t, s, ask)); !strings.Contains(got, "token-audit") {
 		t.Errorf("a skill written after the process started is never advertised:\n%s", got)
+	}
+}
+
+func TestPublishedContractIsSeparateFromCompleteSkillDescriptions(t *testing.T) {
+	description := strings.Repeat("source detail ", 30)
+	c := Card{Name: "gwt", Skills: []port.Skill{{Name: "known-procedure", Description: description}}, Contract: &companion.Contract{Version: 1, Purpose: "Inspect plugin", Instructions: []string{"Do not deploy"}, Operations: []companion.Operation{{ID: "source", Description: "Read source", ReadOnly: true}}}}
+	got := Describe(c)
+	for _, want := range []string{"Inspect plugin", "Do not deploy", "Directly callable operations:", "known-procedure", strings.TrimSpace(description), "source — Read source"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
 	}
 }

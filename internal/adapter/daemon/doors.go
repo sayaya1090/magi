@@ -158,6 +158,10 @@ func init() {
 		"tools":  {run: answerTools},
 		"jobs":   {run: answerJobs},
 
+		"capabilities":    {run: answerCapability, needs: (*CapabilityHost)(nil), why: "this companion does not publish callable operations", cap: "companion-operations"},
+		"capability":      {run: answerCapability, needs: (*CapabilityHost)(nil), why: "this companion does not publish callable operations", cap: "companion-operations"},
+		"capability-call": {run: answerCapability, needs: (*CapabilityHost)(nil), why: "this companion does not publish callable operations", cap: "companion-operations"},
+
 		"about":      {run: answerAbout, needs: (*Describer)(nil), why: "this daemon cannot describe its companion"},
 		"hand":       {run: answerHand, needs: (*Taker)(nil), why: "this daemon cannot be handed work"},
 		"hand-state": {run: answerHand, needs: (*Taker)(nil), why: "this daemon cannot be handed work"},
@@ -1118,4 +1122,17 @@ func answerMCPDetachIf(ctx context.Context, eng Engine, req Request) Response {
 		return Response{Err: err.Error()}
 	}
 	return Response{OK: true, Removed: removed}
+}
+
+func answerCapability(ctx context.Context, eng Engine, req Request) Response {
+	host, ok := eng.(CapabilityHost)
+	if !ok {
+		return Response{Err: "this companion does not publish callable operations"}
+	}
+	action := map[string]string{"capabilities": "list", "capability": "describe", "capability-call": "call"}[req.Method]
+	declaration, result, err := host.CompanionOperation(ctx, action, req.Name, req.Args)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Declaration: declaration, OperationResult: result}
 }

@@ -1115,12 +1115,12 @@ forgotten — no deregistration step exists because no registration step does.
   verdicts, which are a judgement about a companion's work and belong in the repository.
 - **One door across a machine, and it is ssh** (`--fleet-door`, with `--relay` as the wide pipe for
   your own machines). A remote companion is reached by an ssh pipe into `magi --fleet-door`, which
-  carries four methods of the daemon protocol — ask what a companion is, hand it work, ask what
-  became of it, and watch for how it goes — instead of subcommands that each re-derive what the
+  carries seven methods of the daemon protocol: `about`, `hand`, `hand-state`, `watch`,
+  `capabilities`, `capability`, and `capability-call`, instead of subcommands that each re-derive what the
   daemon already knows. `watch` is the one that streams: the far daemon pushes each change back
   down the pipe the asker opened, so a hand-off's answer arrives when it happens instead of on a
   poll's clock. magi opens no port of its own between machines and holds no credential of its own:
-  the security boundary is ssh (or the fingerprint-pinned TLS door, which carries the same four
+  the security boundary is ssh (or the fingerprint-pinned TLS door, which carries the same seven
   methods and nothing else).
 - **Here or elsewhere is decided by the record, not by the hostname.** A config directory can be
   shared, so comparing this machine's name against a sighting's would dial a path that answers —
