@@ -7,6 +7,7 @@ const { chromium } = require('playwright');
 const source = await readFile(new URL('../plugin/intellij/src/main/kotlin/dev/sayaya/magi/ide/ui/RichAnswer.kt', import.meta.url), 'utf8');
 // Execute the production injection. Only the native telemetry/wheel bridge is stubbed.
 const script = source.split('val js = """')[1]?.split('""".trimIndent()')[0]
+  .replace(/\$\{surface\.(red|green|blue)\}/g, (_, channel) => ({red:173,green:67,blue:131}[channel]))
   .replace(/\$\{query\.inject\([^\n]+\)\}/g, 'void 0');
 assert.ok(script && !script.includes('${query.'), 'production script extraction failed');
 const browser = await chromium.launch({ headless: true });
@@ -20,11 +21,12 @@ try {
       document.body.style.setProperty('background', 'white', 'important');
       document.body.innerHTML = '<main style="background:white!important"><div class="markdown-body" style="background:white!important"><p>report</p><table><tr><td>PASS</td></tr></table></div></main>';
     });
-    await page.waitForFunction(() => [document.documentElement, document.body,
+    await page.waitForFunction(() => [document.body,
       document.querySelector('main'), document.querySelector('.markdown-body')]
       .every(e => getComputedStyle(e).backgroundColor === 'rgba(0, 0, 0, 0)'));
     assert.equal(await page.locator('td').textContent(), 'PASS');
   }
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), 'rgb(173, 67, 131)');
   console.log('PASS: delayed and replaced Markdown roots keep transparent backgrounds');
 } finally {
   await browser.close();

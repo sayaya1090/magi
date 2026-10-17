@@ -518,6 +518,13 @@ internal object Look {
             tail(this, actions, time)
         }
 
+    /** Match the translucent bubble when the native browser compositor is opaque. */
+    fun messageBackground(tint: Color): Color {
+        val base = com.intellij.util.ui.UIUtil.getPanelBackground()
+        fun channel(b: Int, t: Int) = (b * (255 - 18) + t * 18 + 127) / 255
+        return Color(channel(base.red, tint.red), channel(base.green, tint.green), channel(base.blue, tint.blue))
+    }
+
     fun rowFooter(time: String, actions: JComponent): JComponent =
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)

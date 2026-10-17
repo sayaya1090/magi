@@ -152,3 +152,14 @@ intellijPlatform {
 tasks.named<ProcessResources>("processResources") {
     from(rootProject.file("../../contract/core-release.properties")) { into("magi") }
 }
+
+// Opt-in native compositor check: ./gradlew -PnativeMarkdownTest :intellij:test --tests '*NativeMarkdownSurfaceTest'
+tasks.withType<Test>().configureEach {
+    if (project.hasProperty("nativeMarkdownTest")) {
+        systemProperty("java.awt.headless", "false")
+        systemProperty("ide.browser.jcef.headless.enabled", "true")
+        systemProperty("magi.native.surface.test", "true")
+    } else {
+        exclude("**/NativeMarkdownSurfaceTest.class")
+    }
+}
