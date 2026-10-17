@@ -38,6 +38,9 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 // volatile context (plan/experience/RAG) is injected separately, never here.
 func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event, available map[string]bool) string {
 	parts := a.systemFragments(agent, workdir)
+	if a.companionStartupNudge(sid, workdir, evs, available) {
+		parts = append(parts, contextFragment{id: "system/companion-introduction", source: "companionStartupNudge", lane: turnSystem, text: companionStartupGuide})
+	}
 	// Language lock: weak models ignore a "reply in the user's language" rule buried in a long
 	// prompt, so detect the user's script and put a short, forceful directive FIRST (primacy). Lock
 	// to the genuine user's language, NOT the latest user-role message — council/hook/auto feedback
@@ -282,6 +285,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	st.turnStart = runStart // what a check means by "before the step ran"
 	// The one sanctioned moment the head may change: the turn is new, and the prefix beyond its
 	// user message is not written yet. See prompt_frozen.go.
+	st.profileIntroTurn = false
 	st.turnSys, st.turnSysSet = "", false
 	st.worldBase = worldBase
 	if st.arrival == nil {

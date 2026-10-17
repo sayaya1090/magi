@@ -27,7 +27,8 @@ import (
 
 // App is the application service implementing the command/event boundary.
 type App struct {
-	profileCancel context.CancelFunc // guarded by mu; foreground work wins
+	profileIntroNudged atomic.Bool
+	profileCancel      context.CancelFunc // guarded by mu; foreground work wins
 
 	profileBusy         atomic.Bool
 	profileLast         atomic.Int64

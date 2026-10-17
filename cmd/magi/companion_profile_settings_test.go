@@ -14,14 +14,14 @@ import (
 
 func TestCompanionAutomaticDescriptionSwitch(t *testing.T) {
 	d, dir, wd := settingsEngine(t)
-	if !companionProfileNeeded(dir, wd) {
-		t.Fatal("default must enable missing descriptions")
+	if !companionProfileNeeded(dir, wd) || !companionProfileUnpublished(dir, wd) {
+		t.Fatal("default must enable missing descriptions and introduction")
 	}
 	if _, err := d.ConfigSet(context.Background(), "companion_auto_describe", "off", "companion"); err != nil {
 		t.Fatal(err)
 	}
-	if companionProfileNeeded(dir, wd) {
-		t.Fatal("off must be effective without restarting")
+	if companionProfileNeeded(dir, wd) || companionProfileUnpublished(dir, wd) {
+		t.Fatal("off must disable extraction and introduction without restarting")
 	}
 	if _, err := d.ConfigSet(context.Background(), "companion_auto_describe", "yes", "companion"); err == nil {
 		t.Fatal("invalid mode accepted")
@@ -67,8 +67,8 @@ description = "old work"
 	if err != nil || len(c.Access) != 1 || c.Access[0].Mode != "read" {
 		t.Fatalf("authority changed: %+v %v", c, err)
 	}
-	if companionProfileNeeded(dir, wd) {
-		t.Fatal("existing description must prevent paid extraction")
+	if companionProfileNeeded(dir, wd) || companionProfileUnpublished(dir, wd) {
+		t.Fatal("existing description must prevent paid extraction and introduction")
 	}
 	path, _ := companionpolicy.Path(dir, wd)
 	before, _ := os.ReadFile(path)

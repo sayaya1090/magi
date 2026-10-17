@@ -96,6 +96,7 @@ type sessionState struct {
 	memBaselined bool
 	memPending   []string
 	// The frozen prefix pieces — see prompt_frozen.go for why these are the only doors.
+	profileIntroTurn bool
 	turnSys          string
 	turnSysSet       bool
 	contextDecisions []contextDecision

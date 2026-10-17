@@ -15,7 +15,7 @@ import (
 // deliberately outside the conversation: no council, completion declaration or
 // recursive turn. The policy writer, not this model, owns publication authority.
 func (a *App) scheduleCompanionProfile(sid session.SessionID) {
-	if a.cfg.CompanionProfileNeeded == nil || a.cfg.CompanionProfileSave == nil {
+	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || a.cfg.CompanionProfileNeeded == nil || a.cfg.CompanionProfileSave == nil {
 		return
 	}
 	a.mu.Lock()
@@ -185,3 +185,44 @@ func (a *App) CancelCompanionProfile() {
 		a.profileCancel = nil
 	}
 }
+
+// Claim one introduction per daemon, only on a genuine interactive user's turn.
+// Keep the result stable through all steps of that turn, including the approval.
+func (a *App) companionStartupNudge(sid session.SessionID, wd string, evs []event.Event, available map[string]bool) bool {
+	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || !available["ask_user"] || a.cfg.CompanionProfileUnpublished == nil {
+		return false
+	}
+	actor := event.Actor{}
+	for _, ev := range evs {
+		if ev.Type == event.TypeSessionCreated {
+			var d event.SessionCreatedData
+			if json.Unmarshal(ev.Data, &d) == nil && d.Parent != "" {
+				return false
+			}
+		}
+		if ev.Type == event.TypePromptSubmitted {
+			actor = ev.Actor
+		}
+	}
+	if actor.Kind != event.ActorUser || isUnattended(actor) || !a.cfg.CompanionProfileUnpublished(wd) {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if st.profileIntroTurn {
+		return true
+	}
+	if !a.profileIntroNudged.CompareAndSwap(false, true) {
+		return false
+	}
+	st.profileIntroTurn = true
+	return true
+}
+
+const companionStartupGuide = `
+# First interactive use: workspace offers are empty
+This companion currently advertises no offered tasks or callable operations. Once during this startup, ask the user whether you may inspect this project's documentation and relevant source to identify concrete work other companions can request. Use ask_user with its current schema and required decision report; explain the read-only scope, that this uses model requests, and that only descriptive purpose/responsibilities/tasks will be published. Offer an explicit approve option and a defer option, in the user's language.
+Do not start an additional project survey for this purpose before explicit approval. A dismissal, empty answer, cancellation, denial, or unrelated permission setting is NOT approval: defer without retrying the question. Do not block urgent work or treat approval of the user's existing task as approval of this separate survey.
+If approved, inspect only relevant project files using the normal permitted tools, summarize the evidence and concrete offered work, and complete the turn normally. The harness extracts and validates missing descriptive metadata after the turn. Never grant access, publish callable operations, change source files, or run builds just to fill this description. Preserve any existing user-authored description. Do not claim publication succeeded until the saved declaration confirms it.
+`
