@@ -43,6 +43,8 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .tool-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:middle; animation:tool-spin 1s linear infinite; }
   @keyframes tool-spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .tool-spinner { animation:none; } }
+  .row-footer { display:flex; justify-content:flex-end; gap:4px; margin-top:4px; }
+  .row-footer .output-open-btn { margin:0; }
   .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
   .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
   .user { background:color-mix(in srgb, var(--vscode-focusBorder, #b45309) 10%, var(--vscode-editor-background, #1e1e1e)); }
@@ -150,7 +152,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   /* The question/permission body sits at the end of the scroll container (#scroll), after the conversation rows.
      No vertical max-height: reports and permission diffs flow naturally with the transcript scroll.
      Long lines wrap with pre-wrap/break-word to prevent breaking panel width. */
-  #ask-body { border-top:1px solid var(--vscode-panel-border); margin-top:12px; padding-top:8px; }
+  #ask-body { border-left:3px solid var(--vscode-editorWarning-foreground, #cca700); border-radius:6px; margin-top:12px; padding:10px; background:var(--vscode-inputValidation-warningBackground, rgba(204,167,0,0.08)); }
   #ask-body .what { font-weight:600; margin-bottom:6px; white-space:pre-wrap; word-break:break-word; }
   #ask-body .at { color:var(--vscode-descriptionForeground); font-weight:normal; }
   #ask-body pre { font-family:var(--vscode-editor-font-family); font-size:.9em; margin:6px 0;
@@ -199,7 +201,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .file-open-tag:hover { background:var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2)); }
   #ask-body .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
   #ask-body .ground { font-size:.9em; margin:4px 0; white-space:pre-wrap; word-break:break-word; }
-  #ask-body .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
+  #ask-body .ground b { color:var(--vscode-foreground); font-weight:600; }
   #ask-body ol.choices { margin:6px 0 6px 20px; padding:0; font-size:.9em; }
   #ask-body ol.choices.hide-marker { list-style:none; margin-left:4px; }
   #ask-body ol.choices li { margin:2px 0; white-space:pre-wrap; word-break:break-word; }

@@ -133,6 +133,8 @@ internal class RichAnswer {
     private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>, sizing: StreamingHeight): () -> Unit {
         // JBCefJSQuery 생성 (리뷰 F7: setHtml 직후 쿼리를 등록하여 CEF 바이트코드 레벨의 조용한 무응답 방어)
         val browser = panel as? com.intellij.ui.jcef.JBCefBrowser ?: return {}
+        browser.component.isOpaque = false
+        browser.setPageBackgroundColor("transparent")
         val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase) }.getOrNull() ?: return {}
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
@@ -172,7 +174,8 @@ internal class RichAnswer {
                 if (!document.body) return;
                 if (window.__magiMeasure) { window.__magiMeasure(); return; }
                 const style = document.createElement('style');
-                style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important}' +
+                style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important;background:transparent!important}' +
+                    '.markdown-body{background:transparent!important}' +
                     'pre{max-height:none!important}';
                 document.head.appendChild(style);
                 let last = -1;
