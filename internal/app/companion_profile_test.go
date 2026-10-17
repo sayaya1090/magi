@@ -40,6 +40,25 @@ func TestCompanionProfileRequiresSuccessfulReadEvidence(t *testing.T) {
 	}
 }
 
+func TestCompanionProfileOldReadsSurviveLongConversation(t *testing.T) {
+	events := []event.Event{evToolCall("old-read", "read"), evToolResult("old-read", "verified project documentation", false)}
+	for range 8 {
+		events = append(events, saidEvents(strings.Repeat("recent discussion ", 1000))...)
+	}
+	out := companionProfileEvidence(events)
+	if !strings.Contains(out, "verified project documentation") || !strings.Contains(out, "old-read") {
+		t.Fatal("conversation crowded verified read and provenance out of extraction")
+	}
+	if len(out) > 24<<10 {
+		t.Fatal("evidence exceeds budget")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if !json.Valid([]byte(line)) {
+			t.Fatal("incomplete JSON evidence")
+		}
+	}
+}
+
 func TestCompanionProfileRunsOnceOutsideTurnAndRespectsDisable(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		store, err := jsonl.New(t.TempDir())
