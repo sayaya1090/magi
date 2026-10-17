@@ -390,7 +390,7 @@
             "Open it every time this window opens."
           ],
           "default": "whenRunning",
-          "description": "Whether the conversation panel opens by itself when a window opens. It never takes the keyboard focus."
+          "description": "Whether the chat panel opens by itself when a window opens. It never takes the keyboard focus."
         },
         "magi.startCompanion": {
           "type": "boolean",
@@ -410,7 +410,7 @@
         "magi.suggest": {
           "type": "boolean",
           "default": true,
-          "description": "Suggest how to finish what you are typing in the conversation box. Asks the companion while you type, like the JetBrains plugin and the web console do."
+          "description": "Suggest how to finish what you are typing in the chat box. Asks the companion while you type, like the JetBrains plugin and the web console do."
         },
         "magi.showEditMarks": {
           "type": "boolean",

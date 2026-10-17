@@ -121,7 +121,7 @@ addressable when everybody in it stops, never because a config file went stale. 
 <details open>
 <summary><b><code>hand_off</code></b> — giving a piece of the task to another companion</summary>
 
-**What forced it.** The other companion cannot see your conversation, your files or your reasoning,
+**What forced it.** The other companion cannot see your chat, your files or your reasoning,
 **and it cannot ask you**. Everything it will ever know about the job arrives in one message, and
 then it is on its own.
 
@@ -484,7 +484,7 @@ Disable it with `--no-update-check` (or `MAGI_NO_UPDATE_CHECK=1`).
 for a newer release and, when one exists, downloads it, verifies the checksum, runs the
 new binary's `--version` as a pre-flight — **rolling back to the previous build if that
 fails** — and then restarts onto it once nothing is running (no turn in flight, no
-meeting round being composed). The restart reopens the conversation the daemon was on.
+meeting round being composed). The restart reopens the chat the daemon was on.
 
 **Those 6 hours are a constant, changeable only at build time.** Not an environment variable —
 `[update] auto` and `--no-update-check` turn the loop off, and how often it runs when on is not a
@@ -1008,7 +1008,7 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 
 ## 4. Using the TUI
 
-You type at the bottom, the conversation scrolls above it, and the header tells you what the run
+You type at the bottom, the chat scrolls above it, and the header tells you what the run
 is costing. Three things make the rest of this section legible:
 
 - **Enter sends, and Enter during a run steers.** You do not have to wait for a turn to end to say
@@ -1320,10 +1320,10 @@ reporting work it never did.
 | `recall_memory` | pull saved team memories/skills — and **wiki pages** (a title match fetches the page, with its editor, tier and staleness) — from the shared experience store by keyword | — |
 | `remember` | contribute a lesson to shared memory, or — with `page` — write/update a canonical **wiki page in place** (team-wide by default; `summary` says what changed) | — |
 | `skill` | load a named skill's body to follow it | — |
-| `search_sessions` | search **this workspace's earlier sessions** by keyword — conversations from other days, with the matching turns restorable verbatim | — |
+| `search_sessions` | search **this workspace's earlier sessions** by keyword — chats from other days, with the matching turns restorable verbatim | — |
 
 The three recall tools are deliberately different questions: `recall_context` is detail compaction
-shed from **this** conversation, `recall_memory` is the **curated** experience store, and
+shed from **this** chat, `recall_memory` is the **curated** experience store, and
 `search_sessions` is **another day's raw session**.
 
 ### Other companions
@@ -1477,7 +1477,7 @@ What is left is the loop, the tools, the record, and a council the agent calls w
 A plugin can register one (EXTENDING §3.9). magi provides the seam and no policy:
 
 - **Off unless asked.** A subagent is listed in `/subagents` and switched on there; a plugin can also ship one switched off. A subagent that is off is not advertised to the model at all, so it costs nothing per request.
-- **Nothing is summarised.** The child gets the plugin's prompt and the tool's own arguments **verbatim**, plus AGENTS.md, the environment and the working tree — never a curated slice of the parent's conversation. The tool arguments are the filter, chosen by the side that has the full context, because a paraphrased brief is how this tree lost graded identifiers six times out of six.
+- **Nothing is summarised.** The child gets the plugin's prompt and the tool's own arguments **verbatim**, plus AGENTS.md, the environment and the working tree — never a curated slice of the parent's chat. The tool arguments are the filter, chosen by the side that has the full context, because a paraphrased brief is how this tree lost graded identifiers six times out of six.
 - **Bounded, and it cannot recurse.** A child gets a step count and a clock, the whole tool call gets a cumulative budget, and a child is handed no way to spawn.
 - **You can see it.** It runs in its own pane with its own transcript (§4).
 - **You can read what it did, and put it back.** `magi.child_steps` returns the calls it made with the raw output of the failed ones; `magi.restore_child` puts its file changes back and names what it could not. Neither is automatic.
@@ -1523,7 +1523,7 @@ ways, and both are declarations the host **checks rather than trusts**:
 
 **A companion moves the boundary one level further out.** It has its own workspace, its own event
 log, and the one-turn-at-a-time rule inside it. `hand_off` therefore never puts another agent's
-mutations in your tree: what comes back is text, into your conversation. Handed-over work also
+mutations in your tree: what comes back is text, into your chat. Handed-over work also
 cannot be handed on again, so every mutation has exactly one owner and exactly one log to answer
 for it.
 
@@ -1540,7 +1540,7 @@ The live context gauge uses the current provider/model window, including metadat
 
 A turn's context is assembled, not accumulated. Some of it is written by you and never leaves;
 some is what the agent has learned and is pulled in when it looks relevant; most of it is the
-conversation, and that is the part with a ceiling.
+chat, and that is the part with a ceiling.
 
 ```mermaid
 flowchart TD
@@ -1564,7 +1564,7 @@ flowchart TD
     style C fill:#fff3e0,stroke:#e8820c
 ```
 
-Compaction only ever touches the conversation. AGENTS.md survives it by construction, which is why
+Compaction only ever touches the chat. AGENTS.md survives it by construction, which is why
 a house rule belongs there and not in a message you hope stays in the window.
 
 The learned half is three directories, read most-specific first — so a fact about *this* repo wins
@@ -1643,7 +1643,7 @@ Capabilities (the set the host actually enforces): `tool`, `command` (slash comm
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.
 
-**Observer plugins.** Beyond the lifecycle events (`startup`/`shutdown`/`session_start`), `magi.on` accepts two **observation events** carrying a payload table: `user_message` (`{session, text}` — a genuine user prompt was submitted) and `turn_finished` (`{session, text, outcome, reason, skills}` — a top-level turn ended with that final assistant answer; `skills` = comma-joined skill names the agent loaded this turn, for usage metering). `outcome` is the turn's **structural verdict**, so an observer never has to guess success from phrasing: `verified` (the council accepted the finish declaration), `unverified` (landed without that acceptance — never declared, or declared and not accepted within the round cap), `guard` (loop/stall guard force-stop), `error`, `ungated` (the turn used tools but no council ran — council disabled, or workflow mode — so the completion is unconfirmed and must not be booked as a success without user confirmation), or `done` (a plain conversational finish that used no tools); `reason` carries the cause when there is one. They fire **asynchronously off the turn path** (a bounded queue + one worker), so a slow handler never delays the conversation; overflow drops events (observation is best-effort). Paired with **`magi.analyze{system=, text=, model=?}`** — a one-shot, **tool-free sidecar LLM call** (capability `analyze`, since it spends tokens; time-capped; model defaults to the session model) — and **`magi.json_decode(s)`**, a plugin can watch the conversation, extract structured knowledge (lessons, summaries), and persist it with `magi.write_file`, then feed it back via `magi.register_context_provider`. The bundled **`plugins/engram`** self-improvement plugin (auto lesson/skill extraction gated on the structural outcome) is the reference user of this trio — see its README. What it does with them is a loop:
+**Observer plugins.** Beyond the lifecycle events (`startup`/`shutdown`/`session_start`), `magi.on` accepts two **observation events** carrying a payload table: `user_message` (`{session, text}` — a genuine user prompt was submitted) and `turn_finished` (`{session, text, outcome, reason, skills}` — a top-level turn ended with that final assistant answer; `skills` = comma-joined skill names the agent loaded this turn, for usage metering). `outcome` is the turn's **structural verdict**, so an observer never has to guess success from phrasing: `verified` (the council accepted the finish declaration), `unverified` (landed without that acceptance — never declared, or declared and not accepted within the round cap), `guard` (loop/stall guard force-stop), `error`, `ungated` (the turn used tools but no council ran — council disabled, or workflow mode — so the completion is unconfirmed and must not be booked as a success without user confirmation), or `done` (a plain conversational finish that used no tools); `reason` carries the cause when there is one. They fire **asynchronously off the turn path** (a bounded queue + one worker), so a slow handler never delays the chat; overflow drops events (observation is best-effort). Paired with **`magi.analyze{system=, text=, model=?}`** — a one-shot, **tool-free sidecar LLM call** (capability `analyze`, since it spends tokens; time-capped; model defaults to the session model) — and **`magi.json_decode(s)`**, a plugin can watch the chat, extract structured knowledge (lessons, summaries), and persist it with `magi.write_file`, then feed it back via `magi.register_context_provider`. The bundled **`plugins/engram`** self-improvement plugin (auto lesson/skill extraction gated on the structural outcome) is the reference user of this trio — see its README. What it does with them is a loop:
 
 ```mermaid
 flowchart LR
@@ -1740,7 +1740,7 @@ each of them has learned.
 <table>
 <tr>
 <td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-companion-detail.png" alt="A companion's page: status, model and workspace, the live transcript, and a permission prompt awaiting approval" width="100%"></a><br><b>§12.3 — one companion.</b> The transcript with real exit codes, and anything it is blocked on.</td>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="The workspace pane: file tree with a directory expanded and the git card showing branch and changes" width="100%"></a><br><b>The workspace pane.</b> The tree and the git state as that companion sees them, beside the conversation.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="The workspace pane: file tree with a directory expanded and the git card showing branch and changes" width="100%"></a><br><b>The workspace pane.</b> The tree and the git state as that companion sees them, beside the chat.</td>
 </tr>
 <tr>
 <td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="img/console-meeting.png" alt="The Meetings page: choose companions, ask one question, convene a room" width="100%"></a><br><b>§12.5 — meetings.</b> Several companions on one question, then the conclusions go out as work.</td>
@@ -1854,7 +1854,7 @@ owns them, because that machine's sockets are not this one's to dial.
 
   The capabilities are read off the routes rather than invented: `read` (anything that only
   looks), `answer` (resolve a permission or question, interrupt), `prompt` (submit, steer,
-  dispatch, compact, move to another conversation), `curate` (skills, remember/forget, the report
+  dispatch, compact, move to another chat), `curate` (skills, remember/forget, the report
   format), `configure` (model, approval mode, cron, MCP servers), `admin` (people and roles),
   `shell` (`/shell`; never on an `-exposed` console, where the route does not exist).
 
@@ -1888,7 +1888,7 @@ The rail on the left has two destinations, and a companion's page lives inside t
 ### 12.3 A companion's page
 
 Opened from a row, addressed as `/?d=<socket path>`. Two things happen here: watching, and saying
-something. So the page is the conversation, with everything else beside it.
+something. So the page is the chat, with everything else beside it.
 
 Where those parts sit, on a screen wide enough for both panes:
 
@@ -1912,7 +1912,7 @@ Where those parts sit, on a screen wide enough for both panes:
    that lands — a phone opening a file used to put 0px of conversation on screen
 ```
 
-**The conversation.** The transcript live over an event stream (`/events`), rendered the way the TUI
+**The chat.** The transcript live over an event stream (`/events`), rendered the way the TUI
 renders it: folded tool calls that open, thinking blocks, council rounds with each member's verdict,
 diffs, and a bar under a call that is still running. A tool call says how it ended with a glyph, and
 opening one fold opens that kind.
@@ -1931,7 +1931,7 @@ whether you left it open. It holds, top to bottom:
 | Provider / model | two selects on one row, reading left to right the way the question does: which backend, then which of its models. The providers are **whoever is serving right now** — the same roster `/providers` lists, including `default`, the backend the config file names — so a companion moved onto a CLI backend can be moved back. Switching the provider **empties the model select and moves focus into it**: backends do not share a vocabulary, so the old name is almost never one the new backend serves, and the console will not guess on your behalf. The model shown is what the companion is on *now* — a `/route` switch made in a terminal shows up here on the next poll |
 | Running now | what is going on beside the turn — a background command with its last line, a spawned child that can be opened. It was a strip over the composer, on screen at every width whatever you were doing; it is a card here because it is a thing you consult |
 | Plan | the agent's own todo list as it last recorded it, with a progress bar. Read out of the log, so it is right for a companion that is stopped, resumed elsewhere, or was working while you were not watching |
-| Handed out | what this companion gave to others and what came back. Read out of the conversations the work actually ran in — one per asker, opened under an actor that says who asked — rather than out of the session a person attaches to, where it never was |
+| Handed out | what this companion gave to others and what came back. Read out of the chats the work actually ran in — one per asker, opened under an actor that says who asked — rather than out of the session a person attaches to, where it never was |
 | Scheduled | its unattended jobs (§14): the line, when each next fires, and whether it is on |
 | What you had to say | the interjections a person made, over the last week by default — the record of where it needed steering |
 | What it has done | earlier sessions, searchable by word (`/search?q=`), each opening to its transcript |
@@ -1970,7 +1970,7 @@ it was hard. The console has a small editor for that contract (reached from the 
 controls). Edit it when your companions' questions or hand-off answers keep coming back in a shape
 that is awkward to act on; leave it alone and a sensible default applies.
 
-Below 840px there is no room for two panes, so the two become tabs and the conversation is the one
+Below 840px there is no room for two panes, so the two become tabs and the chat is the one
 you land on. Each window holds ONE event stream, and a tab you are not looking at gives it back: a
 browser allows six connections to a host, a stream never ends, and at two per window the third
 window could not make an ordinary request at all.
@@ -2036,7 +2036,7 @@ request instead would move the prefix and lose the prompt cache for everything a
 sessions stay append-only; the accumulation goes where it does no harm.
 
 **Nobody speaks until everybody has read their own workspace.** Convening sends each participant
-away to prepare — in a conversation of its own, with read-only tools and its git state handed to it
+away to prepare — in a chat of its own, with read-only tools and its git state handed to it
 as prose — and the room opens when they are all back. A participant that could not get ready (no
 daemon, a workspace that has gone) does not hold the room: its trouble is recorded and the meeting
 opens a voice short, saying so. Preparation is parallel, so the wait is the slowest one rather than
@@ -2069,7 +2069,7 @@ sequenceDiagram
 |---|---|
 | the topic and the roster | pinned at the top: five rounds of four companions is several screens, and what the meeting is about and who is speaking now are the two things you need at every point of it |
 | each participant's own colour | on their chip and down the side of everything they say. The name is on every line as well — a colour is never the only telling |
-| "X is working on it" | the last few steps of what whoever holds the floor is doing right now: what it read, what it grepped, what it is thinking. The daemons write their room conversations to the same store this console reads, and the meeting's own stream carries them merged |
+| "X is working on it" | the last few steps of what whoever holds the floor is doing right now: what it read, what it grepped, what it is thinking. The daemons write their room chats to the same store this console reads, and the meeting's own stream carries them merged |
 | how it got there | under every line, a fold with the thinking and tool calls that produced that sentence. It stays open across redraws |
 | a pass, with its reason | silence from a companion that READ the discussion is information, and the transcript keeps it. Two passes in a row and the rules stop asking that one until somebody names it |
 | the floor | pressing a participant's chip calls on them next; typing in the box takes the floor and hushes the room until you send |
@@ -2103,7 +2103,7 @@ name a federated console.
 | `/skills` · `/remember` (POST) · `/forget` (POST) | the experience store |
 | `/mcp` (GET/POST) | the MCP servers of one companion |
 | `/submit` (POST) | steer text into the running session |
-| `/resume` (POST) | continue another of that companion's conversations (`session=`) |
+| `/resume` (POST) | continue another of that companion's chats (`session=`) |
 | `/me` | who this console thinks you are and what you may do (drawn from, never trusted as the check) |
 | `/interrupt` (POST) · `/compact` (POST) | stop the turn · summarise the history now |
 | `/answer` (POST) | resolve the permission or question it is blocked on, by call id |
@@ -2189,7 +2189,7 @@ hand_off(to, request, so_that, answer_as, looking?)
 ```
 
 It **returns at once** with a receipt. The asker keeps working; the answer arrives in its
-conversation when the other finishes, and is folded in there. It does not wait and does not ask
+chat when the other finishes, and is folded in there. It does not wait and does not ask
 twice.
 
 ```mermaid
@@ -2216,12 +2216,12 @@ All four fields are required, and the last two are the ones that make the differ
 | Field | What it is for |
 |---|---|
 | `to` | a name from the roster in the tool's own description — which is rebuilt every step, so it names who is running **now** |
-| `request` | the whole instruction, standing on its own. They cannot see your conversation, your files or your reasoning |
+| `request` | the whole instruction, standing on its own. They cannot see your chat, your files or your reasoning |
 | `so_that` | what the answer is for, in one clause. It is what lets them adapt when they hit something you did not foresee — **and they cannot ask you**, which is the asymmetry that makes this worth a field |
 | `answer_as` | the **form** the answer comes back in: the headings you will read, in order. They fill it in |
 | `looking` | optional, and it changes WHEN rather than what. `true` says this is a question about their workspace and nothing in it should change |
 
-**What comes back is quoted, not retold.** The answer arrives in the asker's conversation with the
+**What comes back is quoted, not retold.** The answer arrives in the asker's chat with the
 request beside it, the form it was asked for, and one instruction: quote it as it stands. The asker
 cannot see the workspace the answer came from, so it cannot tell which detail is load-bearing — a
 version, a path, a flag, an error string it does not recognise — and a summary drops exactly those.
@@ -2241,7 +2241,7 @@ judgement about the task.
 **Asking is not the same as asking for work.** A companion does one piece of handed-over work at a
 time and, if it can write, waits for the workspace to be free — two turns in one tree are two agents
 editing the same files. A request marked `looking` is not part of that: the receiver runs it in a
-conversation whose tools are fixed at the four that only read, so it collides with nothing and is
+chat whose tools are fixed at the four that only read, so it collides with nothing and is
 answered **while that companion is busy with something else**. Set it whenever you are asking rather
 than asking for work; it is the difference between an answer now and an answer after their current
 turn.
@@ -2284,8 +2284,8 @@ up later is therefore heard at the next turn, not at the next restart.
 
 ### 13.6 One at a time, a queue, and how busy it is
 
-A companion's conversations are isolated but its **work is not**. Each asker gets a side session of
-its own, so nobody's request lands in the conversation a person is having and two askers never
+A companion's chats are isolated but its **work is not**. Each asker gets a side session of
+its own, so nobody's request lands in the chat a person is having and two askers never
 share a history — but only one turn runs in a workspace at a time, the person's included. Two turns
 in one tree are two agents editing the same files with nothing between them.
 
@@ -2316,7 +2316,7 @@ worker (writes short files) · can: 3 · 1 in hand, 2 waiting
 ```
 
 Neither can be derived from the state beside it: **state is read from the session a person attaches
-to**, and handed-over work runs in conversations of its own — so a companion busy with three
+to**, and handed-over work runs in chats of its own — so a companion busy with three
 people's requests correctly reads as `idle`, and these are the numbers that say otherwise. From a
 sighting they are as old as the sighting. The authority is still the refusal, which is never stale.
 
@@ -2580,7 +2580,7 @@ timeout  = "20m"              # optional; ten minutes by default, and never zero
 
 - **Daemon only.** An interactive `magi` never schedules anything — otherwise every open terminal
   in a repo would fire the same job.
-- **One firing is one new session.** It is submitted as a fresh conversation, not steered into a
+- **One firing is one new session.** It is submitted as a fresh chat, not steered into a
   live one, and it shows up in `/resume` and in the console's history like any other.
 - **It does not catch up.** A daemon started at noon does not run the 3 a.m. job. A week away should
   not produce a storm.

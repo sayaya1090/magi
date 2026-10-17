@@ -392,13 +392,13 @@ test('the children list draws who opened each child', () => {
  * The third time this session that a helper was written, unit-tested, and could still have been
  * left uncalled by the screen it was written for. `doors.ts` imports `vscode`, so it is read as text.
  */
-test('the conversation list stamps its rows in local time', () => {
+test('the chat list stamps its rows in local time', () => {
   const src = fs.readFileSync(path.join(IDE, 'doors.ts'), 'utf8');
   const at = src.indexOf("reg('magi.resume'");
   assert.ok(at > 0, 'the resume command is not where this guard looks for it');
   const block = src.slice(at, src.indexOf('\n    }),', at));
   assert.ok(/localStamp\(\s*s\.lastActivity\s*\)/.test(block),
-    'the conversation list draws the wire timestamp raw — UTC, with the T and the Z');
+    'the chat list draws the wire timestamp raw — UTC, with the T and the Z');
 });
 
 /**
@@ -5612,7 +5612,7 @@ test('§6.9: the panel has a persistent state notice separate from the transient
   assert.ok(/stateNoteEl\.append\(b\)/.test(chatWebviewSource()), 'the start button is appended to the persistent notice');
 });
 
-test('↑/↓ in the composer bring back what was typed in any conversation, only from the edge line', () => {
+test('↑/↓ in the composer bring back what was typed in any chat, only from the edge line', () => {
   const listeners: Record<string, (e: any) => void> = {};
   const elements = {
     say: {
@@ -5670,4 +5670,20 @@ test('panel and icon labels follow the VS Code locale with English fallback', ()
   assert.deepEqual(panelText('fr'), panelText('en'));
   assert.equal(panelText('ko').copy, '복사');
   assert.equal(panelText('en').copy, 'Copy');
+});
+
+
+test('native commands have matching locale keys and a count-neutral Magi file action', () => {
+  const root = path.resolve(__dirname, '../..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const english = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.json'), 'utf8'));
+  const korean = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.ko.json'), 'utf8'));
+  assert.deepEqual(Object.keys(english).sort(), Object.keys(korean).sort());
+  for (const command of manifest.contributes.commands) {
+    assert.match(command.title, /^%[^%]+%$/);
+    const key = command.title.slice(1, -1);
+    assert.ok(english[key] && korean[key], command.command);
+  }
+  assert.equal(english['magi.attachFiles.title'], 'Add to Magi chat');
+  assert.equal(korean['magi.attachFiles.title'], 'Magi 대화에 추가');
 });

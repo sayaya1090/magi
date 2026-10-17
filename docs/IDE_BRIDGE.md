@@ -67,7 +67,7 @@ would be counting a thing that cannot be.
 
 ## 4. What it does not carry
 
-Where commands go · what draws the conversation (webview, XAML, Swing) · inlay and completion APIs ·
+Where commands go · what draws the chat (webview, XAML, Swing) · inlay and completion APIs ·
 who renders settings · notification conventions. These differ per editor **by that editor's own
 rules**, and following those rules is the job of the client. There is nothing to share here.
 
@@ -124,8 +124,8 @@ absent, nothing present that goes unadvertised.
 |---|---|
 | `about` | the bridge's version, the methods it answers, and what the daemon advertises (`proto`, `caps`) |
 | `activity` | **one word for what the companion is doing** — `not-running` · `attached` · `working` · `waiting` · `unknown` — plus what it is running on |
-| `rows` | **answers one conversation as the lines a screen shows**, through the one fold (`idebridge.Rows`). Needs a `session`; replies with `rows` and with `events`, the number of events read. With `"live":true` it keeps answering: the same reply plus a `sub`, then frames of differences (below) |
-| `stop` | **ends a live subscription** (`{"method":"stop","sub":1}`). Without it a panel leaks a connection per conversation it looks at |
+| `rows` | **answers one chat as the lines a screen shows**, through the one fold (`idebridge.Rows`). Needs a `session`; replies with `rows` and with `events`, the number of events read. With `"live":true` it keeps answering: the same reply plus a `sub`, then frames of differences (below) |
+| `stop` | **ends a live subscription** (`{"method":"stop","sub":1}`). Without it a panel leaks a connection per chat it looks at |
 | `daemon` | **forwards `req` to the companion verbatim and returns its reply verbatim** |
 
 `about` names the methods this build answers, so a client never has to guess from this table — the
@@ -140,7 +140,7 @@ of Kotlin. A rule nobody can call looks exactly like no rule at all.
 Opening it added one thing to the socket contract (§6's "no new daemon endpoint" holds — this is a
 frame on an existing stream, not a door). `transcript` is a **live tail** with nothing between replay
 and live; the door's own note says the peer hanging up is the only thing that ends a quiet one. So
-anything wanting the conversation ONCE could not know when to stop: measured 2026-09-12, a reader on
+anything wanting the chat ONCE could not know when to stop: measured 2026-09-12, a reader on
 a finished session waited 202s and was killed. Now one frame, `{"ok":true,"live":true}`, follows the
 last replayed event — **and comes when there is nothing to replay at all**: an empty log, and a cursor
 already at the end, which is the ordinary reconnect (missed at first, so the most common path left a
@@ -148,7 +148,7 @@ screen on "catching up" until somebody typed). When the log's end cannot be read
 **reason** (`why`) instead of the marker: omitting it silently turns "we could not name the end" into a
 read that never returns, and the bridge serves requests in order, so every later request waits behind
 it. A one-shot read also carries a **silence bound** (15s, reset per frame — it bounds silence, not the
-size of the conversation), because a peer that simply stops talking sends neither marker nor reason. An event-less frame is what this stream already uses to talk about itself (the
+size of the chat), because a peer that simply stops talking sends neither marker nor reason. An event-less frame is what this stream already uses to talk about itself (the
 refused-cursor `why`), so a client built before the field ignores it exactly as it ignores that one.
 The daemon advertises the ability as `history`, and the bridge asks for **`history`, not
 `transcript`** — an older daemon speaks the latter and will never send the marker, so gating on the
@@ -164,8 +164,8 @@ thing both clients rebuild by hand — replay when a window opens.
 
 ### Live rows — how a later frame changes a line already drawn
 
-`rows` answers a conversation ONCE. Staying open is a different problem: the fold reaches backwards,
-so a screen cannot fold the tail and append it, and resending the whole conversation per streamed
+`rows` answers a chat ONCE. Staying open is a different problem: the fold reaches backwards,
+so a screen cannot fold the tail and append it, and resending the whole chat per streamed
 chunk would cost the answer's length times the number of chunks. So the shape is:
 
     fold the whole log  →  diff against what that client last saw  →  send the difference
@@ -191,8 +191,8 @@ fixture nor the first synthetic case had a row BETWEEN the moved question and th
 "moved to the bottom" and "was already at the bottom" produced the same list. A case that cannot tell
 two outcomes apart reports the one it can see.
 
-**What one frame costs, measured 2026-09-13.** Folding a synthetic conversation: 200 events 1.5ms,
-1000 events 8ms, 5000 events 41ms, 20000 events 157ms — proportional to the conversation. It was
+**What one frame costs, measured 2026-09-13.** Folding a synthetic chat: 200 events 1.5ms,
+1000 events 8ms, 5000 events 41ms, 20000 events 157ms — proportional to the chat. It was
 quadratic until that day (20000 events took 786ms, 53% of it in one closure that walked every row
 built so far each time an answer arrived), which the `rows` door was paying on every call and a live
 surface could not have paid at all. The diff of two folds is the other half: ~1ms at 150 rows, 88ms at
@@ -226,11 +226,11 @@ which draft a fact supersedes, and is deliberately unbuilt — see §7.
 The guarantee that holds all of this up is one test, on every prefix of five event streams:
 `Apply(held, Diff(before, after))` equals `Rows(after)` field for field —
 `TestApplyingTheWordsRebuildsTheFold`. A live screen and a screen that just opened show the same
-conversation, which is the same promise `TestALiveStreamEndsWhereAReplayDoes` makes one layer down.
+chat, which is the same promise `TestALiveStreamEndsWhereAReplayDoes` makes one layer down.
 
 **The door** (2026-09-13). `{"method":"rows","session":"s_…","live":true}` answers with the fold —
 byte for byte what the one-shot form answers — plus a `sub` number, and then sends
-`{"sub":1,"ops":[…]}` as the conversation changes, ending with `{"sub":1,"done":true}` and a `why`
+`{"sub":1,"ops":[…]}` as the chat changes, ending with `{"sub":1,"done":true}` and a `why`
 when there was one. `{"method":"stop","sub":1}` ends it.
 
 Three things about it are decisions rather than mechanics:
@@ -240,15 +240,15 @@ Three things about it are decisions rather than mechanics:
   built on — the same marker the one-shot door stops at, now handed to a reader that keeps going
   (`daemon.Tail.CaughtUp`). The wait is bounded — but it bounds SILENCE (20s per frame), not the
   replay: a companion that accepts and goes quiet must produce a sentence rather than a subscription
-  that never speaks, while a long conversation that is arriving steadily must not be failed for being
+  that never speaks, while a long chat that is arriving steadily must not be failed for being
   long. That difference was a defect first (review, 2026-09-14) and is the same bound the one-shot read
   already uses (`historyIdle`).
 - **A stream that dies says so.** `done` carries the reason. A subscription that simply stops is
-  indistinguishable from a conversation where nothing is happening, and the screen would go on
+  indistinguishable from a chat where nothing is happening, and the screen would go on
   claiming to be live — the asymmetric lie this tree has paid for before.
 - **Each subscription owns its connection**, because the stream belongs to whoever keeps reading it,
   and `stop` closes it. A flag alone would not: the reader is parked in a socket read no flag
-  interrupts, so a panel that switches conversations would leak one connection per switch.
+  interrupts, so a panel that switches chats would leak one connection per switch.
 
 ⚠ **No client draws these frames yet.** The clients still shape their own rows; moving them over is
 the next step, and it is deliberately after this one — a client moved onto the shared fold before
@@ -490,7 +490,7 @@ Only the VS Code shaper produces this id today; Go declares it and nothing fills
   - **A new open** re-derives the body from the event list (`openOutputDocument` in `ide/output.ts` →
     `resolveOutputItem(events, outputId)`). If the source event is no longer in that list, the lookup is
     `null` and the open fails with a reason — not a TTL, but whether that window still holds that
-    conversation's events.
+    chat's events.
   - **A document already open** never looks at the events again. The body was stored in
     `OutputSnapshots` when it opened, immutably (`put` does not overwrite an existing key), and every
     later read serves that copy (`provideTextDocumentContent`). So the text in an open window survives

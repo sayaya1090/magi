@@ -23,7 +23,7 @@ authentication came up, and why the icon kit gained `user-lock`, `key`, `right-t
 - Cross-site protection today is `sameSiteOnly`: Sec-Fetch-Site plus Origin, applied by wrapping
   the mux so a route added later is covered. It defends the browser of somebody who is already the
   operator. It is not an authorization mechanism and does not become one.
-- The session logs hold **the code and the whole conversation**. What a leak costs here is not an
+- The session logs hold **the code and the whole chat**. What a leak costs here is not an
   account; it is the work.
 
 ## The decision this turns on
@@ -74,7 +74,7 @@ None of these depends on the choice and none weakens the current posture.
   record has to hold requests the daemon never saw (refused at the guard, or a socket that could
   not be dialled), it must be one place regardless of which companion was named, and magi-web is a
   reader — the daemon owns the log. And it records **that** a prompt was submitted, never what it
-  said: the log already holds every word, and a second copy would be the whole conversation again
+  said: the log already holds every word, and a second copy would be the whole chat again
   in a file with different permissions and no compaction.
 
   **Who** needed a source. This process has no users and cannot tell a proxied request from any

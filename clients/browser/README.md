@@ -41,7 +41,7 @@ url = "http://127.0.0.1:8737/mcp"
 Authorization = "Bearer ${MAGI_BROWSER_TOKEN}"
 ```
 
-Headless mode uses port 8739 by default. The token must match the helper. `/mcp` initializes only when exactly one browser connection exists and pins that window and conversation. It refuses ambiguous windows; use an explicit `/mcp/<binding>/<session>` address in that case. Reconnect MCP after closing the original window or changing its conversation.
+Headless mode uses port 8739 by default. The token must match the helper. `/mcp` initializes only when exactly one browser connection exists and pins that window and chat. It refuses ambiguous windows; use an explicit `/mcp/<binding>/<session>` address in that case. Reconnect MCP after closing the original window or changing its chat.
 
 Each MCP connection has a separate execution identity, keeping headless profiles separate. Chrome calls use the original panel's granted tabs and confirmation flow. Disconnect cleans up profiles and pending calls. Sending, purchasing and deletion still require the user's authorization; inspect results before retrying a timeout.
 
@@ -66,12 +66,12 @@ The dedicated browser companion’s primary session has `browser_runtime` MCP to
 
 ## Window-scoped panel and management
 
-Use the side panel per Chrome window. Switching tabs retains the conversation, and one conversation manages multiple explicitly granted tabs. Grant current tab adds the active tab of the panel's own window. Moving a granted tab to another site or window requires a new grant. Site permission alone does not authorize every tab.
+Use the side panel per Chrome window. Switching tabs retains the chat, and one chat manages multiple explicitly granted tabs. Grant current tab adds the active tab of the panel's own window. Moving a granted tab to another site or window requires a new grant. Site permission alone does not authorize every tab.
 
-The target ID is stored in `chrome.storage.session` under the window ID. Panels in different windows use separate connections and conversations. Reopening a panel during the same Chrome run recovers its window target, but tab grants must be added again. Fully closing Chrome removes these IDs. Automatic restoration of a previous window's conversations after a browser restart is not provided.
+The target ID is stored in `chrome.storage.session` under the window ID. Panels in different windows use separate connections and chats. Reopening a panel during the same Chrome run recovers its window target, but tab grants must be added again. Fully closing Chrome removes these IDs. Automatic restoration of a previous window's chats after a browser restart is not provided.
 
-Management follows the Office layout and includes a local Material Web bundle. Settings select saved providers and manage their names, endpoints, keys and models. An empty key preserves the saved value; a separate checkbox deletes it. Editing the active profile applies to the next request, with save and application failures reported separately. Session listing and restoration accept only conversations associated with the current window target.
+Management follows the Office layout and includes a local Material Web bundle. Settings select saved providers and manage their names, endpoints, keys and models. An empty key preserves the saved value; a separate checkbox deletes it. Editing the active profile applies to the next request, with save and application failures reported separately. Session listing and restoration accept only chats associated with the current window target.
 
-Standing rules and skills are stored in the target workspace and reread for the next request. Council toggles save configuration and apply on the next turn without restarting. Confirmation explains that part of the context may need processing again; cancellation preserves the setting. New conversation, session selection, model changes, interrupt and context compaction are also available. Management does not extend tab access permissions.
+Standing rules and skills are stored in the target workspace and reread for the next request. Council toggles save configuration and apply on the next turn without restarting. Confirmation explains that part of the context may need processing again; cancellation preserves the setting. New chat, session selection, model changes, interrupt and context compaction are also available. Management does not extend tab access permissions.
 
 `node clients/browser/test/panel-playwright.mjs` loads the actual extension HTML, CSS, Material bundle and panel script. Chrome APIs and helper responses are mocked. It checks separate window connections, session switching, settings saves and 320px horizontal bounds. Existing `ui-playwright.mjs` and `browser.test.mjs` check grants, revocation, origin boundaries, password exclusion and stale snapshot rejection. Real extension installation and model-driven multi-tab operations still require separate acceptance.

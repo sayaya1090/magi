@@ -53,7 +53,7 @@ New application clients use [shared application contracts](APPLICATION_CLIENTS_D
 
 The third column hides the one rule worth stating: **a client that can open the log reads the log**
 (terminal, web — each builds its own App over the same directory and reconstructs), and **only the
-clients that cannot (JVM, add-in) receive the conversation through the daemon's transcript door**.
+clients that cannot (JVM, add-in) receive the chat through the daemon's transcript door**.
 There are not two doors; the reading path differs by seat.
 
 ```mermaid
@@ -94,7 +94,7 @@ be told `update`, `shutdown` or `/shell` because those methods are **absent from
 
 It makes one IDE window (one project) into one companion: on start it finds that workspace's
 daemon, spawns one if absent, attaches if present. Being a JVM it cannot open the Go store, so the
-**third viewer** receives the conversation through the transcript door; the **hand** points the
+**third viewer** receives the chat through the transcript door; the **hand** points the
 other way — the plugin hosts an MCP server of its own and registers it with `mcp-attach`, and the
 agent then reads and edits open buffers through `mcp__ide__*` tools. Nothing is written to config
 by attaching, and a closing IDE detaches what it brought. A name whose holder died without
@@ -115,14 +115,14 @@ pixels last (`render_shape` is one shape, `render_slide` the expensive whole).
 
 Two things the proposal did not foresee, both measured 2026-09-04/05:
 
-- **One daemon, one conversation per deck.** Two open decks share one companion but each gets its
-  own conversation and its own tool registration (`owner` on `mcp-attach`, `keep` on `session-new`),
+- **One daemon, one chat per deck.** Two open decks share one companion but each gets its
+  own chat and its own tool registration (`owner` on `mcp-attach`, `keep` on `session-new`),
   and the MCP address carries the deck so a call that omits `document` still lands on its own deck.
   A deck carries its own name in a presentation tag, so reconnecting does not re-issue it. And the
-  conversation carries the deck's name too: `session-new` with `keep` takes `name` — what the
-  conversation is FOR, the document key — the daemon records it on the session, and `sessions`
+  chat carries the deck's name too: `session-new` with `keep` takes `name` — what the
+  chat is FOR, the document key — the daemon records it on the session, and `sessions`
   answers it back as `for`. That is how a helper that was restarted (its bindings gone, the
-  daemon's disk intact) finds the conversation a document already has instead of opening an
+  daemon's disk intact) finds the chat a document already has instead of opening an
   empty one: it asks `sessions`, takes the newest row whose `for` is the document, and opens a
   fresh one only when there is none (measured 2026-09-06/07, Excel — three turns vanished from a
   pane on every helper restart until this). Two more things a tool server can declare and the core
@@ -171,12 +171,12 @@ waiting — and **which half each row came from**: this machine's own measuremen
 (`sighting=false`), or a sighting somebody signed (`sighting=true`), with its age (`ageSeconds`).
 Two things are pinned: **the state vocabulary is exactly `waiting` (on a person), `working`,
 `idle`** — waiting-on-a-person is its own value (a badge hangs on it); and **this machine's rows
-carry `session`** (the conversation's id) so a client reaches the transcript door in one round
+carry `session`** (the chat's id) so a client reaches the transcript door in one round
 trip — sightings do not, since nothing can subscribe across machines anyway.
 
 A local row also carries the facts that exist **only in the running process** — `permission`
 (the approval mode it is on right now), `backend` (where its requests go), `model` (what this
-conversation is on) and `user`. They are not in the published file and no client can derive them;
+chat is on) and `user`. They are not in the published file and no client can derive them;
 the listing already has them in hand because it probed. Dropping them cost a console exactly what
 you would expect: it drew those fields empty and then offered a control to change a value it had
 never shown. Sightings carry none of them — another machine's approval mode is not a fact this
@@ -184,8 +184,8 @@ one measured. Advertised in
 `about`'s caps as `roster`, so a client can know before calling.
 
 The boundary follows the same reasoning that kept the transcript off the fleet door: **gossip
-carries discovery; conversation and command go through that companion's own door.** A relaying
-B's conversation would flatten per-companion access and freshness into A's. Rows from other
+carries discovery; chat and command go through that companion's own door.** A relaying
+B's chat would flatten per-companion access and freshness into A's. Rows from other
 machines draw as visible-but-not-commandable (until the client holds that machine's keys) — the
 same stance the web console takes toward peers.
 
@@ -207,12 +207,12 @@ search, dead-session transcripts), and **command** (the boundary above — each 
 door). What this door replicated is the stance the web already took toward other **machines**:
 not attached, drawn from sightings, not commandable.
 
-**The session picker's two verbs, and the dock's one (★implemented).** The bottom dock must switch conversations
-and open fresh ones, so the control socket carries `sessions` (this workspace's conversations —
+**The session picker's two verbs, and the dock's one (★implemented).** The bottom dock must switch chats
+and open fresh ones, so the control socket carries `sessions` (this workspace's chats —
 id, first-prompt title, model, labels, `for` when the opener named what it was for, timestamps,
 newest activity first) and `session-new`
-(open a fresh conversation AND move onto it — one verb). Open-turn is deliberately absent:
-answering it reads every log whole, and the one conversation it could matter for is the current
+(open a fresh chat AND move onto it — one verb). Open-turn is deliberately absent:
+answering it reads every log whole, and the one chat it could matter for is the current
 one, whose id the roster row already carries. `resume` refuses an id that is not already this
 workspace's — a client never invents one; it reads what `session-new` answers. `job-kill` is the row's ✕ — Removed answers "was there one", so a second press reads already-gone, never failure. And `cron` is
 the read half of standing work (reload-cron is the write): broken jobs first — the never-runnable
@@ -220,21 +220,21 @@ row is the one no other screen will mention again — then the runnable soonest-
 switched-off last** (a row with no problem and no next must not lead the schedule). Each row
 carries its next instant (RFC3339) or an empty next with the `problem` that explains it.
 
-**A subagent's own conversation (`children`, ★implemented).** A child runs in a session of its
+**A subagent's own chat (`children`, ★implemented).** A child runs in a session of its
 own — its parent's log holds the tool call that started it and nothing of what it did — so a
 screen that wants to show a subagent's work needs the child's id, and then that child's
 transcript. Two doors already carried half of this: `jobs` reports the children running now and
 the ones that just ended (a live register, in memory, bounded, gone on restart), and `transcript`
 accepts a child id as readily as a top-level one. What was missing is the past: `children` lists
-the subagent conversations a session spawned as the LOG holds them, so it answers for a child
+the subagent chats a session spawned as the LOG holds them, so it answers for a child
 that finished last week and for a companion that has since restarted — which is when somebody
 asks what a subagent actually did. The parent is required and an empty one is refused: "the
-current conversation" is a per-caller fact, and a door that substituted it would answer a
+current chat" is a per-caller fact, and a door that substituted it would answer a
 different question depending on who asked. No children is an empty list with OK, never an
 omitted field — "none were spawned" and "this build cannot say" are different screens, which is
 what the capability handshake is for. Meetings ride the same door: a participant holds its
 meeting in a child session, so what your companion said in a room is that child's transcript.
-The row carries `origin` — who opened the conversation — and that is what tells one child from
+The row carries `origin` — who opened the chat — and that is what tells one child from
 another ("meeting" for a room). `agent` is NOT the discriminator: every child records the same
 word, measured against a live meeting where a room came back as `agent="spawn"`.
 
@@ -395,10 +395,10 @@ contracts this page already states.
    (`transcript`, `history`, `sessions`, `session-new`, `children`, `cron`, `cron-set`, `cron-remove`,
    `job-kill`, `tool-servers`, `tool-servers-detach-if`, `settings`, `context`). `history` rides with
    `transcript` and says the stream names the end of its replay (`live`), so a reader can take the
-   conversation once and stop — an older daemon has `transcript` without it and never sends the
+   chat once and stop — an older daemon has `transcript` without it and never sends the
    marker. `tool-servers-detach-if` is the conditional detach (`mcp-detach-if`): it removes a tool
    server only if the URL and credentials still match the ones that attached it, so a late cleanup
-   cannot take away a successor under the same name. `context` answers how full a conversation's
+   cannot take away a successor under the same name. `context` answers how full a chat's
    window is and what it is made of, for a screen drawing a meter. Read the advertisement and call; never call an absent
    door and read the refusal.
 
@@ -410,7 +410,7 @@ contracts this page already states.
    words, and is deliberately not advertised: the refusal lands on the button that asked. Which
    doors are in which group is written in the daemon's door table, one line each, and a guard
    fails if a new door is in neither.
-3. **Subscription**: the conversation via `transcript` (replay + live, with the restart callback
+3. **Subscription**: the chat via `transcript` (replay + live, with the restart callback
    on a refused cursor), the list via `roster` polls, the picker via `sessions`, the dock via
    `cron` and `jobs`.
    A meeting's turn carries the room's minutes both ways: `minutes` on the request is the
@@ -474,7 +474,7 @@ reaches the supervisor's console).
 | Screen (address) | Screen of what | Module |
 |---|---|---|
 | fleet / companion list & detail | the companions — roster, facts pane, right pane | `companion-ui` |
-| conversation, composer, workspace | type 1's centre and left — transcript, file tree, git | `coding-agent-ui` |
+| chat, composer, workspace | type 1's centre and left — transcript, file tree, git | `coding-agent-ui` |
 | knowledge (`v=skills`) | the experience store, the wiki, the servers | `knowledge-ui` |
 | board (`v=board`) | the board of what is in flight — no rail door, entered from fleet | `board-ui` |
 | map (`v=map`) | machines, accounts, and what passed between them | `map-ui` |
@@ -520,17 +520,17 @@ flowchart LR
 
 | Door | What it does | Gate |
 |---|---|---|
-| `submit` | Send a prompt to a conversation (`text`, optional `refs` — paths and line ranges, read from disk by the daemon) | always |
+| `submit` | Send a prompt to a chat (`text`, optional `refs` — paths and line ranges, read from disk by the daemon) | always |
 | `steer` | Send the same, but as a steer into the running turn rather than a queued prompt | always |
 | `interrupt` | Stop the running turn | always |
 | `permission` | Answer a pending permission prompt (`callId`, `decision`) | always |
 | `answer` | Answer a pending `ask_user` question (`callId`, `answer`) | always |
-| `rewind` | Rewind the conversation by `n` turns | on press (controller) |
-| `compact` | Fold the conversation's context now | on press (controller) |
-| `set-model` | Put the conversation on another model (`name`) | on press (controller) |
+| `rewind` | Rewind the chat by `n` turns | on press (controller) |
+| `compact` | Fold the chat's context now | on press (controller) |
+| `set-model` | Put the chat on another model (`name`) | on press (controller) |
 | `use-backend` | Point the default backend at a base URL for the rest of this run (`name`) | on press (controller) |
 | `set-permission` | Change the approval mode for every later call (`name`: ask, auto, allow, deny) | on press (controller) |
-| `resume` | Move this companion to another conversation of this workspace (`session`, an id `session-new` or `sessions` returned) | on press |
+| `resume` | Move this companion to another chat of this workspace (`session`, an id `session-new` or `sessions` returned) | on press |
 | `reload-cron` | Re-read the schedule file | on press |
 
 ### Queries — they answer with something
@@ -542,15 +542,15 @@ flowchart LR
 | `tools` | The tools the agent has, with their descriptions | always |
 | `jobs` | Background commands and their state | always |
 | `about` | Who this companion is and what it can be asked to do, plus `caps` | always (the handshake) |
-| `sessions` | This workspace's conversations, newest activity first (id, title, model, label, `for`) | `sessions` |
-| `prompts` | What a person typed to this workspace's companion, across conversations, newest first, each text once — the composer's ↑/↓ recall (`n` bounds it: 100 unsaid, 500 at most) | `prompts` |
-| `session-new` | Open a new conversation and move the companion onto it; answers its id | `session-new` |
-| `children` | A conversation's subagent sessions | `children` |
-| `context` | How full a conversation's window is and what fills it (parts are an estimate — draw them as shares) | `context` |
+| `sessions` | This workspace's chats, newest activity first (id, title, model, label, `for`) | `sessions` |
+| `prompts` | What a person typed to this workspace's companion, across chats, newest first, each text once — the composer's ↑/↓ recall (`n` bounds it: 100 unsaid, 500 at most) | `prompts` |
+| `session-new` | Open a new chat and move the companion onto it; answers its id | `session-new` |
+| `children` | A chat's subagent sessions | `children` |
+| `context` | How full a chat's window is and what fills it (parts are an estimate — draw them as shares) | `context` |
 | `cron` · `cron-set` · `cron-remove` | Read the schedule; add or change one job; remove one | `cron` · `cron-set` · `cron-remove` |
 | `job-kill` | Stop one background command; `removed` says whether it existed | `job-kill` |
 | `config-get` · `config-set` · `profiles` | Read the settings the engine declares; change one; list what a profile-shaped setting may point at | `settings` |
-| `mcp-attach` · `mcp-detach` | Attach an MCP tool server by URL (optionally owned by one conversation); remove one the door attached | `tool-servers` |
+| `mcp-attach` · `mcp-detach` | Attach an MCP tool server by URL (optionally owned by one chat); remove one the door attached | `tool-servers` |
 | `mcp-detach-if` | Remove a door-attached tool server only if its URL and credentials still match — a late cleanup cannot remove a successor | `tool-servers-detach-if` |
 | `hand` · `hand-state` | Hand this companion a piece of work under a label and get a receipt; ask what became of a receipt | on press |
 | `tool` | Run one read-only tool here, outside any turn | on press |
@@ -572,7 +572,7 @@ flowchart LR
 
 | Door | What it does |
 |---|---|
-| `transcript` | Replay a conversation from a cursor (`since`), then keep sending each event live; with `history` in `caps`, a `live` frame marks where the replay ends |
+| `transcript` | Replay a chat from a cursor (`since`), then keep sending each event live; with `history` in `caps`, a `live` frame marks where the replay ends |
 | `watch` | Send a frame each time handed-over work changes, until nothing more is coming |
 | `roster` | Who is out there: the companions on this machine and what the fleet has seen, one frame |
 | `shutdown` | Drain and stop this daemon; the reply goes out before it unwinds |

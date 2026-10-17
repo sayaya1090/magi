@@ -16,7 +16,7 @@ const changed = (seq: number, list: unknown[]): Event =>
  * the event: nothing failed, nothing appeared. The same class as the rest, one layer up — a fact the
  * daemon sends that no reader picks up.
  */
-test('the plan is read off the conversation stream', () => {
+test('the plan is read off the chat stream', () => {
   const list = todos([changed(1, [
     { content: 'read the parser', status: 'completed' },
     { content: 'fix the anchor', status: 'in_progress' },

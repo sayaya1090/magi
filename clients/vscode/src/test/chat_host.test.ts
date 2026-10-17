@@ -666,7 +666,7 @@ test('Chat §4.5 Item 1: session-new 실패 시 sessionCreationFailed 이벤트 
 
 
 
-test('Chat: open/diff requests resolve against this conversation as it is now (actionOrigin)', async () => {
+test('Chat: open/diff requests resolve against this chat as it is now (actionOrigin)', async () => {
   const companion = createMockCompanion();
   companion.state = { state: 'working' as any };
   const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);

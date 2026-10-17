@@ -597,21 +597,21 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     // renaming people and was filed under the labels key, and the second key then pointed at it
     // ("same as labels.changed") — so the only reason recorded for either was a statement about the
     // other. A reason that describes the wrong field vouches for a skip nobody has actually judged.
-    'labels.changed': 'the session\'s own subject labels. Nothing here draws them: a conversation is '
+    'labels.changed': 'the session\'s own subject labels. Nothing here draws them: a chat is '
       + 'named by its title in the list, and `SessionRow.labels` is unread for the same reason',
     // And this one is now exempted for the OPPOSITE reason to the one it used to carry: the client
     // does follow the person's name — `status.user` is read on every poll (Setup.user) — so replaying
     // the event would be a second source for a fact already arriving live. Same rule as
     // `model.changed` and `session.created` above.
     'user.label.changed': 'the person\'s display name, answered LIVE by `status` (Setup.user), so a '
-      + 'window attaching mid-conversation gets the current name instead of replaying its history',
-    'result.elided': 'a shed tool result is a context-window fact, not a conversation one — the row already says what the call was',
+      + 'window attaching mid-chat gets the current name instead of replaying its history',
+    'result.elided': 'a shed tool result is a context-window fact, not a chat one — the row already says what the call was',
     'workflow.phase': 'this client draws no phase strip; the plan panel shows the todos the phase moves',
     'tool.progress': 'transient and bus-only, so it never reaches a reader of the log; the live note comes from `status.doing`',
     'council.deliberating': 'transient, one per member per round — kept out of the transcript for the reason the core keeps it out of the log',
 
-    'session.created': 'the conversation\'s opening facts. The model on it is answered LIVE by `status` (Setup.model), and a transcript that began at a replayed session.created would name the model it started on rather than the one answering now',
-    'model.changed': 'same source, same reason: `status.model` is read on every poll, so a window attaching mid-conversation gets the current model instead of replaying its history',
+    'session.created': 'the chat\'s opening facts. The model on it is answered LIVE by `status` (Setup.model), and a transcript that began at a replayed session.created would name the model it started on rather than the one answering now',
+    'model.changed': 'same source, same reason: `status.model` is read on every poll, so a window attaching mid-chat gets the current model instead of replaying its history',
   };
   // ★ The exemptions that claim a fact arrives LIVE are checked against the code that reads it.
   // A reason is prose and prose does not fail — but THIS reason is a checkable claim: three keys are

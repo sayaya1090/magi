@@ -10,7 +10,7 @@ This document combines the coding-task design with the implementation and valida
 
 Use `source workspace → coding task → isolated workspace → dedicated companion → session`. An `internal/app` task service owns lifetime and records; adapters behind ports execute Git and start processes. Every UI calls the same task API. Extensions and IDEs must not implement independent Git commands and recovery state.
 
-The companion owns the canonical worktree path. The original repository companion keeps its original workspace. Do not mutate the parent session's workdir or move its conversation into the new task. Figma, mail, Slack and Office may delegate coding work but do not receive worktree tools by default.
+The companion owns the canonical worktree path. The original repository companion keeps its original workspace. Do not mutate the parent session's workdir or move its chat into the new task. Figma, mail, Slack and Office may delegate coding work but do not receive worktree tools by default.
 
 ## 2. Creation and agent execution
 
@@ -205,7 +205,7 @@ The following tests were repeated with `-race` and fixed shuffle seed `20261016`
 | CLI selected application/partial failure/normal turn/cancelled turn | 4 | 20 | 80 |
 | Two separate processes preparing the same task | 1 | 20 | 20 |
 
-The table does not double-count nested subtests. Normal and cancelled turns each ran twenty times. JSONL auditing checks session/workdir identity, increasing sequence numbers, exactly one result following each call, a single completion, and no conversation content after completion. The normal turn expects two foreground model requests. Engram's post-turn lesson analysis is classified separately and must not appear as another answer or completion.
+The table does not double-count nested subtests. Normal and cancelled turns each ran twenty times. JSONL auditing checks session/workdir identity, increasing sequence numbers, exactly one result following each call, a single completion, and no chat content after completion. The normal turn expects two foreground model requests. Engram's post-turn lesson analysis is classified separately and must not appear as another answer or completion.
 
 New contention tests verify that two tasks applying to the same source produce one winner and one conflict, that restoring the loser does not undo the winner, and that duplicate application of one task creates one journal. Application/restoration waits behind an active execution lease and can be cancelled without changing source files. Separate processes using the same request ID must prepare only one task.
 

@@ -1,5 +1,7 @@
 # magi — Screens (web console & TUI)
 
+Use **chat** for the user-facing interaction: **New chat**, **Previous chats**, and **Current chat**. Use **session** when describing persisted records or technical identifiers. Existing API names, JSON keys, URLs, and source identifiers that contain `conversation` remain unchanged.
+
 [English](UI.md) · [한국어](UI.ko.md) · [↑ Docs](README.md)
 
 > **Current reference.** The two surfaces — what is on each screen, the design rules they keep, and why.
@@ -96,10 +98,10 @@ doing. The order is the order the eye should travel: **waiting on a person → w
 </div>
 
 And the same screen with the workspace pane open — the two panes the section below is about, beside
-the conversation rather than instead of it:
+the chat rather than instead of it:
 
 <div align="center">
-<img src="img/console-workspace.png" alt="The same companion with the workspace pane open: the file tree on the left, the git card under it, the conversation still in the middle" width="880">
+<img src="img/console-workspace.png" alt="The same companion with the workspace pane open: the file tree on the left, the git card under it, the chat still in the middle" width="880">
 </div>
 
 **Two things are wanted here and they are not the same thing.** Somebody opens a companion to see
@@ -109,15 +111,15 @@ at 900px it was the same — this was never a phone problem.
 
 | | ≥840px | below |
 |---|---|---|
-| layout | three columns: the workspace on the left, the conversation in the middle, the facts and what is in flight on the right | tabs, **talk / files / plan / facts** |
-| how it opens | left shut, right **open** | on the conversation |
+| layout | three columns: the workspace on the left, the chat in the middle, the facts and what is in flight on the right | tabs, **talk / files / plan / facts** |
+| how it opens | left shut, right **open** | on the chat |
 | what stays put | the side column is sticky — a plan that scrolls away is one you re-find | — |
 
 The right column opens because what is in it changed. While the facts panel sat in the middle it
 was an auto-fit grid, so it took every spare pixel as another column — and on a screen with no
 cards, which is most screens, it lay across the whole transcript. What a companion IS gets read out
 of the corner of an eye, and the place Material calls a side sheet is this column. The left one is
-a file tree and still arrives shut: to somebody opening this page the screen is the conversation,
+a file tree and still arrives shut: to somebody opening this page the screen is the chat,
 and the tree is something you go to.
 
 **This screen has no reading cap.** Others do — settings, experience and MCP are 170ch. A cap is
@@ -130,7 +132,7 @@ top and not at the bottom is the defect (measured: header 568..2001 over a page 
 Which panel you were on is **not in the URL**. The destination is the companion; which half of it
 you were reading is a scroll position, and putting it in the address bar would make a link somebody
 sends land on a screen they did not mean to share. Leaving a companion resets it, because the next
-one is opened for its conversation.
+one is opened for its chat.
 
 A two-pixel indeterminate bar runs across the very top of the page while the companion has a
 turn open. It exists for the wait the transcript cannot mark: several tool calls in, the last
@@ -183,13 +185,13 @@ The context line is the point of this screen:
 - No bar when the window is unknown. An empty track reads as "nearly empty", which is the opposite
   of "we do not know".
 - Under it, **what the window is filled with**: a five-colour band and, beneath it in small type,
-  the size of each — system prompt · tool catalog · conversation · tool calls · tool results. The
+  the size of each — system prompt · tool catalog · chat · tool calls · tool results. The
   total says how full and the band says with what, and those are different questions. Show only a
-  total and somebody watching a full window goes to trim the conversation, which on this harness is
+  total and somebody watching a full window goes to trim the chat, which on this harness is
   routinely the small half. Measured on qwen3.8:27b-mlx after one exchange: system 2,404, tools
   5,703, talk 4 — 8,107 of the 8,750 was there before anybody spoke.
 - The five are measured by the process that **assembled the request**. A reader replaying the log
-  can count the conversation and nothing else: the system prompt and the tool catalog are built per
+  can count the chat and nothing else: the system prompt and the tool catalog are built per
   session and never written down. So they ride on the `turn.finished` fact, and a session without
   one — recorded before this existed, or not yet run — gets **no band at all**. Five zeros is not a
   measurement, it is "not known", the same rule as the missing window above.
@@ -222,7 +224,7 @@ so a screen written today answers for last month's logs.
 The plan, the handed-off work and the interjections all stand in the **right column** now; the
 middle is the live transcript (SSE) and the composer, top to bottom.
 
-**A conversation nobody has spoken in says so** — "nothing has been said here yet; type below to
+**A chat nobody has spoken in says so** — "nothing has been said here yet; type below to
 start". Without that line a new companion's first screen was a blank panel, and a blank panel reads
 the same as "we have not asked yet". The wiring had the same hole: a session with no events was
 never sent a transcript frame at all, and the frames it did send carried `null` (a nil slice). A
@@ -299,7 +301,7 @@ something, and end it.
   one machine cannot see each other's work at all. Team is the colour because that is what makes a
   set of chips scannable rather than a wall of names, and it is in the tooltip too: colour is never
   the only telling.
-- **The floor is two.** With one companion this is a conversation, and its own page does that
+- **The floor is two.** With one companion this is a chat, and its own page does that
   better. The reason it cannot start yet sits on the same line as the control it is about, note
   leading and action trailing — as a server refusal after the fact it would arrive after somebody
   had already decided the button was broken.
@@ -747,12 +749,12 @@ phone for months.
    request carries no identity, so a shared console shows the federated view and refuses a change
    aimed at a peer's companion, naming the console that can make it.
 7. **What is on screen is what a control reaches.** A companion can be pointed at another of its
-   own conversations — from the session dropdown, or by pressing a card on the board, since a card
-   IS a conversation. The composer is live only when the session on screen is the one the
+   own chats — from the session dropdown, or by pressing a card on the board, since a card
+   IS a chat. The composer is live only when the session on screen is the one the
    companion's record names; on any other it offers to move first, asks before it does, and is
-   disabled outright while a turn is running, because a companion cannot leave a conversation it
+   disabled outright while a turn is running, because a companion cannot leave a chat it
    is still speaking in. A page addressed by COMPANION follows the move; one addressed by SESSION
-   does not — somebody reading last Tuesday's work keeps reading it. The conversation being left
+   does not — somebody reading last Tuesday's work keeps reading it. The chat being left
    gets a line saying where the companion went, so a transcript that stops does not read as a
    daemon that died.
 8. **Changes are written down.** Every request that changes something appends a line to
@@ -1088,7 +1090,7 @@ Listed with what each would actually take, so none of them reads as a wish.
 
 | # | 지금 이 페이지 | 가이드 | 출처 | 크기 |
 |---|---|---|---|---|
-| ~~A4~~ ✅ | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세. ★ 가이드의 예시가 **정확히 이것**이다: "a pane is a single destination… in a messaging app, **the list of messages is one pane, and a specific conversation thread is another**" | foundations §4.1·§11.6, components/lists | **고침** — 1000px부터 컴패니언이 목록 **옆에** 열린다(list-detail). 840이 아니라 1000인 이유: 840에선 상세 자체가 이미 2판(대화+사실)이라 셋째 판이 대화를 350px로 만든다. 사실 판은 손으로 접히고 기억되므로 840에서 목록을 원하면 그쪽을 접으면 된다. 목록은 그 폭에서 컬럼을 포기하고 **상태+이름**만 남긴다(나머지는 DOM에 남아 스크린리더가 읽는다). ⚠ `loadFleet`이 컴패니언 페이지에서 일찍 반환해 행을 만들 기회가 없었다 — 갈라냈고, 마스트헤드 개수는 목록 화면에만 남는다. 열린 행 표시를 secondary-container로 했다가 상태 단어가 4.01:1로 떨어져 primary 8% 워시로 (9b9d3f04) |
+| ~~A4~~ ✅ | **플릿 → 컴패니언이 페이지 이동** | expanded 이상은 **list-detail** — 목록을 남긴 채 옆에 상세. ★ 가이드의 예시가 **정확히 이것**이다: "a pane is a single destination… in a messaging app, **the list of messages is one pane, and a specific chat thread is another**" | foundations §4.1·§11.6, components/lists | **고침** — 1000px부터 컴패니언이 목록 **옆에** 열린다(list-detail). 840이 아니라 1000인 이유: 840에선 상세 자체가 이미 2판(대화+사실)이라 셋째 판이 대화를 350px로 만든다. 사실 판은 손으로 접히고 기억되므로 840에서 목록을 원하면 그쪽을 접으면 된다. 목록은 그 폭에서 컬럼을 포기하고 **상태+이름**만 남긴다(나머지는 DOM에 남아 스크린리더가 읽는다). ⚠ `loadFleet`이 컴패니언 페이지에서 일찍 반환해 행을 만들 기회가 없었다 — 갈라냈고, 마스트헤드 개수는 목록 화면에만 남는다. 열린 행 표시를 secondary-container로 했다가 상태 단어가 4.01:1로 떨어져 primary 8% 워시로 (9b9d3f04) |
 | ~~A5~~ ✅ | 컴패니언 보조 판을 **닫을 수도 접을 수도 없다**(⚠ **폭은 결함이 아니다** — side sheet 범위가 **256~400dp**이고 22rem=**352px**는 그 안이다. 남은 것은 어포던스뿐) | ★★ **분류가 갈려도 결함 확정**: **side sheet면 닫기 아이콘 버튼이 필수**("Material requires… always present"), **fixed pane이면 드래그 핸들로 접고 펴기**. 선결 질문은 **고치는 모양**만 정한다. 원래 정리: 가이드는 판을 **flexible**(드래그 핸들로 **폭 조절**) 또는 **fixed**(드래그 핸들로 **접고 펴기** — 1판↔2판 전환) 둘 중 하나로 본다. **fixed 자체는 정상**이고, 빠진 것은 **어포던스**다. supporting pane 비율(주 영역 **약 2/3**)은 flexible을 고를 때 적용 | foundations §4.2 | **고침** — `#sideToggle`로 접기/펼치기, 선택은 컴패니언 사이를 넘어 기억된다 (4ae642f6) |
 | A6 | MCP 추가 폼 6필드가 목록 아래 **인라인**, 액션은 폼 안의 버튼 하나 | 다이얼로그로. **compact는 full-screen, 그 위는 basic**. 액션은 다이얼로그 슬롯에 `추가`+`취소`, 후행 정렬, 확정이 모서리에 가장 가깝게 | components §1 | 중간 |
 | ~~A8~~ ✅ | 여백 값이 **8dp 스케일 밖** — .35/.7/.9/1.1/1.2/1.4/1.6/2.4rem = 5.6/11.2/14.4/17.6/19.2/22.4/25.6/38.4dp | 여백은 **8dp 배수**(space100=8dp) | foundations §6.2 | **고침** — 26개 값 → 8개 `--space-*` 토큰(4dp 격자), 최대 이동 3.2dp. 테스트로 고정 (d53bf827) |

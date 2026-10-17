@@ -526,7 +526,7 @@ export function rows(events: Event[]): Row[] {
           seq: e.seq, who: 'system',
           text: to
             ? `\u21e2 the companion moved to ${to} — this conversation ends here`
-            : '\u21e2 the companion moved to another conversation — this one ends here',
+            : '\u21e2 the companion moved to another chat — this one ends here',
         });
         break;
       }
@@ -651,7 +651,7 @@ export function rows(events: Event[]): Row[] {
       case 'compaction': {
         const before = Number(d.tokensBefore ?? 0);
         const after = Number(d.tokensAfter ?? 0);
-        out.push({ seq: e.seq, who: 'system', text: `↯ folded the conversation: ~${before}→${after} tok (${sizeNote(before, after)})` });
+        out.push({ seq: e.seq, who: 'system', text: `↯ folded the chat: ~${before}→${after} tok (${sizeNote(before, after)})` });
         break;
       }
       case 'turn.finished':

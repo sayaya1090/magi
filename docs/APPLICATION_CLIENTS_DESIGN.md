@@ -10,7 +10,7 @@ Figma, standard IMAP/SMTP mail, Slack and Chrome browser become new Magi clients
 |---|---|---|---|
 | Figma | Development plugin panel | Inspect selection, edit text, create frames | Shell, source edits, whole-file scans, publishing |
 | Mail | Local browser mail UI | Read selected correspondence, identify requests, draft replies | Model-initiated sending, OAuth, attachments |
-| Slack | App Home, DMs, mention threads | Summarize conversations, coordinate work, draft messages | Shell, source edits, unsolicited messages in other channels |
+| Slack | App Home, DMs, mention threads | Summarize chats, coordinate work, draft messages | Shell, source edits, unsolicited messages in other channels |
 | Chrome browser | Chrome side panel | Inspect and operate granted tabs | Unrelated tabs, passwords, arbitrary scripts |
 | Existing Office | PowerPoint, Word and Excel task panes | Presentation, document and spreadsheet work | Default coding identity, external shell and source editing |
 
@@ -43,9 +43,9 @@ The role vocabulary is the seven `ClientKind` constants in `internal/app/client_
 
 `CompanionType.java` registers coding type `1` and six application types. Base coding use the coding child; other business kinds use `application-ui`. Mail and Slack share communication type. The `coding` spelling resolves to type `1`, and the existing missing/unknown-type coding fallback remains. Local daemon/roster/fleet and remote cluster carry type. Remote type is advisory metadata excluded from Signable, like Version; execution rights come from the destination daemon's role gate.
 
-The application child shares conversation/composer code without mounting the filesystem/Git workspace. The parent clears slots on type changes; PaneSharing caches module-specific renders for revisits. Late coding loads cannot replace application slots. WorkspaceStore rejects application contexts to prevent background file requests too.
+The application child shares chat/composer code without mounting the filesystem/Git workspace. The parent clears slots on type changes; PaneSharing caches module-specific renders for revisits. Late coding loads cannot replace application slots. WorkspaceStore rejects application contexts to prevent background file requests too.
 
-`clients/web/ui/application-ui/test/compiled-playwright.mjs` runs actual GWT output at 1440px and 390px, checking application/coding transitions, toggle restoration, late module loading and zero application filesystem API requests. It does not verify accounts or real Figma/Slack execution. See the [application conversation manual](../clients/web/ui/application-ui/README.md) for reproduction.
+`clients/web/ui/application-ui/test/compiled-playwright.mjs` runs actual GWT output at 1440px and 390px, checking application/coding transitions, toggle restoration, late module loading and zero application filesystem API requests. It does not verify accounts or real Figma/Slack execution. See the [application chat manual](../clients/web/ui/application-ui/README.md) for reproduction.
 
 ### Business kind, codebase role and client
 
@@ -83,7 +83,7 @@ Listeners require an explicit loopback IP. Local APIs and MCP require `Authoriza
 | Mail | Account / mailbox / UIDVALIDITY / UID | Refuse old UIDs after UIDVALIDITY changes |
 | Slack | Team / channel / thread timestamp / requesting user | Reject another user's approval actions |
 
-`POST /api/connect` accepts `{target}` and returns `{binding, session, target}`. The helper generates the opaque binding ID. Application UI cannot provide arbitrary socket paths, work directories or session IDs. Sessions use `session-new` with `keep` and a `for` tag for creation and recovery. Connecting another document does not switch the companion's foreground conversation.
+`POST /api/connect` accepts `{target}` and returns `{binding, session, target}`. The helper generates the opaque binding ID. Application UI cannot provide arbitrary socket paths, work directories or session IDs. Sessions use `session-new` with `keep` and a `for` tag for creation and recovery. Connecting another document does not switch the companion's foreground chat.
 
 Figma, mail and Slack derive a hashed workspace directory for each target. Document bodies and titles never become work directories. Bindings live in process memory and must be reconnected after restart; persisted sessions are recovered by their `for` tag.
 
@@ -101,7 +101,7 @@ Figma receives calls from `/api/figma/poll` and returns results through `/api/fi
 
 IMAP/SMTP credentials, Slack app/bot tokens stay in helper environments. `CompanionEnv` removes application tokens and mail passwords when starting a companion, retaining model-provider credentials. Existing processes need restarting because their environments cannot be changed. They are excluded from tool results and server error output. Figma invokes design APIs in its main sandbox and does not require a Figma API token.
 
-The mail model receives read and draft tools. SMTP delivery is a separate UI action after the user reviews recipient, subject and body. Slack tools read the current thread and prepare drafts. Responses to an initiated Magi conversation stay in that thread; no tool sends to unrelated channels. Remote writes are not automatically authorized merely because implementation or testing would benefit from them.
+The mail model receives read and draft tools. SMTP delivery is a separate UI action after the user reviews recipient, subject and body. Slack tools read the current thread and prepare drafts. Responses to an initiated Magi chat stay in that thread; no tool sends to unrelated channels. Remote writes are not automatically authorized merely because implementation or testing would benefit from them.
 
 ## 6. Coding tasks and worktrees
 
@@ -151,9 +151,9 @@ Browser cooperation reuses `hand_off` and introduces a small on-demand `browser`
 
 ## Figma management and window placement (2026-10-13)
 
-Figma follows the Office conversation layout and embeds Material Web controls in installation HTML. Session controls and settings sit above the transcript, with the composer below it. Standing rules and skills use the document's hashed workspace and reload on the next request. Providers use shared `config.toml`; selecting a name applies its endpoint, key and model together. Editing the active profile reapplies it and distinguishes a successful save from a failed application. Council configuration is saved for the companion and applied on the next turn without restarting, after a confirmation about possible context reprocessing.
+Figma follows the Office chat layout and embeds Material Web controls in installation HTML. Session controls and settings sit above the transcript, with the composer below it. Standing rules and skills use the document's hashed workspace and reload on the next request. Providers use shared `config.toml`; selecting a name applies its endpoint, key and model together. Editing the active profile reapplies it and distinguishes a successful save from a failed application. Council configuration is saved for the companion and applied on the next turn without restarting, after a confirmation about possible context reprocessing.
 
-Session listing and selection accept only conversations where `For == App + ":" + Target`. Empty document sessions are included before their first request, so event subscriptions do not reject their IDs. Switching suspends the Figma sandbox session before transferring MCP ownership and replaying the selected transcript. Restart uses the same lifecycle lock as creation, selection and disconnection.
+Session listing and selection accept only chats where `For == App + ":" + Target`. Empty document sessions are included before their first request, so event subscriptions do not reject their IDs. Switching suspends the Figma sandbox session before transferring MCP ownership and replaying the selected transcript. Restart uses the same lifecycle lock as creation, selection and disconnection.
 
 Left alignment computes a plugin window from viewport bounds and zoom. It does not dock into the native sidebar or reduce canvas width. The approach follows the bottom-window placement in [Parrot's public distribution](https://github.com/opral/parrot/blob/main/versions/dev/code.js), but checks every 500ms and repositions only after a change. Floating mode stops automatic placement, and closing clears the timer. Procedures and limits are in [the Figma manual](../clients/figma/README.md).
 

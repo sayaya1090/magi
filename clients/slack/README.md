@@ -1,6 +1,6 @@
 # Magi for Slack
 
-This Socket Mode app provides Magi chat in Slack DMs and mention threads, plus an App Home introduction. Each workspace, user, channel and thread gets its own Magi binding. The agent helps read conversations and prepare drafts; its registered Slack tools cannot send messages to other channels or run code.
+This Socket Mode app provides Magi chat in Slack DMs and mention threads, plus an App Home introduction. Each workspace, user, channel and thread gets its own Magi binding. The agent helps read chats and prepare drafts; its registered Slack tools cannot send messages to other channels or run code.
 
 ## Setup
 
@@ -10,7 +10,7 @@ This Socket Mode app provides Magi chat in Slack DMs and mention threads, plus a
 4. Install the app to your workspace. Supply `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN` through your local secret manager or environment. Never commit them.
 5. With the `magi` executable on PATH and your provider configured, run `go run ./clients/slack/cmd`.
 
-Send a DM or mention `@Magi` in a channel. Replies stay in the initiating thread. Approval and option buttons work only for the user who started that thread. Question reports are included as decision grounds, within the displayed text limit. Questions without options accept `답변 REQUEST_ID answer text` in that same thread. For DMs, use Slack's reply-in-thread action to continue an existing conversation; a new top-level DM creates a new binding.
+Send a DM or mention `@Magi` in a channel. Replies stay in the initiating thread. Approval and option buttons work only for the user who started that thread. Question reports are included as decision grounds, within the displayed text limit. Questions without options accept `답변 REQUEST_ID answer text` in that same thread. For DMs, use Slack's reply-in-thread action to continue an existing chat; a new top-level DM creates a new binding.
 
 ## Tools and limits
 
@@ -18,7 +18,7 @@ Send a DM or mention `@Magi` in a channel. Replies stay in the initiating thread
 - `slack_draft_message` returns a draft with `sent: false`. No delivery tool is registered.
 - Replies are capped at 2,800 characters. Long output is explicitly marked as truncated. Bot events and edited-message events do not initiate prompts.
 
-Socket Mode authenticates inbound delivery; opaque approval tokens are single-use and bound to team, user, channel and thread. Event-ID deduplication retains the latest 4,096 IDs in memory. Bindings, deduplication and pending buttons do not survive process restart. Failed deliveries keep the current event pending and retry once per second; cursors advance only after successful delivery. A network timeout after Slack accepted a post can still produce a duplicate, since Slack delivery has no transaction with Magi. Failed approval submissions preserve the button for retry. Historical events from before a newly activated connection are not reposted. At most 256 conversation bindings are held until restart. This client does not implement persistent Slack delivery retries (temporary rate limits are retried up to three times), file uploads or organization-wide installation. API errors are logged without token values or Slack response bodies.
+Socket Mode authenticates inbound delivery; opaque approval tokens are single-use and bound to team, user, channel and thread. Event-ID deduplication retains the latest 4,096 IDs in memory. Bindings, deduplication and pending buttons do not survive process restart. Failed deliveries keep the current event pending and retry once per second; cursors advance only after successful delivery. A network timeout after Slack accepted a post can still produce a duplicate, since Slack delivery has no transaction with Magi. Failed approval submissions preserve the button for retry. Historical events from before a newly activated connection are not reposted. At most 256 chat bindings are held until restart. This client does not implement persistent Slack delivery retries (temporary rate limits are retried up to three times), file uploads or organization-wide installation. API errors are logged without token values or Slack response bodies.
 
 ## Verification
 
@@ -34,4 +34,4 @@ Posts are scheduled at most once per second per channel. HTTP 429 honors the ful
 
 ## Execution controls
 
-Send `magi stop` or `Magi 중단` in the same Magi conversation thread to request interruption. `magi model model-name` or `Magi 모델 모델이름` changes the model for that binding. Mention @Magi in channels. These are ordinary message commands and require no Slack slash-command registration. They are not sent as model prompts and cannot control another user or thread. Start a new session with a new top-level DM or mention thread.
+Send `magi stop` or `Magi 중단` in the same Magi chat thread to request interruption. `magi model model-name` or `Magi 모델 모델이름` changes the model for that binding. Mention @Magi in channels. These are ordinary message commands and require no Slack slash-command registration. They are not sent as model prompts and cannot control another user or thread. Start a new session with a new top-level DM or mention thread.

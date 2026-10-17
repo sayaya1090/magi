@@ -135,7 +135,7 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
           look.command = { command: 'magi.lookNow', title: 'look' };
           out.push(look);
         } else {
-          const add = new vscode.CodeAction('magi: add this code to the conversation', vscode.CodeActionKind.Empty);
+          const add = new vscode.CodeAction('magi: add this code to the chat', vscode.CodeActionKind.Empty);
           add.command = { command: 'magi.attach', title: 'attach' };
           out.push(add);
         }

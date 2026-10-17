@@ -74,7 +74,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       const now = activity.setupOf(st ?? null);
       const say = (v: string | undefined) => v ?? 'not said';
       const pick = await vscode.window.showQuickPick([
-        { label: 'Open the conversation', id: 'magi.focusChat' },
+        { label: 'Open the chat', id: 'magi.focusChat' },
         { label: `Model: ${say(now.model)}`, id: 'magi.chooseModel', description: 'change' },
         { label: `Backend: ${say(now.backend)}`, id: 'magi.chooseBackend', description: 'change' },
         { label: `Approval: ${say(now.permission)}`, id: 'magi.choosePermission', description: 'change' },
@@ -199,7 +199,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
     // ---- the life of a conversation --------------------------------------------------------
     /** A conversation of its own. The daemon names it; nothing here invents an id. */
     reg('magi.newConversation', async () => {
-      if (!await has('session-new', 'opening a new conversation')) return;
+      if (!await has('session-new', 'opening a new chat')) return;
       const r = await call('session-new');
       if (!r) return;
       const sid = r.session ?? '';
@@ -300,7 +300,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       // This sent `since: seq` and the daemon rewound by its own default — the chosen point had
       // nothing to do with it.
       const n = turnsBack(asked, pick.seq);
-      if (!n) { void vscode.window.showWarningMessage('magi: that point is no longer in the conversation.'); return; }
+      if (!n) { void vscode.window.showWarningMessage('magi: that point is no longer in the chat.'); return; }
       const ok = await vscode.window.showWarningMessage(
         `Drop the last ${n} turn(s)? Everything after that point goes.`, { modal: true }, 'Rewind');
       if (ok !== 'Rewind') return;
@@ -357,13 +357,13 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
 
     /** The conversations this one spawned. Read-only: a child is somebody else's turn. */
     reg('magi.children', async () => {
-      if (!await has('children', 'listing child conversations')) return;
+      if (!await has('children', 'listing child chats')) return;
       const r = await call('children', { session: chat.session });
       if (!r) return;
       // ⚠ `children`, not `sessions`. This read `sessions` and so answered "no children" on every
       // build — the same defect class as the panel reading `out`: an absent field is an empty list.
       const list = r.children ?? [];
-      if (!list.length) { void vscode.window.showInformationMessage('magi: this conversation has no children.'); return; }
+      if (!list.length) { void vscode.window.showInformationMessage('magi: this chat has no children.'); return; }
       const pick = await vscode.window.showQuickPick(
         list.filter((s) => s.id).map((s) => ({
           label: (s.title || '(no messages)').split('\n')[0],
@@ -374,7 +374,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
           description: [originWord(s.origin), s.id!.slice(-6)].filter(Boolean).join(' · '),
           id: s.id!,
         })),
-        { title: 'magi — child conversations' },
+        { title: 'magi — child chats' },
       );
       if (pick) chat.showSession(pick.id);
     }),

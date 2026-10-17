@@ -139,7 +139,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       if (mine !== this.opening) return;   // overtaken — the newer attempt speaks for itself
       // The companion answered `reach` a moment ago and then refused the stream: it went away in
       // between. Said, so the panel does not sit empty and read as a conversation with nothing in it.
-      this.post({ kind: 'note', text: 'could not open the conversation — the companion stopped answering.' });
+      this.post({ kind: 'note', text: 'could not open the chat — the companion stopped answering.' });
       return;
     }
     // A newer attempt started while this one was connecting. Hand this socket back rather than
@@ -164,7 +164,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       // `this.stream !== s` and stays a no-op — the same guard that already makes the two endings
       // idempotent.
       s.close();
-      this.post({ kind: 'note', text: 'lost the conversation — reconnecting…' });
+      this.post({ kind: 'note', text: 'lost the chat — reconnecting…' });
       void this.reattach();
     };
     // Two ways to learn it, and the socket is the less reliable one.
@@ -478,14 +478,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
                 const created = await this.companion.ask('session-new');
                 sid = created?.session ?? '';
                 if (!sid) {
-                  failureErr = created?.error ?? 'the companion could not open a conversation.';
+                  failureErr = created?.error ?? 'the companion could not open a chat.';
                 }
               } catch (e: any) {
-                failureErr = e?.message ?? 'the companion could not open a conversation.';
+                failureErr = e?.message ?? 'the companion could not open a chat.';
               }
 
               if (failureErr || !sid) {
-                const err = failureErr || 'the companion could not open a conversation.';
+                const err = failureErr || 'the companion could not open a chat.';
                 if (this.view === capturedView && this.currentWebviewId === capturedWebviewId) {
                   this.post({
                     kind: 'sessionCreationFailed',
@@ -532,7 +532,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
             try {
               resolvedSid = await pendingCreation;
             } catch (e: any) {
-              this.giveBack(body, sent, e?.message ?? 'the companion could not open a conversation.');
+              this.giveBack(body, sent, e?.message ?? 'the companion could not open a chat.');
               break;
             }
             if (this.generation === creationGen && !this.sid) {

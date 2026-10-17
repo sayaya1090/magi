@@ -63,7 +63,7 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
       const resp = await companion.ask('sessions');
       const list = resp?.sessions ?? [];
       if (!resp?.ok || !list.length) {
-        void vscode.window.showWarningMessage('magi: this workspace has no conversations yet.');
+        void vscode.window.showWarningMessage('magi: this workspace has no chats yet.');
         return;
       }
       const pick = await vscode.window.showQuickPick(
@@ -72,7 +72,7 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
           description: s.id!.slice(-6),
           id: s.id!,
         })),
-        { title: 'magi — conversation' },
+        { title: 'magi — chat' },
       );
       if (pick) chat.showSession(pick.id);
     }),

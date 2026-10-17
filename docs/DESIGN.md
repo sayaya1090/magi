@@ -217,7 +217,7 @@ type Actor struct {
 }
 ```
 
-**A. Persisted** (appended to the log, one JSONL line) — replaying them restores the conversation:
+**A. Persisted** (appended to the log, one JSONL line) — replaying them restores the chat:
 
 | Type | Data |
 |---|---|

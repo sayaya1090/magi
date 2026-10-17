@@ -24,7 +24,7 @@ After backing up and repairing malformed Podman registry configuration, Docker A
 
 Installed `magi`, `magi-web`, `magi-operations`, `magi-figma`, `magi-mail`, `magi-slack` and `magi-github` in `~/.local/bin`; existing executables were backed up with `.before-clients`. The rebuilt console served `/ui/application/application.nocache.js` with HTTP 200. This checks embedded assets, not real-account client acceptance.
 
-Four IDE-owned companions were restarted with the updated core. Empty sessions without stored events can receive a new ID on restart; no stored conversation was lost in these checks. Real-account Figma, mail and Slack acceptance remains pending.
+Four IDE-owned companions were restarted with the updated core. Empty sessions without stored events can receive a new ID on restart; no stored chat was lost in these checks. Real-account Figma, mail and Slack acceptance remains pending.
 
 Installed kubectl v1.37.1. A read-only Pod listing using context `handbook-dev/api-sayaya-cloud:6443/sayaya` and namespace `handbook-dev` failed because the API at `api.sayaya.cloud:6443` refused the connection. No Kubernetes mutation ran. Once connectivity is restored, verify status and bounded logs on an explicitly allowed test Pod; test approved restart only on a disposable Deployment. Record the context, namespace, commands and results without credentials.
 

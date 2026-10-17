@@ -366,7 +366,7 @@ The split between facts and transient events is the load-bearing part: a stream 
 reach the screen without being written down, and a decision must be written down even if nobody is
 watching. `Seq == 0` is how the two are told apart everywhere in the code.
 
-A conversation is a `Session` of `Message`s; each message is a list of `Part`s
+A chat is a `Session` of `Message`s; each message is a list of `Part`s
 (tagged union by `Kind`: text | reasoning | tool-call | tool-result | image | error).
 `ToolCall{CallID,Name,Args(json.RawMessage)}`, `ToolResult{CallID,Content(json.RawMessage),IsError}`.
 
@@ -401,7 +401,7 @@ starting a new turn.
   to check.
 
   Persisting is not the same as entering the model's context: `reconstruct()` reads the handful of
-  types a conversation is made of and ignores the rest, so a decision can be auditable in the log
+  types a chat is made of and ignores the rest, so a decision can be auditable in the log
   without being said back to the model.
 
 Store path: `<dataDir>/projects/<cwd>/<sessionId>.jsonl`. `Store.Read(fromSeq)`
@@ -498,10 +498,10 @@ written, rather than a menu going quiet six months later.
   contract; the daemon speaks it as `mcp-attach` / `mcp-detach` and advertises it as the
   `tool-servers` capability — asked of the engine, since whether a daemon accepts the door is a
   fact about what it is running and not about this build. An attach may name an **owner** (a
-  session): the tools are then advertised to that conversation alone and refuse a call from any
+  session): the tools are then advertised to that chat alone and refuse a call from any
   other, and a second attach under the same server name for a different owner merges a hand into
   the one registered tool instead of replacing it. Empty owner is the whole daemon, which is what
-  every attach meant before the field existed (2026-09-04, for a client that holds one conversation
+  every attach meant before the field existed (2026-09-04, for a client that holds one chat
   per open PowerPoint deck).
 
 `ToolEnv` used to carry two more fields — `Ask` (a subagent escalating to its
@@ -578,11 +578,11 @@ Step by step:
    wrote, and which background commands are still alive. A screen-driven agent re-reads its
    terminal before every decision; this is the same refresh over the store magi actually keeps.
    What that assembly is made of gets recorded, in tokens, on the turn's `turn.finished` fact
-   (`event.PromptShape`): system prompt, tool catalog, conversation, tool calls, tool results.
+   (`event.PromptShape`): system prompt, tool catalog, chat, tool calls, tool results.
    Only this process can measure it — the system prompt and the catalog are built per session and
    never written to the log — so without the fact, a reader replaying events can count the
-   conversation and nothing else, and calls that the context. Measured on one companion after a
-   single exchange: 2,404 system, 5,703 catalog, 4 conversation.
+   chat and nothing else, and calls that the context. Measured on one companion after a
+   single exchange: 2,404 system, 5,703 catalog, 4 chat.
 2. **Stream** one model response: text (`part.delta`), reasoning, tool calls; persist the
    assistant message. Two recoveries belong to getting it — a context too large to send, and a
    backend that goes silent (`generate_step.go`).
@@ -681,7 +681,7 @@ flowchart TD
    looks exactly like a call that happened. Once per turn, and it keeps the turn open: "not
    finished after all" is the way back.
 5. **Outstanding hand-offs** — work went to another companion and has not come back. The answer
-   lands in this conversation on its own, so the agent is told to keep working if it is part of
+   lands in this chat on its own, so the agent is told to keep working if it is part of
    what was asked, and otherwise to say plainly in its answer what is still out with whom.
 6. **What the answers were worth** — a hand-off that DID come back is rated (`rate_handoff`)
    before the turn closes, because nothing but this turn knows whether it was the answer that was
@@ -1091,8 +1091,8 @@ forgotten — no deregistration step exists because no registration step does.
   up behind whoever had been elected.
 - **Depth is bounded by shape, not by a counter.** Work handed to a companion cannot be handed on.
   The rule is read off a label in the transcript, which survives restarts, attaches and resumes.
-- **Conversations are isolated; the workspace is not — unless the work cannot write.** Each asker
-  gets a side session, so nobody's request lands in the conversation a person is having — and one
+- **Chats are isolated; the workspace is not — unless the work cannot write.** Each asker
+  gets a side session, so nobody's request lands in the chat a person is having — and one
   turn runs at a time per workspace, the person's included, because two turns in one tree are two
   writers with nothing between them. That rule is about WRITING, and applying it to everything cost
   an answer that could have been given at once: a companion asked "what does your README say" sat
@@ -1102,7 +1102,7 @@ forgotten — no deregistration step exists because no registration step does.
   drain gate asks `WritingRun` rather than `Running` — is anything in flight that could touch the
   workspace. The asker declares and the receiver enforces: an asker cannot bind anybody, and a flag
   that only travelled would be a promise rather than a mechanism. A question and a piece of work
-  from one asker are two conversations, because what a session may do is fixed when it is opened.
+  from one asker are two chats, because what a session may do is fixed when it is opened.
   A busy companion therefore queues (bounded, four) rather than refusing, and a receipt is minted at
   ACCEPT while the log position is taken at START: taken at accept, a piece that waited would have
   had somebody else's finished turn returned as its answer, which is a plausible wrong answer rather
@@ -1168,10 +1168,10 @@ forgotten — no deregistration step exists because no registration step does.
   would tell it when you look at your agents. A test walks every path the page references and
   requires the static demo to carry each one — added after a deploy went out blank because the
   page had become an ES module and the demo still copied only the fonts.
-- **Which conversation a companion is in is the DAEMON's answer.** It publishes one session in its
+- **Which chat a companion is in is the DAEMON's answer.** It publishes one session in its
   record and every reader believes it — the fleet row, the console resolving where a prompt goes, a
   terminal attaching. So moving is `daemon.SessionMover`: refuse mid-turn, refuse a session outside
-  this workspace, mark the conversation being left with `session.moved`, then republish. The mark
+  this workspace, mark the chat being left with `session.moved`, then republish. The mark
   is how other screens find out, through the log they are already reading. The record is written
   temp-and-rename under one lock, because its readers poll it and two goroutines write it (the
   queue depth, and this).
