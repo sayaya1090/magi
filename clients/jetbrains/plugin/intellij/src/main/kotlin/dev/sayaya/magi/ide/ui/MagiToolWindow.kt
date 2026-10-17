@@ -638,11 +638,11 @@ class MagiToolWindow : ToolWindowFactory {
             val top = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.empty(8, 8, 2, 8) }
             top.add(prompt, BorderLayout.CENTER) // diff 판이 빠지며 한 장짜리가 된 래퍼는 접었다(리뷰)
             top.add(buttons, BorderLayout.SOUTH)
-            // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
-            // 눈이 한 번은 걸려야 한다(§3.1a 의 도랑이 하는 일을 좁은 판에서 선 하나가 한다).
+            // 질문과 선택 버튼은 채팅 입력 바로 위에 둔다. 전사 상단에 고정하면
+            // 입력하는 곳에서 멀어져 질문이 온 것을 놓치기 쉽다.
             head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 add(top, BorderLayout.CENTER)
-                add(Look.rule(), BorderLayout.SOUTH)
+                add(Look.rule(), BorderLayout.NORTH)
                 isVisible = false // 물음이 올 때 [drawPrompt] 가 편다
             }
 
@@ -656,8 +656,12 @@ class MagiToolWindow : ToolWindowFactory {
             val bottom = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.emptyBottom(10) }
             bottom.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
-                add(Look.rule(), BorderLayout.NORTH)
-                add(chips, BorderLayout.CENTER) // 첨부 칩 — 없으면 숨어 띠가 안 생긴다
+                add(head, BorderLayout.NORTH)
+                add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                    isOpaque = false
+                    add(Look.rule(), BorderLayout.NORTH)
+                    add(chips, BorderLayout.CENTER)
+                }, BorderLayout.CENTER)
             }, BorderLayout.NORTH)
             bottom.add(writing, BorderLayout.CENTER)
             bottom.add(JBPanel<JBPanel<*>>().apply {
@@ -765,7 +769,6 @@ class MagiToolWindow : ToolWindowFactory {
             recallKey("DOWN", "magi.recallNewer", older = false)
             refreshRecall()
 
-            root.add(head, BorderLayout.NORTH)
             // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
             // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
             root.add(scroll, BorderLayout.CENTER)
