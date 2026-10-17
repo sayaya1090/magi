@@ -234,11 +234,11 @@ window.addEventListener('message', (e) => {
   body.textContent = '';
   section('now', m.state);
   section('plan', m.plan);
-  contextSection(m.gauge, m.context);
   section('jobs', m.jobs);
-  section('scheduled', m.cron);
-  fleetSection(m.fleet);
   section('handed over', m.handed);
+  contextSection(m.gauge, m.context);
+  fleetSection(m.fleet);
+  section('scheduled', m.cron);
   section("this editor's tools", m.hand);
 });
 vs.postMessage({ kind: 'ready' });

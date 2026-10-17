@@ -1134,7 +1134,26 @@ class MagiToolWindow : ToolWindowFactory {
         private fun renderRow(r: Row): JBPanel<JBPanel<*>> = rowPanel(r)
 
         private fun rowPanel(r: Row): JBPanel<JBPanel<*>> {
-            val p = JBPanel<JBPanel<*>>(BorderLayout(0, 2))
+            val surface = when (r.who) {
+                Who.User -> Look.primary
+                Who.System -> Look.muted
+                else -> null
+            }
+            val p = object : JBPanel<JBPanel<*>>(BorderLayout(0, 2)) {
+                override fun paintComponent(g: java.awt.Graphics) {
+                    super.paintComponent(g)
+                    if (surface != null) {
+                        val canvas = g.create() as java.awt.Graphics2D
+                        try {
+                            canvas.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+                            canvas.color = java.awt.Color(surface.red, surface.green, surface.blue, 18)
+                            canvas.fillRoundRect(2, 2, width - 5, height - 5, 12, 12)
+                            canvas.color = java.awt.Color(surface.red, surface.green, surface.blue, 65)
+                            canvas.drawRoundRect(2, 2, width - 5, height - 5, 12, 12)
+                        } finally { canvas.dispose() }
+                    }
+                }
+            }
             p.border = when {
                 r.who == Who.Tool && r.pending -> Look.pendingToolRow()
                 r.who == Who.Tool -> Look.toolRow()
