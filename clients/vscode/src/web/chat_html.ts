@@ -41,7 +41,8 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #scroll { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
   .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
   .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
-  .user { border-left:2px solid var(--vscode-focusBorder); padding-left:8px; }
+  .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
+  .system { border:1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground)); border-radius:8px; padding:6px 10px; background:var(--vscode-editor-background); }
   .pending { opacity:.75; }
   /* Parked, not being worked on. Its own mark because "asked and waiting" and "shelved until
      this turn ends" draw the same bar otherwise, and a person cannot tell which they typed. */
