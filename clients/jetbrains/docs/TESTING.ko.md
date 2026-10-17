@@ -2040,3 +2040,16 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 스트리밍 중에는 텍스트를 같은 컴포넌트에 표시하고, 확정 후 마크다운 서식을 적용합니다. 확정된 행은 내용·접기 상태·세션 등이 변하지 않으면 다시 만들지 않습니다. 복합 마크다운 브라우저는 채팅 뷰마다 최대 4개를 보관하며, 다른 뷰의 갱신이 이 뷰의 브라우저를 해제하지 않습니다. 스크롤바 폭을 미리 확보해 스크롤 시작만으로 완료 행의 줄바꿈이 변하지 않도록 합니다.
 
 `ToolRowHeadTest.testUserAndMagiMessagesHaveDifferentSurfaces`는 사용자·마기 말풍선에 서로 다른 테마 색이 적용되는지 검사합니다. 실물 로그에는 출력 시작 시 `stable stream text renderer started`, 확정 시 `stable stream finished updates=… preservedRows=…`를 남깁니다. 스트리밍 테스트는 Swing에서 수행하며 실물 JCEF 화면의 최종 인수를 대체하지 않습니다.
+
+### 네이티브 Markdown 배경 검증
+
+`NativeMarkdownSurfaceTest`는 표 9행이 있는 실제 사용자 답변을 IDE Markdown HTML 생성기로 변환하고 JCEF 브라우저에 표시합니다. 본문의 표 행 수와 네이티브 화면 픽셀을 함께 검사합니다. 일반 CI에서는 이 테스트를 제외합니다. 데스크톱 세션에서 다음 명령으로 실행합니다.
+
+```sh
+cd clients/jetbrains/plugin
+./gradlew -PnativeMarkdownTest :intellij:test --tests '*NativeMarkdownSurfaceTest'
+```
+
+테스트용 IDE는 미리보기 부트스트랩 주소를 테스트 URL로 바꾸므로, 생성된 HTML을 같은 브라우저의 DOM에 직접 삽입합니다. 이 검사는 Markdown 생성·네이티브 합성·배경 처리 경로를 실행하지만, 실물 플러그인의 전체 부트스트랩을 인수한 결과는 아닙니다. 이미지는 저장하지 않고 `Robot.getPixelColor`로 색을 측정합니다. 색 변환의 반올림을 고려해 채널별 오차 1까지 허용합니다.
+
+HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에 흰색이 남는 JCEF 합성 경로에서는 브라우저 최하단 배경에 말풍선의 합성 색을 적용합니다. `markdown-surface-test.mjs`는 지연된 본문 삽입과 교체를, `rich-answer-test.mjs`는 높이 변경과 휠 전달을 Playwright로 검사합니다.

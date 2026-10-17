@@ -52,7 +52,7 @@ internal class RichAnswer {
      * 지정된 응답의 마크다운 렌더 패널을 반환한다. 생성 실패 또는 자격 미달 시 null을 반환하여 경량 렌더러로 폴백한다.
      * 패널은 [parent]에 등록되어 창 닫힘 시 함께 해제된다.
      */
-    fun panel(project: Project, md: String, key: String, parent: Disposable, streaming: Boolean = false): JComponent? {
+    fun panel(project: Project, md: String, key: String, parent: Disposable, streaming: Boolean = false, surface: java.awt.Color = com.intellij.util.ui.UIUtil.getPanelBackground()): JComponent? {
         // 스트리밍 응답 텍스트 증가 시 패널 내용 및 실측 높이를 재계산한다 (리뷰 F1: 초기 펜스만 열린 상태로 고정되는 결함 방지).
         live[key]?.let { held ->
             val wasStreaming = held.sizing.streaming
@@ -94,7 +94,7 @@ internal class RichAnswer {
             }
             // 브라우저에 실제 렌더링 완료 높이(scrollHeight)를 비동기 질의하여 패널 높이를 조정한다.
             val sizing = StreamingHeight(streaming)
-            val measure = measurer(htmlPanel, holder, sizing)
+            val measure = measurer(htmlPanel, holder, sizing, surface)
             measure()
             // 패널 폭(가로) 변경 시 텍스트 래핑 변화로 높이가 달라지므로 폭 변경 시에만 높이를 재측정한다.
             // 높이 변경으로 인한 리사이즈 이벤트는 재측정 루프(EDT 포화)를 유발하므로 제외한다 (샌드박스 실측 결함 대응).
@@ -130,13 +130,13 @@ internal class RichAnswer {
      *
      * 렌더링 초기 시점의 지연을 감안하여 다단계 타이머(350ms, 1400ms)와 로드 완료 이벤트([CefLoadHandlerAdapter.onLoadEnd])를 결합한다.
      */
-    private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>, sizing: StreamingHeight): () -> Unit {
+    private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>, sizing: StreamingHeight, surface: java.awt.Color): () -> Unit {
         // JBCefJSQuery 생성 (리뷰 F7: setHtml 직후 쿼리를 등록하여 CEF 바이트코드 레벨의 조용한 무응답 방어)
         val browser = panel as? com.intellij.ui.jcef.JBCefBrowser ?: return {}
         browser.component.isOpaque = false
         browser.browserComponent?.background = java.awt.Color(0, 0, 0, 0)
         (browser.browserComponent as? javax.swing.JComponent)?.isOpaque = false
-        browser.setPageBackgroundColor("transparent")
+        browser.setPageBackgroundColor("rgb(${surface.red},${surface.green},${surface.blue})")
         val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase) }.getOrNull() ?: return {}
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
@@ -192,7 +192,8 @@ internal class RichAnswer {
                     const body = document.body;
                     if (!body) return;
                     if (!style.isConnected) document.head.appendChild(style);
-                    for (const root of [document.documentElement, body, ...body.querySelectorAll(':scope > div, :scope > main, .markdown-body')]) {
+                    document.documentElement.style.setProperty('background', 'rgb(${surface.red},${surface.green},${surface.blue})', 'important');
+                    for (const root of [body, ...body.querySelectorAll(':scope > div, :scope > main, .markdown-body')]) {
                         if (root.style.getPropertyValue('background') !== 'transparent' || root.style.getPropertyPriority('background') !== 'important') {
                             root.style.setProperty('background', 'transparent', 'important');
                         }

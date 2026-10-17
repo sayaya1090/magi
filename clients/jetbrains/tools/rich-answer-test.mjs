@@ -7,7 +7,8 @@ const { chromium } = require('playwright');
 const source = await readFile(new URL('../plugin/intellij/src/main/kotlin/dev/sayaya/magi/ide/ui/RichAnswer.kt', import.meta.url), 'utf8');
 const match = source.match(/val js = """([\s\S]*?)"""\.trimIndent\(\)/);
 assert.ok(match, 'production measurement script must exist');
-const js = match[1].replace(/\$\{query\.inject\("([^"\n]*)"\)\}/g, (_, expression) => `window.reports.push(${expression});`);
+const js = match[1].replace(/\$\{surface\.(red|green|blue)\}/g, (_, channel) => ({red:173,green:67,blue:131}[channel]))
+  .replace(/\$\{query\.inject\("([^"\n]*)"\)\}/g, (_, expression) => `window.reports.push(${expression});`);
 assert.ok(!js.includes('${'), 'all JVM bridge calls must be replaced');
 const browser = await chromium.launch({headless: true});
 try {
