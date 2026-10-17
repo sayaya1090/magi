@@ -108,6 +108,7 @@ local function liveCall(name, argsJSON, silenceCap)
           }
         end
       elseif d.method == 'turn/completed' then
+        if type(p.turn) ~= 'table' then return nil, 'malformed turn completion' end
         if p.turn.status ~= 'completed' then return nil, 'Codex turn ' .. tostring(p.turn.status) end
         if total then mcp.totals[thread] = total end
         if #chunks == 0 then return nil, 'completed turn carried no text' end

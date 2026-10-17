@@ -12,7 +12,7 @@ import tempfile
 
 
 def update(path: Path) -> bool:
-    source = path.read_text()
+    source = path.read_text(encoding='utf-8')
     marker = '-- Inlined into the optional local Codex plugin by update-codex-transport.py.'
     start = source.find(marker)
     if start < 0:
@@ -20,7 +20,7 @@ def update(path: Path) -> bool:
     end = source.find('-- liveTurn answers', start)
     if start < 0 or end < 0:
         raise ValueError('Expected persistent-thread plugin layout was not found; file unchanged')
-    transport = Path(__file__).with_name('codex-app-server-transport.lua').read_text()
+    transport = Path(__file__).with_name('codex-app-server-transport.lua').read_text(encoding='utf-8')
     updated = source[:start] + transport + source[end:]
     updated = updated.replace(
         'completion = (tonumber(u.output_tokens) or 0) + (tonumber(u.reasoning_output_tokens) or 0),',
@@ -49,9 +49,9 @@ def update(path: Path) -> bool:
     digest = hashlib.sha256(source.encode()).hexdigest()[:12]
     backup = path.with_name(path.name + '.before-app-server-' + digest)
     if not backup.exists():
-        backup.write_text(source)
+        backup.write_text(source, encoding='utf-8')
         backup.chmod(path.stat().st_mode & 0o777)
-    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as temp:
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as temp:
         staged = Path(temp.name)
         try:
             temp.write(updated)
