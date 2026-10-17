@@ -498,9 +498,6 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
       spinner.setAttribute('aria-label', '백그라운드 실행 중');
       w.prepend(spinner);
     }
-    const footer = document.createElement('div');
-    footer.className = 'row-footer';
-    const outputActions = r.who === 'user' || r.who === 'agent' ? footer : w;
     if (r.outputId) {
       const boundOutputId = r.outputId;
       const openOutputBtn = document.createElement('button');
@@ -518,7 +515,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
           actions.openOutput(boundSession, boundOutputId);
         });
       }
-      outputActions.append(openOutputBtn);
+      w.append(' ', openOutputBtn);
     }
     const b = document.createElement('div');
     b.className = 'body';
@@ -620,7 +617,6 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
       d.append(rawBox);
     }
     d.append(w, b);
-    if (footer.childElementCount) d.append(footer);
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);
   }

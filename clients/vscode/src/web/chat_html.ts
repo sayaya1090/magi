@@ -43,8 +43,6 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .tool-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:middle; animation:tool-spin 1s linear infinite; }
   @keyframes tool-spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .tool-spinner { animation:none; } }
-  .row-footer { display:flex; justify-content:flex-end; gap:4px; margin-top:4px; }
-  .row-footer .output-open-btn { margin:0; }
   .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
   .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
   .user { background:color-mix(in srgb, var(--vscode-focusBorder, #b45309) 10%, var(--vscode-editor-background, #1e1e1e)); }

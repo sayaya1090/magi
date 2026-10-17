@@ -34,20 +34,19 @@ class ToolRowHeadTest : BasePlatformTestCase() {
         } finally { com.intellij.openapi.util.Disposer.dispose(view) }
     }
 
-    fun testMessageActionsAreBelowBodyAndHaveBalancedInsets() {
+    fun testMessageActionsStayInHeaderWithoutAddingFooter() {
         val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
         try {
             val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
             for (who in listOf(dev.sayaya.magi.ide.usecase.Who.User, dev.sayaya.magi.ide.usecase.Who.Agent)) {
                 val panel = render.invoke(view, dev.sayaya.magi.ide.usecase.Row(who = who, text = "hello")) as JPanel
                 val layout = panel.layout as java.awt.BorderLayout
-                val footer = layout.getLayoutComponent(java.awt.BorderLayout.SOUTH) as JComponent
+                assertNull(layout.getLayoutComponent(java.awt.BorderLayout.SOUTH))
                 assertNotNull(layout.getLayoutComponent(java.awt.BorderLayout.CENTER))
                 fun hasCopy(c: Container): Boolean = c.components.any {
                     (it is JComponent && it.toolTipText == MagiBundle.msg("chat.copy.one")) || (it is Container && hasCopy(it))
                 }
-                assertTrue(hasCopy(footer))
-                assertFalse(hasCopy(layout.getLayoutComponent(java.awt.BorderLayout.NORTH) as Container))
+                assertTrue(hasCopy(layout.getLayoutComponent(java.awt.BorderLayout.NORTH) as Container))
             }
         } finally { com.intellij.openapi.util.Disposer.dispose(view) }
     }
