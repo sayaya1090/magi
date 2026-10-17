@@ -1508,3 +1508,5 @@ Playwright의 `streaming_preserves_completed_rows_and_reading_position`은 실�
 Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위치를 유지하면서 최신 원문을 복사하는지 검사합니다. 시간의 초 `00`, 우측 아이콘·시간 순서와 24px 아이콘 버튼 크기도 실측합니다. `diff` 묶음은 편집창 열기 아이콘의 접근 가능한 이름과 세션 바인딩을 확인합니다.
 
 `output.test.ts`와 `diff.test.ts`는 `vscode-uri`의 실제 파서로 macOS·한글·Windows·UNC 경로를 검증합니다. 첫 경로 앞에 `/snapshot/`을 두어 절대경로의 `%2F`가 디코딩돼도 경로가 `//`로 시작하지 않게 합니다. `output_provider.test.ts`도 같은 파서를 사용해 편집창 열기까지 확인합니다.
+
+`webview.test.ts`는 VS Code의 의미별 팔레트를 JetBrains `Palette.kt`의 밝음·어두움 값과 대조합니다. Playwright `semantic_text_colors_match_jetbrains`는 두 테마에서 사용자·Magi·카운슬 3인·판정·오류의 실제 계산 색을 확인합니다. 접근성 하네스는 색 변수와 VS Code의 테마 body 클래스를 함께 전환합니다.

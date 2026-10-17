@@ -488,9 +488,18 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     const d = document.createElement('div');
     d.className = 'row ' + r.who + (r.draft ? ' draft' : '') + (r.pending ? ' pending' : '')
       + (r.queued ? ' queued' : '') + (r.abandoned ? ' abandoned' : '');
+    if (r.who === 'council' && r.member) d.dataset.member = r.member.toLowerCase();
     const w = document.createElement('div');
     w.className = 'who';
-    const label = document.createElement('span'); label.className = 'row-label'; label.textContent = r.label;
+    const label = document.createElement('span'); label.className = 'row-label'; label.textContent = r.speaker || r.label;
+    if (r.badge) {
+      const badge = document.createElement('span'); badge.className = 'row-badge';
+      const outcome = r.who === 'council'
+        ? r.silent ? '' : r.decision === 'done' ? 'success' : r.decision === 'continue' ? 'warn' : ''
+        : r.who === 'tool' ? r.note ? 'warn' : r.ok === true ? 'success' : r.ok === false ? 'error' : '' : '';
+      if (outcome) badge.classList.add(outcome);
+      badge.textContent = r.badge; label.append(badge);
+    }
     const controls = document.createElement('span'); controls.className = 'row-actions';
     w.append(label, controls);
     function iconButton(cls: string, title: string, path: string): HTMLButtonElement {

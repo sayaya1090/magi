@@ -1,3 +1,4 @@
+import { idePaletteCss } from '../core/palette';
 import * as vscode from 'vscode';
 import * as activity from '../core/activity';
 import { Companion } from './workspace';
@@ -203,6 +204,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     return `<!DOCTYPE html><html><head>
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
+${idePaletteCss}
   body { margin:0; padding:8px 10px; font-family:var(--vscode-font-family);
          font-size:var(--vscode-font-size); color:var(--vscode-foreground); }
   h3 { font-size:.85em; text-transform:uppercase; letter-spacing:.04em; opacity:.7;
@@ -215,9 +217,9 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
   .context-compact:disabled { opacity:.5; cursor:default; }
   .connection { display:flex; align-items:center; gap:7px; margin-bottom:10px; }
   .connection::before { content:''; width:9px; height:9px; border-radius:50%; flex:none; background:var(--vscode-descriptionForeground); }
-  .connection.attached::before, .connection.working::before { background:var(--vscode-testing-iconPassed, #73c991); }
-  .connection.waiting::before { background:var(--vscode-charts-yellow, #cca700); }
-  .connection.not-running::before { background:var(--vscode-testing-iconFailed, #f14c4c); }
+  .connection.attached::before, .connection.working::before { background:var(--magi-success); }
+  .connection.waiting::before { background:var(--magi-warn); }
+  .connection.not-running::before { background:var(--magi-error); }
   .controls { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px; }
   .controls button { color:var(--vscode-button-secondaryForeground); background:var(--vscode-button-secondaryBackground); border:1px solid var(--vscode-contrastBorder, transparent); border-radius:3px; padding:4px 8px; cursor:pointer; }
   .controls button:hover { background:var(--vscode-button-secondaryHoverBackground); }
@@ -236,19 +238,19 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
   .keys span::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
                        margin-right:4px; vertical-align:-1px; background:currentColor; }
   .keys .est::before { display:none; }
-  .p-system { color:var(--vscode-descriptionForeground); } .p-tools { color:var(--vscode-charts-purple); }
-  .p-talk { color:var(--vscode-textLink-foreground); } .p-calls { color:var(--vscode-charts-orange); }
-  .p-results { color:var(--vscode-charts-blue); }
-  .bar i.p-system { background:var(--vscode-descriptionForeground); } .bar i.p-tools { background:var(--vscode-charts-purple); }
-  .bar i.p-talk { background:var(--vscode-textLink-foreground); } .bar i.p-calls { background:var(--vscode-charts-orange); }
-  .bar i.p-results { background:var(--vscode-charts-blue); }
+  .p-system { color:var(--magi-partSystem); } .p-tools { color:var(--magi-partTools); }
+  .p-talk { color:var(--magi-accent); } .p-calls { color:var(--magi-partCalls); }
+  .p-results { color:var(--magi-partResults); }
+  .bar i.p-system { background:var(--magi-partSystem); } .bar i.p-tools { background:var(--magi-partTools); }
+  .bar i.p-talk { background:var(--magi-accent); } .bar i.p-calls { background:var(--magi-partCalls); }
+  .bar i.p-results { background:var(--magi-partResults); }
   .note { font-size:.85em; opacity:.7; margin-top:2px; }
   /* Fleet rows: a short line and a state dot; the rest is the row's tooltip. */
   .row { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:1px 0; }
   .row::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px;
                  vertical-align:-1px; background:var(--vscode-descriptionForeground); }
   .row.working::before { background:var(--vscode-textLink-foreground); }
-  .row.waiting::before { background:var(--vscode-charts-orange); }
+  .row.waiting::before { background:var(--magi-partCalls); }
   .row.gone::before { background:var(--vscode-errorForeground); }
 </style></head><body><div id="body"></div>
 <script nonce="${nonce}">

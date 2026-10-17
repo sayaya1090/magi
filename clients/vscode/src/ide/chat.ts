@@ -832,5 +832,5 @@ function paint(r: Row, you?: string, at?: string): Row & { label: string } {
   // into ✗ is the defect the core measured on a live run — a file that was written and then
   // linted drew as a write that failed.
   const mark = r.who !== 'tool' || r.ok === undefined ? '' : r.note ? ' ⚑' : r.ok ? ' ✓' : ' ✗';
-  return { ...r, ...(at ? { at } : {}), label: who + vote + mark };
+  return { ...r, ...(at ? { at } : {}), speaker: who, badge: vote + mark, label: who + vote + mark };
 }

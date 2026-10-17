@@ -112,14 +112,16 @@ export const ALL_A11Y_THEME_KEYS = Array.from(
 );
 
 export async function injectA11yTheme(page, themeVars) {
-  await page.evaluate(({ allKeys, vars }) => {
+  await page.evaluate(({ allKeys, vars, themeClass }) => {
+    document.body.classList.remove('vscode-dark', 'vscode-light', 'vscode-high-contrast');
+    document.body.classList.add(themeClass);
     for (const k of allKeys) {
       document.documentElement.style.removeProperty(k);
     }
     for (const [k, v] of Object.entries(vars)) {
       document.documentElement.style.setProperty(k, v);
     }
-  }, { allKeys: ALL_A11Y_THEME_KEYS, vars: themeVars });
+  }, { allKeys: ALL_A11Y_THEME_KEYS, vars: themeVars, themeClass: themeVars === A11Y_THEMES.light ? 'vscode-light' : themeVars === A11Y_THEMES.highContrast ? 'vscode-high-contrast' : 'vscode-dark' });
 }
 
 export async function runA11yStateAudit(page, { stateId, reverseThemes = false } = {}) {

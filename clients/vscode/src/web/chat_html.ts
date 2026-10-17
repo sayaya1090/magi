@@ -1,3 +1,5 @@
+import { idePaletteCss } from '../core/palette';
+
 /**
  * Renders the HTML for the chat webview.
  * This module has no dependencies on vscode, fs, or the workspace environment,
@@ -30,6 +32,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
 <title>MAGI Chat</title>
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
+${idePaletteCss}
   /* Every colour is the editor's. Nothing here picks one. */
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
              overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border-width:0; }
@@ -80,8 +83,8 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .agent .diff-del { color:var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c); }
   .agent .diff-hunk { color:var(--vscode-gitDecoration-modifiedResourceForeground, #3794ff); opacity:.8; }
   .abandoned { opacity:.6; text-decoration:line-through; }
-  .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
-  .error { color:var(--vscode-errorForeground); }
+  .thinking, .tool { font-family:var(--vscode-editor-font-family); font-size:.9em; }
+  .error { color:var(--magi-error); }
   /* A note about the conversation, not something the companion said — a fold, a recovered error.
      It had no rule at all, so it read as the agent's own words with a small label beside it. The
      JetBrains client draws the same rows small, italic and faint; this is that, in this editor's
@@ -89,7 +92,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .system { color:var(--vscode-descriptionForeground); font-style:italic; font-size:.9em; }
   /* What a tool was asked to do, beside its name. Dimmer than the name and clipped to one line:
      it is the answer to "which one", not the argument's full text. */
-  .args { color:var(--vscode-descriptionForeground); opacity:.85; }
+  .args { color:var(--magi-muted); }
   /* The companion itself, folded away. A gear rather than "…": the card is what this companion is
      RUNNING ON and what you can change about it, and a gear is the word every editor already uses
      for that — "…" says "more of the same", which this is not. */
@@ -192,11 +195,23 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .row-icon-btn:hover:not(:disabled) { background:var(--vscode-toolbar-hoverBackground, #80808026); }
   .row-icon-btn:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
   .row-icon-btn:disabled { opacity:.5; cursor:default; }
-  body { --bubble-user:#ff7a1a; --bubble-agent:#5cd8e6; }
-  body.vscode-light, body.vscode-high-contrast-light { --bubble-user:#b45309; --bubble-agent:#0e7490; }
-  .user, .agent { background:color-mix(in srgb, var(--bubble-tone) 7.06%, var(--vscode-editor-background, #1e1e1e)); border-color:color-mix(in srgb, var(--bubble-tone) 25.49%, transparent); }
-  .user { --bubble-tone:var(--bubble-user); }
-  .agent { --bubble-tone:var(--bubble-agent); }
+  .user, .agent, .system { background:color-mix(in srgb, var(--bubble-tone) 7.06%, var(--vscode-editor-background, #1e1e1e)); border-color:color-mix(in srgb, var(--bubble-tone) 25.49%, transparent); }
+  .user { --bubble-tone:var(--magi-primary); }
+  .agent { --bubble-tone:var(--magi-accent); }
+  .system { --bubble-tone:var(--magi-muted); }
+  .user .row-label { color:var(--magi-primary); }
+  .agent .row-label, .tool .row-label { color:var(--magi-accent); }
+  .row-label { font-weight:600; }
+  .thinking .row-label { color:var(--magi-muted); }
+  .row-time, .row-actions, .row-badge, .system, .image, .thought { color:var(--magi-muted); }
+  .row-status.success, .row-badge.success { color:var(--magi-success); }
+  .row-status.error, .row-badge.error, .out { color:var(--magi-error); }
+  .row-status.warn, .row-badge.warn { color:var(--magi-warn); }
+  .council[data-member="melchior"] { --seat-color:var(--magi-melchior); }
+  .council[data-member="balthasar"] { --seat-color:var(--magi-balthasar); }
+  .council[data-member="casper"] { --seat-color:var(--magi-casper); }
+  .council { border-color:var(--seat-color, var(--magi-muted)); }
+  .council .row-label { color:var(--seat-color, var(--vscode-foreground)); }
   pre.raw-args { font-family:var(--vscode-editor-font-family); font-size:.85em; margin:4px 0 6px;
     padding:4px 6px; background:var(--vscode-editor-background, rgba(0, 0, 0, 0.02));
     border-left:2px solid var(--vscode-textLink-foreground); border-radius:2px;
@@ -262,7 +277,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
-  .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
+  .out { color:var(--magi-error); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
   /* What a verdict stands on, and what it says to keep — two different kinds of text.
      ⚠ No backticks in this block: it is inside a template literal and one closes it.
      The cite is a FRAGMENT OF THE RECORD: measured against a live run, nine of twelve were diffs,
@@ -272,16 +287,16 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
      (magi looks the fragment up in what the member was shown), and a reader can only check what
      is drawn as it is. Capped, because one member's evidence must not push the round off screen.
      The keep is the member's own prose, so it stays in the reading font. */
-  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; color:var(--vscode-descriptionForeground); margin-top:2px;
+  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; color:var(--magi-muted); margin-top:2px;
     max-height:9em; overflow:auto; }
-  .keep { font-size:.9em; color:var(--vscode-descriptionForeground); margin-top:2px; }
+  .keep { font-size:.9em; color:var(--magi-muted); margin-top:2px; }
   /* Keep reasoning in the outer transcript flow, including its original line breaks. */
   .thought { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.6;
     margin-top:2px; white-space:pre-wrap; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
-  .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
-  .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
+  .image { font-family:var(--vscode-editor-font-family); font-size:.9em; }
+  .council { border-left:2px solid var(--seat-color, var(--magi-muted)); padding-left:8px; }
   /* 세로 여백이 4px 인 이유: 둘이 **각각** 서므로 6px 이면 위아래로 24px 이 안내 두 줄에 붙는다.
      실측(1200×200)에서 그 잔여가 바깥 오버플로 2px 로 남았다 — 안내는 줄어들어도 여백은 안
      줄기 때문이다. 하나를 숨겨서 풀지 않는다. */

@@ -3,6 +3,32 @@ import { createRowsMessage, createStateMessage } from '../../transcript-fixtures
 
 export const layoutScenarios = [
       {
+        id: 'semantic_text_colors_match_jetbrains',
+        name: '발화자·카운슬 멤버·판정·오류의 밝고 어두운 텍스트 색',
+        run: async (page) => {
+          await page.evaluate(m => window.postMessage(m, '*'), createRowsMessage({ rows: [
+            { who: 'user', label: '나', speaker: '나', text: 'request' },
+            { who: 'agent', label: 'magi', speaker: 'magi', text: 'answer' },
+            ...['melchior', 'balthasar', 'casper'].map((member, i) => ({ who: 'council', member, label: member, speaker: member,
+              decision: i === 0 ? 'done' : 'continue', badge: i === 0 ? ' ✓ done' : ' ✗ reject', text: 'review' })),
+            { who: 'error', label: 'error', text: 'failed' },
+          ] }));
+          await page.locator('.row.council').first().waitFor();
+          for (const [theme, expected] of [
+            ['vscode-dark', ['rgb(255, 122, 26)', 'rgb(92, 216, 230)', 'rgb(255, 180, 84)', 'rgb(92, 216, 230)', 'rgb(216, 180, 254)', 'rgb(242, 184, 181)']],
+            ['vscode-light', ['rgb(180, 83, 9)', 'rgb(14, 116, 144)', 'rgb(180, 83, 9)', 'rgb(14, 116, 144)', 'rgb(109, 40, 217)', 'rgb(179, 38, 30)']],
+          ]) {
+            await page.evaluate(theme => { document.body.classList.remove('vscode-dark', 'vscode-light', 'vscode-high-contrast'); document.body.classList.add(theme); }, theme);
+            const actual = await page.evaluate(() => ['.user .row-label', '.agent .row-label', '[data-member="melchior"] .row-label',
+              '[data-member="balthasar"] .row-label', '[data-member="casper"] .row-label', '.row.error .body'].map(s => getComputedStyle(document.querySelector(s)).color));
+            assert.deepEqual(actual, expected);
+            const badges = await page.evaluate(() => [...document.querySelectorAll('.row-badge')].map(e => getComputedStyle(e).color));
+            assert.deepEqual(badges, theme === 'vscode-dark' ? ['rgb(134, 239, 172)', 'rgb(255, 212, 121)', 'rgb(255, 212, 121)'] : ['rgb(21, 128, 61)', 'rgb(146, 96, 10)', 'rgb(146, 96, 10)']);
+          }
+          await page.evaluate(() => { document.body.classList.remove('vscode-light'); document.body.classList.add('vscode-dark'); });
+        },
+      },
+      {
         id: 'streaming_preserves_completed_rows_and_reading_position',
         name: '스트리밍 중 완료 행 DOM·위치·선택 보존과 말풍선 색 구분',
         run: async (page) => {

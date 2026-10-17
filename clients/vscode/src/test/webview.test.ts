@@ -1,3 +1,4 @@
+import { ideColors } from '../core/palette';
 import { test } from 'node:test';
 import { chatWebviewSource } from './support/webview_source';
 import * as assert from 'node:assert/strict';
@@ -95,7 +96,7 @@ test('no webview script contains a backtick', () => {
 
 /** And every interpolation in there is one we meant — a stray ${ is a hole, not a value. */
 test('every interpolation in a webview is a named one', () => {
-  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri']);
+  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri', 'idePaletteCss']);
   for (const { file, body } of templates()) {
     for (const m of body.matchAll(/\$\{([^}]*)\}/g)) {
       assert.ok(allowed.has(m[1].trim()), `${file}: unexpected interpolation \${${m[1]}}`);
@@ -5651,4 +5652,12 @@ test('↑/↓ in the composer bring back what was typed in any conversation, onl
   assert.equal(key('ArrowUp'), false);
   assert.equal(elements.say.value, 'one\ntwo');
   inputAdapter.dispose();
+});
+
+
+test('VS Code semantic colors match both JetBrains palette variants', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../../jetbrains/plugin/core/src/main/kotlin/dev/sayaya/magi/ide/usecase/Palette.kt'), 'utf8');
+  for (const [role, colors] of Object.entries(ideColors)) {
+    assert.ok(source.includes(`val ${role} = Ink("${colors.light}", "${colors.dark}")`), `palette mismatch: ${role}`);
+  }
 });
