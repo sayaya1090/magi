@@ -105,6 +105,10 @@ func (a *App) systemFragments(agent AgentSpec, workdir string) []contextFragment
 			parts = append(parts, contextFragment{id: "system/companion-purpose", source: "userCompanionPolicy", lane: turnSystem, text: guide})
 		}
 	}
+
+	if guide := a.codingWorkflowGuide(); guide != "" {
+		parts = append(parts, contextFragment{id: "system/coding-workflow", source: "codingWorkflowGuide", lane: turnSystem, text: guide})
+	}
 	return parts
 }
 

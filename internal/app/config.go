@@ -183,11 +183,14 @@ type Config struct {
 	CompanionInstructions func(workdir string) string
 
 	CodingTasks port.CodingTasks
-	ClientRole  string
-	Model       session.ModelRef
-	System      string
-	MaxSteps    int
-	Permission  string // "allow" | "deny" | "ask" | "auto" (approval axis)
+	// CodingTaskExecution is set by the trusted CLI runner after it binds and locks
+	// a prepared workspace. It prevents the model from preparing a nested task.
+	CodingTaskExecution bool
+	ClientRole          string
+	Model               session.ModelRef
+	System              string
+	MaxSteps            int
+	Permission          string // "allow" | "deny" | "ask" | "auto" (approval axis)
 	// Interactive is true only when a human can answer permission prompts (the TUI).
 	// Headless/automation leaves it false: a guardrail-forced prompt then resolves by
 	// policy instead of blocking forever on a decision no one will give (which, with a

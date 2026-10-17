@@ -296,10 +296,13 @@ class MagiToolWindow : ToolWindowFactory {
             c.rows { shaper.list() }
             c.popup(column) { shaper.list() }
         }
-        private val scroll = JBScrollPane(column).apply {
+        private val scroll = JBScrollPane().apply {
+            viewport = TranscriptViewport()
+            setViewportView(column)
             border = JBUI.Borders.empty()
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
+        private val tailScroll = TailScroll(scroll)
 
         /** 트랜스크립트 셰이퍼. 이벤트 파싱은 워커 스레드에서 수행하며, 렌더링은 EDT에서 스냅샷 기반으로 실행합니다. */
         private val shaper = Rows()
@@ -637,11 +640,11 @@ class MagiToolWindow : ToolWindowFactory {
             val top = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.empty(8, 8, 2, 8) }
             top.add(prompt, BorderLayout.CENTER) // diff 판이 빠지며 한 장짜리가 된 래퍼는 접었다(리뷰)
             top.add(buttons, BorderLayout.SOUTH)
-            // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
-            // 눈이 한 번은 걸려야 한다(§3.1a 의 도랑이 하는 일을 좁은 판에서 선 하나가 한다).
+            // 질문과 선택 버튼은 채팅 입력 바로 위에 둔다. 전사 상단에 고정하면
+            // 입력하는 곳에서 멀어져 질문이 온 것을 놓치기 쉽다.
             head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 add(top, BorderLayout.CENTER)
-                add(Look.rule(), BorderLayout.SOUTH)
+                add(Look.rule(), BorderLayout.NORTH)
                 isVisible = false // 물음이 올 때 [drawPrompt] 가 편다
             }
 
@@ -655,8 +658,12 @@ class MagiToolWindow : ToolWindowFactory {
             val bottom = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.emptyBottom(10) }
             bottom.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
-                add(Look.rule(), BorderLayout.NORTH)
-                add(chips, BorderLayout.CENTER) // 첨부 칩 — 없으면 숨어 띠가 안 생긴다
+                add(head, BorderLayout.NORTH)
+                add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                    isOpaque = false
+                    add(Look.rule(), BorderLayout.NORTH)
+                    add(chips, BorderLayout.CENTER)
+                }, BorderLayout.CENTER)
             }, BorderLayout.NORTH)
             bottom.add(writing, BorderLayout.CENTER)
             bottom.add(JBPanel<JBPanel<*>>().apply {
@@ -764,7 +771,6 @@ class MagiToolWindow : ToolWindowFactory {
             recallKey("DOWN", "magi.recallNewer", older = false)
             refreshRecall()
 
-            root.add(head, BorderLayout.NORTH)
             // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
             // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
             root.add(scroll, BorderLayout.CENTER)
@@ -840,6 +846,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
             inputGate.dispose()
+            tailScroll.close()
             runCatching { following?.close() }
             following = null
             runCatching { handRegistration.close() }
@@ -923,7 +930,10 @@ class MagiToolWindow : ToolWindowFactory {
             // 던진 것을 **그대로** 싣는다. `getOrNull` 로 버리고 여기서 문장을 지으면 「데몬이
             // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
             // 사유가 하나뿐이라 더 그럴듯해서 더 나쁘다.
-            if (sid != followedSid) lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
+            if (sid != followedSid) {
+                lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
+                SwingUtilities.invokeLater { tailScroll.followEnd() }
+            }
             val since = lastSeq.takeIf { it > 0 }
             if (since == null) {
                 // 전량 재생이 온다 — 두 벌이 안 쌓이게 비우고 받는다. 커서가 서면 증분이라 비울
@@ -1088,12 +1098,7 @@ class MagiToolWindow : ToolWindowFactory {
                     rows0.filter { it.who == Who.Agent && RichAnswer.needsRich(it.text) }
                         .takeLast(RichAnswer.KEEP).map { RowText.richKey(it) },
                 )
-                // 바닥 고정은 **바닥에 있던 사람에게만**. 무조건 고정이던 동안, 턴이 도는 중에
-                // 위로 스크롤해 과거를 읽으면 새 이벤트마다 바닥으로 낚아채였다(라이브 실측 —
-                // 지나간 편집을 찾아 올라가는 손이 매번 튕겼다). 떠나 있던 사람의 자리는
-                // 그대로 두고, 꼬리를 따르던 사람만 계속 따르게 한다.
-                val bar = scroll.verticalScrollBar
-                val atBottom = bar.value + bar.visibleAmount >= bar.maximum - 48
+                // Delayed row sizing changes geometry, not the user's follow intent.
                 column.removeAll()
                 // 다시 그릴 때마다 선택의 손도 새 패널을 잡는다 — 지나간 패널을 들고 있으면
                 // 안 보이는 것을 칠한다. 고른 것 자체는 행 열쇠로 들고 있어 살아남는다.
@@ -1118,16 +1123,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 column.revalidate()
                 column.repaint()
-                if (atBottom) SwingUtilities.invokeLater {
-                    scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
-                    // 줄바꿈 판의 2-패스 레이아웃이 pin 직후 높이를 더 키우면, 한 번의 미착지로
-                    // 꼬리 추적이 영구 이탈한다(리뷰 F4 — 종전 무조건 고정은 다음 이벤트가
-                    // 자가 치유했었다). 다음 프레임에 한 번 더 주장한다. 슬랙 48px 은 한 줄
-                    // 행 하나 미만이라 "바닥에 있던 사람"만 문다.
-                    SwingUtilities.invokeLater {
-                        scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
-                    }
-                }
+                tailScroll.contentChanged()
             }
         }
 
@@ -1149,7 +1145,6 @@ class MagiToolWindow : ToolWindowFactory {
             // 개별 말풍선 텍스트 복사 버튼:
             // 시각적 스타일(발화자, 실행 상태 등)은 `RowText.plain`을 통해 표준 텍스트 서식으로 직렬화하여 클립보드에 전달합니다.
             val actions = javax.swing.JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 2, 0)).apply { isOpaque = false }
-            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
             val sourceSession = currentSendSession()
             if (sourceSession != null && r.outputText != null && r.outputSeq != null) {
                 // 아이콘 단추 — 복사 아이콘 옆에 같은 크기로 선다. 글자 단추였을 때는 행에서 가장 큰
@@ -1166,6 +1161,7 @@ class MagiToolWindow : ToolWindowFactory {
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }
+            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
             // 헤더가 시각을 싣는 행(도구·말·카운슬)은 아이콘도 헤더에 싣는다 — [아이콘] [시각] 한 줄.
             // 헤더가 없는 행(생각 등)만 본문 옆에 세운다.
             var headTookActions = false
@@ -1188,7 +1184,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,
                         // 일반 텍스트는 경량 Swing 컴포넌트로 렌더링하여 프로세스 메모리를 절약합니다.
                         val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
-                            RichAnswer.panel(project, r.text, RowText.richKey(r), this@View)
+                            RichAnswer.panel(project, r.text, RowText.richKey(r), this@View, streaming = r.draft)
                         } else null
                         // 스트리밍 중인 초안은 커서 글리프(" ▌")를 붙여 완료된 텍스트와 구별합니다(리뷰 F11).
                         p.add(rich ?: Look.rich(r.text + if (r.draft) " ▌" else ""), BorderLayout.CENTER)
@@ -1959,7 +1955,7 @@ class MagiToolWindow : ToolWindowFactory {
                 if (outcome.clearInput) {
                     input.text = ""
                     dropSuggestion()
-                    scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                    tailScroll.followEnd()
                 }
                 synchronized(refs) { refs.removeAll(attempt.refs) }
                 drawChips()

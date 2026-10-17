@@ -19,6 +19,8 @@ import (
 
 // Coding tasks have a separate entrypoint so non-coding clients never acquire
 // workspace mutation capabilities merely by opening a conversation.
+type codingTaskRunKey struct{}
+
 func codingTaskCommand(args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(errOut, "usage: magi coding-task prepare|list|status|diff|review|apply|restore|recover|run [options]")
@@ -93,7 +95,7 @@ func codingTaskCommand(args []string, out, errOut io.Writer) int {
 			os.Args = []string{previousArgs[0], "--client-role", "coding", "-p", *prompt}
 			flag.CommandLine = flag.NewFlagSet(previousArgs[0], flag.ContinueOnError)
 			os.Stdout = os.Stderr // stdout remains the task JSON result
-			code := runWithContext(ctx)
+			code := runWithContext(context.WithValue(ctx, codingTaskRunKey{}, true))
 			if err := ctx.Err(); err != nil {
 				return err
 			}

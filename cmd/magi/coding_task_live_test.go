@@ -68,6 +68,15 @@ func TestCodingTaskLiveRunIsBoundToWorkspace(t *testing.T) {
 			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", b)
 			return
 		}
+		var system string
+		for _, m := range request.Messages {
+			if m.Role == "system" {
+				system += string(m.Content)
+			}
+		}
+		if !strings.Contains(system, "ALREADY inside the prepared coding-task workspace") || strings.Contains(system, "MUST call coding_task") {
+			t.Errorf("trusted runner binding did not reach the actual model request: %s", system)
+		}
 		n := calls.Add(1)
 		if n == 2 {
 			results := 0

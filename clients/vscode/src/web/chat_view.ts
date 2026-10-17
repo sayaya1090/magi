@@ -34,6 +34,42 @@ const scrollEl = document.getElementById('scroll') as HTMLElement;
 const rowsEl = document.getElementById('rows') as HTMLElement;
 const askBodyEl = document.getElementById('ask-body') as HTMLElement;
 const askControlsEl = document.getElementById('ask-controls') as HTMLElement;
+
+// Follow delayed markdown/image sizing as well as rows messages. A user scroll wins.
+let followingTail = true;
+let lastScrollTop = scrollEl.scrollTop;
+const nearTail = () => scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40;
+const scrollFollowing = {
+  beforeRender() {
+    // Also catch a scroll set before the browser dispatches its pending scroll event.
+    if (scrollEl.scrollTop !== lastScrollTop) followingTail = nearTail();
+    return followingTail;
+  },
+  afterRender(following: boolean) {
+    followingTail = following;
+    lastScrollTop = scrollEl.scrollTop;
+  },
+};
+scrollEl.addEventListener('scroll', () => {
+  if (scrollEl.scrollTop !== lastScrollTop) followingTail = nearTail();
+  lastScrollTop = scrollEl.scrollTop;
+});
+scrollEl.addEventListener('wheel', (event) => {
+  if (event.deltaY < 0 && !event.ctrlKey) followingTail = false;
+}, { capture: true, passive: true });
+scrollEl.addEventListener('keydown', (event) => {
+  if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) followingTail = false;
+});
+if (typeof ResizeObserver !== 'undefined') {
+  const layoutObserver = new ResizeObserver(() => {
+    if (followingTail) {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+      lastScrollTop = scrollEl.scrollTop;
+    }
+  });
+  for (const element of [rowsEl, askBodyEl, scrollEl]) layoutObserver.observe(element);
+}
+
 const replyModeEl = document.getElementById('reply-mode') as HTMLElement;
 const replyTargetEl = document.getElementById('reply-target') as HTMLElement;
 const replyCancelEl = document.getElementById('reply-cancel') as HTMLElement;
@@ -595,6 +631,7 @@ const receiveHandlers = createWebviewReceiveHandlers({
   setNoteText: (t) => { noteEl.textContent = t; },
   getNoteText: () => noteEl.textContent,
   scrollContainer: scrollEl,
+  scrollFollowing,
 });
 window.addEventListener('message', (e) => {
   dispatchHostMessage(e.data, receiveHandlers);
