@@ -206,3 +206,36 @@ func TestBackgroundKillStatusRace(t *testing.T) {
 		t.Errorf("bash_output after kill should be a terminal status, got %q", got)
 	}
 }
+
+func TestBackgroundCompletionObserver(t *testing.T) {
+	for _, command := range []string{"exit 0", "exit 7", "cat"} {
+		t.Run(command, func(t *testing.T) {
+			var done <-chan port.BackgroundCompletion
+			args, _ := json.Marshal(map[string]any{"command": command, "background": true})
+			result, err := (Bash{}).Execute(context.Background(), args, port.ToolEnv{Workdir: t.TempDir(), ObserveBackground: func(c <-chan port.BackgroundCompletion) { done = c }})
+			if err != nil || result.IsError || !result.Background || done == nil {
+				t.Fatalf("start: %+v %v", result, err)
+			}
+			if command == "cat" {
+				id := bgIDRE.FindString(resultText(t, result))
+				if !KillBackgroundJob(id) {
+					t.Fatal("kill failed")
+				}
+			}
+			select {
+			case status := <-done:
+				if command == "exit 7" && status.Exit != 7 {
+					t.Fatalf("exit=%d", status.Exit)
+				}
+				if command == "cat" && !status.Killed {
+					t.Fatal("kill was not reported")
+				}
+				if command == "exit 0" && (status.Killed || status.Exit != 0) {
+					t.Fatalf("status=%+v", status)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("missing completion")
+			}
+		})
+	}
+}

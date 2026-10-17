@@ -206,7 +206,7 @@ Rules:
   `permission.decided` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` /
   `labels.changed` / `error` / `council.convened` / `council.verdict` / `council.decided` /
   `interjection.deferred` / `interjection.answered` / `prompt.abandoned` / `session.moved` /
-  `model.changed`) are written to the Store.
+  `model.changed` / `tool.background`) are written to the Store.
 - R2 The transient types (`part.delta` / `tool.progress` / `permission.requested` /
   `question.requested` / `context.usage` / `workflow.phase` / `council.deliberating` /
   `question.answered` / `user.label.changed`) go to the bus only and are never recorded.
@@ -813,3 +813,10 @@ council-close-recorded-1:  what the close said travels with the round whether or
 
 ## F-UPDATE / F-DIST (M7)
 - goreleaser multi-target, CGO_ENABLED=0. Self-update (signed checksums, rename-swap on Windows).
+
+
+## Background tool lifecycle
+
+A tool result with `background: true` confirms launch, not completion. Its content stays the launch result. A persisted `tool.background` fact identifies the same `callId` and reports `state` as `succeeded`, `failed`, `killed`, or `unknown`; observed exits also include `exit`. The lifecycle fact does not add a second tool response to the model conversation.
+
+IDE clients keep a spinner until a terminal fact arrives. On reconnect, the execution-owning daemon marks jobs whose completion it no longer observes as `unknown`, which stops the spinner without declaring success. It preserves outcomes already recorded and leaves its own active observers alone. Older tool results without the background flag keep their previous rendering.

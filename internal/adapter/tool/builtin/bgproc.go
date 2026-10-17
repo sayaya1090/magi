@@ -89,13 +89,14 @@ func readLogSince(path string, since int) (out string, next int) {
 
 // bgProc is one running (or finished) background command.
 type bgProc struct {
-	id      string
-	sid     string // session that started it: wait_for arms only on its own session's jobs
-	command string
-	logPath string // file receiving the process's combined stdout/stderr
-	cancel  context.CancelFunc
-	started time.Time
-	pid     int // process-group leader pid (Setsid => pgid == pid); used by killGroup
+	finished chan struct{}
+	id       string
+	sid      string // session that started it: wait_for arms only on its own session's jobs
+	command  string
+	logPath  string // file receiving the process's combined stdout/stderr
+	cancel   context.CancelFunc
+	started  time.Time
+	pid      int // process-group leader pid (Setsid => pgid == pid); used by killGroup
 
 	pty bool // process was started on a pseudo-terminal (stdin is the PTY master)
 
@@ -218,7 +219,7 @@ func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, comm
 
 	m.mu.Lock()
 	m.seq++
-	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), sid: sid, command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY, psPath: psPath}
+	p := &bgProc{finished: make(chan struct{}), id: fmt.Sprintf("bg_%d", m.seq), sid: sid, command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY, psPath: psPath}
 	m.procs[p.id] = p
 	m.pruneLocked()
 	m.mu.Unlock()
@@ -241,6 +242,7 @@ func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, comm
 		p.mu.Lock()
 		p.done, p.exit, p.stages = true, exit, stages
 		p.stdin = nil // no more input accepted once exited
+		close(p.finished)
 		p.mu.Unlock()
 		// Pipe mode: release the stdin pipe here. PTY mode: the copy goroutine closes the
 		// master (== stdin) and the log file when the slave EOFs, so don't double-close.

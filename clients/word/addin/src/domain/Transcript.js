@@ -107,7 +107,7 @@ const IGNORED = new Set([
   'session.created', 'session.moved',
   // 도구의 진행 말(접기의 「덜어냈다·접는 중·접었다」도 이 채널). 사실은 `result.elided`·`compaction` 이
   // 따로 오고 그 둘을 그리므로, 진행 말까지 그리면 같은 일이 두 번 선다.
-  'tool.progress',
+  'tool.progress', 'tool.background',
 ]);
 
 /**

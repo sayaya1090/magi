@@ -530,3 +530,34 @@ func TestWhetherARowCanBeNamed(t *testing.T) {
 		seen[r.ID] = i
 	}
 }
+
+func TestBackgroundRowsFollowProcessExit(t *testing.T) {
+	for _, state := range []string{"succeeded", "failed", "killed", "unknown"} {
+		t.Run(state, func(t *testing.T) {
+			events := []event.Event{
+				mk(1, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{"callId": "bg-call", "name": "bash"}}}, nil),
+				mk(2, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{"callId": "bg-call", "background": true, "content": "started"}}}, nil),
+			}
+			running := Rows(events)
+			if len(running) != 1 || !running[0].Background || running[0].Ok != nil {
+				t.Fatalf("launch became success: %+v", running)
+			}
+			events = append(events, mk(3, "tool.background", map[string]any{"callId": "other", "state": "succeeded"}, nil))
+			if !Rows(events)[0].Background {
+				t.Fatal("another call changed this job")
+			}
+			events = append(events, mk(4, "tool.background", map[string]any{"callId": "bg-call", "state": state}, nil))
+			row := Rows(events)[0]
+			if row.Background {
+				t.Fatal("spinner remained after terminal event")
+			}
+			if state == "unknown" {
+				if row.Ok != nil {
+					t.Fatal("unknown became completed")
+				}
+			} else if row.Ok == nil || *row.Ok != (state == "succeeded") {
+				t.Fatalf("state %s: %+v", state, row)
+			}
+		})
+	}
+}

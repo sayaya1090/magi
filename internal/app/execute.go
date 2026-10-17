@@ -481,7 +481,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		}
 	}
 
+	var background <-chan port.BackgroundCompletion
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
+		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
+			background = done
+			a.backgroundMu.Lock()
+			if a.backgroundOwned == nil {
+				a.backgroundOwned = map[string]bool{}
+			}
+			a.backgroundOwned[string(sid)+"/"+tc.CallID] = true
+			a.backgroundMu.Unlock()
+		},
 		SessionID:    sid,
 		Workdir:      workdir,
 		ScratchLogs:  scratch.logsDir(),
@@ -644,6 +654,25 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
+	if res.Background && background != nil {
+		go func() {
+			status, ok := <-background
+			state := "unknown"
+			if ok {
+				state = "succeeded"
+				if status.Killed {
+					state = "killed"
+				} else if status.Exit != 0 {
+					state = "failed"
+				}
+			}
+			data, _ := json.Marshal(map[string]any{"callId": tc.CallID, "state": state, "exit": status.Exit})
+			a.backgroundMu.Lock()
+			a.appendBestEffort(context.Background(), sid, event.TypeToolBackground, actor, data)
+			delete(a.backgroundOwned, string(sid)+"/"+tc.CallID)
+			a.backgroundMu.Unlock()
+		}()
+	}
 }
 
 // proposeFn and recallMemoryFn are the two ToolEnv closures long enough to hide the literal they

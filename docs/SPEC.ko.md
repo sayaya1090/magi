@@ -188,7 +188,7 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
 - R1 영속 타입(`session.created` / `prompt.submitted` / `part.appended` / `permission.decided` /
   `compaction` / `result.elided` / `turn.finished` / `todos.changed` / `labels.changed` / `error` /
   `council.convened` / `council.verdict` / `council.decided` / `interjection.deferred` /
-  `interjection.answered` / `prompt.abandoned` / `session.moved` / `model.changed`)은 Store에 기록합니다.
+  `interjection.answered` / `prompt.abandoned` / `session.moved` / `model.changed` / `tool.background`)은 Store에 기록합니다.
 - R2 전이 타입(`part.delta` / `tool.progress` / `permission.requested` / `question.requested` /
   `context.usage` / `workflow.phase` / `council.deliberating` / `question.answered` /
   `user.label.changed`)은 버스로만 전송하고 영속 기록하지 않습니다.
@@ -515,3 +515,10 @@ council-close-recorded-1:  닫는 호출이 한 말은 결정을 바꿨든 아�
 
 ## F-UPDATE / F-DIST (M7)
 - goreleaser 멀티타깃, CGO_ENABLED=0. 자동 업데이트(서명 체크섬, Windows rename-교체).
+
+
+## 백그라운드 도구 실행 수명주기
+
+`background: true`인 도구 결과는 작업 시작을 확인하며, 완료를 뜻하지 않습니다. 본문은 시작 응답으로 보존합니다. 영속 이벤트 `tool.background`는 같은 `callId`와 `state`를 전달합니다. 상태는 `succeeded`, `failed`, `killed`, `unknown`이며, 실제 종료를 관측한 경우 `exit`도 포함합니다. 이 이벤트는 모델 대화에 두 번째 도구 응답을 추가하지 않습니다.
+
+IDE 클라이언트는 종료 기록이 올 때까지 스피너를 표시합니다. 재접속 시 실행을 소유한 데몬은 더 이상 종료를 관측하지 못하는 작업을 `unknown`으로 기록합니다. 스피너를 멈추지만 성공으로 표시하지 않습니다. 이미 기록한 종료 결과와 현재 데몬이 관측 중인 작업은 유지합니다. 백그라운드 표식이 없는 구형 도구 결과의 표시는 바꾸지 않습니다.

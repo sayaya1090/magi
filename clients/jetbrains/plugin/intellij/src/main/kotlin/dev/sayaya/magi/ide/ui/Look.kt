@@ -531,13 +531,23 @@ internal object Look {
     }
 
     /** 도구 호출 헤더 컴포넌트 (도구명, 실행 상태 글리프, 인자 요약, 타임스탬프, 우측 액션). */
-    fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String, actions: JComponent? = null): JComponent =
+    fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String, actions: JComponent? = null, running: Boolean = false): JComponent =
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             isOpaque = false
             add(JBLabel("· $name").apply { font = mono().deriveFont(JBFont.small().size.toFloat()); foreground = body })
             add(javax.swing.Box.createHorizontalStrut(6))
-            add(JBLabel(glyph).apply { font = JBFont.small(); foreground = hue })
+            if (running) {
+                val label = MagiBundle.msg("chat.tool.background")
+                val spinner = object : com.intellij.util.ui.AsyncProcessIcon(label) {
+                    override fun addNotify() { super.addNotify(); resume() }
+                    override fun removeNotify() { suspend(); super.removeNotify(); dispose() }
+                }
+                spinner.suspend()
+                spinner.toolTipText = label
+                spinner.accessibleContext?.accessibleName = label
+                add(spinner)
+            } else add(JBLabel(glyph).apply { font = JBFont.small(); foreground = hue })
             if (args.isNotEmpty()) {
                 add(javax.swing.Box.createHorizontalStrut(10))
                 add(JBLabel(args).apply { font = JBFont.small(); foreground = muted })

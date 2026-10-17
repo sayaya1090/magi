@@ -123,7 +123,21 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// driven. Steer to pty:true rather than let the model poll a dead prompt.
 			msg = note + "\n" + msg
 		}
-		return okText("", msg), nil
+		if env.ObserveBackground != nil {
+			completion := make(chan port.BackgroundCompletion, 1)
+			env.ObserveBackground(completion)
+			go func() {
+				<-p.finished
+				p.mu.Lock()
+				status := port.BackgroundCompletion{Exit: p.exit, Killed: p.killed}
+				p.mu.Unlock()
+				completion <- status
+				close(completion)
+			}()
+		}
+		result := okText("", msg)
+		result.Background = true
+		return result, nil
 	}
 	// `pty` is a background-only capability — this path never reads it, so a caller that asked for
 	// a terminal without background got a plain pipe and no word about it. Same rule as the

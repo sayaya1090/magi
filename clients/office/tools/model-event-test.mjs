@@ -7,7 +7,9 @@ for (const product of ['powerpoint', 'word', 'excel']) {
   assert.equal(log.rows.length, 1);
   assert.equal(log.rows[0].kind, 'note');
   assert.equal(log.rows[0].text, '모델 변경: new-model');
-  log.append({ seq: 2, type: 'future.unknown', data: {} });
+  log.append({ seq: 2, type: 'tool.background', data: { callId: 'ide-job', state: 'succeeded' } });
+  assert.equal(log.unknownNote, null);
+  log.append({ seq: 3, type: 'future.unknown', data: {} });
   assert.match(log.unknownNote, /future.unknown/);
   console.log(`PASS ${product}: model change is displayed; unknown events remain reported`);
 }

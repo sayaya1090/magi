@@ -3,6 +3,25 @@ import { createRowsMessage, createStateMessage } from '../../transcript-fixtures
 
 export const layoutScenarios = [
       {
+        id: 'background_tool_spinner_until_process_exit',
+        name: '백그라운드 실행 중 스피너와 종료 후 해제',
+        run: async (page) => {
+          const send = (rows) => page.evaluate((m) => window.postMessage(m, '*'), createRowsMessage({ rows }));
+          await send([{ who: 'tool', label: 'bash', text: 'bash', callId: 'bg', background: true }]);
+          const spinner = page.locator('.row.tool .tool-spinner');
+          await spinner.waitFor();
+          assert.equal(await page.locator('.row.tool').getAttribute('aria-busy'), 'true');
+          assert.equal(await spinner.evaluate((e) => getComputedStyle(e).animationName), 'tool-spin');
+          assert.equal(await spinner.getAttribute('aria-label'), '백그라운드 실행 중');
+          for (const ok of [true, false]) {
+            await send([{ who: 'tool', label: ok ? 'bash ✓' : 'bash ✗', text: 'bash', callId: 'bg', ok }]);
+            await spinner.waitFor({ state: 'detached' });
+            assert.equal(await page.locator('.row.tool').getAttribute('aria-busy'), null);
+          }
+          await send([]);
+        },
+      },
+      {
         id: 'layout_empty_transcript_notice',
         name: '빈 전사 안내 — 상태 다섯 × 행 0/n, 질문 유무, 메시지 순서 (§6.10)',
         run: async (page) => {

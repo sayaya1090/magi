@@ -56,6 +56,7 @@ data class Row(
     val tool: String? = null,
     val args: String? = null,
     val ok: Boolean? = null,
+    val background: Boolean = false,
     val note: Boolean = false,
     /** 실패한 호출이 말한 것. [args] 를 덮지 않는다 — 물은 것과 답한 것은 다른 사실이다. */
     val out: String? = null,
@@ -209,6 +210,15 @@ class Rows {
             "prompt.submitted" -> prompt(e)
             "part.delta" -> delta(e)
             "part.appended" -> part(e)
+            "tool.background" -> {
+                val state = str(e, "state")
+                val i = rows.indexOfLast { it.who == Who.Tool && it.callId == str(e, "callId") }
+                if (i < 0 || state !in listOf("succeeded", "failed", "killed", "unknown")) false
+                else {
+                    rows[i] = rows[i].copy(background = false, ok = if (state == "unknown") null else state == "succeeded")
+                    true
+                }
+            }
             // 단일 이벤트 타입(`interjection.deferred`)이 인터젝션 대기 큐의 진입과 이탈 양쪽 상태 전이를 모두 전달합니다.
             // 코어는 대기 큐 진입 시 `resolved: false`, 큐 이탈 시(인라인 흡수, 라우팅, 포기 등) `resolved: true`를 발행합니다 (호출부 7곳 중 5곳이 true).
             // 이벤트 타입만으로 분기하고 `resolved` 필드를 무시할 경우 이탈 시점에도 '대기 중(`queued`)'으로 오판하게 되며,
@@ -477,7 +487,8 @@ class Rows {
                 val raw = r["content"]
                 val said = ((raw as? JsonPrimitive)?.takeIf { it.isString }?.content) ?: raw?.toString().orEmpty()
                 rows[i] = rows[i].copy(
-                    ok = !isError || advisory, note = advisory,
+                    ok = if (r["background"]?.jsonPrimitive?.content == "true") null else !isError || advisory,
+                    background = r["background"]?.jsonPrimitive?.content == "true", note = advisory,
                     outputText = raw?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.let {
                         if (it is JsonPrimitive && it.isString) it.content
                         else prettyJson.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), it)

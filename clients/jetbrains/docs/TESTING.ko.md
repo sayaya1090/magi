@@ -2024,3 +2024,10 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 이 검증은 공통 IntelliJ Platform 코드와 Swing 동작을 대상으로 합니다. PyCharm·WebStorm·GoLand 각각의 실물 UI 인수를 대신하지 않습니다. JCEF에서 일시적인 작은 높이를 억제하면 해당 응답당 한 번 `streaming preview ignored transient height`를 IDE 로그에 남깁니다.
 
 `PromptPlacementTest`는 실제 채팅 뷰에서 질문과 도구 실행 허용 요청이 모두 전사 아래, 입력창 바로 위에 배치되는지 420×700과 1000×480 크기로 검사합니다. 요청이 없을 때 영역이 접히는지도 확인합니다.
+
+
+## 백그라운드 실행 행 (2026-10-17)
+
+`RowsTest`는 백그라운드 시작 결과에서 ok를 확정하지 않고 실행 중 상태를 유지하는지 검사합니다. 같은 callId의 정상 종료·실패·강제 종료·상태 불명 이벤트가 행을 갱신하며, 다른 callId는 영향을 주지 않습니다. `ToolRowHeadTest`는 실행 중 헤더에 실제 `AsyncProcessIcon`이 붙고 완료 체크가 없으며, 종료 후 헤더에는 스피너가 없는지 검사합니다. 스피너는 화면에서 제거되면 중지·해제됩니다.
+
+데몬 종료로 관측이 끊긴 작업은 재접속 시 상태 불명으로 바뀝니다. 완료 기록이 있는 작업의 결과는 재생해 복원합니다. 구형 데몬의 문자열 시작 응답은 백그라운드 식별 정보가 없으므로 소급 수정하지 않습니다.

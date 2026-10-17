@@ -17,6 +17,23 @@ import org.junit.jupiter.api.Test
  * 사람이 친 글도 컴패니언의 답도 화면에 없는 채로 — 살아 있는 샌드박스에서 실측한 구멍이다.
  */
 class RowsTest {
+    @org.junit.jupiter.api.Test
+    fun `background launch is not process completion`() {
+        for (state in listOf("succeeded", "failed", "killed", "unknown")) {
+            val rows = Rows()
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"bash","callId":"job"}}}"""))
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"job","background":true,"content":"started"}}}"""))
+            org.junit.jupiter.api.Assertions.assertTrue(rows.list().single().background)
+            org.junit.jupiter.api.Assertions.assertNull(rows.list().single().ok)
+            rows.feed(ev("tool.background", """{"callId":"other","state":"succeeded"}"""))
+            org.junit.jupiter.api.Assertions.assertTrue(rows.list().single().background)
+            rows.feed(ev("tool.background", """{"callId":"job","state":"$state"}"""))
+            val result = rows.list().single()
+            org.junit.jupiter.api.Assertions.assertFalse(result.background)
+            org.junit.jupiter.api.Assertions.assertEquals(if (state == "unknown") null else state == "succeeded", result.ok)
+        }
+    }
+
 
     @org.junit.jupiter.api.Test
     fun `confirmed output retains source and identifies each result`() {

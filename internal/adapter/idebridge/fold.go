@@ -201,6 +201,24 @@ func fold(events []event.Event) ([]Row, foldStats) {
 		before := len(out)
 		d := payload(e.Data)
 		switch e.Type {
+		case event.TypeToolBackground:
+			call := str(d, "callId")
+			state := str(d, "state")
+			if state != "succeeded" && state != "failed" && state != "killed" && state != "unknown" {
+				break
+			}
+			for i := len(out) - 1; i >= 0; i-- {
+				if out[i].Who == WhoTool && out[i].CallID == call {
+					out[i].Background = false
+					if state == "unknown" {
+						out[i].Ok = nil
+					} else {
+						ok := state == "succeeded"
+						out[i].Ok = &ok
+					}
+					break
+				}
+			}
 		case event.TypePartDelta:
 			kind := str(d, "kind")
 			if kind == "" {
@@ -518,6 +536,10 @@ func appendPart(out *[]*Row, seq int64, p map[string]any) {
 			advisory := isTrue(res, "advisory")
 			ok := !isTrue(res, "isError") || advisory
 			r.Ok = &ok
+			if isTrue(res, "background") {
+				r.Background = true
+				r.Ok = nil
+			}
 			if advisory {
 				r.Note = true
 			}

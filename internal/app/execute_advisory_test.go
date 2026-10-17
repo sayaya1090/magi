@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -74,5 +75,77 @@ func TestAWriteThatWasLintedSaysTheWorkHappened(t *testing.T) {
 	}
 	if !res.Advisory {
 		t.Error("nothing says the work happened, so every screen will draw this as a failure")
+	}
+}
+
+func TestBackgroundExitIsPersistedAfterLaunchResult(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.executeTool(ctx, a.sessionInfo(ctx, sid), AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, &session.ToolCall{CallID: "background-test", Name: "bash", Args: json.RawMessage(`{"command":"exit 7","background":true}`)}, newRunGuard(nil), "")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		events := mustRead(t, a, sid)
+		var resultSeq int64
+		results := 0
+		for _, e := range events {
+			if e.Type == event.TypePartAppended {
+				var d event.PartAppendedData
+				_ = json.Unmarshal(e.Data, &d)
+				if d.Part.ToolResult != nil {
+					results++
+					if !d.Part.ToolResult.Background {
+						t.Fatal("background launch metadata missing")
+					}
+					resultSeq = e.Seq
+				}
+			}
+			if e.Type == event.TypeToolBackground {
+				var d struct {
+					CallID string `json:"callId"`
+					State  string `json:"state"`
+					Exit   int    `json:"exit"`
+				}
+				_ = json.Unmarshal(e.Data, &d)
+				if resultSeq == 0 || e.Seq <= resultSeq || d.CallID != "background-test" || d.State != "failed" || d.Exit != 7 || results != 1 {
+					t.Fatalf("bad lifecycle: %+v result seq=%d count=%d", d, resultSeq, results)
+				}
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("background exit never persisted")
+}
+
+func TestBackgroundReconciliationDoesNotInventCompletionOrInvalidateOwnedJobs(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	a.appendPart(ctx, sid, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "bg-message", session.RoleTool, session.Part{ID: "bg-result", Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: "orphan", Background: true, Content: json.RawMessage(`"started"`)}})
+	a.backgroundOwned = map[string]bool{string(sid) + "/orphan": true}
+	a.reconcileBackground(ctx, sid)
+	for _, e := range mustRead(t, a, sid) {
+		if e.Type == event.TypeToolBackground {
+			t.Fatal("live job invalidated")
+		}
+	}
+	delete(a.backgroundOwned, string(sid)+"/orphan")
+	a.reconcileBackground(ctx, sid)
+	a.reconcileBackground(ctx, sid)
+	count := 0
+	for _, e := range mustRead(t, a, sid) {
+		if e.Type == event.TypeToolBackground {
+			count++
+			if !strings.Contains(string(e.Data), `"state":"unknown"`) {
+				t.Fatalf("invented outcome: %s", e.Data)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("unknown facts=%d want 1", count)
 	}
 }

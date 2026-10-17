@@ -218,3 +218,40 @@ func (a *App) NoteSessionMoved(ctx context.Context, from, to session.SessionID) 
 	return a.appendFact(ctx, from, event.TypeSessionMoved,
 		event.Actor{Kind: event.ActorUser, ID: "console"}, d)
 }
+
+// EnableBackgroundReconciliation is called only by the daemon that owns execution.
+// Readers in another process must never declare the daemon's live jobs unknown.
+func (a *App) EnableBackgroundReconciliation() { a.backgroundAuthority.Store(true) }
+
+func (a *App) reconcileBackground(ctx context.Context, sid session.SessionID) {
+	a.backgroundMu.Lock()
+	defer a.backgroundMu.Unlock()
+	events, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return
+	}
+	pending := map[string]bool{}
+	for _, e := range events {
+		switch e.Type {
+		case event.TypePartAppended:
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Part.ToolResult != nil && d.Part.ToolResult.Background {
+				pending[d.Part.ToolResult.CallID] = true
+			}
+		case event.TypeToolBackground:
+			var d struct {
+				CallID string `json:"callId"`
+			}
+			if json.Unmarshal(e.Data, &d) == nil {
+				delete(pending, d.CallID)
+			}
+		}
+	}
+	for call := range pending {
+		if a.backgroundOwned[string(sid)+"/"+call] {
+			continue
+		}
+		data, _ := json.Marshal(map[string]any{"callId": call, "state": "unknown"})
+		a.appendBestEffort(ctx, sid, event.TypeToolBackground, event.Actor{Kind: event.ActorSystem, ID: "background"}, data)
+	}
+}

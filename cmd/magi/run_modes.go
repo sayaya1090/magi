@@ -290,6 +290,7 @@ func runDaemonMode(p daemonModeParams) int {
 			}
 		}
 	}()
+	a.EnableBackgroundReconciliation()
 	serveErr := serving.Serve(dctx, daemonEngine{
 		App: a, workdir: wd, handover: taking, configDir: plat.ConfigDir(),
 		republish: func(to session.SessionID) error { return daemon.Moved(sockPath, to) },

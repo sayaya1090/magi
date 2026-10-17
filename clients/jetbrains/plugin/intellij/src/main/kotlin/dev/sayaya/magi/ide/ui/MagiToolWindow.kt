@@ -1248,7 +1248,7 @@ class MagiToolWindow : ToolWindowFactory {
                             // 아무 일이 없다(`RowText.foldable`).
                             canFold -> RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄"
                             else -> RowText.oneLine(r.args.orEmpty(), 100)
-                        }, RowText.clock(r.at), headActions()),
+                        }, RowText.clock(r.at), headActions(), running = r.background),
                         BorderLayout.NORTH)
                     if (open) {
                         // 펼침 상태: 도구 호출 인자 및 실행 결과 원문을 모노스페이스 폰트로 표시합니다.
