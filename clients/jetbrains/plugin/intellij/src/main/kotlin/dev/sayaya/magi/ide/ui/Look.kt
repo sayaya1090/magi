@@ -158,7 +158,7 @@ internal object Look {
         JBLabel(com.intellij.icons.AllIcons.Actions.Copy).apply {
             toolTipText = tip
             border = JBUI.Borders.empty(2, 6, 0, 0)
-            alignmentY = 0f
+            alignmentY = 0.5f
             cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
             putClientProperty("magi.action", true)
             addMouseListener(object : java.awt.event.MouseAdapter() {

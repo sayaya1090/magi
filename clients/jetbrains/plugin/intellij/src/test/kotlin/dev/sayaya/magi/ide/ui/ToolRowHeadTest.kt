@@ -43,4 +43,12 @@ class ToolRowHeadTest : BasePlatformTestCase() {
         val a = actions()
         assertTimeAtRightEdgeAfterIcons(Look.rowHead("magi", Look.accent, emptyList(), "22:11:12", a), a)
     }
+    fun `test all row variants share right padding and copy icon centers vertically`() {
+        val panel = JPanel()
+        val borders = listOf(Look.row(), Look.toolRow(), Look.pendingRow(), Look.pendingToolRow())
+        val right = borders.first().getBorderInsets(panel).right
+        borders.forEach { assertEquals(right, it.getBorderInsets(panel).right) }
+        assertEquals(0.5f, Look.copyButton("copy") {}.alignmentY)
+    }
+
 }
