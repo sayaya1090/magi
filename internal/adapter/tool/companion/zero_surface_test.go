@@ -100,3 +100,10 @@ func TestLearnedInReadsTheWorkspaceTier(t *testing.T) {
 		t.Fatalf("the tool's own words teach the filter: %q", d)
 	}
 }
+
+func TestNarrowMatchesPublishedOperationNames(t *testing.T) {
+	kept, hidden := narrow([]fleet.Agent{{Name: "gwt", Does: []string{"call:read-plugin-source"}}, {Name: "mail"}}, "read-plugin-source", nil)
+	if len(kept) != 1 || hidden != 1 || kept[0].Name != "gwt" {
+		t.Fatal(kept, hidden)
+	}
+}

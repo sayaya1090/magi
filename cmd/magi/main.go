@@ -26,6 +26,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/sayaya1090/magi/internal/adapter/codingworkspace"
+	"github.com/sayaya1090/magi/internal/adapter/companionpolicy"
 	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	explayered "github.com/sayaya1090/magi/internal/adapter/experience/layered"
@@ -43,6 +44,7 @@ import (
 	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	corecompanion "github.com/sayaya1090/magi/internal/core/companion"
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -392,6 +394,9 @@ func runWithContext(runCtx context.Context) int {
 		clientOwned = flag.Bool("client-owned", false, "with --daemon: this daemon belongs to whoever started it — stdin is the owner's pipe, and its EOF stops the daemon")
 		attachMode  = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		joinTo      = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
+		policyWrite = flag.Bool("companion-policy-write", false, "validate TOML from stdin and save this workspace user-owned declaration")
+		policyShow  = flag.Bool("companion-policy-show", false, "print the current user-declared purpose, tasks, and scope as JSON")
+		policyPath  = flag.Bool("companion-policy-path", false, "print the user-owned publication policy path for this workspace and exit")
 		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
 		stopDaemon  = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
 		mcpTo       = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion: its name, or words from its role. Reach another machine's with ssh")
@@ -531,6 +536,14 @@ func runWithContext(runCtx context.Context) int {
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
+	if *policyWrite {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return companionPolicyCommand(platform.New().ConfigDir(), wd, true, os.Stdin, os.Stdout, os.Stderr)
+	}
 	promptText, err := resolvePrompt(*prompt, os.Stdin)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: read stdin:", err)
@@ -551,6 +564,18 @@ func runWithContext(runCtx context.Context) int {
 	}
 
 	plat := platform.New()
+	if *policyShow {
+		return companionPolicyCommand(plat.ConfigDir(), wd, false, os.Stdin, os.Stdout, os.Stderr)
+	}
+	if *policyPath {
+		p, err := companionpolicy.Path(plat.ConfigDir(), wd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println(p)
+		return 0
+	}
 
 	// Identity, access policy, and trust commands: handled before config or store is opened.
 	if code, handled := runEarlyAdminCmd(plat, wd, earlyAdminOpts{
@@ -841,6 +866,7 @@ func runWithContext(runCtx context.Context) int {
 		Reach:     reachCompanion,
 	})
 	reg.Register(companion.Rate{})
+	reg.Register(companion.Call{Reader: func() fleet.Reader { return a }, ConfigDir: plat.ConfigDir(), Self: self, Cache: companionCache, Reach: reachCompanion})
 	reg.Register(companion.About{
 		Reader:    func() fleet.Reader { return a },
 		ConfigDir: plat.ConfigDir(),
@@ -855,7 +881,14 @@ func runWithContext(runCtx context.Context) int {
 	// closures above: the engine has to be told how to reach it before either of them is real.
 	var ears *companionEars
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
-		Model:               session.ModelRef{Provider: "openai", Model: modelID},
+		Model: session.ModelRef{Provider: "openai", Model: modelID},
+		CompanionInstructions: func(workdir string) string {
+			c, err := companionpolicy.Load(plat.ConfigDir(), workdir)
+			if err != nil {
+				return "\n\nCompanion publication policy is invalid; directly callable operations are disabled.\n"
+			}
+			return companionpolicy.Guide(c)
+		},
 		System:              clientSystem(*clientRole),
 		ClientRole:          *clientRole,
 		CodingTasks:         codingworkspace.New(filepath.Join(plat.ConfigDir(), "coding-tasks")),
@@ -2706,7 +2739,16 @@ func (d daemonEngine) About() string {
 	if d.card == nil {
 		return ""
 	}
-	return mcpserve.Describe(d.card())
+	card := d.card()
+	if d.configDir != "" && d.workdir != "" {
+		c, err := companionpolicy.Load(d.configDir, d.workdir)
+		if err != nil {
+			card.ContractError = err.Error()
+		} else {
+			card.Contract = &c
+		}
+	}
+	return mcpserve.Describe(card)
 }
 
 // Version satisfies daemon.Versioner: the running binary's version, for the `about` handshake. The
@@ -3290,6 +3332,10 @@ func serveMCP(to, as string, store port.Store, plat *platform.OS, wd string,
 		}
 	}
 	srv := &mcpserve.Server{
+		Contract: func() (*corecompanion.Contract, error) {
+			c, err := companionpolicy.Load(plat.ConfigDir(), who.Workdir)
+			return &c, err
+		},
 		Name: who.Name, Role: who.Role,
 		Ear:     ear,
 		Caller:  strings.TrimSpace(as),

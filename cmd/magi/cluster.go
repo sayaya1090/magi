@@ -14,11 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/companionpolicy"
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
-	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
-	"github.com/sayaya1090/magi/internal/app"
-	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/cluster"
 )
 
@@ -43,26 +41,20 @@ import (
 // that reaches a member is assembled here from this machine's own template (cluster.Reach). A
 // member entry can say where a companion is and can never say what to run.
 
-// countCan is what a workspace advertises being able to do: how many things, and what the first
-// few are called — its written procedures plus the tool servers it can reach.
-//
-// The same two things `about` shows a companion asking what somebody else does, counted rather than
-// listed — so the number a hub election turns on is the number a reader would arrive at from the
-// advertisement. Two derivations of "how much can it do" would disagree the first time one changed.
-//
-// Called once, where a daemon publishes itself. Nobody else counts: the number travels on the
-// record and then over the wire, so every reader on every machine has the one this process worked
-// out, rather than a second answer derived from files it cannot see.
-func countCan(store *jsonl.Store, workdir string) (int, []string) {
+// countCan advertises only user-declared tasks and direct operations. Learned procedures and
+// attached MCP servers remain experience/runtime facts, not an offer to accept arbitrary work.
+func countCan(store *jsonl.Store, workdir string, policyConfigDir ...string) (int, []string) {
 	if workdir == "" {
 		return 0, nil
 	}
-	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 	var names []string
-	for _, sk := range reader.Skills(workdir) {
-		names = append(names, sk.Name)
+	if len(policyConfigDir) > 0 {
+		c, err := companionpolicy.Load(policyConfigDir[0], workdir)
+		if err == nil {
+			_, names = companionpolicy.Advertisement(c)
+		}
 	}
-	names = append(names, reachableServers(workdir)...)
+
 	// The count is of everything; the names are the first few. Returned together, from one read of
 	// one workspace, so the number and the list cannot describe different moments.
 	n := len(names)

@@ -913,7 +913,7 @@ Even with no configuration, an "understand → plan → implement → verify →
 |---|---|
 | `deny`, and `permission`/`sandbox`/`profile` when they ask for MORE care than the machine gives (`sandbox = "read-only"` is kept; `permission = "allow"` is refused and said so) | `[[hooks]]` — shell commands on tool events · `[mcp.*]` — processes the daemon spawns, and the headers they send · `[cron.*]` — unattended prompts · `allow`, `allow_domains` · `[plugins.*]` · `base_url`, `experience_dir` · and `.magi/plugins/` |
 
-**Reaching a companion on another machine.** The crossing is an ssh pipe into `magi --fleet-door`, which carries four methods — ask what a companion is, hand it work, ask how that work went, and watch for how it goes (the one that streams: the far side pushes each change down the pipe, so an answer arrives when it happens rather than on a poll's clock) — and opens only companions that account has published. Give somebody a key that can do that and nothing else:
+**Reaching a companion on another machine.** The crossing is an ssh pipe into `magi --fleet-door`, which carries seven methods — ask what a companion is, hand it work, ask how that work went, discover or describe its published operations, invoke one, and watch for how it goes (the one that streams: the far side pushes each change down the pipe, so an answer arrives when it happens rather than on a poll's clock) — and opens only companions that account has published. Give somebody a key that can do that and nothing else:
 
 ```
 command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
@@ -921,7 +921,15 @@ command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
 
 `restrict` removes pty, port forwarding, agent forwarding and X11; the forced command means ssh ignores whatever the client asked to run, so the caller chooses neither the program nor the flags nor the socket. The older `magi --relay <socket>` still exists and carries the WHOLE daemon protocol at whatever socket path it is given — that is the shape for your own machines, and not a shape to put behind somebody else's key.
 
-The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same four methods.
+The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same seven methods.
+
+**Publishing callable operations.** In the workspace, run `magi --companion-policy-write < declaration.toml` to validate and save the
+user declaration, and `magi --companion-policy-show` to inspect it. Declare purpose, responsibilities,
+offered tasks, access scope, instructions, and explicitly allowed operations in that user-owned TOML file. A
+`read_file` operation specifies an absolute root and is the only executor initially supported.
+Peers use `companion_call` with `list`, `describe`, and `call`; skills remain separate procedures.
+The policy is reloaded on discovery and execution, and removing an operation revokes new calls.
+Ordinary agent tools keep their existing permissions. See [configuration and examples](COMPANION_CONTRACT.md).
 
 **Or over TLS, with no ssh at all.** Each magi has a key pair and a self-signed certificate, made once and kept; `magi --whoami` prints its fingerprint. Carry that fingerprint to the other machine the way you would an ssh host key — over a channel you trust — and admit it:
 

@@ -76,6 +76,7 @@ import (
 	"strings"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	"github.com/sayaya1090/magi/internal/core/companion"
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/rank"
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -84,6 +85,8 @@ import (
 
 // Server answers for one companion.
 type Server struct {
+	Contract func() (*companion.Contract, error)
+
 	// Name is what this companion is called, so an answer says who it came from. A model reading
 	// three of these back to back has no other way to tell them apart.
 	Name string
@@ -305,19 +308,29 @@ func (s *Server) about() string {
 	if s.Skills != nil {
 		skills = s.Skills()
 	}
-	return Describe(Card{Name: s.Name, Role: s.Role, Team: s.Team, Hub: s.Hub,
-		Workdir: s.Workdir, Skills: skills, Reach: s.Reach})
+	card := Card{Name: s.Name, Role: s.Role, Team: s.Team, Hub: s.Hub, Workdir: s.Workdir, Skills: skills, Reach: s.Reach}
+	if s.Contract != nil {
+		c, err := s.Contract()
+		if err != nil {
+			card.ContractError = err.Error()
+		} else {
+			card.Contract = c
+		}
+	}
+	return Describe(card)
 }
 
 // Card is everything a companion says about itself when somebody asks.
 type Card struct {
-	Name    string       `json:"name"`
-	Role    string       `json:"role,omitempty"`
-	Team    string       `json:"team,omitempty"`
-	Hub     bool         `json:"hub,omitempty"`
-	Workdir string       `json:"workdir,omitempty"`
-	Skills  []port.Skill `json:"skills,omitempty"`
-	Reach   []string     `json:"reach,omitempty"`
+	Contract      *companion.Contract `json:"contract,omitempty"`
+	ContractError string              `json:"contractError,omitempty"`
+	Name          string              `json:"name"`
+	Role          string              `json:"role,omitempty"`
+	Team          string              `json:"team,omitempty"`
+	Hub           bool                `json:"hub,omitempty"`
+	Workdir       string              `json:"workdir,omitempty"`
+	Skills        []port.Skill        `json:"skills,omitempty"`
+	Reach         []string            `json:"reach,omitempty"`
 }
 
 // Describe renders it.
@@ -346,12 +359,60 @@ func Describe(c Card) string {
 	if c.Workdir != "" {
 		b.WriteString("workspace: " + c.Workdir + "\n")
 	}
+
+	if c.ContractError != "" {
+		b.WriteString("\nPublished operations unavailable: " + c.ContractError + "\n")
+	}
+	if c.Contract != nil {
+		if c.Contract.Purpose != "" {
+			b.WriteString("\nUser-declared purpose: " + c.Contract.Purpose + "\n")
+		}
+		if len(c.Contract.Responsibilities) > 0 {
+			b.WriteString("Responsibilities:\n")
+			for _, s := range c.Contract.Responsibilities {
+				b.WriteString("  - " + s + "\n")
+			}
+		}
+		b.WriteString("\nWork you may request through hand_off:\n")
+		if len(c.Contract.Tasks) == 0 {
+			b.WriteString("  No user-declared tasks. Do not infer an offer from learned skills.\n")
+		}
+		for _, task := range c.Contract.Tasks {
+			fmt.Fprintf(&b, "  %s — %s\n", task.ID, task.Description)
+			for _, s := range task.Constraints {
+				b.WriteString("    Constraint: " + s + "\n")
+			}
+		}
+		b.WriteString("\nUser-declared access scope (guidance for model work; enforced only by published operation executors):\n")
+		if len(c.Contract.Access) == 0 {
+			b.WriteString("  Not declared; no additional access grant.\n")
+		}
+		for _, a := range c.Contract.Access {
+			fmt.Fprintf(&b, "  %s %s — %s\n", a.Mode, a.Resource, a.Description)
+		}
+		if len(c.Contract.Instructions) > 0 {
+			b.WriteString("Operating instructions (guidance; not an OS sandbox):\n")
+			for _, s := range c.Contract.Instructions {
+				b.WriteString("  - " + s + "\n")
+			}
+		}
+		b.WriteString("\nDirectly callable operations:\n")
+		if len(c.Contract.Operations) == 0 {
+			b.WriteString("  None published.\n")
+		}
+		for _, op := range c.Contract.Operations {
+			fmt.Fprintf(&b, "  %s — %s [read-only]\n", op.ID, op.Description)
+		}
+		if len(c.Contract.Operations) > 0 {
+			b.WriteString("Use companion_call describe for the complete contract, then call with structured arguments.\n")
+		}
+	}
 	if len(c.Skills) > 0 {
-		b.WriteString("\nWhat it has written procedures for:\n")
+		b.WriteString("\nLearned procedures (experience only; not advertised tasks or access grants):\n")
 		for _, sk := range c.Skills {
 			b.WriteString("  " + sk.Name)
 			if d := strings.TrimSpace(sk.Description); d != "" {
-				b.WriteString(" — " + text.Clip(text.Collapse(d), 160))
+				b.WriteString(" — " + text.Collapse(d))
 			}
 			b.WriteString("\n")
 		}
@@ -361,7 +422,7 @@ func Describe(c Card) string {
 			"Names only. That says what it can be asked to do, not what you can run — to use one\n" +
 			"of those yourself you configure it in your own workspace, on purpose.\n")
 	}
-	if len(c.Skills) == 0 && len(c.Reach) == 0 {
+	if len(c.Skills) == 0 && len(c.Reach) == 0 && (c.Contract == nil || len(c.Contract.Operations) == 0) {
 		b.WriteString("\nIt declares no skills and no external tool servers. What it has is what it\n" +
 			"has written down — ask `knows`.\n")
 	}

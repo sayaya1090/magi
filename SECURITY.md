@@ -173,8 +173,15 @@ as bytes.
 Two doors, and the difference is whose key it is:
 
 - **`--relay`** carries the whole protocol and any socket path. Right for your own machines.
-- **`--fleet-door`** is the narrow crossing for a key that is somebody else's: four methods, and
+- **`--fleet-door`** is the narrow crossing for a key that is somebody else's: seven methods, and
   only companions this account published. Meant as an ssh forced command.
+
+Published operations use `capabilities`, `capability`, and `capability-call`, alongside `about`,
+`hand`, `hand-state`, and `watch`. They expose only operations in a user-owned companion policy.
+The initial `read_file` executor uses `os.Root` to confine paths, rejects special files, and bounds
+file and response sizes. There is no per-peer ACL or secret-content filter for an allowed root.
+Purpose and operating instructions guide the agent; they do not sandbox its ordinary shell tools.
+See [the contract design](docs/COMPANION_CONTRACT.md) for the configuration and remaining work.
 
 Machines are admitted explicitly — `magi --whoami` prints a fingerprint, `--admit` accepts one —
 and a fleet identity (`fleet-key.pem`, `fleet-cert.pem`) lives beside the config. A companion not

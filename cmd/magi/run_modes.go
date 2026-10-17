@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/sayaya1090/magi/internal/adapter/companionpolicy"
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/mcpserve"
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
@@ -107,8 +108,13 @@ func runDaemonMode(p daemonModeParams) int {
 	if p.clientOwned {
 		daemon.AdoptOwner()
 	}
-	howMany, whatOf := countCan(store, wd)
+	howMany, whatOf := countCan(store, wd, plat.ConfigDir())
 	publishedRole := cfg.Companion.Role
+	if c, err := companionpolicy.Load(plat.ConfigDir(), wd); err != nil {
+		fmt.Fprintln(os.Stderr, "magi: companion publication disabled:", err)
+	} else if publishedRole == "" {
+		publishedRole = c.Purpose
+	}
 	if publishedRole == "" && a.ClientKind() == app.ClientBrowser {
 		publishedRole = "browser: web interaction and isolated headless tests; on-demand browser tools"
 	}
@@ -275,6 +281,9 @@ func runDaemonMode(p daemonModeParams) int {
 			case <-cronCtx.Done():
 				return
 			case <-tick.C:
+				if err := refreshCompanionAdvertisement(plat.ConfigDir(), wd, sockPath, cfg.Companion.Role); err != nil {
+					fmt.Fprintln(os.Stderr, "magi: refreshing companion declaration:", err)
+				}
 				if serr := daemon.NoteState(sockPath, companionState(a, sid)); serr != nil {
 					fmt.Fprintln(os.Stderr, "magi:", serr)
 				}

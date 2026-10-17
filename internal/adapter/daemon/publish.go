@@ -641,3 +641,18 @@ func SocketsIn(dir, suffix string) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
+
+// Advertise replaces user-declared purpose and offers while preserving the running session and jobs.
+func Advertise(socketPath, purpose string, count int, names []string) error {
+	recordMu.Lock()
+	defer recordMu.Unlock()
+	in, err := Published(socketPath)
+	if err != nil {
+		return err
+	}
+	if in.Role == purpose && in.Can == count && strings.Join(in.Does, "\x00") == strings.Join(names, "\x00") {
+		return nil
+	}
+	in.Role, in.Can, in.Does = purpose, count, append([]string(nil), names...)
+	return writeRecord(socketPath, in)
+}

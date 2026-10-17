@@ -1085,3 +1085,19 @@ func (c *Client) SessionModels(sid session.SessionID) ([]string, error) {
 	}
 	return resp.Models, nil
 }
+
+// CompanionOperation preserves the remote result and never falls back to a model request.
+func (c *Client) CompanionOperation(action, id string, args json.RawMessage) (Response, error) {
+	method := map[string]string{"list": "capabilities", "describe": "capability", "call": "capability-call"}[action]
+	if method == "" {
+		return Response{}, fmt.Errorf("unknown companion operation action %q", action)
+	}
+	res, err := c.exchange(Request{Method: method, Name: id, Args: args})
+	if err != nil {
+		return res, err
+	}
+	if !res.OK {
+		return res, errors.New(res.Err)
+	}
+	return res, nil
+}
