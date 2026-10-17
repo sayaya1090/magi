@@ -940,7 +940,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	msgs := reconstruct(a.liveEvents(sid, evs))
 	if a.cfg.Council != nil {
 		if a.councilFor(sid) != nil {
-			vol += "\nCouncil is enabled for this turn. Declare completed work with the council tool."
+			vol += "\nCouncil is enabled for work performed in this turn. Declare completed tool work with the council tool. For an ordinary conversational answer with no tool work, answer directly and end without council. Prior turns do not make this turn a work task."
 		} else {
 			vol += "\nCouncil is disabled for this turn. Do not call the council tool; report the result directly when finished. This overrides any older council completion guidance."
 		}

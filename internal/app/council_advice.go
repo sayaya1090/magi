@@ -749,3 +749,37 @@ const (
 	// evidence, which is the part the agent did not write.
 	claimCap = 6000
 )
+
+// councilToolAdvice applies the completion scope only to model tool calls. Explicit
+// advice and direct council APIs remain available even without executed tools.
+func (a *App) councilToolAdvice(ctx context.Context, s session.Session, changes []fileChange, epoch int, question string, complete, reportReady bool) (string, error) {
+	if !complete || strings.TrimSpace(question) != "" || len(changes) > 0 || epoch > 0 || a.councilFor(s.ID) == nil {
+		return a.councilAdvice(ctx, s, changes, epoch, question, complete, reportReady)
+	}
+	events, err := a.store.Read(ctx, s.ID, 0)
+	if err != nil {
+		return "", fmt.Errorf("cannot determine council completion scope: %w", err)
+	}
+	seenUser, work := false, false
+	for _, e := range a.taskEvents(s.ID, events) {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			seenUser, work = true, false
+		}
+		if e.Type == event.TypePartAppended {
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Part.ToolCall != nil && d.Part.ToolCall.Name != "council" {
+				work = true
+			}
+		}
+	}
+	// Count pending calls as work too: a parallel call must not bypass review merely
+	// because its result has not arrived. Never classify shell commands by their text.
+	if !seenUser || work {
+		return a.councilAdvice(ctx, s, changes, epoch, question, complete, reportReady)
+	}
+	a.signalTurnControl(s.ID, func(tc *turnControl) { tc.finish, tc.unverifiedReason, tc.reportReady = true, "", reportReady })
+	if reportReady {
+		return "No tool work was performed in this user turn. Council was not convened. The conversational answer is complete; do not repeat it.", nil
+	}
+	return "No tool work was performed in this user turn. Council was not convened. Write the final conversational answer directly.", nil
+}

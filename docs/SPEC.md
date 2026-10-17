@@ -820,3 +820,10 @@ council-close-recorded-1:  what the close said travels with the round whether or
 A tool result with `background: true` confirms launch, not completion. Its content stays the launch result. A persisted `tool.background` fact identifies the same `callId` and reports `state` as `succeeded`, `failed`, `killed`, or `unknown`; observed exits also include `exit`. The lifecycle fact does not add a second tool response to the model conversation.
 
 IDE clients keep a spinner until a terminal fact arrives. On reconnect, the execution-owning daemon marks jobs whose completion it no longer observes as `unknown`, which stops the spinner without declaring success. It preserves outcomes already recorded and leaves its own active observers alone. Older tool results without the background flag keep their previous rendering.
+
+
+## Conversational council scope
+
+Completion review applies to tool work in the current user turn. A conversational answer with no other tool calls ends directly. If the model nevertheless calls the council with `complete: true` and no explicit question, the tool path closes the conversation without convening members or recording a fabricated verdict. Prior turns' work and injected system notices do not change this boundary.
+
+Current tool calls, including calls still in flight, retain completion review. Explicit consultations with a question and direct council APIs remain available without tool work. A scope read failure never becomes permission to finish.

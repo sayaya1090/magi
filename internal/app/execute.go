@@ -509,7 +509,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		RestoreChild: hooks.Restore,
 		MergeChild:   hooks.Merge,
 		Council: func(cctx context.Context, question string, complete bool, reportReady bool) (string, error) {
-			return a.councilAdvice(cctx, s, guardChanges(guard), guardEpoch(guard), question, complete, reportReady)
+			return a.councilToolAdvice(cctx, s, guardChanges(guard), guardEpoch(guard), question, complete, reportReady)
 		},
 		RouteInterjection: routeInterjectionFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
