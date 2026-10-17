@@ -190,6 +190,8 @@ ${idePaletteCss}
   .args-toggle-btn:hover { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
   .who { display:flex; align-items:center; gap:6px; min-height:24px; }
   .row-label { flex:1; min-width:0; }
+  .tool .row-label .body { display:inline; font-family:var(--vscode-editor-font-family, monospace); font-weight:400; }
+  .tool .row-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .row-actions { display:inline-flex; gap:2px; flex:none; }
   .row-time { font-family:var(--vscode-font-family, sans-serif); white-space:nowrap; font-variant-numeric:tabular-nums; }
   .row-icon-btn { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:4px; margin:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; box-sizing:border-box; }

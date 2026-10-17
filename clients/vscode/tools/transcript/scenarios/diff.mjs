@@ -443,9 +443,10 @@ export const diffScenarios = [
             const header = row.querySelector('.who').getBoundingClientRect();
             const title = row.querySelector('.body').getBoundingClientRect();
             const args = row.querySelector('.raw-args').getBoundingClientRect();
-            return header.bottom <= title.top && title.bottom <= args.top;
+            return title.top >= header.top && title.bottom <= header.bottom && header.bottom <= args.top;
           });
-          assert.equal(order, true, 'expanded arguments must stay below the tool header and title');
+          assert.equal(order, true, 'tool title stays in the header and expanded arguments stay below it');
+          assert.equal(await page.locator('.row.tool > .body').count(), 0, 'tool title must not add a second heading line');
           assert.equal(await page.locator('.row.tool .args').isVisible(), false, 'expanded arguments replace the clipped summary');
           assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'true');
           const renderedRaw = await rawBox.textContent();

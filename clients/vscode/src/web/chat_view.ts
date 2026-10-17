@@ -624,7 +624,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     if (r.who === 'tool' && r.rawArgs && r.rawArgs !== r.args) {
       const toggle = document.createElement('button');
       toggle.type = 'button';
-      toggle.className = 'args-toggle-btn';
+      toggle.className = 'args-toggle-btn row-icon-btn';
       if (r.callId) toggle.dataset.callId = r.callId;
       const isExpanded = !!(boundSession && r.callId && expandedCallIds.has(r.callId));
       toggle.textContent = isExpanded ? uiText.collapse : '…';
@@ -651,8 +651,14 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
           else expandedCallIds.delete(r.callId);
         }
       });
-      b.append(' ', toggle);
+      controls.prepend(toggle);
       b.after(rawBox);
+    }
+    if (r.who === 'tool') {
+      const badge = label.querySelector('.row-badge');
+      label.textContent = '';
+      label.append(b);
+      if (badge) w.insertBefore(badge, controls);
     }
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);
