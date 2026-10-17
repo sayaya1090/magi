@@ -1140,7 +1140,6 @@ class MagiToolWindow : ToolWindowFactory {
             // 개별 말풍선 텍스트 복사 버튼:
             // 시각적 스타일(발화자, 실행 상태 등)은 `RowText.plain`을 통해 표준 텍스트 서식으로 직렬화하여 클립보드에 전달합니다.
             val actions = javax.swing.JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 2, 0)).apply { isOpaque = false }
-            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
             val sourceSession = currentSendSession()
             if (sourceSession != null && r.outputText != null && r.outputSeq != null) {
                 // 아이콘 단추 — 복사 아이콘 옆에 같은 크기로 선다. 글자 단추였을 때는 행에서 가장 큰
@@ -1157,6 +1156,7 @@ class MagiToolWindow : ToolWindowFactory {
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }
+            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
             // 헤더가 시각을 싣는 행(도구·말·카운슬)은 아이콘도 헤더에 싣는다 — [아이콘] [시각] 한 줄.
             // 헤더가 없는 행(생각 등)만 본문 옆에 세운다.
             var headTookActions = false
