@@ -60,6 +60,7 @@ func (a *App) stepSystemFor(sid session.SessionID, agent AgentSpec, workdir stri
 // the prefix beyond it is not yet written.
 func (a *App) resetTurnPrompt(sid session.SessionID) {
 	a.mu.Lock()
+	a.stateLocked(sid).profileIntroTurn = false
 	a.stateLocked(sid).turnSysSet = false
 	a.stateLocked(sid).turnSys = ""
 	a.mu.Unlock()

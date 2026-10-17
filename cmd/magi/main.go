@@ -891,6 +891,12 @@ func runWithContext(runCtx context.Context) int {
 	var ears *companionEars
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model: session.ModelRef{Provider: "openai", Model: modelID},
+		CompanionProfileUnpublished: func(workdir string) bool {
+			if app.NormalizeClientKind(*clientRole) != app.ClientCoding || runCtx.Value(codingTaskRunKey{}) == true {
+				return false
+			}
+			return companionProfileUnpublished(plat.ConfigDir(), workdir)
+		},
 		CompanionProfileNeeded: func(workdir string) bool {
 			if app.NormalizeClientKind(*clientRole) != app.ClientCoding || runCtx.Value(codingTaskRunKey{}) == true {
 				return false

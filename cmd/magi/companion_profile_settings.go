@@ -97,3 +97,11 @@ func (d daemonEngine) setProfileSetting(value string) (daemon.ConfigItem, error)
 	}
 	return d.profileSetting()
 }
+
+func companionProfileUnpublished(configDir, wd string) bool {
+	if !companionProfileNeeded(configDir, wd) {
+		return false
+	}
+	c, err := companionpolicy.Load(configDir, wd)
+	return err == nil && len(c.Tasks) == 0 && len(c.Operations) == 0
+}

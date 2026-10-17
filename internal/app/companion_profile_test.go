@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestCompanionProfileRunsOnceOutsideTurnAndRespectsDisable(t *testing.T) {
 		}
 		llm := &acCapLLM{text: `{"purpose":"workspace","tasks":[{"id":"build","description":"build"}]}`}
 		saved := make(chan string, 2)
-		a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Model: session.ModelRef{Model: "model"}, CompanionProfileNeeded: func(string) bool { return enabled }, CompanionProfileSave: func(_ string, p string) error { saved <- p; return nil }}))
+		a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Interactive: true, Model: session.ModelRef{Model: "model"}, CompanionProfileNeeded: func(string) bool { return enabled }, CompanionProfileSave: func(_ string, p string) error { saved <- p; return nil }}))
 		sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
@@ -101,7 +102,7 @@ func TestCompanionProfileIsTriggeredByCompletedTurnAndCanBeCancelled(t *testing.
 		}
 		llm := profileLifecycleLLM{started: make(chan struct{}), block: block}
 		saved := make(chan string, 1)
-		a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{CompanionProfileNeeded: func(string) bool { return true }, CompanionProfileSave: func(_ string, p string) error { saved <- p; return nil }}))
+		a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Interactive: true, CompanionProfileNeeded: func(string) bool { return true }, CompanionProfileSave: func(_ string, p string) error { saved <- p; return nil }}))
 		sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 		if err != nil {
 			t.Fatal(err)
@@ -135,6 +136,75 @@ func TestCompanionProfileIsTriggeredByCompletedTurnAndCanBeCancelled(t *testing.
 			case <-time.After(time.Second):
 				t.Fatal("result was not published")
 			}
+		}
+	}
+}
+
+func TestCompanionStartupNudgeOnceAndInteractiveOnly(t *testing.T) {
+	user := []event.Event{{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser, ID: "user"}}}
+	available := map[string]bool{"ask_user": true}
+	fresh := func() *App {
+		return &App{cfg: Config{Interactive: true, CompanionProfileUnpublished: func(string) bool { return true }}, states: map[session.SessionID]*sessionState{}}
+	}
+	a := fresh()
+	user = append(user, event.Event{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorSystem, ID: "hook"}})
+	if a.companionStartupNudge("s", "/workspace", user, nil) {
+		t.Fatal("no question tool must not consume introduction")
+	}
+	if !a.companionStartupNudge("s", "/workspace", user, available) {
+		t.Fatal("first interactive use must nudge")
+	}
+	if !a.companionStartupNudge("s", "/workspace", user, available) {
+		t.Fatal("nudge must stay stable across steps")
+	}
+	a.resetTurnPrompt("s")
+	if a.companionStartupNudge("s", "/workspace", user, available) {
+		t.Fatal("must not repeat next turn")
+	}
+	if a.companionStartupNudge("other", "/workspace", user, available) {
+		t.Fatal("must not repeat in another session")
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*App)
+		evs  []event.Event
+	}{
+		{"child", func(*App) {}, append([]event.Event{{Type: event.TypeSessionCreated, Data: json.RawMessage(`{"parent":"parent"}`)}}, user...)},
+		{"headless", func(a *App) { a.cfg.Interactive = false }, user},
+		{"disabled or already published", func(a *App) { a.cfg.CompanionProfileUnpublished = func(string) bool { return false } }, user},
+		{"prepared task", func(a *App) { a.cfg.CodingTaskExecution = true }, user},
+		{"cron", func(*App) {}, []event.Event{{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser, ID: "cron:job"}}}},
+		{"peer", func(*App) {}, []event.Event{{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorAgent, ID: "peer"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := fresh()
+			tc.edit(a)
+			if a.companionStartupNudge("s", "/workspace", tc.evs, available) {
+				t.Fatal("unexpected introduction")
+			}
+		})
+	}
+}
+
+func TestHeadlessCompanionDoesNotExtractOrPrompt(t *testing.T) {
+	a := &App{cfg: Config{Interactive: false, CompanionProfileNeeded: func(string) bool { t.Fatal("headless discovery checked policy"); return true }, CompanionProfileSave: func(string, string) error { t.Fatal("headless published profile"); return nil }}}
+	a.scheduleCompanionProfile("s") // nil store: must return before accessing a session or provider.
+}
+
+func TestInteractiveModelActuallyReceivesStartupNudge(t *testing.T) {
+	for _, interactive := range []bool{true, false} {
+		store, err := jsonl.New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		llm := &acCapLLM{text: "Hello"}
+		reg := builtin.Default()
+		builtin.RegisterOrchestration(reg, !interactive)
+		a := closeAfter(t, New(store, llm, reg, bus.New(), nil, Config{Interactive: interactive, CompanionProfileUnpublished: func(string) bool { return true }}))
+		submitAndDrain(t, a, t.TempDir())
+		got := strings.Contains(llm.request().System, "# First interactive use: workspace offers are empty")
+		if got != interactive {
+			t.Fatalf("interactive=%v, model nudge=%v", interactive, got)
 		}
 	}
 }

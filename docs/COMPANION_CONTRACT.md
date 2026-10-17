@@ -101,7 +101,11 @@ Access modes are read, write, execute, deny, and approval. They communicate boun
 
 ## Self-description after understanding a workspace
 
-Coding companions (VS Code, JetBrains and TUI) automatically extract missing purpose, responsibilities and offered tasks after a successful turn that contains a successful project-file `read`. The foreground model no longer has to remember to invoke the publication CLI. Prepared coding-task runners do not publish separate identities.
+Interactive coding companions (VS Code, JetBrains and TUI) automatically extract missing purpose, responsibilities and offered tasks after a successful turn that contains a successful project-file `read`. The foreground model no longer has to remember to invoke the publication CLI. Prepared coding-task runners do not publish separate identities.
+
+When both offered tasks and callable operations are empty, the first genuine user turn after daemon startup receives a one-time model nudge to ask permission for a project survey. The model uses `ask_user`, explains the read-only scope and model usage, and offers approval or deferral. Dismissal is not approval. This does not create a startup model request or interrupt urgent work. The nudge stays stable through the approval turn and is not repeated in another session of the same daemon. It is guidance to the model, not a new filesystem permission boundary. Existing user-requested work and passive metadata extraction remain separate from this optional survey.
+
+Headless runs do not receive the nudge or perform automatic profile extraction. Cron jobs, child sessions, prepared coding tasks and peer-originated turns do not receive the introduction. IDE daemons serving interactive clients are interactive for this purpose, even though their process has no TUI.
 
 `companion_auto_describe = "on"` is the default. Set it to `"off"` to stop extraction; changes apply without restarting the daemon. This switch is separate from memory and skill learning. An untrusted project configuration cannot change it. Turning it off preserves descriptions already stored.
 
