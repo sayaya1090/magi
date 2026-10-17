@@ -180,7 +180,9 @@ func DefaultDangerTools() map[string]bool {
 // Config holds run-time policy for the agent loop and orchestration (D7).
 type Config struct {
 	// CompanionInstructions reads the user-owned workspace declaration; it grants no extra tools.
-	CompanionInstructions func(workdir string) string
+	CompanionInstructions  func(workdir string) string
+	CompanionProfileNeeded func(workdir string) bool
+	CompanionProfileSave   func(workdir, profile string) error
 
 	CodingTasks port.CodingTasks
 	// CodingTaskExecution is set by the trusted CLI runner after it binds and locks

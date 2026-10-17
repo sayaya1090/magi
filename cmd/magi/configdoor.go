@@ -45,6 +45,7 @@ type settingKey struct {
 // able to change from a screen, and adding one is a deliberate act rather than a consequence of a
 // struct field appearing in internal/config.
 var settingKeys = []settingKey{
+	{key: "companion_auto_describe", name: "companion_auto_describe", applies: "now", stranger: true, doc: "Automatically describe this workspace after successful turns (on/off). Uses an additional model request; preserves existing descriptions and access policy.", get: func(c config.Config) string { return c.CompanionAutoDescribe }},
 	{
 		key: "embed_model", name: "embed_model", env: "MAGI_EMBED_MODEL", applies: "next start",
 		doc: "the model that embeds for recall; empty means recall stays at the string level",
@@ -100,6 +101,10 @@ func (d daemonEngine) configTiers() []struct{ tier, dir string } {
 // the stranger-merge drops, because a value the engine will not use is not the effective value.
 func (d daemonEngine) resolve(k settingKey) daemon.ConfigItem {
 	item := daemon.ConfigItem{Key: k.key, Applies: k.applies, Doc: k.doc, Profile: k.profile}
+	if k.key == "companion_auto_describe" {
+		item.Value = "on"
+		item.Source = "default"
+	}
 	trusted := config.Trusted(d.configDir, d.workdir)
 	for _, t := range d.configTiers() {
 		if k.stranger && t.tier == "project" && !trusted {
@@ -156,12 +161,24 @@ func (d daemonEngine) ConfigHere(context.Context) ([]daemon.ConfigItem, error) {
 	for _, k := range settingKeys {
 		out = append(out, d.resolve(k))
 	}
+	profile, err := d.profileSetting()
+	if err != nil {
+		out = append(out, daemon.ConfigItem{Key: "companion.profile", Applies: "now", Unreadable: err.Error()})
+	} else {
+		out = append(out, profile)
+	}
 	return out, nil
 }
 
 // ConfigSet writes one key and answers with the key as it now stands — read back rather than
 // echoed, so a screen redraws from the daemon's own reading instead of from what it hoped happened.
 func (d daemonEngine) ConfigSet(ctx context.Context, key, value, tier string) (daemon.ConfigItem, error) {
+	if key == "companion.profile" {
+		return d.setProfileSetting(value)
+	}
+	if key == "companion_auto_describe" && value != "on" && value != "off" {
+		return daemon.ConfigItem{}, fmt.Errorf("choose on or off")
+	}
 	k, ok := settingKeyOf(key)
 	if !ok {
 		return daemon.ConfigItem{}, fmt.Errorf("%q is not a setting this door changes — `config-get` lists the ones it does", key)
@@ -206,6 +223,9 @@ func (d daemonEngine) ConfigSet(ctx context.Context, key, value, tier string) (d
 		return daemon.ConfigItem{}, err
 	}
 	item := d.resolve(k)
+	if key == "companion_auto_describe" && item.Value == "off" && d.App != nil {
+		d.App.CancelCompanionProfile()
+	}
 	if item.Source == "env" && strings.TrimSpace(value) != "" {
 		// The write landed and something else still wins. Said here, because a screen that showed
 		// the new value without this would be telling a person their change took effect.

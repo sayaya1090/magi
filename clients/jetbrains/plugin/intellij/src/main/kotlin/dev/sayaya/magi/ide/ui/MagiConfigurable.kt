@@ -266,11 +266,12 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
             }
             // 프로필 타입 설정 키의 경우 선택 가능한 후보 목록(ComboBox)을 제공합니다.
             // 데몬 메타데이터(`profile: true`)에 기반하여 렌더링 형태를 결정하므로 클라이언트별 키 하드코딩을 방지합니다.
-            val f: javax.swing.text.JTextComponent = if (item.profile) {
+            val profileEditor = if (item.key == "companion.profile" && item.unreadable.isNullOrBlank()) CompanionProfileEditor.create(item.value.orEmpty()) else null
+            val f: javax.swing.text.JTextComponent = if (profileEditor != null) profileEditor.first else if (item.profile || item.key == "companion_auto_describe") {
                 val combo = Look.narrowCombo<String>(24).apply {
                     isEditable = true
                     addItem("")
-                    choices.forEach(::addItem)
+                    if (item.key == "companion_auto_describe") { addItem("on"); addItem("off") } else choices.forEach(::addItem)
                     selectedItem = item.value.orEmpty()
                 }
                 // 편집 가능한 ComboBox의 내부 에디터 컴포넌트를 참조하여 텍스트 필드와 동일한 인터페이스로 값을 읽습니다.
@@ -284,7 +285,8 @@ class MagiConfigurable(private val project: Project) : Configurable, Configurabl
                 foreground = Look.faint
                 toolTipText = item.key
             }.also { doorNames += it }, 0, 1, Insets(4, 0, 4, 12))
-            line((f.parent as? JComboBox<*>) ?: f, 1, 1, Insets(4, 0, 4, 0))
+            val toggle = if (item.key == "companion_auto_describe") javax.swing.JCheckBox(SettingPresentation.label(item), f.text == "on").apply { addActionListener { f.text = if (isSelected) "on" else "off" } } else null
+            line(toggle ?: profileEditor?.second ?: if (f is javax.swing.JTextArea) javax.swing.JScrollPane(f).apply { minimumSize = java.awt.Dimension(0, 100); preferredSize = java.awt.Dimension(240, 140) } else (f.parent as? JComboBox<*>) ?: f, 1, 1, Insets(4, 0, 4, 0))
             dy++
             val why = listOfNotNull(
                 SettingPresentation.description(item),

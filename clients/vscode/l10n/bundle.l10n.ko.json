@@ -1,0 +1,19 @@
+{
+  "Automatic workspace description": "컴패니언 역할 자동 정리",
+  "Workspace purpose and offered tasks": "컴패니언 목적·담당 범위·제공 작업",
+  "The workspace description could not be read.": "컴패니언 설명을 읽지 못했습니다.",
+  "Save": "저장",
+  "Purpose": "목적",
+  "Responsibilities": "담당 범위",
+  "Add offered task": "제공 작업 추가",
+  "Separate entries with semicolons.": "항목을 세미콜론으로 구분해 주세요.",
+  "Edit": "편집",
+  "Remove": "삭제",
+  "Offered task": "제공 작업",
+  "Describe the work, required input and expected result.": "작업 내용, 필요한 입력, 기대 결과를 적어 주세요.",
+  "Task limits": "작업 제약",
+  "On": "켜기",
+  "Off": "끄기",
+  "Automatically fill missing workspace descriptions after successful turns. Uses an additional model request. Existing descriptions and permissions are preserved.": "턴이 정상 종료되면 비어 있는 컴패니언 설명을 자동으로 정리합니다. 별도 모델 요청이 발생하며 기존 설명과 권한은 보존합니다.",
+  "Edit the purpose, responsibilities and offered tasks. Access permissions and callable operations are preserved.": "목적·담당 범위·제공 작업을 편집합니다. 접근 권한과 직접 호출 도구는 보존합니다."
+}

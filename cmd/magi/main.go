@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -890,17 +891,28 @@ func runWithContext(runCtx context.Context) int {
 	var ears *companionEars
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model: session.ModelRef{Provider: "openai", Model: modelID},
+		CompanionProfileNeeded: func(workdir string) bool {
+			if app.NormalizeClientKind(*clientRole) != app.ClientCoding || runCtx.Value(codingTaskRunKey{}) == true {
+				return false
+			}
+			return companionProfileNeeded(plat.ConfigDir(), workdir)
+		},
+		CompanionProfileSave: func(workdir, profile string) error {
+			if !companionProfileNeeded(plat.ConfigDir(), workdir) {
+				return nil
+			}
+			var why bytes.Buffer
+			if companionProfileCommand(plat.ConfigDir(), workdir, strings.NewReader(profile), io.Discard, &why) != 0 {
+				return fmt.Errorf("%s", why.String())
+			}
+			return refreshCompanionAdvertisement(plat.ConfigDir(), workdir, daemon.SocketPath(plat.ConfigDir(), workdir), cfg.Companion.Role)
+		},
 		CompanionInstructions: func(workdir string) string {
 			c, err := companionpolicy.Load(plat.ConfigDir(), workdir)
 			if err != nil {
 				return "\n\nCompanion publication policy is invalid; directly callable operations are disabled.\n"
 			}
 			guide := companionpolicy.Guide(c)
-			if app.NormalizeClientKind(*clientRole) == app.ClientCoding && runCtx.Value(codingTaskRunKey{}) != true {
-				if executable, err := os.Executable(); err == nil {
-					guide = companionSelfDescriptionGuide(workdir, executable) + guide
-				}
-			}
 			return guide
 		},
 		System:              clientSystem(*clientRole),
@@ -1543,6 +1555,9 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	if proj.Companion != (config.CompanionConfig{}) {
 		cfg.Companion = proj.Companion
 	}
+	if proj.CompanionAutoDescribe != "" {
+		cfg.CompanionAutoDescribe = proj.CompanionAutoDescribe
+	}
 	cfg.Theme.Dark = mergeStrMap(cfg.Theme.Dark, proj.Theme.Dark)
 	cfg.Theme.Light = mergeStrMap(cfg.Theme.Light, proj.Theme.Light)
 	// Council: project config may enable/disable/override the consensus gate.
@@ -1713,6 +1728,7 @@ func asStranger(proj config.Config, said *[]string) config.Config {
 	proj.LLM.Headers, proj.LLM.Profiles = nil, nil
 	proj.Autocomplete, proj.Templates = config.AutocompleteConfig{}, config.TemplatesConfig{}
 	proj.Subagents = nil
+	proj.CompanionAutoDescribe = ""
 	return proj
 }
 

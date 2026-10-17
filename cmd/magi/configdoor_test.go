@@ -132,6 +132,10 @@ func TestAnUnparseableLayerIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, it := range items {
+		// The profile is stored in policy.toml, independently of config.toml.
+		if it.Key == "companion.profile" {
+			continue
+		}
 		if it.Unreadable == "" {
 			t.Fatalf("%s was reported as simply unset while its file will not parse", it.Key)
 		}
