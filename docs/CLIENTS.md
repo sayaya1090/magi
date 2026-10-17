@@ -584,3 +584,9 @@ flowchart LR
 **A person sits in a seat (a client), the seat attaches to a companion, the companion runs turns
 as agents — and the web screens each take one of those things (the fleet, one companion, its work,
 the team's knowledge, who may reach what) and draw it.**
+
+### Web council and compaction controls
+
+`GET /council-mode?d=<socket>&session=<id>` returns the daemon's `{enabled, session}` state. `POST /council-mode` accepts form fields `session` and `enabled` (`true` or `false`). The write requires `configure` permission, follows the normal peer proxy and scope checks, and refuses a session that is no longer active before changing the daemon. The UI confirms the context-cache effect, shows pending/error feedback, and does not treat an unreadable state as council being off.
+
+The web context button posts the displayed `session` to `/compact`. This field is optional for older clients; when supplied, a changed active session is refused. The UI keeps pending compactions by companion and session, so rebuilding the context panel does not enable another request. Errors remain visible and release the control. Transcript output opens in a read-only source card and can be copied without Markdown formatting.

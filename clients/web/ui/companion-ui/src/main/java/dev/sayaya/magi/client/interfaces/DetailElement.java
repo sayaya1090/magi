@@ -75,6 +75,19 @@ public class DetailElement {
         wrap.append(grid);
         card.append(bar, wrap);
         store.onContext(c -> { ctx = c; render(); });
+        DomGlobal.setInterval(ignored -> {
+            if (ctx == null || a == null || ctx.past != null || ctx.sub != null || councilBusy || councilReading || councilSession.isEmpty() || !councilSession.equals(a.session) || DomGlobal.document.hidden) return;
+            String target = councilKey; councilReading = true;
+            store.councilState(councilSession, state -> {
+                councilReading = false;
+                if (!target.equals(councilKey) || councilBusy) return;
+                councilKnown = state != null;
+                if (state != null) councilEnabled = Js.isTruthy(Js.asPropertyMap(state).get("enabled"));
+                councilNote.textContent = state == null ? tr("council.state_unavailable") : "";
+                councilDisplay();
+            });
+        }, 5000);
+
         // 명단 전체가 아니라 <b>내 행</b>을 듣는다 — 그 행이 같은 말을 다시 하면 스토어가
         // 흘리지 않으므로, 이 판은 "바뀌었나"를 스스로 따질 필요가 없다.
         store.aimed().subscribe(row -> { a = row; render(); });
@@ -165,7 +178,29 @@ public class DetailElement {
         return n == null || n.textContent == null ? "" : n.textContent;
     }
 
+    private String settingsTarget = "";
+    private boolean modelSaving = false, permSaving = false, providerSaving = false;
+    private String settingsIdentity() { return ctx == null || a == null ? "" : ctx.socket + "|" + ctx.peer + "|" + a.session; }
+    private void feedback(String field, String message) {
+        HTMLElement row = kept.get(field);
+        if (row == null) row = Js.uncheckedCast(grid.querySelector(".f[data-k=\"" + field + "\"]"));
+        if (row == null) return;
+        HTMLElement note = Js.uncheckedCast(row.querySelector(".setting-feedback"));
+        if (note == null) { note = cell("dnote setting-feedback", ""); note.setAttribute("role", "status"); row.append(note); }
+        note.textContent = message == null ? "" : message;
+    }
+
     private void render() {
+        String target = settingsIdentity();
+        if (!target.equals(settingsTarget)) {
+            settingsTarget = target; modelSaving = permSaving = providerSaving = false;
+            modelWant = permWant = ""; modelWas = ""; modelBlank = false;
+            for (HTMLElement row : kept.values()) {
+                elemental2.dom.Element message = row.querySelector(".setting-feedback");
+                if (message != null) message.textContent = "";
+            }
+        }
+
         // 이 판이 <b>보일지</b>는 여기서 정하지 않는다: 폰에서는 제 탭에서만 서고, 그 사실은
         // 배치를 아는 부모의 것이다. 여기서 hidden을 손대면 명단이 흐를 때마다 그 규칙이
         // 뒤집힌다(실측: 폰의 대화 탭 위에 사실판이 다시 섰다). 여기서는 "속이 있는가"만 말한다.
@@ -217,6 +252,7 @@ public class DetailElement {
         put(wide(field("field.workspace", a.workdir, null)));
         put(wide(sessionField()));
         put(permField());
+        if (ctx.past == null && ctx.sub == null && a.session != null && !a.session.isEmpty()) put(councilField());
         // 이 줄이 컨텍스트 줄들보다 <b>앞</b>이다. 운영에서는 순서가 저절로 그렇게 났다: 모델·캐시·
         // 창은 /context가 답한 뒤에야 놓이는 줄이라(`dataset.late='1'`) 뒤로 밀렸고, 이 줄은
         // drawDetail 안에서 그 자리에 놓였다. 여기서는 모델을 명단이 이미 실어 와서 순서가 코드가
@@ -284,6 +320,62 @@ public class DetailElement {
         v.replaceChildren(one);
     }
 
+    private final HTMLElement councilSwitch = el("md-switch");
+    private final HTMLElement councilNote = cell("dnote", "");
+    private String councilKey = "", councilSession = "";
+    private boolean councilReading = false, councilKnown = false, councilEnabled = false, councilBusy = false, councilWired = false;
+
+    private void councilDisplay() {
+        Js.asPropertyMap(councilSwitch).set("selected", councilEnabled);
+        Js.asPropertyMap(councilSwitch).set("disabled", councilBusy || !councilKnown || !May.can("configure"));
+        councilSwitch.setAttribute("aria-label", tr("field.council"));
+        councilSwitch.setAttribute("aria-busy", String.valueOf(councilBusy));
+    }
+
+    private HTMLElement councilField() {
+        HTMLElement f = rowFor("field.council", "f");
+        String key = ctx.socket + "|" + ctx.peer + "|" + a.session;
+        if (!key.equals(councilKey)) {
+            councilKey = key; councilSession = a.session; councilReading = false;
+            councilKnown = false; councilEnabled = false; councilBusy = true;
+            councilNote.textContent = tr("detail.loading");
+            store.councilState(councilSession, state -> {
+                if (!key.equals(councilKey)) return;
+                councilBusy = false; councilKnown = state != null;
+                if (state != null) councilEnabled = Js.isTruthy(Js.asPropertyMap(state).get("enabled"));
+                councilNote.textContent = state == null ? tr("council.state_unavailable") : "";
+                councilDisplay();
+            });
+        }
+        if (!councilWired) {
+            councilWired = true;
+            councilSwitch.addEventListener("change", evt -> {
+                boolean want = Js.isTruthy(Js.asPropertyMap(councilSwitch).get("selected"));
+                if (councilBusy || !councilKnown) { councilDisplay(); return; }
+                String target = councilKey, session = councilSession;
+                councilBusy = true; councilDisplay();
+                new Dialogs().confirm(tr("field.council"), tr(want ? "council.enable_confirm" : "council.disable_confirm"),
+                    tr("action.cancel"), "#i-sl-x", tr("action.apply"), "#i-sl-check",
+                    () -> { if (target.equals(councilKey)) { councilBusy = false; councilDisplay(); } },
+                    () -> {
+                        if (!target.equals(councilKey)) return;
+                        councilNote.textContent = tr("council.applying");
+                        store.setCouncil(session, want, why -> {
+                            if (!target.equals(councilKey)) return;
+                            councilBusy = false;
+                            if (why == null || why.isEmpty()) { councilEnabled = want; councilNote.textContent = ""; }
+                            else councilNote.textContent = tr("council.change_failed", "why", why);
+                            councilDisplay();
+                        });
+                    });
+            });
+        }
+        councilDisplay();
+        HTMLElement value = vOf(f);
+        if (councilSwitch.parentNode != value) value.replaceChildren(councilSwitch, councilNote);
+        return f;
+    }
+
     private HTMLElement permField() {
         HTMLElement f = rowFor("field.permission", "f");
         if (!permWired) {
@@ -291,8 +383,16 @@ public class DetailElement {
             permSel.className = "permsel";
             permSel.addEventListener("change", evt -> {
                 String want = value(permSel);
-                permWant = want;
-                store.permission(want, why -> { permWant = ""; });
+                if (permSaving) return;
+                String target = settingsIdentity();
+                permWant = want; permSaving = true; gate(permSel, false);
+                feedback("field.permission", tr("council.applying"));
+                store.permission(want, why -> {
+                    if (!target.equals(settingsIdentity())) return;
+                    permWant = ""; permSaving = false; gate(permSel, May.can("configure"));
+                    if (why != null && !why.isEmpty()) pick(permSel, a.permission == null ? "" : a.permission);
+                    feedback("field.permission", why);
+                });
             });
         }
         // 이름은 <b>매번</b> 다시 적는다: 한 번만 적으면 그때 실려 있던 언어로 굳는다(운영 실측).
@@ -300,7 +400,7 @@ public class DetailElement {
         options(permSel, PERM_MODES);
         String now = !permWant.isEmpty() ? permWant : (a.permission == null ? "" : a.permission);
         pick(permSel, now);
-        gate(permSel, May.can("configure"));
+        gate(permSel, May.can("configure") && !permSaving);
         hold(vOf(f), permSel);
         return f;
     }
@@ -401,8 +501,16 @@ public class DetailElement {
             modelSel.addEventListener("change", evt -> {
                 String want = value(modelSel);
                 if (want.isEmpty()) return;
-                modelWant = want;
-                store.model(want, why -> { modelWant = ""; });
+                if (modelSaving || providerSaving) return;
+                String target = settingsIdentity();
+                modelWant = want; modelSaving = true; gate(modelSel, false);
+                feedback("field.provider_model", tr("council.applying"));
+                store.model(want, why -> {
+                    if (!target.equals(settingsIdentity())) return;
+                    modelWant = ""; modelSaving = false; gate(modelSel, May.can("configure"));
+                    if (why != null && !why.isEmpty()) pick(modelSel, a.model == null ? "" : a.model);
+                    feedback("field.provider_model", why);
+                });
             });
         }
         modelSel.setAttribute("aria-label", tr("field.model"));
@@ -427,7 +535,7 @@ public class DetailElement {
             options(modelSel, opts.toArray(new String[0][]));
             pick(modelSel, now);
         });
-        gate(modelSel, May.can("configure"));
+        gate(modelSel, May.can("configure") && !modelSaving && !providerSaving);
         // 백엔드가 앞, 모델이 뒤 — 물음이 그 순서다("어느 백엔드, 그 다음 그 백엔드의 어느 모델").
         // 한 줄인 이유는 앞의 것을 바꾸면 뒤의 것이 내놓을 수 있는 것이 바뀌기 때문이다.
         // 이 짝도 한 번만 짓는다: 다시 지으면 두 고르개가 함께 옮겨진다.
@@ -456,9 +564,15 @@ public class DetailElement {
             provSel.setAttribute("aria-label", tr("field.provider"));
             provSel.addEventListener("change", evt -> {
                 JsPropertyMap<Object> chosen = providerNamed(value(provSel));
-                if (chosen == null) return;
+                if (chosen == null || providerSaving || modelSaving) return;
+                String target = settingsIdentity();
+                providerSaving = true; gate(provSel, false); gate(modelSel, false);
+                feedback("field.provider_model", tr("council.applying"));
                 store.useProvider(str(chosen, "base"), why -> {
-                    if (why != null && !why.isEmpty()) return;
+                    if (!target.equals(settingsIdentity())) return;
+                    providerSaving = false; gate(provSel, May.can("configure")); gate(modelSel, May.can("configure"));
+                    feedback("field.provider_model", why);
+                    if (why != null && !why.isEmpty()) { pick(provSel, nameOfBackend()); return; }
                     modelWant = "";
                     modelBlank = true;
                     // 이 데몬이 답할 이름이 달라졌다 — 이전 백엔드의 목록을 캐시에 둔 채로
@@ -485,7 +599,7 @@ public class DetailElement {
             pick(provSel, nameOfBackend());
             if (n < 1) provSel.setAttribute("hidden", ""); else provSel.removeAttribute("hidden");
             // 하나뿐이면 고를 것이 없다 — 읽을 수는 있게 두고 누름만 죽인다.
-            gate(provSel, May.can("configure") && n > 1);
+            gate(provSel, May.can("configure") && n > 1 && !providerSaving && !modelSaving);
         });
         return provSel;
     }
@@ -911,11 +1025,21 @@ public class DetailElement {
         makeup(f, Js.uncheckedCast(c.get("parts")), estimated);
         // 레버는 읽기 곁에 — 지금, 턴 사이에 접고 싶은 사람의 것(운영 규칙).
         HTMLElement fold = el("md-text-button");
-        fold.className = "fold";
-        Icons.say(fold, tr("action.compact_now"), "#i-sl-compress");
+        fold.className = "fold context-compact";
+        final String compactSession = a == null ? "" : a.session;
+        boolean compacting = store.isCompacting(compactSession);
+        Icons.say(fold, tr(compacting ? "action.compacting" : "action.compact_now"), "#i-sl-compress");
+        if (compacting || compactSession == null || compactSession.isEmpty()) fold.setAttribute("disabled", "");
+        fold.setAttribute("aria-busy", String.valueOf(compacting));
         fold.addEventListener("click", evt -> {
-            fold.setAttribute("disabled", "");
-            store.compact(() -> fold.removeAttribute("disabled"));
+            if (store.isCompacting(compactSession)) return;
+            String target = settingsIdentity();
+            fold.setAttribute("disabled", ""); fold.setAttribute("aria-busy", "true");
+            Icons.say(fold, tr("action.compacting"), "#i-sl-compress");
+            store.compact(compactSession, why -> {
+                if (!target.equals(settingsIdentity())) return;
+                render(); feedback("field.context", why);
+            });
         });
         f.append(fold);
         put(f);

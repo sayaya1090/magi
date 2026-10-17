@@ -93,10 +93,11 @@ var mayWrite = map[string]auth.Capability{
 	// Who may use this console, and how much. The capability that grants the others, and until
 	// this route existed it granted nothing at all — a word in a config file that read like a
 	// promise, which is the thing the auth package warns about in its own opening comment.
-	"/access":     auth.Admin,
-	"/permission": auth.Configure,
-	"/cron":       auth.Configure,
-	"/mcp":        auth.Configure,
+	"/access":       auth.Admin,
+	"/permission":   auth.Configure,
+	"/council-mode": auth.Configure,
+	"/cron":         auth.Configure,
+	"/mcp":          auth.Configure,
 	// Which fast profile does completion, whether the edited file rides into context, the draft
 	// house rules. Configuration of a running companion, read and written — same as MCP and cron.
 	"/autocomplete": auth.Configure,

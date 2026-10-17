@@ -239,6 +239,16 @@ public class CompanionStore implements CompanionSource.Listener {
         if (ctx != null) source.model(ctx, name, why);
     }
 
+    public void councilState(String session, Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        CompanionContext target = ctx;
+        source.councilState(target, session, got -> { if (ctx == target) cb.accept(got); });
+    }
+    public void setCouncil(String session, boolean enabled, Consumer<String> why) {
+        if (ctx == null) { why.accept("No companion"); return; }
+        source.setCouncil(ctx, session, enabled, why);
+    }
+
     public void permission(String mode, Consumer<String> why) {
         if (ctx != null) source.permission(ctx, mode, why);
     }
@@ -268,9 +278,23 @@ public class CompanionStore implements CompanionSource.Listener {
         if (ctx != null) source.reportFormat(ctx, keys, prompts, why);
     }
 
+    private final java.util.Set<String> compacting = new java.util.HashSet<>();
+    private String compactKey(String session) { return ctx == null ? "" : ctx.socket + "|" + ctx.peer + "|" + session; }
+    public boolean isCompacting(String session) { return compacting.contains(compactKey(session)); }
+    public void compact(String session, Consumer<String> after) {
+        if (ctx == null) { after.accept("No companion"); return; }
+        String key = compactKey(session);
+        if (!compacting.add(key)) return;
+        CompanionContext target = ctx;
+        source.compact(target, session, why -> {
+            compacting.remove(key);
+            if (ctx == target) { ctxFor = null; askContextInfo(); }
+            after.accept(why);
+        });
+    }
     public void compact(Runnable after) {
-        if (ctx == null) return;
-        source.compact(ctx, () -> { ctxFor = null; askContextInfo(); after.run(); });
+        FleetAgent agent = rowOf(rosterOf.getValue());
+        compact(agent == null || agent.session == null ? "" : agent.session, why -> after.run());
     }
 
     private void startFacts() {

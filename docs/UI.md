@@ -1178,3 +1178,43 @@ light/dark는 opposing options라 스위치면 **두 겹 위반**) · `MCP` 약�
 `.title` 툴팁(있었다) · 레일 인디케이터(pill이 있었다) · 화살표 키(`md-list`가 처리) ·
 칩 outline(**안 건드려서** 올바른 기본값) · A7 커서(0건) · 탭 44px(**여기만은 `.touch`가 없어 진짜 결함**).
 → **번들을 보고 나서 판정한다.**
+
+## IDE changes reviewed for the web (2026-10-17)
+
+| Change in this session | Web decision |
+|---|---|
+| Restore the latest chat after a late daemon connection | Keep the shell's existing context/transcript replay; do not add another stream |
+| Fix virtual output document URIs | VS Code only; web uses a read-only source card |
+| Copy exact output and report failures | Extend existing copying to tool and council rows |
+| Align row actions and timestamps | Use a common header and common right edge for all row types |
+| Show `HH:mm:ss`, including `00` seconds | Apply to web timestamps |
+| Speaker, council, outcome and error colors | Keep existing semantic tokens; add assistant emphasis and message surfaces |
+| Expand tool details below their title | Keep the tool name, hide the clipped preview while expanded, restore it when folded |
+| Distinguish connected, disconnected and unknown states | Keep the existing companion status UI and textual labels |
+| Show selected chat/model/provider/approval values | Keep existing selectors; add pending feedback and restore rejected values |
+| Change council without restarting | Add state read and confirmed changes, bound to the displayed session and checked by the server |
+| Compact context beside its usage | Keep the action; preserve pending state across redraws, reject duplicate/stale-session requests, and show errors |
+| Icon tooltips, accessible labels and localization | Reuse `Tips`, `Icons` and both language packs for new actions |
+| Chat terminology and count-neutral file actions | Apply the terminology to web text; IDE file context menus remain platform-specific |
+
+### Web library updates
+
+| Library | Previous → Updated |
+|---|---|
+| Elemento | 2.4.9 → 2.5.9 |
+| sayaya-rx | 2.2.3 → 2.3.0 |
+| Dagger | 2.59.1 → 2.60.1 |
+| Lombok | 1.18.42 → 1.18.48 |
+| gwt-test | 2.2.9.5 (유지 / retained) |
+| JUnit | 6.0.3 → 6.1.3 |
+| marked | 18.0.9 → 18.1.1 |
+| Playwright (npm) | 1.62.1 → 1.64.1 |
+| axe-core / @axe-core/playwright | 4.13.0 → 4.14.0 |
+
+Stable versions were checked against Maven Central and npm. `dev.sayaya:ui` stays at 2.4.1.3: its metadata release value, 2.4.1, is older. RxJS 7.8.2 and Material Web 2.5.0 remain current. marked still exports only its lexer; bundle commands and its hash are recorded in `clients/web/server/vendor/README.md`. Gradle, Kotlin and GWT plugin versions are outside this library update. gwt-test 2.3.0 is held back after its Kotest/Playwright changes broke the existing file-menu click test.
+
+### Member votes and the final council review
+
+`council.decided` distinguishes the member tally from the final review (`closingDecision`, `closingReason`). The review can hold a unanimous approval. Clients show `member vote → final review: held` and its reason. A debate's `done held` describes the member-vote stage, not final acceptance.
+
+For older records with unanimous approval and a held outcome, clients show `members approved; final outcome held (legacy record)` and the recorded feedback. They do not infer whether a separate review ran. TUI and web use the shared event explanation; Office, Figma, Chrome and Slack handle raw events in their own renderers; VS Code and JetBrains also handle it in their local transcript conversion.

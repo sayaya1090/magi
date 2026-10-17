@@ -21,6 +21,10 @@ final class Companion {
         // 같은 것을 돌려준다(운영도 그 하나를 쓴다). 두 벌을 두면 지난 일과 지금이 서로 다른
         // 대화를 이야기한다.
         if ("/transcript".equals(path)) return Mock.json(Fleet.transcript());
+        if ("/council-mode".equals(path)) {
+            if (init != null && "POST".equals(init.getMethod())) return Mock.took(path, init);
+            return Mock.json("{\"enabled\":true,\"session\":\"s_demo1\"}");
+        }
         if ("/council".equals(path)) {
             return Mock.json("{\"task\":\"Make the console read the same as the terminal\","
                     + "\"report\":\"Ported the workspace card and its editor.\","

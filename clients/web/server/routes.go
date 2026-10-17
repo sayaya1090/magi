@@ -66,6 +66,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/loop":          s.loop,
 		"/transcript":    s.transcript,
 		"/council":       s.council,
+		"/council-mode":  s.councilMode,
 		"/plan":          s.plan,
 		"/compact":       s.compact,
 		"/permission":    s.permission,

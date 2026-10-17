@@ -621,5 +621,13 @@
   "type.document": "Document agent",
   "type.browser": "Browser agent",
   "type.operations": "Operations agent",
-  "type.spreadsheet": "Spreadsheet agent"
+  "type.spreadsheet": "Spreadsheet agent",
+  "action.view_source": "View source (read-only)",
+  "field.council": "Council",
+  "council.enable_confirm": "Enable council for subsequent requests? Changing instructions may rebuild part of the context cache.",
+  "council.disable_confirm": "Disable council for subsequent requests? Changing instructions may rebuild part of the context cache.",
+  "council.applying": "Applying…",
+  "council.state_unavailable": "Council state unavailable",
+  "council.change_failed": "Could not change council: {why}",
+  "action.compacting": "Compacting…"
 }

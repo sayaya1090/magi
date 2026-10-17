@@ -1044,13 +1044,36 @@ public class ConversationElement {
         }
     }
 
+    private static String rawText(JsPropertyMap<Object> row, String who) {
+        String text = str(row, "text");
+        if (!"tool".equals(who) && !"result".equals(who) && !"failed".equals(who)) return text;
+        String args = str(row, "args"), out = decodeToolText(str(row, "out")), diff = str(row, "diff");
+        return text + (args.isEmpty() ? "" : "\n\n" + args) + (out.isEmpty() ? "" : "\n\n" + out) + (diff.isEmpty() ? "" : "\n\n" + diff);
+    }
+
+    private int sourceSeq = 0;
+
+    private void showSource(String text) {
+        HTMLElement box = el("div");
+        box.id = "source:" + (++sourceSeq);
+        box.setAttribute("title", tr("action.view_source"));
+        box.style.setProperty("display", "contents");
+        dev.sayaya.magi.bridge.CardSharing.closable(box, () -> { });
+        HTMLElement bar = cell("filebar", null);
+        bar.append(cell("filedir", tr("action.view_source")), copyChip(text));
+        HTMLElement body = cell("dinsp", null);
+        body.append(pre(text, false));
+        box.append(bar, body);
+        cardsWith(box);
+    }
+
     private HTMLElement rowNode(JsPropertyMap<Object> r) {
         String who = str(r, "who");
         boolean hasOk = r.has("ok") && r.get("ok") != null;
         boolean ok = hasOk && Js.isTruthy(r.get("ok"));
         boolean pending = Js.isTruthy(r.get("pending"));
         HTMLElement d = el("div");
-        d.className = Rows.rowClass(who, hasOk, ok,
+        d.className = "chat-row " + Rows.rowClass(who, hasOk, ok,
                 Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")),
                 str(r, "decision"), str(r, "member"));
         HTMLElement w = el("div");
@@ -1071,23 +1094,37 @@ public class ConversationElement {
             name.addEventListener("click", evt -> { evt.stopPropagation(); showVerdict(at, member, r); });
             w = name;
         }
+        HTMLElement header = el("div");
+        header.className = "row-head";
+        header.append(w);
+        HTMLElement actions = el("div");
+        actions.className = "row-actions";
+        String raw = rawText(r, who);
+        if (!raw.isEmpty()) {
+            HTMLElement source = el("button");
+            source.setAttribute("type", "button");
+            source.className = "copy source hit48";
+            source.append(Icons.shape("#i-sl-file-lines", null));
+            source.setAttribute("aria-label", tr("action.view_source"));
+            Tips.on(source, tr("action.view_source"));
+            source.addEventListener("click", evt -> { evt.preventDefault(); evt.stopPropagation(); showSource(raw); });
+            actions.append(source, copyChip(raw));
+        }
+        header.append(actions);
         String at = str(r, "at");
-        if (!at.isEmpty()) {
-            HTMLElement when = el("div");
+        {
+            HTMLElement when = el("time");
             when.className = "when";
-            when.textContent = hhmm(at);
-            w.append(when);
+            when.setAttribute("datetime", at);
+            when.textContent = at.isEmpty() ? "" : hhmm(at);
+            header.append(when);
         }
         if (Rows.folded(who)) {
-            d.append(w, foldNode(r, who, hasOk, ok, pending));
+            d.append(header, foldNode(r, who, hasOk, ok, pending));
             return d;
         }
         if (pending) w.append(tag("row.working"));
         if (Js.isTruthy(r.get("abandoned"))) w.append(tag("row.abandoned"));
-        // 사람이 화면에서 못 얻는 것 하나 — 적힌 그대로의 본문. 골라서 복사하면 <b>그려진</b>
-        // 글이 나온다(표는 칸이 붙어 나오고 코드 울타리는 사라진다). 산문 두 행에만 둔다.
-        String said = str(r, "text");
-        if (("user".equals(who) || "assistant".equals(who)) && !said.trim().isEmpty()) w.append(copyChip(said));
         HTMLElement t = el("div");
         t.className = "txt";
         // 그리는 규칙은 누가 말했느냐로 갈린다(운영 rowNode의 그 세 갈래).
@@ -1100,7 +1137,7 @@ public class ConversationElement {
         if ("error".equals(who)) t.textContent = "\u2717 " + body;
         else if ("user".equals(who)) t.textContent = body;
         else Markdown.into(t, body);
-        d.append(w, t);
+        d.append(header, t);
         return d;
     }
 
@@ -1126,7 +1163,14 @@ public class ConversationElement {
         HTMLElement head = el("summary");
         HTMLElement mk = mark(who, hasOk, ok, Js.isTruthy(r.get("note")));
         if (mk != null) head.append(mk, DomGlobal.document.createTextNode(" "));
-        head.append(DomGlobal.document.createTextNode(summaryLine(r, who, hasOk)));
+        String summary = summaryLine(r, who, hasOk);
+        if ("tool".equals(who)) {
+            String tool = str(r, "tool");
+            HTMLElement title = el("span"); title.className = "fold-title"; title.textContent = tool;
+            HTMLElement preview = el("span"); preview.className = "fold-preview";
+            preview.textContent = summary.startsWith(tool) ? summary.substring(tool.length()) : summary;
+            head.append(title, preview);
+        } else head.append(DomGlobal.document.createTextNode(summary));
         det.append(head);
 
         HTMLElement body = el("div");
@@ -1339,9 +1383,9 @@ public class ConversationElement {
 
     private static String hhmm(String rfc3339) {
         JsDate d = new JsDate(rfc3339);
-        double h = d.getHours(), m = d.getMinutes();
+        double h = d.getHours(), m = d.getMinutes(), seconds = d.getSeconds();
         if (Double.isNaN(h)) return "";
-        return (h < 10 ? "0" : "") + (int) h + ":" + (m < 10 ? "0" : "") + (int) m;
+        return (h < 10 ? "0" : "") + (int) h + ":" + (m < 10 ? "0" : "") + (int) m + ":" + (seconds < 10 ? "0" : "") + (int) seconds;
     }
 
     /**
