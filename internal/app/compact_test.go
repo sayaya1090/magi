@@ -155,3 +155,29 @@ func TestShardPath(t *testing.T) {
 		}
 	}
 }
+
+func TestMaybeCompactReservesSystemAndToolSpaceInMessageBudget(t *testing.T) {
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "budget", ContextWindow: 1000, Tools: true})
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(store, &usageLLM{text: "ok"}, builtin.NewRegistry(), bus.New(), nil, Config{Permission: "allow", Models: reg, CompactRatio: 0.8})
+	ctx := context.Background()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Model: "budget"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: fmt.Sprintf("m%d", i), Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: strings.Repeat("x", 280)}})
+		a.appendFact(ctx, sid, event.TypePartAppended, event.Actor{}, d)
+	}
+	evs, _ := store.Read(ctx, sid, 0)
+	msgs := reconstruct(evs)
+	s := a.sessionInfo(ctx, sid)
+	// Messages alone are 700 tokens (<800), but +300 fixed tokens exceeds the budget.
+	if !a.maybeCompact(ctx, s, a.agentFor(s), event.Actor{}, evs, msgs, strings.Repeat("s", 1200)) {
+		t.Fatal("fixed prompt space was not reserved; an over-budget request was skipped")
+	}
+}

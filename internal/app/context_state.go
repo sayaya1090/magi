@@ -300,6 +300,14 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			out.Used, out.Estimated = estimateTokens("", msgs), true
 		}
 	}
+	// A provider-owning process may have learned a larger/smaller window since
+	// the last recorded request. The historical shape remains the fallback for
+	// an offline reader, but must not override the live compaction limit.
+	if a.llm != nil {
+		if current := a.contextWindow(model); current > 0 {
+			out.Window = current
+		}
+	}
 	return out, nil
 }
 
