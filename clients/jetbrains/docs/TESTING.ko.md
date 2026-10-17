@@ -2053,3 +2053,9 @@ cd clients/jetbrains/plugin
 테스트용 IDE는 미리보기 부트스트랩 주소를 테스트 URL로 바꾸므로, 생성된 HTML을 같은 브라우저의 DOM에 직접 삽입합니다. 이 검사는 Markdown 생성·네이티브 합성·배경 처리 경로를 실행하지만, 실물 플러그인의 전체 부트스트랩을 인수한 결과는 아닙니다. 이미지는 저장하지 않고 `Robot.getPixelColor`로 색을 측정합니다. 색 변환의 반올림을 고려해 채널별 오차 1까지 허용합니다.
 
 HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에 흰색이 남는 JCEF 합성 경로에서는 브라우저 최하단 배경에 말풍선의 합성 색을 적용합니다. `markdown-surface-test.mjs`는 지연된 본문 삽입과 교체를, `rich-answer-test.mjs`는 높이 변경과 휠 전달을 Playwright로 검사합니다.
+
+### 재접속 후 입력 기록
+
+입력 기록은 프로젝트의 대화 로그에서 조회합니다. 창 초기화 시 조회가 실패해도 전사 연결이 완료되면 다시 불러옵니다. 성공 시 `loaded project input history count=…`, 실패 시 `input history unavailable` 로그를 남기며 입력 본문은 기록하지 않습니다.
+
+`SendDraftTest.testArrowRecallTraversesMultilineHistoryAndRestoresDraft`는 실제 입력창의 ↑/↓ 액션으로 여러 줄 기록 두 개를 탐색하고 작성 중이던 초안을 복원합니다. `PromptRecallTest`는 불러온 내용을 사용자가 수정하면 일반 커서 이동으로 돌아가는 판정을 검사합니다.

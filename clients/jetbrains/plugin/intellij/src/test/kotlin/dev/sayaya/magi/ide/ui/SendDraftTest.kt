@@ -46,6 +46,22 @@ class SendDraftTest : BasePlatformTestCase() {
         val h = Harness()
         try { run(h) } finally { h.close() }
     }
+    fun testArrowRecallTraversesMultilineHistoryAndRestoresDraft() = check { h ->
+        val recall = h.field<dev.sayaya.magi.ide.usecase.PromptRecall>("recall")
+        recall.load(listOf("line one\nline two", "older prompt"))
+        h.input.text = "unfinished draft"
+        h.input.caretPosition = 0
+        fun arrow(name: String) = h.input.actionMap.get(name).actionPerformed(java.awt.event.ActionEvent(h.input, 0, name))
+        arrow("magi.recallOlder")
+        assertEquals("line one\nline two", h.input.text)
+        arrow("magi.recallOlder")
+        assertEquals("older prompt", h.input.text)
+        arrow("magi.recallNewer")
+        assertEquals("line one\nline two", h.input.text)
+        arrow("magi.recallNewer")
+        assertEquals("unfinished draft", h.input.text)
+    }
+
     fun testLateSuccessPreservesNewDraft() = check { h ->
         h.submit("A"); h.input.text = "B"; h.finish()
         assertEquals("B", h.input.text)

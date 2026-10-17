@@ -6,6 +6,17 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 class PromptRecallTest {
+    @Test fun `recalled multiline input stays navigable until edited`() {
+        val r = PromptRecall()
+        r.load(listOf("first\nsecond", "older"))
+        assertEquals("first\nsecond", r.older("draft"))
+        org.junit.jupiter.api.Assertions.assertTrue(r.isRecalled("first\nsecond"))
+        assertFalse(r.isRecalled("first\nsecond edited"))
+        assertEquals("older", r.older("first\nsecond"))
+        assertEquals("first\nsecond", r.newer())
+        assertEquals("draft", r.newer())
+    }
+
     @Test
     fun `위로는 오래된 쪽, 아래로 끝까지 가면 쓰던 글이 돌아온다`() {
         val r = PromptRecall()

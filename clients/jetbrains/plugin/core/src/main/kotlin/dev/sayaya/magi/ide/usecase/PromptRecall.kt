@@ -38,6 +38,9 @@ class PromptRecall {
 
     val browsing: Boolean get() = at >= 0
 
+    /** Repeated arrows traverse recalled multiline entries; edits restore normal caret navigation. */
+    fun isRecalled(text: String): Boolean = at >= 0 && history.getOrNull(at) == text
+
     /** 보냈다 — 그 글을 맨 앞에 세우고 둘러보기를 끝낸다. */
     fun remember(sent: String) {
         val t = sent.trim()
