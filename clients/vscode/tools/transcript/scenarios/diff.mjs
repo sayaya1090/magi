@@ -439,6 +439,14 @@ export const diffScenarios = [
           // Expand
           await toggleBtn.click();
           assert.equal(await rawBox.isVisible(), true, 'raw-args block is visible after toggle click');
+          const order = await page.locator('.row.tool').evaluate(row => {
+            const header = row.querySelector('.who').getBoundingClientRect();
+            const title = row.querySelector('.body').getBoundingClientRect();
+            const args = row.querySelector('.raw-args').getBoundingClientRect();
+            return header.bottom <= title.top && title.bottom <= args.top;
+          });
+          assert.equal(order, true, 'expanded arguments must stay below the tool header and title');
+          assert.equal(await page.locator('.row.tool .args').isVisible(), false, 'expanded arguments replace the clipped summary');
           assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'true');
           const renderedRaw = await rawBox.textContent();
           assert.ok(renderedRaw.includes(longOldText), 'raw-args preserves 150-character old argument');
@@ -451,6 +459,7 @@ export const diffScenarios = [
           // Fold again
           await toggleBtn.click();
           assert.equal(await rawBox.isHidden(), true, 'raw-args is folded again after second click');
+          assert.equal(await page.locator('.row.tool .args').isVisible(), true, 'folding restores the summary');
         }
       },
       {

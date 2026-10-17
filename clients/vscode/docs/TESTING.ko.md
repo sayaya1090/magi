@@ -58,7 +58,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `hand.test.ts` · `webview.test.ts` (워크스페이스 경계) | ★ **에디터 도구 서버(`HandServer`)의 워크스페이스 경계 검증.** `show`, `apply_edit`, `problems` 등 파일 조작 도구가 워크스페이스 외부의 임의 파일에 접근하지 못하도록 경로 경계를 엄격히 검증합니다. 상위 디렉터리 탐색(`..`)이나 접두사 일치 오류(`/a/bc`를 `/a/b` 내부로 오판)를 방지하기 위해 정규화된 경로 세그먼트 단위로 워크스페이스 소속 여부를 판정합니다 |
 | `hand.test.ts` (빈 old) | **`apply_edit`의 빈 대상 문자열(`old`) 입력 거절 검증.** 빈 문자열(`""`) 치환 시 모든 문자 사이에 일치하여 파일 전체가 오염되는 현상을 방지하기 위해, `need` 유효성 검사 단계에서 빈 `old` 인자를 명확히 거절하는지 양방향(빈 문자열 차단, 공백 문자열 허용)으로 검증합니다 |
 | `hand.test.ts` (공유 카탈로그 계약 fixture) | ★ **공유 카탈로그 fixture (`ide_hand_catalogue.json`)와 handTools(), HTTP tools/list의 완벽 일치 검증 (§6.44.2).** JetBrains와 단일 원본 JSON을 공유하여 show, apply_edit, problems 3종 도구의 이름, inputSchema, required, readOnly 속성을 깊은 비교로 검증하고 누락·변형 시 즉시 실패함을 실측 |
-| `caps.test.ts` | ★ **「물어볼 수 없었다」와 「그 문을 제공하지 않는다」의 구분 검증.** 데몬에 닿지 못했을 때 `Companion.caps()` 가 빈 집합이 아니라 `null` 을 돌려주는지, 그리고 그 실패를 캐시하지 않는지(잠시 뒤 뜬 데몬이 창이 닫힐 때까지 「문이 없는 빌드」로 남지 않도록) 검증합니다. 명령 게이트(`doors.ts` 의 `has`)가 그 `null` 을 **없는 문이 아니라 없는 데몬**으로 말하는지 문구 단위로 함께 잠급니다 — 2026-09-19 실측: 데몬을 내린 채 `magi: Start a new conversation` 이 「this companion does not offer opening a new conversation」이라고 답했습니다 |
+| `caps.test.ts` | ★ **「물어볼 수 없었다」와 「그 문을 제공하지 않는다」의 구분 검증.** 데몬에 닿지 못했을 때 `Companion.caps()` 가 빈 집합이 아니라 `null` 을 돌려주는지, 그리고 그 실패를 캐시하지 않는지(잠시 뒤 뜬 데몬이 창이 닫힐 때까지 「문이 없는 빌드」로 남지 않도록) 검증합니다. 명령 게이트(`doors.ts` 의 `has`)가 그 `null` 을 **없는 문이 아니라 없는 데몬**으로 말하는지 문구 단위로 함께 잠급니다 — 2026-09-19 실측: 데몬을 내린 채 `magi: Start a new conversation` 이 「this companion does not offer opening a new chat」이라고 답했습니다 |
 | `webview.test.ts` (머리말과 컴포저) | ★ **코드 질의 머리말 삽입 시 기존 작성 텍스트 보존 검증.** 에디터에서 '코드에 대해 질문하기'를 선택했을 때 기존에 입력 중이던 초안 텍스트를 덮어쓰지 않고, 머리말을 기존 텍스트 앞에 덧붙인 후 커서를 머리말 끝으로 자동 이동시키는지 검증합니다 |
 | `look.test.ts` · `webview.test.ts` (파일 밖 지적) | ★ **유효 줄 번호를 벗어난 코드 리뷰 지적 표시 검증.** 모델이 응답한 지적 위치가 파일 총 줄 수를 초과하거나 0 이하일 때 이를 무단으로 삭제하지 않고, 파일 단위 전역 배너(Gutter/Banner) 형태로 변환하여 화면에 온전히 노출하는지 검증합니다 |
 | `look.test.ts` · `webview.test.ts` (주변 맥락) | ★ **주변 맥락(`open-file`) 파일 버퍼 전송 크기 상한 검증.** 사용자가 입력 중일 때 주기적으로 전송되는 주변 맥락 파일 내용이 소켓 대역폭을 낭비하지 않도록, 클라이언트 단계에서 코어의 상한(`ambientCap`, 8KB)에 맞추어 선제적으로 잘라 전송하는지 검증합니다 |
@@ -1416,7 +1416,7 @@ node --test clients/vscode/out/test/*.property.test.js
 ### 6.51 열기·비교 요청의 문맥을 한 곳에서 짓기 (`Chat.actionOrigin`)
 
 - **무엇이 바뀌었나**: `chat.ts` 의 `diff`·`open` 처리기가 같은 문맥 객체(대화·작업 디렉터리·컴패니언 상태·대기 질문·이벤트·안내 전송) 7필드를 한 벌씩 짓고 있었습니다. `actionOrigin(m)` 하나로 짓고 두 처리기가 펼쳐 씁니다. 펼치지 않으면 필수 필드가 빠져 컴파일이 깨지므로 처리기와의 연결은 타입이 지킵니다.
-- **새 시험**: `chat_host.test.ts` 「open/diff requests resolve against this conversation as it is now」 — 지금 보이는 대화 id·작업 디렉터리·컴패니언 상태·질문 저장소·이벤트가 그대로 실리고, `postNote` 가 페이지에 안내로 닿는지 봅니다. 이전에는 이 처리기들의 문맥을 재는 시험이 없어, 대화 id 를 빈 값으로 바꾸는 변이가 560/0 으로 살아남았습니다.
+- **새 시험**: `chat_host.test.ts` 「open/diff requests resolve against this chat as it is now」 — 지금 보이는 대화 id·작업 디렉터리·컴패니언 상태·질문 저장소·이벤트가 그대로 실리고, `postNote` 가 페이지에 안내로 닿는지 봅니다. 이전에는 이 처리기들의 문맥을 재는 시험이 없어, 대화 id 를 빈 값으로 바꾸는 변이가 560/0 으로 살아남았습니다.
 - **변이 검증**: `session` 을 빈 값으로 / `companionState` 를 undefined 로 → 각각 새 시험 실패. 원복 후 초록.
 - **실측**: `npm test` 561 pass / 0 fail.
 
@@ -1424,7 +1424,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ### 6.52 대화 스트림 연결 실패를 말하기 (`Chat.openStream`)
 
-- **무엇이 바뀌었나**: `openStream` 이 `reach` 에 성공한 직후 스트림 연결(`Daemon.connect`)이 실패하면 `return` 만 하고 빈 패널을 남겼습니다. 이제 추월 확인(`mine !== this.opening`) 뒤 「could not open the conversation — the companion stopped answering.」 안내를 보냅니다. 재연결(`reattach`)은 부르지 않습니다 — `reattach` 가 `openStream` 을 다시 부르므로 여기서 부르면 재연결 루프가 겹칩니다.
+- **무엇이 바뀌었나**: `openStream` 이 `reach` 에 성공한 직후 스트림 연결(`Daemon.connect`)이 실패하면 `return` 만 하고 빈 패널을 남겼습니다. 이제 추월 확인(`mine !== this.opening`) 뒤 「could not open the chat — the companion stopped answering.」 안내를 보냅니다. 재연결(`reattach`)은 부르지 않습니다 — `reattach` 가 `openStream` 을 다시 부르므로 여기서 부르면 재연결 루프가 겹칩니다.
 - **새 시험**: `stream.test.ts` 「a stream connection that fails is said」(소스 가드 — 주변 `openStream` 가드와 같은 방식).
 - **변이 검증**: 안내 한 줄 삭제 → 새 시험 실패. 원복 후 초록.
 - **실측**: `npm test` 562 pass / 0 fail.
@@ -1512,3 +1512,5 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 `webview.test.ts`는 VS Code의 의미별 팔레트를 JetBrains `Palette.kt`의 밝음·어두움 값과 대조합니다. Playwright `semantic_text_colors_match_jetbrains`는 두 테마에서 사용자·Magi·카운슬 3인·판정·오류의 실제 계산 색을 확인합니다. 접근성 하네스는 색 변수와 VS Code의 테마 body 클래스를 함께 전환합니다.
 
 `chat_host.test.ts`는 시작 시 데몬이 없었다가 연결되는 경우 최근 대화를 자동으로 열고 스트림을 중복 생성하지 않는지 확인합니다. `plan_host.test.ts`는 드롭다운 값의 허용 목록, 세션 고정, 중복 변경 차단과 프로바이더 API 선택을 검증합니다. Playwright `sidebar_inline_controls_and_locales`는 한국어·영어 패널에서 현재 값, 키보드 스위치, 적용 중 표시, 선택 중 포커스 유지와 320/840px 폭을 확인합니다. 같은 실행에서 각 행의 시각과 복사 버튼의 우측 좌표도 비교합니다.
+
+도구 인자는 펼치면 요약을 숨기고 제목 아래에 원문을 표시합니다. 접으면 원문 대신 요약이 복원됩니다. `diff` 묶음은 제목·원문 좌표와 요약의 표시 전환을 검증합니다. 이번 로컬 검증은 단위·호스트 623 pass / 7 skip, Playwright 정순·역순 각 54개 시나리오(자산 검사 포함 7개 테스트) 통과입니다.

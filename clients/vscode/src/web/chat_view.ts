@@ -558,6 +558,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     } else {
       b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
     }
+    d.append(w, b);
     /* A tool row names the call AND what it was asked to do. Without the second half a turn that
        runs thirty commands is thirty rows reading the same word, and the transcript cannot answer
        the one question it exists for. Its own element so it can be dimmed and clipped without
@@ -626,21 +627,24 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
       toggle.className = 'args-toggle-btn';
       if (r.callId) toggle.dataset.callId = r.callId;
       const isExpanded = !!(boundSession && r.callId && expandedCallIds.has(r.callId));
-      toggle.textContent = isExpanded ? '접기' : '…';
-      toggle.title = isExpanded ? '인자 접기' : '인자 전체 펼치기';
+      toggle.textContent = isExpanded ? uiText.collapse : '…';
+      toggle.title = isExpanded ? uiText.collapseArgs : uiText.expandArgs;
       toggle.setAttribute('aria-label', toggle.title);
       toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
       const rawBox = document.createElement('pre');
       rawBox.className = 'raw-args';
       rawBox.textContent = r.rawArgs;
       rawBox.hidden = !isExpanded;
+      const summary = b.querySelector<HTMLElement>('.args');
+      if (summary) summary.hidden = isExpanded;
       toggle.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const open = rawBox.hidden;
         rawBox.hidden = !open;
+        if (summary) summary.hidden = open;
         toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        toggle.textContent = open ? '접기' : '…';
-        toggle.title = open ? '인자 접기' : '인자 전체 펼치기';
+        toggle.textContent = open ? uiText.collapse : '…';
+        toggle.title = open ? uiText.collapseArgs : uiText.expandArgs;
         toggle.setAttribute('aria-label', toggle.title);
         if (boundSession && r.callId) {
           if (open) expandedCallIds.add(r.callId);
@@ -648,9 +652,8 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
         }
       });
       b.append(' ', toggle);
-      d.append(rawBox);
+      b.after(rawBox);
     }
-    d.append(w, b);
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);
   }
