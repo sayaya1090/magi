@@ -492,6 +492,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 비움은 여기가 아니라 [follow] 다 — 커서가 있으면 재생이 증분이라 비울 것이
                     // 없고, 그 판정(since==null)을 아는 것은 follow 뿐이다. 문장 행 대신 점.
                     everBegan = true
+                    refreshRecall()
                     mood(Look.success, "●", MagiBundle.msg("chat.link.connected"))
                 }
 
@@ -773,7 +774,7 @@ class MagiToolWindow : ToolWindowFactory {
                 input.actionMap.put(name, object : javax.swing.AbstractAction() {
                     override fun actionPerformed(e: java.awt.event.ActionEvent) {
                         val line = runCatching { input.getLineOfOffset(input.caretPosition) }.getOrDefault(0)
-                        val edge = if (older) line == 0 else line == input.lineCount - 1
+                        val edge = recall.isRecalled(input.text) || if (older) line == 0 else line == input.lineCount - 1
                         val got = when {
                             !edge -> null
                             older -> recall.older(input.text)
@@ -2192,9 +2193,21 @@ class MagiToolWindow : ToolWindowFactory {
 
         /** 목록을 다시 읽는다. 문이 없는 낡은 데몬이면 조용히 지난 목록 그대로 — ↑ 가 그 자리에서 안 될 뿐이다. */
         private fun refreshRecall() {
-            workspace.onDaemonWithoutChat({}) { c ->
-                val got = runCatching { c.prompts() }.getOrNull()?.takeIf { it.ok }?.prompts ?: return@onDaemonWithoutChat
-                SwingUtilities.invokeLater { recall.load(got.map { it.text }) }
+            val log = com.intellij.openapi.diagnostic.Logger.getInstance(javaClass)
+            workspace.onDaemonWithoutChat({ log.info("magi: input history unavailable: $it") }) { c ->
+                val result = runCatching { c.prompts() }
+                val response = result.getOrNull()
+                if (response?.ok != true) {
+                    log.info("magi: input history unavailable: " + (result.exceptionOrNull()?.message ?: response?.error ?: "no response"))
+                    return@onDaemonWithoutChat
+                }
+                val got = response.prompts.orEmpty()
+                SwingUtilities.invokeLater {
+                    if (!closing.get()) {
+                        recall.load(got.map { it.text })
+                        log.info("magi: loaded project input history count=${got.size}")
+                    }
+                }
             }
         }
 
