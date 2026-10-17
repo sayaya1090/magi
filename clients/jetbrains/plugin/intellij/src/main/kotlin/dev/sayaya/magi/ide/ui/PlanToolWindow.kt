@@ -56,6 +56,7 @@ class PlanToolWindow : ToolWindowFactory {
     override fun shouldBeAvailable(project: Project) = project.basePath != null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
+        val st = state(project)
         val workspace = Workspace(project)
         // 수직 박스 레이아웃 패널 — 자식 컴포넌트의 좌측 정렬(alignmentX = 0f)을 강제합니다.
         // BoxLayout(Y_AXIS)의 기본 alignmentX가 0.5(중앙 정렬)여서 폭이 고정된 컴포넌트(JBLabel 등)가 중앙으로 밀려
@@ -331,7 +332,7 @@ class PlanToolWindow : ToolWindowFactory {
             // transient 라 재생이 없다 — 도는 대화에 붙은 창은 턴이 한 번 돌기 전까지 아무것도
             // 못 봤다. 문은 지금 답한다. 스트림은 낙하이고, 문 없는 데몬에서는 그것이 유일한
             // 원천이다. (모름을 0% 로 그리지 않는다는 규칙은 그대로다 — 둘 다 없으면 안 적는다.)
-            val seen = ctxFromDoor ?: v?.contextNow()
+            val seen = st.ctxFromDoor ?: v?.contextNow()
             val gauge = dev.sayaya.magi.ide.usecase.ContextGauge.of(seen)
             // 모르면 띠를 안 세운다 — 모름을 0% 로 그리지 않는다.
             ctx.isVisible = gauge == null
@@ -398,10 +399,10 @@ class PlanToolWindow : ToolWindowFactory {
             val r = comp.roster()
             val cr = comp.cron()
             // 기능 지원 여부(Capability)가 확인된 경우에만 해당 엔드포인트를 호출합니다.
-            if (canAskContext) {
+            if (st.canAskContext) {
                 val asked = runCatching { comp.context() }.getOrNull()?.takeIf { it.ok }?.context
                 // 윈도우 크기가 0인 경우는 미측정 상태이므로 0%로 추정 렌더링하지 않습니다.
-                ctxFromDoor = asked?.takeIf { it.window > 0 }
+                st.ctxFromDoor = asked?.takeIf { it.window > 0 }
                     ?.let {
                         dev.sayaya.magi.ide.usecase.Rows.Ctx(
                             it.used, it.window, it.used * 100.0 / it.window, it.parts, it.topics,
@@ -410,12 +411,12 @@ class PlanToolWindow : ToolWindowFactory {
                     }
             }
             // 데몬 런타임 기능(Capabilities)은 1회만 조회하여 캐시합니다.
-            if (!capsRead) {
+            if (!st.capsRead) {
                 val caps = comp.about().caps.orEmpty()
-                capsRead = true
-                canEditCron = caps.contains("cron-set")
-                canRemoveCron = caps.contains("cron-remove")
-                canAskContext = caps.contains("context")
+                st.capsRead = true
+                st.canEditCron = caps.contains("cron-set")
+                st.canRemoveCron = caps.contains("cron-remove")
+                st.canAskContext = caps.contains("context")
             }
             // 완료된 서브에이전트 목록 조회 (하위 호환성: 해당 엔드포인트를 미지원하는 구버전 데몬에서는 실행 중인 작업만 표시).
             val past = comp.children().children.orEmpty()
@@ -572,7 +573,7 @@ class PlanToolWindow : ToolWindowFactory {
                             (j.command?.takeIf { it.isNotBlank() }?.let { "$ $it" }
                                 ?: j.prompt?.takeIf { it.isNotBlank() })
                                 ?.let { toolTipText = it.take(300) }
-                            if (canEditCron) {
+                            if (st.canEditCron) {
                                 cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                                 addMouseListener(object : java.awt.event.MouseAdapter() {
                                     override fun mouseClicked(e: java.awt.event.MouseEvent) =
@@ -586,7 +587,7 @@ class PlanToolWindow : ToolWindowFactory {
                 val links = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
                 // 「추가」는 **문이 있을 때만** 선다. 없는 문을 부르고 거부를 읽는 방식으로는 낡은
                 // 빌드와 거부하는 엔진을 못 가르고, 화면은 그 둘에 다른 말을 해야 한다.
-                if (canEditCron) {
+                if (st.canEditCron) {
                     links.add(JBLabel(MagiBundle.msg("plan.schedule.add")).apply {
                         foreground = Look.accent
                         cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
@@ -889,14 +890,25 @@ class PlanToolWindow : ToolWindowFactory {
         const val REMOVE_EXIT = com.intellij.openapi.ui.DialogWrapper.NEXT_USER_EXIT_CODE
     }
 
-    private var canEditCron = false
-    /** 이 데몬이 `cron-remove` 를 답하나. 편집 판의 「삭제」는 이것이 참일 때만 선다. */
-    private var canRemoveCron = false
-    private var capsRead = false
-    /** 이 데몬이 `context` 문을 답하나. 광고 없는 문은 두드리지 않는다. */
-    private var canAskContext = false
-    /** 문이 답한 창 사용량. EDT 밖에서 채우고 EDT 에서 읽으므로 volatile 이다. */
-    @Volatile private var ctxFromDoor: dev.sayaya.magi.ide.usecase.Rows.Ctx? = null
+    /**
+     * 프로젝트마다의 판 상태. **팩토리 필드에 두면 안 된다** — `ToolWindowFactory` 는 앱에 하나라,
+     * 창 둘(프로젝트 둘)이 같은 칸을 3초마다 번갈아 썼다. gwt 창의 사용량 띠가 magi 프로젝트의 빈
+     * 대화(9.9k / 200k, 시스템·도구만)와 제 대화(389k)를 오가며 섰다(2026-10-17 사용자 화면 실측).
+     * 데몬 능력도 프로젝트마다 다르다 — 한쪽이 낡은 빌드면 다른 쪽 판까지 그 답을 썼다.
+     */
+    private class PanelState {
+        var canEditCron = false
+        /** 이 데몬이 `cron-remove` 를 답하나. 편집 판의 「삭제」는 이것이 참일 때만 선다. */
+        var canRemoveCron = false
+        var capsRead = false
+        /** 이 데몬이 `context` 문을 답하나. 광고 없는 문은 두드리지 않는다. */
+        var canAskContext = false
+        /** 문이 답한 창 사용량. EDT 밖에서 채우고 EDT 에서 읽으므로 volatile 이다. */
+        @Volatile var ctxFromDoor: dev.sayaya.magi.ide.usecase.Rows.Ctx? = null
+    }
+
+    private val states = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Project, PanelState>())
+    private fun state(project: Project): PanelState = states.getOrPut(project) { PanelState() }
 
     /**
      * 예약 하나를 고치는 판 — [job] 이 null 이면 새로 만든다.
@@ -909,6 +921,7 @@ class PlanToolWindow : ToolWindowFactory {
      */
     private fun editCron(project: Project, job: CronRow?, ws: Workspace,
                          note: (String) -> Unit, after: () -> Unit) {
+        val st = state(project)
         val dlg = object : com.intellij.openapi.ui.DialogWrapper(project, true) {
             val name = com.intellij.ui.components.JBTextField(job?.name ?: "").apply {
                 isEnabled = job == null
@@ -958,7 +971,7 @@ class PlanToolWindow : ToolWindowFactory {
             // 지우기는 **있는 잡에만, 문이 있을 때만** 선다. 누르면 판을 닫고 아래에서 한 번 더
             // 묻는다 — 되돌릴 수 없는 일을 단추 하나로 끝내지 않는다.
             override fun createLeftSideActions(): Array<javax.swing.Action> =
-                if (job == null || !canRemoveCron) emptyArray()
+                if (job == null || !st.canRemoveCron) emptyArray()
                 else arrayOf(object : DialogWrapperAction(MagiBundle.msg("plan.schedule.remove")) {
                     override fun doAction(e: java.awt.event.ActionEvent?) = close(REMOVE_EXIT)
                 })

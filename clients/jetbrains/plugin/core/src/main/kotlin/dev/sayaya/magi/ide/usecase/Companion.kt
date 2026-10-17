@@ -178,6 +178,9 @@ class Companion(
     /** 이 워크스페이스의 대화들. 최근 활동 순 — 차례는 데몬이 정했다. */
     fun sessions(): Response = send(Request(method = "sessions"))
 
+    /** 입력줄 ↑/↓ 가 되불러오는 것 — 이 워크스페이스의 모든 대화에서 사람이 친 입력, 최신순. */
+    fun prompts(limit: Int = 200): Response = send(Request(method = "prompts", n = limit))
+
     /**
      * 한 세션이 띄운 서브에이전트 대화들 — 회의 방도 여기 든다(참가자는 회의를 자식 세션에서 연다).
      *

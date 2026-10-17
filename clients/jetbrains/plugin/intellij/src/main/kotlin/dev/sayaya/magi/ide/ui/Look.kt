@@ -120,7 +120,7 @@ internal object Look {
 
     /** 답변 대기 중인 항목 좌측에 표시하는 인디케이터 테두리. 웹 콘솔의 `.row.pending .txt` 스타일과 동일하게 좌측 2px primary 테두리를 부여한다. */
     fun pending(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
-        BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10)
+        BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(8, 12)
     )
 
     /** Section title and a theme-colored divider share one row. */
@@ -499,7 +499,12 @@ internal object Look {
     )
 
     /** 메시지 발신 헤더 컴포넌트 (발신자명, 마크/배지 목록, 타임스탬프). */
-    fun rowHead(name: String, hue: Color, marks: List<Pair<String, Color>>, time: String): JComponent =
+    /**
+     * 말한 이 헤더. 오른쪽은 모든 행이 같은 순서다 — [아이콘들] [시각], 시각이 늘 맨 오른쪽 끝.
+     * 도구 행만 아이콘을 헤더에 싣고 말 행은 본문 옆에 따로 세웠더니, 말 행은 시각 아래 줄로 아이콘이
+     * 내려가 두 모양이 섞여 섰다(2026-10-17 사용자 지적).
+     */
+    fun rowHead(name: String, hue: Color, marks: List<Pair<String, Color>>, time: String, actions: JComponent? = null): JComponent =
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             isOpaque = false
@@ -510,8 +515,20 @@ internal object Look {
                 add(JBLabel(t).apply { font = JBFont.small(); foreground = c })
             }
             add(javax.swing.Box.createHorizontalGlue())
-            if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
+            tail(this, actions, time)
         }
+
+    /** 헤더 오른쪽 끝: 아이콘들, 그다음 시각. 아이콘 판은 제 크기만 차지한다(아래 toolHead 의 사유). */
+    private fun tail(row: JComponent, actions: JComponent?, time: String) {
+        if (actions != null) {
+            actions.maximumSize = actions.preferredSize
+            row.add(actions)
+        }
+        if (time.isNotEmpty()) {
+            row.add(javax.swing.Box.createHorizontalStrut(6))
+            row.add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
+        }
+    }
 
     /** 도구 호출 헤더 컴포넌트 (도구명, 실행 상태 글리프, 인자 요약, 타임스탬프, 우측 액션). */
     fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String, actions: JComponent? = null): JComponent =
@@ -526,15 +543,9 @@ internal object Look {
                 add(JBLabel(args).apply { font = JBFont.small(); foreground = muted })
             }
             add(javax.swing.Box.createHorizontalGlue())
-            if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
-            if (actions != null) {
-                add(javax.swing.Box.createHorizontalStrut(4))
-                // 제 크기만 차지한다. 흐름 판의 최대 폭은 무한이라, 그대로 두면 가로 BoxLayout 이 남는 폭을
-                // 앞의 빈 간격과 반씩 나눠 주어 시각이 행 가운데에 떠 있었다(실물 화면, 2026-09-26) — 다른
-                // 행들의 시각은 오른쪽 끝에 선다.
-                actions.maximumSize = actions.preferredSize
-                add(actions)
-            }
+            // 아이콘 판은 제 크기만 차지한다. 흐름 판의 최대 폭은 무한이라, 그대로 두면 가로 BoxLayout 이
+            // 남는 폭을 앞의 빈 간격과 반씩 나눠 주어 시각이 행 가운데에 떠 있었다(실물 화면, 2026-09-26).
+            tail(this, actions, time)
         }
 
     /**
@@ -626,6 +637,28 @@ internal object Look {
         font = JBFont.small().deriveFont(Font.ITALIC)
         foreground = hue
         border = JBUI.Borders.empty(2, 14, 0, 0)
+    }
+
+    /**
+     * 끌어서 고를 수 있는 읽기 전용 HTML 글. 라벨과 같은 글꼴·색으로 그린다.
+     *
+     * 스크롤판 밖의 `JEditorPane` 은 높이를 **안 접은 한 줄 폭**으로 재서, 좁은 창에서 접힌 줄이
+     * 잘린다. 그래서 놓인 폭을 알면 그 폭으로 접어 잰 높이를 내고, 폭은 요구하지 않는다(0) —
+     * 판이 제 글 길이만큼 창을 벌리지 않게.
+     */
+    fun selectableHtml(): javax.swing.JEditorPane = object : javax.swing.JEditorPane("text/html", "") {
+        override fun getPreferredSize(): Dimension {
+            val w = parent?.width?.let { it - (parent as? JComponent)?.insets.let { i -> (i?.left ?: 0) + (i?.right ?: 0) } } ?: 0
+            if (w <= 0) return super.getPreferredSize()
+            setSize(w, Short.MAX_VALUE.toInt())
+            return Dimension(0, super.getPreferredSize().height)
+        }
+    }.apply {
+        isEditable = false
+        isOpaque = false
+        putClientProperty(javax.swing.JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+        font = JBFont.label()
+        foreground = body
     }
 
     /**

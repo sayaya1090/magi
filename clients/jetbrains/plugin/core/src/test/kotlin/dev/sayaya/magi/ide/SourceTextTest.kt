@@ -720,7 +720,7 @@ class SourceTextTest {
         val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
         assertTrue("canRemoveCron = caps.contains(\"cron-remove\")" in panel, "「삭제」가 문 광고에 안 묶였다")
         val left = panel.substringAfter("override fun createLeftSideActions()").substringBefore("override fun")
-        assertTrue("!canRemoveCron" in left && "job == null" in left, "「삭제」가 새 잡이나 문 없는 데몬에도 선다: $left")
+        assertTrue("!st.canRemoveCron" in left && "job == null" in left, "「삭제」가 새 잡이나 문 없는 데몬에도 선다: $left")
         val after = panel.substringAfter("dlg.exitCode == REMOVE_EXIT").substringBefore("dlg.exitCode != ")
         assertTrue(after.indexOf("removeAsked(") in 0 until after.indexOf("removeCron("),
             "지우기 전에 묻지 않는다: $after")
@@ -1828,6 +1828,22 @@ class SourceTextTest {
      * 된다 — 실물 계획 창에 그렇게 섰다(2026-09-26). 같은 결함이 카운슬 반대 표시와 첨부 팝업 제목에도
      * 있었다. 간격이 필요하면 붙이는 코드가 붙인다.
      */
+    @Test
+    fun `도구 창 팩토리에는 프로젝트마다 다른 상태를 두지 않는다`() {
+        // ToolWindowFactory 는 앱에 하나다. 그 필드에 둔 사용량·데몬 능력을 열린 프로젝트 둘이 3초마다
+        // 번갈아 써서, gwt 창의 띠가 magi 프로젝트의 빈 대화와 제 대화를 오갔다(2026-10-17 사용자 화면).
+        // 클래스 바로 아래(들여쓰기 4칸)의 var 를 잡는다 — 프로젝트별 상태는 중첩 클래스로 간다.
+        val exempt = setOf("removeAsked") // 시험이 갈아 끼우는 함수 하나, 프로젝트 상태가 아니다
+        val factories = sources.filter { ": ToolWindowFactory" in it.readText() }
+        assertTrue(factories.size >= 2, "도구 창 팩토리를 못 찾았다 — 이 시험이 아무것도 안 잰다")
+        val bad = factories.flatMap { f ->
+            f.readLines().filter { Regex("""^    (private |internal |@Volatile )*var """).containsMatchIn(it) }
+                .filter { line -> exempt.none { "var $it" in line } }
+                .map { "${f.name}: ${it.trim()}" }
+        }
+        assertTrue(bad.isEmpty(), "팩토리 필드는 모든 프로젝트가 나눠 쓴다:\n" + bad.joinToString("\n"))
+    }
+
     @Test
     fun `번들이 따옴표로 이름 대는 액션은 그 번들에 있는 이름이다`() {
         // 한국어 번들이 「magi: Start the companion」을 실행하라고 했다 — 한국어 IDE 의 메뉴에는

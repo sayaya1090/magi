@@ -199,6 +199,8 @@ data class Response(
     val jobs: Jobs? = null,
     /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`protocol.go` 의 `SessionRow`), 최근 활동 순. */
     val sessions: List<SessionRow>? = null,
+    /** 이 워크스페이스에서 사람이 친 입력들 — `prompts` 문의 답(`protocol.go` 의 `PromptRow`), 최신순·중복 없이. */
+    val prompts: List<PromptRow>? = null,
     /**
      * 한 세션이 띄운 서브에이전트 대화들 — `children` 문의 답, 최근 활동 순.
      *
@@ -256,6 +258,14 @@ data class CronRow(
     /** RFC3339. 비어 있으면 영영 안 돈다 — 꺼졌거나 [problem] 이 사유다. */
     val next: String? = null,
     val problem: String? = null,
+)
+
+/** `prompts` 문의 한 줄 — 입력줄 ↑/↓ 가 되불러오는 것. */
+@Serializable
+data class PromptRow(
+    val text: String = "",
+    val at: String? = null,
+    val session: String? = null,
 )
 
 /**

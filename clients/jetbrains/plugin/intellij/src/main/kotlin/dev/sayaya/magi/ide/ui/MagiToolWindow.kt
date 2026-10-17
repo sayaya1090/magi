@@ -238,7 +238,14 @@ class MagiToolWindow : ToolWindowFactory {
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         /** 도구 창 제목 표시줄에 상태 텍스트를 업데이트하는 핸들러. ToolWindow 구성부에서 주입합니다. */
         var title: (String) -> Unit = {}
-        private val prompt = JBLabel(" ").apply { border = Look.quiet }
+        /**
+         * 서 있는 물음의 글. 라벨이 아니라 읽기 전용 HTML 판이다 — 물음과 근거를 끌어서 골라 옮겨 적을 수
+         * 있어야 해서다(2026-10-17 사용자 요청: 라벨이라 선택이 안 됐다).
+         */
+        private val prompt = Look.selectableHtml().apply { border = Look.quiet }
+        /** 입력줄 ↑/↓ 의 목록 — 데몬의 `prompts` 문(모든 대화에서 사람이 친 것). */
+        private val recall = dev.sayaya.magi.ide.usecase.PromptRecall()
+
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
         private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
@@ -626,7 +633,8 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         init {
-            val top = JBPanel<JBPanel<*>>(BorderLayout())
+            // 물음 띠가 창 가장자리에 붙어 섰다(2026-10-17 사용자 지적: 「마진이 너무 없어」) — 바깥 여백을 둔다.
+            val top = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.empty(8, 8, 2, 8) }
             top.add(prompt, BorderLayout.CENTER) // diff 판이 빠지며 한 장짜리가 된 래퍼는 접었다(리뷰)
             top.add(buttons, BorderLayout.SOUTH)
             // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
@@ -643,7 +651,8 @@ class MagiToolWindow : ToolWindowFactory {
                 add(JBScrollPane(input), BorderLayout.CENTER)
                 add(acts, BorderLayout.EAST)
             }
-            val bottom = JBPanel<JBPanel<*>>(BorderLayout())
+            // 입력줄이 IDE 바닥에 붙어 섰다(2026-10-17 사용자 지적) — 아래 여백을 둔다.
+            val bottom = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.emptyBottom(10) }
             bottom.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
                 add(Look.rule(), BorderLayout.NORTH)
@@ -729,6 +738,31 @@ class MagiToolWindow : ToolWindowFactory {
                     say()
                 }
             })
+            // ↑/↓ — 전에 친 입력([recall]). 캐럿이 첫 줄에서 ↑, 마지막 줄에서 ↓ 일 때만 되불러오고,
+            // 여러 줄 입력 안에서는 원래대로 캐럿이 움직인다. 되불러올 것이 없으면 원래 동작에 넘긴다.
+            fun recallKey(stroke: String, name: String, older: Boolean) {
+                val im = input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
+                val key = javax.swing.KeyStroke.getKeyStroke(stroke)
+                val fallback = im.get(key)?.let { input.actionMap.get(it) }
+                im.put(key, name)
+                input.actionMap.put(name, object : javax.swing.AbstractAction() {
+                    override fun actionPerformed(e: java.awt.event.ActionEvent) {
+                        val line = runCatching { input.getLineOfOffset(input.caretPosition) }.getOrDefault(0)
+                        val edge = if (older) line == 0 else line == input.lineCount - 1
+                        val got = when {
+                            !edge -> null
+                            older -> recall.older(input.text)
+                            else -> recall.newer()
+                        }
+                        if (got == null) { fallback?.actionPerformed(e); return }
+                        input.text = got
+                        input.caretPosition = got.length
+                    }
+                })
+            }
+            recallKey("UP", "magi.recallOlder", older = true)
+            recallKey("DOWN", "magi.recallNewer", older = false)
+            refreshRecall()
 
             root.add(head, BorderLayout.NORTH)
             // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
@@ -1132,9 +1166,10 @@ class MagiToolWindow : ToolWindowFactory {
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }
-            if (r.who != Who.Tool) {
-                p.add(actions, BorderLayout.EAST)
-            }
+            // 헤더가 시각을 싣는 행(도구·말·카운슬)은 아이콘도 헤더에 싣는다 — [아이콘] [시각] 한 줄.
+            // 헤더가 없는 행(생각 등)만 본문 옆에 세운다.
+            var headTookActions = false
+            fun headActions(): javax.swing.JComponent { headTookActions = true; return actions }
             when (r.who) {
                 Who.User, Who.Agent -> {
                     val marks = buildList {
@@ -1147,7 +1182,7 @@ class MagiToolWindow : ToolWindowFactory {
                     val name = if (r.who == Who.User) (youName ?: MagiBundle.msg("chat.who.you"))
                     else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
-                    p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at)), BorderLayout.NORTH)
+                    p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at), headActions()), BorderLayout.NORTH)
                     if (r.who == Who.Agent) {
                         // 에이전트 마크다운 답변 렌더링:
                         // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,
@@ -1198,7 +1233,7 @@ class MagiToolWindow : ToolWindowFactory {
                             // 아무 일이 없다(`RowText.foldable`).
                             canFold -> RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄"
                             else -> RowText.oneLine(r.args.orEmpty(), 100)
-                        }, RowText.clock(r.at), actions),
+                        }, RowText.clock(r.at), headActions()),
                         BorderLayout.NORTH)
                     if (open) {
                         // 펼침 상태: 도구 호출 인자 및 실행 결과 원문을 모노스페이스 폰트로 표시합니다.
@@ -1232,7 +1267,7 @@ class MagiToolWindow : ToolWindowFactory {
                     p.add(Look.rowHead("⚖ $head", Look.body,
                         if (has) listOf((if (open) "⌃" else MagiBundle.msg("chat.council.saw") + "  ⌄") to Look.faint)
                         else emptyList(),
-                        RowText.clock(r.at)), BorderLayout.NORTH)
+                        RowText.clock(r.at), headActions()), BorderLayout.NORTH)
                     val body = JBPanel<JBPanel<*>>().apply {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                         isOpaque = false
@@ -1261,7 +1296,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 멤버의 의견 미제시 상태는 무응답 마크로 명시합니다.
                         if (r.silent) add(MagiBundle.msg("chat.mark.noanswer") to Look.faint)
                     }
-                    p.add(Look.rowHead("⚖ $name$lens", Look.seat(name) ?: Look.body, marks, RowText.clock(r.at)),
+                    p.add(Look.rowHead("⚖ $name$lens", Look.seat(name) ?: Look.body, marks, RowText.clock(r.at), headActions()),
                         BorderLayout.NORTH)
                     val body = JBPanel<JBPanel<*>>().apply {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
@@ -1294,6 +1329,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 그리는 것은 이 자리가 할 수 있는 일이고, 아직은 경로를 보여 준다.
                 Who.Image -> p.add(Look.aside(r.text, Look.muted), BorderLayout.CENTER)
             }
+            if (!headTookActions) p.add(actions, BorderLayout.EAST)
             return p
         }
 
@@ -1870,6 +1906,7 @@ class MagiToolWindow : ToolWindowFactory {
             val target = currentSendSession()
             if (target.isNullOrBlank()) { report(MagiBundle.msg("chat.nosession")); return }
             val attempt = sendDrafts.begin(target, input.text, carry) ?: return
+            recall.remember(text)
             val turnOpen = shaper.open
             invalidateComposer()
             updateComposerHint()
@@ -1917,6 +1954,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun finishSend(attempt: dev.sayaya.magi.ide.usecase.SendDrafts.Attempt, error: String?) = SwingUtilities.invokeLater {
             if (closing.get() || project.isDisposed) return@invokeLater
             val outcome = sendDrafts.complete(attempt, error, currentSendSession()) ?: return@invokeLater
+            if (error == null) refreshRecall()
             if (error == null && outcome.sameSession) {
                 if (outcome.clearInput) {
                     input.text = ""
@@ -2022,7 +2060,8 @@ class MagiToolWindow : ToolWindowFactory {
                 // 남은 프롬프트를 막으려고 전선을 타는 값이다(코어 `Waiting.Report` 주석).
                 val grounds = w.report.orEmpty()
                     .filter { it.text.isNotBlank() }
-                    .joinToString("") { "<br/><b>${Markup.text(it.key)}:</b> ${Markup.text(it.text)}" }
+                    // 근거 하나가 한 문단이다 — 줄바꿈만 두면 tried/stakes/lean 이 한 덩어리로 붙어 읽혔다.
+                    .joinToString("") { "<div style='margin-top:6px'><b>${Markup.text(it.key)}:</b> ${Markup.text(it.text)}</div>" }
                 val ask = w.ask
                 val why = (ask as? Ask.Undrawable)?.why?.let { "<br/><i>${Markup.text(it)}</i>" }.orEmpty()
                 // **무엇을 정하는지를 보인다.** 도구 이름은 요청의 설명이지 요청이 아니다 —
@@ -2034,7 +2073,11 @@ class MagiToolWindow : ToolWindowFactory {
                     ).joinToString("<br/>")
                     // 못 받은 것을 못 받았다고 적는다. 이 줄이 없으면 사람은 아는 것(도구 이름)만
                     // 보고 누르고, 창이 무엇을 덜 받았는지는 영영 안 나온다.
-                    Subject.Unstated -> "<i>" + Markup.text(MagiBundle.msg("chat.perm.unknown")) + "</i>"
+                    //
+                    // 승인 물음에서만이다. 선택지 물음은 정할 「대상」이 따로 없는 것이 정상이라, 거기서
+                    // 「승인 대상 정보를 받지 못했습니다」가 서면 없는 결함을 말한다(2026-10-17 화면).
+                    Subject.Unstated -> if (ask is Ask.Permission)
+                        "<i>" + Markup.text(MagiBundle.msg("chat.perm.unknown")) + "</i>" else ""
                 }
                 prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<span>${Markup.text(asked)}</span><br/>$subject$grounds$why</html>"
                 when (ask) {
@@ -2072,6 +2115,14 @@ class MagiToolWindow : ToolWindowFactory {
             }
             paintAnswerMode()
             buttons.revalidate(); buttons.repaint()
+        }
+
+        /** 목록을 다시 읽는다. 문이 없는 낡은 데몬이면 조용히 지난 목록 그대로 — ↑ 가 그 자리에서 안 될 뿐이다. */
+        private fun refreshRecall() {
+            workspace.onDaemonWithoutChat({}) { c ->
+                val got = runCatching { c.prompts() }.getOrNull()?.takeIf { it.ok }?.prompts ?: return@onDaemonWithoutChat
+                SwingUtilities.invokeLater { recall.load(got.map { it.text }) }
+            }
         }
 
         private fun invalidateComposer() { suggestCoordinator.bumpEpoch(); debounce.stop(); dropSuggestion() }
