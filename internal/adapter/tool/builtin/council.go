@@ -32,7 +32,7 @@ func (Council) Description() string {
 		"through a different lens (correctness, verification, completeness), and each answers in its own words. " +
 		"Pass `question` to point them at what you want weighed (\"does this handle an empty input?\"); omit it " +
 		"for a general review, and their reading is advice you may disagree with. " +
-		"Pass `complete: true` to DECLARE THE TASK FINISHED: this is how a turn ends. The council then reads " +
+		"For work performed using tools in the current turn, pass `complete: true` to DECLARE THE TASK FINISHED. Ordinary conversational answers with no tool work end directly without this tool; work in previous turns does not require a new review. The council then reads " +
 		"the record as a finish and either accepts — the turn is over and your work is handed back — or tells " +
 		"you what is not done yet, and you keep working. Do not declare completion to ask a question; declare " +
 		"it when you believe the work is finished and are ready to be held to it. " +

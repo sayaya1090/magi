@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -80,5 +81,56 @@ func TestACouncilWithNothingToReadDoesNotSit(t *testing.T) {
 	}
 	if blind != "" {
 		t.Errorf("a refusal must not also carry advice: %q", blind)
+	}
+}
+
+func TestConversationalCompletionDoesNotConveneAfterPreviousTask(t *testing.T) {
+	ctx := context.Background()
+	spy := &spyCouncil{}
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "allow", Council: spy})
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	prompt := func(text string, kind event.ActorKind) {
+		t.Helper()
+		if err := a.appendPrompt(ctx, command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}, Actor: event.Actor{Kind: kind, ID: "test"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prompt("previous development", event.ActorUser)
+	a.appendPart(ctx, sid, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "old", session.RoleAssistant, session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "old", Name: "write", Args: json.RawMessage(`{}`)}})
+	prompt("did you change the code?", event.ActorUser)
+	prompt("a skill became available", event.ActorSystem)
+	s := a.sessionInfo(ctx, sid)
+	out, err := a.councilToolAdvice(ctx, s, nil, 0, "", true, true)
+	if err != nil || spy.called || !strings.Contains(out, "not convened") {
+		t.Fatalf("pure completion: called=%v err=%v out=%s", spy.called, err, out)
+	}
+	control := a.takeTurnControl(sid)
+	if !control.finish || !control.reportReady {
+		t.Fatal("pure response did not finish without regeneration")
+	}
+	for _, e := range mustRead(t, a, sid) {
+		if e.Type == event.TypeCouncilConvened || e.Type == event.TypeCouncilDecided {
+			t.Fatal("fabricated council approval")
+		}
+	}
+	// An explicit consultation remains available even on a conversation-only turn.
+	_, err = a.councilToolAdvice(ctx, s, nil, 0, "review this answer", false, true)
+	if err != nil || !spy.called {
+		t.Fatalf("explicit advice skipped: %v", err)
+	}
+	spy.called = false
+	// Pending calls also count; a parallel mutation must not be waved through.
+	a.appendPart(ctx, sid, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "current", session.RoleAssistant, session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "current", Name: "write", Args: json.RawMessage(`{}`)}})
+	prompt("automatic notice must not reset the turn", event.ActorSystem)
+	_, err = a.councilToolAdvice(ctx, s, nil, 0, "", true, true)
+	if err != nil || !spy.called {
+		t.Fatalf("current work skipped: %v", err)
+	}
+	a.takeTurnControl(sid)
+	spy.called = false
+	a.store = unreadableStore{Store: a.store, err: errors.New("unreadable")}
+	_, err = a.councilToolAdvice(ctx, s, nil, 0, "", true, true)
+	if err == nil || spy.called || a.takeTurnControl(sid).finish {
+		t.Fatal("unreadable scope was treated as a completed conversation")
 	}
 }
