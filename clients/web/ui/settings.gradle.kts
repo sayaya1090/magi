@@ -2,8 +2,9 @@ rootProject.name = "magi-console"
 
 pluginManagement {
     repositories {
-        gradlePluginPortal()
+        // Resolve ordinary plugin dependencies directly; portal mirrors can have stale metadata.
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 dependencyResolutionManagement {
