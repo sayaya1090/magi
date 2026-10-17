@@ -186,7 +186,7 @@ export function outputUri(
   const encKind = encodeURIComponent(kind);
   const encId = encodeURIComponent(outputId);
   const filePart = filename ? `/${encodeURIComponent(filename)}` : '';
-  return `magi-output:/${encCompanion}/${encSession}/${encKind}/${encId}${filePart}`;
+  return `magi-output:/snapshot/${encCompanion}/${encSession}/${encKind}/${encId}${filePart}`;
 }
 
 /**

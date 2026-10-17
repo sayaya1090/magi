@@ -445,8 +445,8 @@ test('openApprovalDiff: sides 및 patch 모드에서 DiffProvider 임시 보호 
   assert.equal(resSides, true, 'sides 모드 diff 열기 성공');
   assert.equal(executedCommands.length, 1);
   assert.equal(executedCommands[0].command, 'vscode.diff');
-  assert.match(executedCommands[0].args[0].toString(), /magi-diff:\/comp1\/sess1\/call-sides-1\/before\/main\.ts/);
-  assert.match(executedCommands[0].args[1].toString(), /magi-diff:\/comp1\/sess1\/call-sides-1\/after\/main\.ts/);
+  assert.match(executedCommands[0].args[0].toString(), /magi-diff:\/snapshot\/comp1\/sess1\/call-sides-1\/before\/main\.ts/);
+  assert.match(executedCommands[0].args[1].toString(), /magi-diff:\/snapshot\/comp1\/sess1\/call-sides-1\/after\/main\.ts/);
 
   // 2. patch 모드
   executedCommands = [];
@@ -459,7 +459,7 @@ test('openApprovalDiff: sides 및 patch 모드에서 DiffProvider 임시 보호 
 
   const resPatch = await openApprovalDiff(provider, 'comp1', 'sess1', askPatch as any);
   assert.equal(resPatch, true, 'patch 모드 diff 열기 성공');
-  const patchUri = vscodeMock.Uri.parse('magi-diff:/comp1/sess1/call-patch-2/patch/magi-%EC%8A%B9%EC%9D%B8-changes-atch-2.diff');
+  const patchUri = vscodeMock.Uri.parse('magi-diff:/snapshot/comp1/sess1/call-patch-2/patch/magi-%EC%8A%B9%EC%9D%B8-changes-atch-2.diff');
   assert.equal(provider.provideTextDocumentContent(patchUri), askPatch.diff);
 
   provider.dispose();
