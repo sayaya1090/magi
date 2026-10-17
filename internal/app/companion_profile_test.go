@@ -147,6 +147,7 @@ func TestCompanionStartupNudgeOnceAndInteractiveOnly(t *testing.T) {
 		return &App{cfg: Config{Interactive: true, CompanionProfileUnpublished: func(string) bool { return true }}, states: map[session.SessionID]*sessionState{}}
 	}
 	a := fresh()
+	user = append(user, event.Event{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorSystem, ID: "hook"}})
 	if a.companionStartupNudge("s", "/workspace", user, nil) {
 		t.Fatal("no question tool must not consume introduction")
 	}

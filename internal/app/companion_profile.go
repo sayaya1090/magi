@@ -200,7 +200,7 @@ func (a *App) companionStartupNudge(sid session.SessionID, wd string, evs []even
 				return false
 			}
 		}
-		if ev.Type == event.TypePromptSubmitted {
+		if ev.Type == event.TypePromptSubmitted && ev.Actor.Kind != event.ActorSystem {
 			actor = ev.Actor
 		}
 	}
