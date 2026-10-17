@@ -31,12 +31,15 @@ object CoreProbe {
      * 「미지원」의 유일한 근거다 — 구형 바이너리는 옵션을 거절하는 것으로 답한다(종료 코드 2,
      * 빈 stdout). 출력 문구를 뒤져 지원을 추측하지 않는다.
      */
-    fun features(command: List<String>, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Set<String> {
+    fun features(command: List<String>, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Set<String> =
+        features(command, timeoutMs) { ProcessBuilder(it).redirectErrorStream(false).start() }
+
+    internal fun features(command: List<String>, timeoutMs: Long, launch: (List<String>) -> Process): Set<String> {
         // ⚠ `start()` 도 try 안이다. 없는 바이너리는 **여기서** IOException 으로 터지고, 그것이
         // 가장 흔한 실패다 — 밖에 두면 「못 물었으면 빈 집합」이라는 이 함수의 계약이 바로 그
         // 경우에 안 지켜진다.
         val p = try {
-            ProcessBuilder(command).redirectErrorStream(false).start()
+            launch(command)
         } catch (_: Exception) {
             return emptySet()
         }
