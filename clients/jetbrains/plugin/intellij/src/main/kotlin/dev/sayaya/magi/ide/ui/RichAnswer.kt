@@ -134,12 +134,18 @@ internal class RichAnswer {
         // JBCefJSQuery 생성 (리뷰 F7: setHtml 직후 쿼리를 등록하여 CEF 바이트코드 레벨의 조용한 무응답 방어)
         val browser = panel as? com.intellij.ui.jcef.JBCefBrowser ?: return {}
         browser.component.isOpaque = false
+        browser.browserComponent?.background = java.awt.Color(0, 0, 0, 0)
+        (browser.browserComponent as? javax.swing.JComponent)?.isOpaque = false
         browser.setPageBackgroundColor("transparent")
         val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase) }.getOrNull() ?: return {}
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
         var transientLogged = false
         query.addHandler { said ->
+            if (said.startsWith("surface:")) {
+                LOG.info("magi: markdown surface " + said.removePrefix("surface:"))
+                return@addHandler null
+            }
             if (said.startsWith("wheel:")) {
                 said.removePrefix("wheel:").toDoubleOrNull()?.takeIf { it.isFinite() }?.let { delta ->
                     javax.swing.SwingUtilities.invokeLater {
@@ -175,9 +181,12 @@ internal class RichAnswer {
                 if (window.__magiMeasure) { window.__magiMeasure(); return; }
                 const style = document.createElement('style');
                 style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important;background:transparent!important}' +
-                    '.markdown-body{background:transparent!important}' +
+                    '.markdown-body,body>div,body>main{background:transparent!important}' +
                     'pre{max-height:none!important}';
                 document.head.appendChild(style);
+                document.documentElement.style.setProperty('background', 'transparent', 'important');
+                document.body.style.setProperty('background', 'transparent', 'important');
+                ${query.inject("'surface:' + JSON.stringify({html:getComputedStyle(document.documentElement).backgroundColor,body:getComputedStyle(document.body).backgroundColor,root:document.body.firstElementChild ? getComputedStyle(document.body.firstElementChild).backgroundColor : null})")}
                 let last = -1;
                 const measure = window.__magiMeasure = function() {
                     const body = document.body;

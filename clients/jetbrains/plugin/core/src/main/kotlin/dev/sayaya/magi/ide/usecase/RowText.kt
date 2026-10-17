@@ -119,7 +119,7 @@ object RowText {
     fun clock(at: String?): String = at?.let {
         runCatching {
             java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())
-                .toLocalTime().withNano(0).toString()
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         }.getOrNull()
     }.orEmpty()
 

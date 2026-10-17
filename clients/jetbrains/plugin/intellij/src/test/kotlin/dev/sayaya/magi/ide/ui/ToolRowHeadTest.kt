@@ -17,20 +17,36 @@ import javax.swing.JPanel
  * the time to an edge).
  */
 class ToolRowHeadTest : BasePlatformTestCase() {
-    fun testMessageActionsAreBelowBodyAndHaveBalancedInsets() {
+    fun testOutputButtonDoesNotInheritMinimumButtonWidth() {
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        try {
+            val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
+            val row = dev.sayaya.magi.ide.usecase.Row(who = dev.sayaya.magi.ide.usecase.Who.Agent, text = "hello", outputText = "hello", outputSeq = 1)
+            val panel = render.invoke(view, row) as Container
+            fun buttons(c: Container): List<javax.swing.JButton> = c.components.flatMap {
+                (if (it is javax.swing.JButton) listOf(it) else emptyList()) + (if (it is Container) buttons(it) else emptyList())
+            }
+            val edit = buttons(panel).single { it.toolTipText == MagiBundle.msg("chat.output.open") }
+            val expected = edit.icon.iconWidth + com.intellij.util.ui.JBUI.scale(4)
+            assertEquals(expected, edit.preferredSize.width)
+            assertEquals(expected, edit.minimumSize.width)
+            assertEquals(expected, edit.maximumSize.width)
+        } finally { com.intellij.openapi.util.Disposer.dispose(view) }
+    }
+
+    fun testMessageActionsStayInHeaderWithoutAddingFooter() {
         val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
         try {
             val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
             for (who in listOf(dev.sayaya.magi.ide.usecase.Who.User, dev.sayaya.magi.ide.usecase.Who.Agent)) {
                 val panel = render.invoke(view, dev.sayaya.magi.ide.usecase.Row(who = who, text = "hello")) as JPanel
                 val layout = panel.layout as java.awt.BorderLayout
-                val footer = layout.getLayoutComponent(java.awt.BorderLayout.SOUTH) as JComponent
+                assertNull(layout.getLayoutComponent(java.awt.BorderLayout.SOUTH))
                 assertNotNull(layout.getLayoutComponent(java.awt.BorderLayout.CENTER))
                 fun hasCopy(c: Container): Boolean = c.components.any {
                     (it is JComponent && it.toolTipText == MagiBundle.msg("chat.copy.one")) || (it is Container && hasCopy(it))
                 }
-                assertTrue(hasCopy(footer))
-                assertFalse(hasCopy(layout.getLayoutComponent(java.awt.BorderLayout.NORTH) as Container))
+                assertTrue(hasCopy(layout.getLayoutComponent(java.awt.BorderLayout.NORTH) as Container))
             }
         } finally { com.intellij.openapi.util.Disposer.dispose(view) }
     }

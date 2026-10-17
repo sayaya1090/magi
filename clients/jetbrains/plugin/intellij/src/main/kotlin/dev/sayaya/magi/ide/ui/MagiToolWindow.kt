@@ -1223,6 +1223,12 @@ class MagiToolWindow : ToolWindowFactory {
                     isFocusPainted = false
                     margin = JBUI.emptyInsets()
                     border = JBUI.Borders.empty(2)
+                    val iconSize = java.awt.Dimension(icon.iconWidth + JBUI.scale(4), icon.iconHeight + JBUI.scale(4))
+                    preferredSize = iconSize
+                    minimumSize = iconSize
+                    maximumSize = iconSize
+                    iconTextGap = 0
+                    putClientProperty("magi.action", true)
                     cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                     addActionListener { openOutput(r, sourceSession) }
                 })
@@ -1244,9 +1250,7 @@ class MagiToolWindow : ToolWindowFactory {
                     val name = if (r.who == Who.User) (youName ?: MagiBundle.msg("chat.who.you"))
                     else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
-                    p.add(Look.rowHead(name, hue, marks, ""), BorderLayout.NORTH)
-                    headTookActions = true
-                    p.add(Look.rowFooter(RowText.clock(r.at), actions), BorderLayout.SOUTH)
+                    p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at), headActions()), BorderLayout.NORTH)
                     if (r.who == Who.Agent) {
                         // 에이전트 마크다운 답변 렌더링:
                         // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,
