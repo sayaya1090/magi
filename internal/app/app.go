@@ -108,6 +108,7 @@ type App struct {
 	// it. It was a bare set, one slot for three reasons, and a redirect could not tell a number a
 	// backend gave us from one a person did. Guarded by mu; windowBase is where requests went when
 	// these marks were taken.
+	windowRetryAt  map[string]time.Time
 	probingWindows map[string]windowMark
 	windowBase     string
 
