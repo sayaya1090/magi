@@ -126,6 +126,9 @@ type wireFuncCall struct {
 type streamChunk struct {
 	Choices []streamChoice `json:"choices"`
 	Usage   *wireUsage     `json:"usage,omitempty"`
+	Error   *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
 type streamChoice struct {
