@@ -73,6 +73,10 @@ func companionProfileCommand(configDir, workdir string, in io.Reader, out, errOu
 		fmt.Fprintln(errOut, err)
 		return 1
 	}
+	if current.Purpose != "" && len(current.Tasks) > 0 && (len(current.Responsibilities) > 0 || len(profile.Responsibilities) == 0) {
+		fmt.Fprintln(out, "Existing companion description preserved; no empty sections to fill")
+		return 0
+	}
 	raw := map[string]any{"version": int64(1)}
 	if _, err = os.Stat(path); err == nil {
 		if _, err = toml.DecodeFile(path, &raw); err != nil {

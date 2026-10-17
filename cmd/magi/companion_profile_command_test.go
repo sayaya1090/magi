@@ -30,9 +30,28 @@ func TestDiscoveredProfileFillsMissingSectionsWithoutGrantingAuthority(t *testin
 	if got.Purpose != "Maintain widget library" || len(got.Tasks) != 1 || len(got.Operations) != 1 || len(got.Access) != 1 || got.Access[0].Mode != "read" || got.Instructions[0] != "Keep user rule" {
 		t.Fatalf("lost metadata/authority: %+v", got)
 	}
-	// A later discovery cannot replace existing user or previously confirmed metadata.
+	// A later discovery cannot replace existing metadata or rewrite comments/formatting.
+	path, err := companionpolicy.Path(cfg, wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original = append([]byte("# User commentary must remain\n"), original...)
+	if err = os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if companionProfileCommand(cfg, wd, strings.NewReader(strings.ReplaceAll(discoveredProfile, "Maintain widget library", "New guessed purpose")), &out, &errs) != 0 {
 		t.Fatal(errs.String())
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(saved, original) {
+		t.Fatal("a no-op discovery rewrote the user policy")
 	}
 	after, _ := companionpolicy.Load(cfg, wd)
 	if after.Purpose != got.Purpose {
