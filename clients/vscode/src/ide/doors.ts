@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { editCompanionProfile } from './companionProfile';
 import { Companion } from './workspace';
 import { Chat } from './chat';
 import { Row, turnsBack } from '../core/transcript';
@@ -143,7 +144,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       for (const why of broken) void vscode.window.showWarningMessage(`magi: a settings file could not be read — ${why}`);
       const pick = await vscode.window.showQuickPick(
         list.filter((c) => c.key).map((c) => ({
-          label: c.key!,
+          label: c.key === "companion_auto_describe" ? vscode.l10n.t("Automatic workspace description") : c.key === "companion.profile" ? vscode.l10n.t("Workspace purpose and offered tasks") : c.key!,
           // ⚠ **Where the value came from is not where a write would go.** `tier` is the file this
           // screen would edit; `source` is the layer the CURRENT value comes from, and the core says
           // it can be "env". An environment variable beats every file, so editing one that came from
@@ -151,7 +152,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
           // `unreadable` warning above exists to break. This screen showed neither, so the two cases
           // were one line. The JetBrains settings screen has drawn the source since the field landed.
           description: c.value ? `= ${c.value}${c.source ? ` (from ${c.source})` : ''}` : '(unset)',
-          detail: [c.doc, c.applies && `applies ${c.applies}`, c.tier].filter(Boolean).join(' · '),
+          detail: [c.key === 'companion_auto_describe' ? vscode.l10n.t('Automatically fill missing workspace descriptions after successful turns. Uses an additional model request. Existing descriptions and permissions are preserved.') : c.key === 'companion.profile' ? vscode.l10n.t('Edit the purpose, responsibilities and offered tasks. Access permissions and callable operations are preserved.') : c.doc, c.applies && `applies ${c.applies}`, c.tier].filter(Boolean).join(' · '),
           key: c.key!, value: c.value ?? '', tier: c.tier ?? '',
           source: c.source ?? '', profile: c.profile === true,
         })),
@@ -177,7 +178,12 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
        * no way out would make that unsayable (the same reason `magi.chooseBackend` offers one).
        */
       let value: string | undefined;
-      if (pick.profile) {
+      if (pick.key === "companion_auto_describe") {
+        const mode = await vscode.window.showQuickPick([{ label: vscode.l10n.t("On"), value: "on" }, { label: vscode.l10n.t("Off"), value: "off" }], { title: vscode.l10n.t("Automatic workspace description"), placeHolder: pick.value });
+        value = mode?.value;
+      } else if (pick.key === "companion.profile") {
+        value = await editCompanionProfile(pick.value);
+      } else if (pick.profile) {
         const known = await call('profiles');
         const names = (known?.profiles ?? []).map((p) => p.name).filter((n): n is string => !!n);
         const chosen = await vscode.window.showQuickPick(

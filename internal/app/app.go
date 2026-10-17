@@ -27,6 +27,10 @@ import (
 
 // App is the application service implementing the command/event boundary.
 type App struct {
+	profileCancel context.CancelFunc // guarded by mu; foreground work wins
+
+	profileBusy         atomic.Bool
+	profileLast         atomic.Int64
 	backgroundAuthority atomic.Bool
 	backgroundMu        sync.Mutex
 	backgroundOwned     map[string]bool
@@ -610,6 +614,10 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		// an update that is about to restart this process — the successor reopens this conversation.
 		return
 	}
+	if a.profileCancel != nil {
+		a.profileCancel()
+		a.profileCancel = nil
+	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	st.cancel = cancel
 	a.wg.Add(1)
@@ -631,6 +639,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			err := a.run(runCtx, sid)
 			lastErr = err
 			a.observeTurnFinished(runCtx, sid)
+			if err == nil && runCtx.Err() == nil {
+				a.scheduleCompanionProfile(sid)
+			}
 			// Do NOT re-run or triage after a terminal error (e.g. a provider 429/5xx) or a
 			// cancel: the prompt is still "unanswered", and re-running would hammer a failing
 			// backend into an error storm. The error event already ended the turn.

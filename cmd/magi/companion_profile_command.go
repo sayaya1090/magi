@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -103,28 +102,4 @@ func companionProfileCommand(configDir, workdir string, in io.Reader, out, errOu
 		return 1
 	}
 	return companionPolicyCommandUnlocked(configDir, workdir, true, &encoded, out, errOut)
-}
-
-func companionSelfDescriptionGuide(workdir, executable string) string {
-	if workdir == "" || executable == "" {
-		return ""
-	}
-	quote := func(s string) string {
-		if runtime.GOOS == "windows" {
-			return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-		}
-		return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-	}
-	command := quote(executable)
-	if runtime.GOOS == "windows" {
-		command = "& " + quote(executable)
-	}
-	return `
-
-# Describe your workspace to other companions
-After understanding the workspace from actual project files, documentation and tools, fill missing companion metadata with a concrete purpose, responsibilities and offered tasks. Do this when enough is known, not on every turn and not merely because a learned skill exists. Do not interrupt an urgent user request or invent capabilities, successful verification, access grants or directly callable operations.
-Read the existing declaration first with ` + command + ` --companion-policy-show, using ` + quote(workdir) + ` as the working directory. Keep existing user descriptions and constraints. If purpose and tasks are already populated, do not rewrite them. A prepared coding-task runner must not publish itself as a new companion.
-For missing sections, send one JSON object on stdin to ` + command + ` --companion-profile-write in the same directory. Schema: {"purpose":"what this workspace is for","responsibilities":["what you maintain"],"tasks":[{"id":"short-stable-id","description":"specific work peers can request, with inputs and expected result","constraints":["scope or verification limits"]}]}. Use the user's language. This writer fills empty sections only and preserves access, operations and instructions. Never use --companion-policy-write to grant yourself access or publish operations.
-Re-read --companion-policy-show to verify what was saved. Report the new offered tasks briefly when relevant. A failed save does not mean publication succeeded; do not retry unchanged errors in a loop. No model or network request is needed just to store the metadata.
-`
 }

@@ -44,6 +44,9 @@ type CompanionConfig struct {
 
 // Config is the on-disk configuration (config.toml).
 type Config struct {
+	// CompanionAutoDescribe is on (default) or off; metadata only, never authority.
+	CompanionAutoDescribe string `toml:"companion_auto_describe"`
+
 	Model   string `toml:"model"`
 	BaseURL string `toml:"base_url"`
 	// EmbedModel names the model that turns text into vectors. It buys two things, and they are the

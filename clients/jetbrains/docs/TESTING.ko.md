@@ -2059,3 +2059,7 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 입력 기록은 프로젝트의 대화 로그에서 조회합니다. 창 초기화 시 조회가 실패해도 전사 연결이 완료되면 다시 불러옵니다. 성공 시 `loaded project input history count=…`, 실패 시 `input history unavailable` 로그를 남기며 입력 본문은 기록하지 않습니다.
 
 `SendDraftTest.testArrowRecallTraversesMultilineHistoryAndRestoresDraft`는 실제 입력창의 ↑/↓ 액션으로 여러 줄 기록 두 개를 탐색하고 작성 중이던 초안을 복원합니다. `PromptRecallTest`는 불러온 내용을 사용자가 수정하면 일반 커서 이동으로 돌아가는 판정을 검사합니다.
+
+## 컴패니언 역할 편집 회귀 검증
+
+`CompanionProfileEditorTest`는 목적 변경, 제공 작업 추가·삭제, 기존 작업 ID와 변경하지 않은 제약 보존을 실제 Swing 컴포넌트로 검증합니다. `:intellij:test`에서 실행합니다. 코어의 `ManualTest`는 이 테스트도 검증 목록에 포함되어 있는지 확인합니다.

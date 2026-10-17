@@ -101,11 +101,16 @@ Access modes are read, write, execute, deny, and approval. They communicate boun
 
 ## Self-description after understanding a workspace
 
-Coding companions (VS Code, JetBrains and TUI) fill missing purpose, responsibilities and offered tasks after reading project files, documentation and tools. They do not do so every turn or infer offers solely from learned skills. A prepared coding-task runner does not publish a separate identity.
+Coding companions (VS Code, JetBrains and TUI) automatically extract missing purpose, responsibilities and offered tasks after a successful turn that contains a successful project-file `read`. The foreground model no longer has to remember to invoke the publication CLI. Prepared coding-task runners do not publish separate identities.
 
-1. Read the current declaration with `magi --companion-policy-show` in the original workspace.
-2. Describe concrete work in the user's language, including inputs, expected results and constraints.
-3. Send JSON with `purpose`, `responsibilities` and `tasks` to `magi --companion-profile-write` on stdin. Only empty sections are filled. Existing descriptions and constraints remain intact. Access, instructions and direct operations cannot be changed.
-4. Read the declaration again to verify persistence. The daemon's existing advertisement refresh picks up changes. New system guidance applies on the next turn of a daemon running the updated binary.
+`companion_auto_describe = "on"` is the default. Set it to `"off"` to stop extraction; changes apply without restarting the daemon. This switch is separate from memory and skill learning. An untrusted project configuration cannot change it. Turning it off preserves descriptions already stored.
 
-Unknown JSON fields and invalid task IDs are rejected. The merged declaration is validated before atomic replacement. Full-policy and profile writers share a cross-process lock. Users can inspect and amend the result through the full-policy CLI. This provides persistence, not a guarantee that a model describes its work correctly.
+The extractor waits for foreground turns to finish, makes one tool-free model request with at most 24 KiB of observed transcript data, and times out after 90 seconds. A new foreground request cancels it. There is one extractor per daemon, with a ten-minute cooldown between attempts; cancellation allows another attempt after the next successful turn. If the evidence is insufficient, the model may return `null`. Failures are logged and do not change the declaration or fail the user's turn. The extra request uses the session's provider route and model and incurs model usage.
+
+Generated metadata goes through the existing validated profile writer. Only empty sections are filled; existing descriptions, access, instructions and direct operations remain intact. A successful save refreshes the companion advertisement. Learned skills do not become advertised tasks automatically.
+
+In JetBrains settings, **Automatic workspace description** is a checkbox. **Workspace purpose and offered tasks** provides purpose and responsibility fields and a task table with add/remove controls. In VS Code, open **Magi: Change one of magi's own settings**, select the automatic-description switch or the workspace description, edit individual entries and choose **Save**. The metadata editor can replace or remove existing descriptions; it preserves access permissions and callable operations. Disabling automatic extraction is useful when deliberately leaving sections empty.
+
+The daemon exposes these through `config-get` and `config-set`: `companion_auto_describe` accepts `on` or `off`; `companion.profile` accepts a JSON object containing only `purpose`, `responsibilities` and `tasks`. Profile edits use the same cross-process lock and atomic validation as the CLI. Invalid edits leave the stored policy unchanged.
+
+For terminal inspection or manual submission, use `magi --companion-policy-show` and send profile JSON to `magi --companion-profile-write` on stdin from the original workspace. That CLI fills empty sections only. The full-policy CLI remains available for intentional authority changes. Automatic extraction persists a description; it does not guarantee that the model understood the workspace correctly, so review the offered tasks before relying on them.
