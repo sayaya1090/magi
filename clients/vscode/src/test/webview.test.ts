@@ -5609,3 +5609,46 @@ test('§6.9: the panel has a persistent state notice separate from the transient
   // 시작 단추는 지속 자리에 붙는다: 일시 알림이 만료돼도 나가는 길이 남아야 한다.
   assert.ok(/stateNoteEl\.append\(b\)/.test(chatWebviewSource()), 'the start button is appended to the persistent notice');
 });
+
+test('↑/↓ in the composer bring back what was typed in any conversation, only from the edge line', () => {
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '', placeholder: '', selectionStart: 0, selectionEnd: 0,
+      focus() {}, setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+  const bridge = { postMessage: (_m: any) => {} };
+  const inputAdapter = createWebviewInputAdapter(elements, createWebviewActionAdapter(bridge), createAnswerState());
+  const key = (k: string) => {
+    let prevented = false;
+    listeners['keydown']?.({ key: k, preventDefault: () => { prevented = true; } });
+    return prevented;
+  };
+
+  inputAdapter.handlePrompts!(['newest', 'older']);
+  elements.say.value = 'draft';
+  elements.say.selectionStart = elements.say.selectionEnd = 5;
+  assert.equal(key('ArrowUp'), true);
+  assert.equal(elements.say.value, 'newest');
+  key('ArrowUp');
+  assert.equal(elements.say.value, 'older');
+  assert.equal(key('ArrowUp'), false, 'nothing older: the key goes to the textarea');
+  key('ArrowDown'); key('ArrowDown');
+  assert.equal(elements.say.value, 'draft', 'the bottom hands back what was being typed');
+
+  // Inside a multi-line draft the arrows move the caret.
+  elements.say.value = 'one\ntwo';
+  elements.say.selectionStart = elements.say.selectionEnd = 6;
+  assert.equal(key('ArrowUp'), false);
+  assert.equal(elements.say.value, 'one\ntwo');
+  inputAdapter.dispose();
+});

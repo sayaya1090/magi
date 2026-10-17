@@ -128,6 +128,7 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
       /* 웹뷰 번들이 부르는 코어 판정(emptyTranscriptNote). 타입만 쓰던 동안은 esbuild 가 지워서
          없어도 됐지만, 이제는 없으면 번들이 안 선다 — 그래서 이 목록의 식구다. */
       { name: 'src/core/activity.ts', realPath: path.join(realRoot, 'src', 'core', 'activity.ts'), tempPath: path.join(tempSrcCoreDir, 'activity.ts') },
+      { name: 'src/core/prompt_recall.ts', realPath: path.join(realRoot, 'src', 'core', 'prompt_recall.ts'), tempPath: path.join(tempSrcCoreDir, 'prompt_recall.ts') },
     ];
 
     // Copy every required file to the isolated tempDir

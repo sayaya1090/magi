@@ -32,6 +32,8 @@ const protocolSrc = path.join(root, 'src', 'core', 'webview_protocol.ts');
    (emptyTranscriptNote), 화면은 그리기만 한다 — 그래서 번들의 진짜 입력이다. 타입만 쓰던 동안은
    esbuild 가 지워서 없어도 됐지만, 이제는 없으면 번들이 안 선다. */
 const activitySrc = path.join(root, 'src', 'core', 'activity.ts');
+/* 입력줄 ↑/↓(PromptRecall) — 번들이 부르는 코어 모듈이라 입력이다. */
+const promptRecallSrc = path.join(root, 'src', 'core', 'prompt_recall.ts');
 
 const outDir = path.join(root, 'out', 'web');
 const coreDir = path.join(root, 'out', 'core');
@@ -53,6 +55,7 @@ const requiredInputs = [
   { id: 'chat_view', name: 'src/web/chat_view.ts', path: viewSrc },
   { id: 'webview_protocol', name: 'src/core/webview_protocol.ts', path: protocolSrc },
   { id: 'activity', name: 'src/core/activity.ts', path: activitySrc },
+  { id: 'prompt_recall', name: 'src/core/prompt_recall.ts', path: promptRecallSrc },
 ];
 
 // 2. Validate existence of all required inputs BEFORE touching/writing any output file

@@ -15,6 +15,7 @@ import type {
 import type { Ask } from '../core/touched';
 import type { Activity } from '../core/activity';
 import { emptyTranscriptNote } from '../core/activity';
+import { PromptRecall, onEdgeLine } from '../core/prompt_recall';
 import type { AnswerStateManager, AskEvent } from '../core/answer_state';
 import type { RecoveryController } from './recovery_controller';
 import {
@@ -220,6 +221,7 @@ export interface HostMessageHandlers {
   }): void;
   onMentions?(payload: { files: string[]; reqId: number; target: string }): void;
   onSuggestion?(payload: { text: string; reqId: number; target: string }): void;
+  onPrompts?(payload: { texts: string[] }): void;
 }
 
 import { parseHostToWebviewMessage } from '../core/webview_protocol';
@@ -243,6 +245,9 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
     return true;
   } else if (m.kind === 'suggestion') {
     handlers.onSuggestion?.(m);
+    return true;
+  } else if (m.kind === 'prompts') {
+    handlers.onPrompts?.(m);
     return true;
   } else if (m.kind === 'sessionCreated') {
     handlers.onSessionCreated?.(m);
@@ -484,6 +489,8 @@ export interface WebviewInputAdapter {
   handleCompose(text: string): void;
   handleMentions(files: string[], reqId?: number, target?: string): void;
   handleSuggestion(text: string, reqId?: number, target?: string): void;
+  /** The composer's ↑/↓ list arrived (the `prompts` door). Optional so test doubles need not care. */
+  handlePrompts?(texts: string[]): void;
   handleReplyResult(
     m: {
       callId: string;
@@ -871,6 +878,7 @@ export function createWebviewInputAdapter(
       if (!res.ok) return;
       clearAutoCompletion();
       actions.say(res.text ?? t, creationTaskId);
+      recall.remember(res.text ?? t);
       say.value = res.nextInputText ?? '';
       if (activeCreationTaskId && !currentSession) {
         answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, '');
@@ -934,6 +942,12 @@ export function createWebviewInputAdapter(
     }
   }
 
+  /** ↑/↓ — what was typed before, in any conversation here (`PromptRecall`). */
+  const recall = new PromptRecall();
+  function handlePrompts(texts: string[]): void {
+    recall.load(texts);
+  }
+
   function handleSuggestion(text: string, reqId?: number, target?: string): void {
     if (disposed) return;
     const currentTarget = answerState.getPendingQuestion() || 'general';
@@ -977,6 +991,20 @@ export function createWebviewInputAdapter(
       e.preventDefault();
       send();
       return;
+    }
+    // ↑ on the first line / ↓ on the last brings back what was typed before; inside a multi-line
+    // draft the arrows keep moving the caret. Nothing to bring back leaves the key to the textarea.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey
+        && say.selectionStart === say.selectionEnd
+        && onEdgeLine(say.value, say.selectionStart ?? 0, e.key === 'ArrowUp')) {
+      const got = e.key === 'ArrowUp' ? recall.older(say.value) : recall.newer();
+      if (got !== undefined) {
+        e.preventDefault();
+        say.value = got;
+        say.selectionStart = say.selectionEnd = got.length;
+        answerState.onInputChange(say.value);
+        return;
+      }
     }
     const suggestion = suggestCtrl.getSuggestion();
     if (e.key === 'Tab' && suggestion) {
@@ -1032,6 +1060,7 @@ export function createWebviewInputAdapter(
     handleCompose,
     handleMentions,
     handleSuggestion,
+    handlePrompts,
     handleReplyResult,
     getSuggestReqId: () => suggestCtrl.getReqId(),
     getSuggestController: () => suggestCtrl,
@@ -1186,6 +1215,9 @@ export function createWebviewReceiveHandlers(
     },
     onSuggestion(payload) {
       options.inputAdapter.handleSuggestion(payload.text, payload.reqId, payload.target);
+    },
+    onPrompts(payload) {
+      options.inputAdapter.handlePrompts?.(payload.texts);
     },
     onSessionCreated(payload) {
       const res = options.inputAdapter.onSessionCreated?.(payload);

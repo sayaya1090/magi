@@ -405,6 +405,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
+  /**
+   * The composer's ↑/↓ list, from the `prompts` door: what a person typed here in every conversation.
+   * Sent on ready and after each send. An older daemon without the door answers no — the panel then
+   * keeps what it has, and ↑ simply finds nothing new.
+   */
+  private async sendPrompts(): Promise<void> {
+    const r = await this.companion.ask('prompts', { n: 200 });
+    if (!r?.ok) return;
+    this.post({ kind: 'prompts', texts: (r.prompts ?? []).map((p) => p.text ?? '') });
+  }
+
   /* visible for testing */ async fromView(raw: unknown, callerWebviewId?: string): Promise<void> {
     if (callerWebviewId && callerWebviewId !== this.currentWebviewId) return;
     const m = parseWebviewToHostMessage(raw);
@@ -413,6 +424,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
         this.draw();
+        void this.sendPrompts();
         break;
       case 'say': {
         const body = (m.text ?? '').trim();
@@ -528,6 +540,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           } else {
             // Once submit succeeds, mark turn active immediately even before first stream chunk lands
             this.sessionActiveTurns.add(resolvedSid);
+            void this.sendPrompts();
           }
           if (this.sid === resolvedSid) {
             this.draw();

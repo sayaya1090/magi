@@ -207,6 +207,8 @@ export interface Response {
    * one this window could talk to. Typed, an invented name stops compiling.
    */
   sessions?: SessionRow[];
+  /** `prompts`: what a person typed to this workspace, every conversation, newest first, each once. */
+  prompts?: { text?: string; at?: string; session?: string }[];
   /** `profiles`: the backends this daemon's config names. */
   profiles?: { name?: string; tier?: string }[];
   /** `config-get`: the settings it will let a client change — a whitelist held by the engine. */

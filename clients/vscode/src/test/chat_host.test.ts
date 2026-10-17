@@ -142,7 +142,9 @@ test('Chat B0: consecutive sends during session creation delay call session-new 
   const sessionNewCalls = companion.calls.filter((c) => c.door === 'session-new');
   assert.equal(sessionNewCalls.length, 1, 'session-new must only be called once for consecutive sends');
 
-  const doors = companion.calls.map((c) => c.door);
+  // `prompts` is the composer's ↑/↓ list being re-read after each send — a read beside the order
+  // this test is about, so it is left out of the sequence.
+  const doors = companion.calls.map((c) => c.door).filter((d) => d !== 'prompts');
   assert.deepEqual(doors, ['session-new', 'submit', 'steer'], 'first message must submit, second message must steer');
 
   const submitCall = companion.calls.find((c) => c.door === 'submit');

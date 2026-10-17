@@ -428,6 +428,18 @@ export const InfoMessageSchema = v.pipe(
   })),
 );
 
+/** The composer's ↑/↓ list — the `prompts` door's texts, newest first. */
+export const PromptsMessageSchema = v.pipe(
+  v.object({
+    kind: v.literal('prompts'),
+    texts: v.array(v.unknown()),
+  }),
+  v.transform((m) => ({
+    kind: 'prompts' as const,
+    texts: m.texts.filter((t): t is string => typeof t === 'string'),
+  })),
+);
+
 export const NoteMessageSchema = v.object({
   kind: v.literal('note'),
   text: v.string(),
@@ -444,6 +456,7 @@ export const HostToWebviewMessageSchema = v.union([
   StateMessageSchema,
   InfoMessageSchema,
   NoteMessageSchema,
+  PromptsMessageSchema,
 ]);
 
 export type HostToWebviewMessage = v.InferOutput<typeof HostToWebviewMessageSchema>;
