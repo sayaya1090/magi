@@ -557,6 +557,8 @@ function councilOf(ev, type) {
     // 죽었거나 답을 못 읽은 것이라, 판단한 기권과 다른 사실이다.
     silent: d.silent === true,
     note: typeof d.note === 'string' ? d.note : '',
+    closingDecision: typeof d.closingDecision === 'string' ? d.closingDecision : '',
+    closingReason: typeof d.closingReason === 'string' ? d.closingReason : '',
     feedback: typeof d.feedback === 'string' ? d.feedback : '',
     tally: d.tally ?? null,
   };

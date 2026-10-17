@@ -456,7 +456,11 @@ export function rows(events: Event[]): Row[] {
             : before !== after ? `debated: ${before}→${after}, ${moved} moved`
               : `debated: ${after} held, ${moved} moved`;
         }
-        const note = String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
+        const closing = String(d.closingDecision ?? '');
+        const note = closing ? `member vote → final review: ${closing === 'continue' ? 'held' : 'approved'}\n${String(d.closingReason ?? '')}`
+          : d.decision === 'continue' && t && n('done') > 0 && n('continue') === 0 && n('abstain') === 0
+            ? `members approved; final outcome held (legacy record)\n${String(d.feedback ?? '')}`
+            : String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
         out.push({
           seq: e.seq, who: 'council',
           text: [note, counts, debated].filter(Boolean).join(' — '),

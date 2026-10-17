@@ -271,3 +271,16 @@ func show(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+func TestFinalReviewLabelsSharedClientRows(t *testing.T) {
+	d := map[string]any{"decision": "continue", "closingDecision": "continue", "closingReason": "verify 72dp", "tally": map[string]any{"done": float64(3), "continue": float64(0), "voters": float64(3)}}
+	r := decidedRow(1, d)
+	if !strings.Contains(r.Text, "final review: held") || !strings.Contains(r.Text, "verify 72dp") {
+		t.Fatal(r.Text)
+	}
+	delete(d, "closingDecision")
+	d["feedback"] = "verify 72dp"
+	if r = decidedRow(1, d); !strings.Contains(r.Text, "legacy record") {
+		t.Fatal(r.Text)
+	}
+}

@@ -1324,3 +1324,11 @@ test('a stream connection that fails is said', () => {
   assert.ok(/if \(!s\) \{/.test(failed), 'a failed connection is not handled as its own case');
   assert.ok(/kind: 'note'/.test(failed), 'a failed stream connection leaves the panel empty and says nothing');
 });
+
+test('final review is distinct from three approving members, including legacy replay', () => {
+  const data = { round: 1, decision: 'continue', tally: {done: 3, continue: 0, voters: 3},
+    closingDecision: 'continue', closingReason: 'verify 72dp', feedback: 'verify 72dp' };
+  const render = (d: unknown) => rows([{seq: 1, type: 'council.decided', data: d} as unknown as Event])[0].text;
+  assert.match(render(data), /final review: held\nverify 72dp/);
+  assert.match(render({...data, closingDecision: undefined}), /members approved; final outcome held/);
+});

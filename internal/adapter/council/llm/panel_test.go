@@ -273,6 +273,9 @@ func TestClosingConclusionOnlyTightens(t *testing.T) {
 	if d.Decision != council.Continue {
 		t.Fatalf("a unanimous done the round itself would not stand behind must not finish, got %q", d.Decision)
 	}
+	if d.CloseDecision != council.Continue || d.Close == "" {
+		t.Fatal("closing review lost its identity or reason")
+	}
 	if d.Feedback == "" {
 		t.Error("a continue with nothing to act on sends the agent back empty-handed")
 	}

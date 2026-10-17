@@ -350,6 +350,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}[accepted]
 	dd, _ := json.Marshal(event.CouncilDecidedData{
 		Round: 1, Decision: string(recordedDecision), Tally: delib.Breakdown, Feedback: feedback,
+		ClosingDecision: string(delib.CloseDecision), ClosingReason: delib.Close,
 		// The rebuttal round rides the fact for the same reason the tally does: the verdicts
 		// recorded here are the ones members held AFTER debating, so without this the round
 		// leaves no trace and "did arguing change the outcome" cannot be asked of a run.

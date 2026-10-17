@@ -145,7 +145,8 @@ type Deliberation struct {
 	// reporting a goodness-of-fit — and never once looked at the thing it was being turned back
 	// for. A gate that finds a defect and does not say what it found is a gate that only spends
 	// the clock.
-	Close string `json:"close,omitempty"`
+	Close         string   `json:"close,omitempty"`
+	CloseDecision Decision `json:"closeDecision,omitempty"`
 	// Debate records a disagreement-triggered rebuttal round: nil when it did not run
 	// (unanimous vote, or debate disabled), non-nil with the before→after decisions
 	// when it did — so the otherwise-internal rebuttal is observable in the transcript.

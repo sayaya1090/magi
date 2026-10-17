@@ -133,7 +133,7 @@ func councilMarks(evs []event.Event) []CouncilMark {
 				continue
 			}
 			out = append(out, CouncilMark{After: last, Round: d.Round, Decision: d.Decision,
-				Why: d.Note, Tally: tallyWords(d.Tally), Debate: debateWords(d.Debate),
+				Why: d.OutcomeNote(), Tally: tallyWords(d.Tally), Debate: debateWords(d.Debate),
 				// No votes at all, and some member never answered: the round did not judge the
 				// work, so the surface must not spell its outcome "reject".
 				Silent: d.Tally.Voters == 0 && d.Tally.Silent > 0})
