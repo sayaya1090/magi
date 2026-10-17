@@ -208,6 +208,10 @@ func (c *Client) History(sid string) ([]event.Event, error) {
 // "the replay is over" from the same callback as "your cursor was refused" would restart on a normal
 // catch-up, which is the shape this tree has paid for elsewhere (report vs level, one sink).
 type Tail struct {
+	// Interactive marks a live user interface, never a passive transcript reader.
+	Interactive bool
+	Locale      string
+
 	// Each is one event. Returning false ends the read.
 	Each func(event.Event) bool
 	// Restart is the daemon saying it could not honour the cursor, so the caller should read again
@@ -255,7 +259,11 @@ func (c *Client) Transcript(sid string, since int64, restart func(why string), e
 func (c *Client) Follow(sid string, since int64, t Tail) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if err := c.enc.Encode(Request{Method: "transcript", Session: sid, Since: since}); err != nil {
+	name := ""
+	if t.Interactive {
+		name = "interactive"
+	}
+	if err := c.enc.Encode(Request{Method: "transcript", Session: sid, Since: since, Name: name, Text: t.Locale}); err != nil {
 		return fmt.Errorf("daemon: send: %w", err)
 	}
 	restart, each := t.Restart, t.Each

@@ -27,6 +27,7 @@ import (
 
 // App is the application service implementing the command/event boundary.
 type App struct {
+	profileIntroCancel context.CancelFunc // guarded by mu
 	profileIntroNudged atomic.Bool
 	profileCancel      context.CancelFunc // guarded by mu; foreground work wins
 
@@ -614,6 +615,10 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		// Shutting down, already running (the loop picks up steered input on re-read), or held for
 		// an update that is about to restart this process — the successor reopens this conversation.
 		return
+	}
+	if a.profileIntroCancel != nil {
+		a.profileIntroCancel()
+		a.profileIntroCancel = nil
 	}
 	if a.profileCancel != nil {
 		a.profileCancel()

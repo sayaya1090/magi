@@ -34,7 +34,7 @@ const origLoad = (Module as any)._load;
         onDidCloseTextDocument: () => ({ dispose() {} }),
         getConfiguration: () => ({ get: () => true }),
       },
-      env: { clipboard: { writeText: async (text: string) => { clipboardWrites.push(text); } } },
+      env: { language: 'ko', clipboard: { writeText: async (text: string) => { clipboardWrites.push(text); } } },
       commands: {
         registerCommand: (id: string, run: () => Promise<void>) => {
           hostCommands.set(id, run);
@@ -793,7 +793,7 @@ test('startup retries session selection when the daemon becomes reachable and av
     changed(); changed();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(chat.session, 'newest');
-    assert.deepEqual(streamed, [{ method: 'transcript', session: 'newest' }]);
+    assert.deepEqual(streamed, [{ method: 'transcript', session: 'newest', name: 'interactive', text: 'ko' }]);
     assert.equal(connections, 1);
     changed();
     await new Promise(resolve => setImmediate(resolve));
