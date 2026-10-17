@@ -92,6 +92,8 @@ data class FileRef(
 
 @Serializable
 data class Response(
+    val declaration: JsonElement? = null,
+    val operationResult: JsonElement? = null,
     val ok: Boolean = false,
     val error: String? = null,
     val waiting: Waiting? = null,
