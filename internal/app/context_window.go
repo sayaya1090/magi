@@ -101,9 +101,10 @@ func (a *App) VisionOf(id string) bool { return a.cfg.Models.Get(id).Vision }
 type windowMark uint8
 
 const (
-	windowProbing windowMark = iota // a probe is in flight, or ran and found nothing
-	windowProbed                    // a backend answered, and that entry is in the registry
-	windowPinned                    // a person set it with /context
+	windowProbing     windowMark = iota // a probe is in flight
+	windowProbed                        // a backend answered, and that entry is in the registry
+	windowPinned                        // a person set it with /context
+	windowProbeFailed                   // retry after a cooldown
 )
 
 // contextWindow returns the model's context window in tokens, resolving it in
@@ -125,7 +126,10 @@ func (a *App) contextWindow(id string) int {
 		return a.cfg.Models.Get(id).ContextWindow
 	}
 	a.mu.Lock()
-	_, seen := a.probingWindows[id]
+	mark, seen := a.probingWindows[id]
+	if seen && mark == windowProbeFailed && !time.Now().Before(a.windowRetryAt[id]) {
+		seen = false
+	}
 	if !seen && a.cfg.ContextWindowProber != nil {
 		a.probingWindows[id] = windowProbing // mark before unlocking so we probe at most once
 		askedAt := a.windowBase              // where this probe's answer will be a fact about
@@ -146,8 +150,9 @@ func (a *App) contextWindow(id string) int {
 }
 
 // probeContextWindow asks the backend for id's real window and registers it, so
-// subsequent contextWindow calls (Has == true) return the accurate value. A
-// failed probe leaves id marked in probingWindows so we don't hammer the backend
+// subsequent contextWindow calls (Has == true) return the accurate value.
+// Failed probes are retried on a later read after a cooldown, so a temporary outage
+// cannot disable window sizing for the lifetime of the daemon. The mark prevents bursts
 // (until requests are pointed at a different one, which the mark does not outlive).
 // It uses RegisterIfAbsent, not Register: an in-flight probe must NOT clobber a
 // manual /context override that SetContextWindow set while the probe was running
@@ -165,6 +170,15 @@ func (a *App) probeContextWindow(id, askedAt string) {
 	defer cancel()
 	w, ok := a.cfg.ContextWindowProber(ctx, id)
 	if !ok || w <= 0 {
+		a.mu.Lock()
+		if askedAt == a.windowBase && a.probingWindows[id] == windowProbing {
+			if a.windowRetryAt == nil {
+				a.windowRetryAt = map[string]time.Time{}
+			}
+			a.windowRetryAt[id] = time.Now().Add(30 * time.Second)
+			a.probingWindows[id] = windowProbeFailed
+		}
+		a.mu.Unlock()
 		return
 	}
 	// The registration and the mark that records where it came from, under one lock. Apart, a
@@ -248,6 +262,7 @@ func (a *App) forgetWindowsOfAnotherBackend() {
 			forget = append(forget, id)
 		}
 		delete(a.probingWindows, id)
+		delete(a.windowRetryAt, id)
 	}
 	a.mu.Unlock()
 	for _, id := range forget {

@@ -83,9 +83,8 @@ func TestContextWindowFamilyFallbackWhileProbing(t *testing.T) {
 	}
 }
 
-// TestContextWindowProbeFailNoRetry: a failed probe leaves the window at 0
-// (unlimited) and is not retried on subsequent reads.
-func TestContextWindowProbeFailNoRetry(t *testing.T) {
+// A failed probe does not retry on frequent reads during the cooldown.
+func TestContextWindowProbeFailureCooldown(t *testing.T) {
 	var probes atomic.Int32
 	a := &App{
 		probingWindows: map[string]windowMark{},
@@ -105,5 +104,51 @@ func TestContextWindowProbeFailNoRetry(t *testing.T) {
 	}
 	if got := probes.Load(); got != 1 {
 		t.Fatalf("failed probe must not be retried, ran %d times", got)
+	}
+}
+
+func TestContextWindowFailedProbeRecoversAfterCooldown(t *testing.T) {
+	var calls atomic.Int32
+	a := &App{probingWindows: map[string]windowMark{}, cfg: Config{
+		Models: model.NewRegistry(),
+		ContextWindowProber: func(context.Context, string) (int, bool) {
+			if calls.Add(1) == 1 {
+				return 0, false
+			}
+			return 262144, true
+		},
+	}}
+	a.contextWindow("recovering-model")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		a.mu.Lock()
+		failed := a.probingWindows["recovering-model"] == windowProbeFailed
+		a.mu.Unlock()
+		if failed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("probe never failed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for i := 0; i < 50; i++ {
+		a.contextWindow("recovering-model")
+	}
+	if calls.Load() != 1 {
+		t.Fatal("reads retried during cooldown")
+	}
+	a.mu.Lock()
+	a.windowRetryAt["recovering-model"] = time.Now().Add(-time.Second)
+	a.mu.Unlock()
+	deadline = time.Now().Add(2 * time.Second)
+	for a.contextWindow("recovering-model") != 262144 {
+		if time.Now().After(deadline) {
+			t.Fatal("window did not recover")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("got %d probes, want 2", calls.Load())
 	}
 }
