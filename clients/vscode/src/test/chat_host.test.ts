@@ -770,3 +770,33 @@ test('copy writes exact text only for the displayed session', async () => {
   assert.deepEqual(clipboardWrites.slice(before), ['  original\n\n']);
   chat.dispose();
 });
+
+test('startup retries session selection when the daemon becomes reachable and avoids duplicate streams', async () => {
+  const { Daemon } = require('../core/daemon');
+  const connect = Daemon.connect;
+  const companion = createMockCompanion();
+  let changed: () => void = () => {};
+  companion.onChanged = (fn: any) => { changed = fn; return { dispose() {} }; };
+  const streamed: any[] = [];
+  let connections = 0;
+  let reachable = false;
+  companion.reach = async () => reachable ? {} as any : null;
+  companion.ask = async (door: string) => door === 'sessions'
+    ? { ok: true, sessions: [{ id: 'newest', title: 'recent' }] } : { ok: true };
+  Daemon.connect = async () => { connections++; return { whenClosed() {}, close() {}, stream: (request: any) => streamed.push(request) }; };
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  try {
+    chat.resolveWebviewView(createMockWebviewView().view as any);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(chat.session, '');
+    reachable = true; companion.state = { state: 'attached' };
+    changed(); changed();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(chat.session, 'newest');
+    assert.deepEqual(streamed, [{ method: 'transcript', session: 'newest' }]);
+    assert.equal(connections, 1);
+    changed();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(connections, 1);
+  } finally { chat.dispose(); Daemon.connect = connect; }
+});

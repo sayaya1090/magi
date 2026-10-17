@@ -1,3 +1,5 @@
+import { panelText } from '../core/i18n';
+const uiText = panelText(document.documentElement.lang);
 import type * as Adapter from './chat_adapter';
 import type { createAnswerState as CreateAnswerState } from '../core/answer_state';
 import type { createRecoveryState as CreateRecoveryState } from '../core/recovery_state';
@@ -520,10 +522,10 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     }
     if (r.outputId) {
       const boundOutputId = r.outputId;
-      const openOutputBtn = iconButton('output-open-btn', '편집창에서 열기 (읽기 전용)', 'M3 2h6v1H3v10h10V7h1v7H2V2zm7-1h5v5h-1V2.7L7.7 9 7 8.3 13.3 2H10z');
+      const openOutputBtn = iconButton('output-open-btn', uiText.openOutput, 'M3 2h6v1H3v10h10V7h1v7H2V2zm7-1h5v5h-1V2.7L7.7 9 7 8.3 13.3 2H10z');
       openOutputBtn.type = 'button';
-      openOutputBtn.title = '편집창에서 열기 (읽기 전용)';
-      openOutputBtn.setAttribute('aria-label', '편집창에서 열기 (읽기 전용)');
+      openOutputBtn.title = uiText.openOutput;
+      openOutputBtn.setAttribute('aria-label', uiText.openOutput);
       openOutputBtn.dataset.outputId = boundOutputId;
       if (!boundSession) {
         openOutputBtn.disabled = true;
@@ -536,7 +538,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
       controls.append(openOutputBtn);
     }
     d.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
-    const copy = iconButton('copy-btn', '복사', 'M5 1h9v11h-3v3H1V4h4zm1 3h5v7h2V2H6zM2 5v9h8V5z');
+    const copy = iconButton('copy-btn', uiText.copy, 'M5 1h9v11h-3v3H1V4h4zm1 3h5v7h2V2H6zM2 5v9h8V5z');
     copy.disabled = !boundSession;
     copy.addEventListener('click', ev => {
       ev.stopPropagation();
@@ -703,3 +705,6 @@ window.addEventListener('message', (e) => {
 actions.ready();
 
 export {};
+
+const companionInfoButton = document.getElementById('more');
+if (companionInfoButton) { companionInfoButton.title = uiText.companionInfo; companionInfoButton.setAttribute('aria-label', uiText.companionInfo); }

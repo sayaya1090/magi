@@ -586,7 +586,7 @@ test('the retry waits, grows, stops growing, and is not in lockstep', () => {
  */
 test('a stream that a newer attempt overtook does not install itself', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
-  const at = chat.indexOf('private async openStream(');
+  const at = chat.indexOf('private async openStreamAttempt(');
   assert.ok(at > 0, 'openStream was not found — this guard is reading nothing');
   const body = chat.slice(at, chat.indexOf('\n  private draw(', at));
   assert.ok(body.length > 200, 'openStream did not cut cleanly');

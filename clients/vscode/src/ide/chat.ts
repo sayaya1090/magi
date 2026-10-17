@@ -3,7 +3,7 @@ import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos, turnOpen, verdictWord } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
-import { panelNote, label as activityLabel } from '../core/activity';
+import { State, panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
 import { Ref, refText, wireRef, globQuote } from '../core/refs';
 import { noteCompletion } from '../core/complete';
@@ -13,7 +13,7 @@ import { DiffProvider, openApprovalDiff } from './diff';
 import { OutputProvider, openOutputDocument } from './output';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath, ActionOriginOptions } from '../core/nav';
-import { parseWebviewToHostMessage, HostToWebviewMessage } from '../core/webview_protocol';
+import { parseWebviewToHostMessage, HostToWebviewMessage, PaintedRow } from '../core/webview_protocol';
 import { renderChatHtml } from '../web/chat_html';
 
 /**
@@ -43,7 +43,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 
   constructor(private readonly companion: Companion, private readonly extUri: vscode.Uri) {
     this.subs.push(
-      companion.onChanged(() => this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) })),
+      companion.onChanged(() => {
+        this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) });
+        if (this.view && !this.stream && !this.openingActive && !this.sessionCreating &&
+            [State.Attached, State.Working, State.Waiting].includes(companion.state.state)) {
+          void this.openStream();
+        }
+      }),
       vscode.workspace.registerTextDocumentContentProvider(DiffProvider.scheme, this.diffProvider),
       this.diffProvider,
       vscode.workspace.registerTextDocumentContentProvider(OutputProvider.scheme, this.outputProvider),
@@ -75,6 +81,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     view.onDidDispose(() => {
       if (this.view === capturedView) {
         this.view = null;
+        this.opening++;
         this.stream?.close();
         this.stream = null;
       }
@@ -82,8 +89,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     void this.openStream();
   }
 
-  /** Open the transcript stream and keep it open. */
+  private openingActive = 0;
+
+  /** Track pending opens so status notifications cannot recursively open another stream. */
   private async openStream(): Promise<void> {
+    this.openingActive++;
+    try { await this.openStreamAttempt(); }
+    finally { this.openingActive--; }
+  }
+
+  /** Open the transcript stream and keep it open. */
+  private async openStreamAttempt(): Promise<void> {
     if (this.stream) return;
     // The number is taken BEFORE the first wait, not after: an attempt that cannot tell it was
     // overtaken during its first await is not guarded, it is guarded later. A guard added to some
@@ -100,7 +116,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!sid) {
       const list = await this.companion.ask('sessions');
       if (mine !== this.opening) return;   // somebody asked for another conversation while we waited
-      const first = (list?.sessions ?? [])[0];
+      if (!list?.ok) {
+        this.post({ kind: 'note', text: '최근 대화를 불러오지 못했습니다. 데몬 연결을 확인해 주세요.' });
+        return;
+      }
+      const first = (list.sessions ?? [])[0];
       sid = first?.id ?? '';
       this.sid = sid;
       // The status poll needs it too: the model is only in a reply that names a conversation.
@@ -777,6 +797,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   dispose(): void {
+    this.view = null;
+    this.opening++;
     this.stream?.close();
     this.edits.dispose();
     this.asks.clear();
@@ -796,6 +818,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_view.bundle.js')).toString()
       : 'out/web/chat_view.bundle.js';
     return renderChatHtml({
+      language: vscode.env?.language || 'en',
       nonce,
       cspSource,
       scriptUri,
@@ -806,7 +829,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 /** The one place a row gets its visible label, so two screens cannot spell it differently. */
-function paint(r: Row, you?: string, at?: string): Row & { label: string } {
+function paint(r: Row, you?: string, at?: string): PaintedRow {
   // The person's own name when something has told us one. Every screen said "user" at whoever
   // had logged in, because the field the daemon fills for exactly this was never read.
   const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase()

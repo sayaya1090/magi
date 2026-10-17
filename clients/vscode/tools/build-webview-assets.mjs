@@ -45,6 +45,7 @@ const protocolDst = path.join(coreDir, 'webview_protocol.js');
 
 // 1. Single list of required inputs (§4.7, §5.7, §5.8)
 const requiredInputs = [
+  { id: 'i18n', name: 'src/core/i18n.ts', path: path.join(root, 'src', 'core', 'i18n.ts') },
   { id: 'answer_state', name: 'out/core/answer_state.js', path: answerStateSrc },
   { id: 'recovery_state', name: 'out/core/recovery_state.js', path: recoveryStateSrc },
   { id: 'dom_interaction', name: 'src/web/dom_interaction.ts', path: domInteractionSrc },

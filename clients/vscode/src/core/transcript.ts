@@ -20,8 +20,6 @@ export interface Row {
   seq: number;
   /** Original event time for the row header, never synthesized from repaint time. */
   at?: string;
-  speaker?: string;
-  badge?: string;
   /**
    * A row built from streaming chunks, not yet written as a fact.
    *

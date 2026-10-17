@@ -1,7 +1,9 @@
+import { checkPanel } from '../panel-harness.mjs';
 import assert from 'node:assert/strict';
 import { createRowsMessage, createStateMessage } from '../../transcript-fixtures.mjs';
 
 export const layoutScenarios = [
+      { id: 'sidebar_inline_controls_and_locales', name: '우측 패널 드롭다운·스위치·i18n·포커스·좁은 폭', run: page => checkPanel(page.context()) },
       {
         id: 'semantic_text_colors_match_jetbrains',
         name: '발화자·카운슬 멤버·판정·오류의 밝고 어두운 텍스트 색',
@@ -12,8 +14,15 @@ export const layoutScenarios = [
             ...['melchior', 'balthasar', 'casper'].map((member, i) => ({ who: 'council', member, label: member, speaker: member,
               decision: i === 0 ? 'done' : 'continue', badge: i === 0 ? ' ✓ done' : ' ✗ reject', text: 'review' })),
             { who: 'error', label: 'error', text: 'failed' },
-          ] }));
+            { who: 'tool', label: 'tool', text: 'read' },
+            { who: 'system', label: 'system', text: 'notice' },
+          ].map(row => ({ ...row, at: '2026-10-17T12:30:00+09:00' })) }));
           await page.locator('.row.council').first().waitFor();
+          const edges = await page.evaluate(() => [...document.querySelectorAll('#rows > .row')].map(row => ({
+            clock: row.querySelector('.row-time').getBoundingClientRect().right,
+            copy: row.querySelector('.copy-btn').getBoundingClientRect().right,
+          })));
+          for (const edge of edges) { assert.ok(Math.abs(edge.clock - edges[0].clock) < 1, JSON.stringify(edges)); assert.ok(Math.abs(edge.copy - edges[0].copy) < 1, JSON.stringify(edges)); }
           for (const [theme, expected] of [
             ['vscode-dark', ['rgb(255, 122, 26)', 'rgb(92, 216, 230)', 'rgb(255, 180, 84)', 'rgb(92, 216, 230)', 'rgb(216, 180, 254)', 'rgb(242, 184, 181)']],
             ['vscode-light', ['rgb(180, 83, 9)', 'rgb(14, 116, 144)', 'rgb(180, 83, 9)', 'rgb(14, 116, 144)', 'rgb(109, 40, 217)', 'rgb(179, 38, 30)']],

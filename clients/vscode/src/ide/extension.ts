@@ -37,7 +37,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const companion = new Companion(workdir);
   const status = new Status();
   const chat = new Chat(companion, ctx.extensionUri);
-  const plan = new Plan(companion);
+  const plan = new Plan(companion, sid => chat.showSession(sid));
   const looking = new Looking(companion);
   // The tools this editor offers the companion. Offered once the companion is reachable — a hand
   // attached to nothing is an address the daemon holds and cannot call.

@@ -8,6 +8,7 @@ import { idePaletteCss } from '../core/palette';
 
 export interface RenderChatHtmlOptions {
   nonce: string;
+  language?: string;
   cspSource: string;
   scriptUri: string;
   adapterUri: string;
@@ -26,8 +27,9 @@ export interface RenderChatHtmlOptions {
 
 export function renderChatHtml(options: RenderChatHtmlOptions): string {
   const { nonce, cspSource, scriptUri, adapterUri, viewUri } = options;
+  const language = !options.language || options.language.toLowerCase().startsWith('ko') ? 'ko' : 'en';
   const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};`;
-  return `<!DOCTYPE html><html lang="ko"><head>
+  return `<!DOCTYPE html><html lang="${language}"><head>
 <meta charset="UTF-8">
 <title>MAGI Chat</title>
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -42,21 +44,21 @@ ${idePaletteCss}
   [hidden] { display:none !important; }
   #rows { margin:0; padding:0; }
   #scroll { flex:1; min-height:0; overflow-y:auto; scrollbar-gutter:stable; padding:8px 10px; }
-  .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
+  .row { box-sizing:border-box; border:1px solid transparent; padding:8px 10px; margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
   .tool-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:middle; animation:tool-spin 1s linear infinite; }
   @keyframes tool-spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .tool-spinner { animation:none; } }
-  .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
-  .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
+  .who { font-family:var(--vscode-font-family, sans-serif); font-size:calc(var(--vscode-font-size, 13px) * .85); color:var(--vscode-descriptionForeground); margin-bottom:2px; }
+  .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder, transparent)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
   .user { background:color-mix(in srgb, var(--vscode-focusBorder, #b45309) 10%, var(--vscode-editor-background, #1e1e1e)); }
   .agent { border:1px solid var(--vscode-charts-green, var(--vscode-textLink-foreground, #0e7490)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); background:color-mix(in srgb, var(--vscode-charts-green, var(--vscode-textLink-foreground, #0e7490)) 8%, var(--vscode-editor-background, #1e1e1e)); }
   .user .who, .agent .who { color:var(--vscode-foreground); }
   .agent.draft .body { white-space:pre-wrap; }
-  .system { border:1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground)); border-radius:8px; padding:6px 10px; background:var(--vscode-editor-background); }
+  .system { border:1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground, transparent)); border-radius:8px; padding:6px 10px; background:var(--vscode-editor-background); }
   .pending { opacity:.75; }
   /* Parked, not being worked on. Its own mark because "asked and waiting" and "shelved until
      this turn ends" draw the same bar otherwise, and a person cannot tell which they typed. */
-  .queued .who::after { content:' ⏸'; }
+  .queued .row-label::after { content:' ⏸'; }
   .agent { white-space:normal; }
   .agent p { margin:0 0 6px; white-space:pre-wrap; word-break:break-word; }
   .agent p:last-child { margin-bottom:0; }
@@ -189,7 +191,7 @@ ${idePaletteCss}
   .who { display:flex; align-items:center; gap:6px; min-height:24px; }
   .row-label { flex:1; min-width:0; }
   .row-actions { display:inline-flex; gap:2px; flex:none; }
-  .row-time { white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .row-time { font-family:var(--vscode-font-family, sans-serif); white-space:nowrap; font-variant-numeric:tabular-nums; }
   .row-icon-btn { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:4px; margin:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; box-sizing:border-box; }
   .row-icon-btn svg { width:16px; height:16px; fill:currentColor; }
   .row-icon-btn:hover:not(:disabled) { background:var(--vscode-toolbar-hoverBackground, #80808026); }

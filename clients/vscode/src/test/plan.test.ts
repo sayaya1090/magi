@@ -68,7 +68,7 @@ test('each state has its own mark', () => {
 /** And the panel actually has the section. The defect was that it did not. */
 test('the panel draws a plan section', () => {
   const body = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'plan.ts'), 'utf8');
-  assert.match(body, /section\('plan',/, 'the plan panel has no plan section');
+  assert.match(body, /section\(t\.plan,/, 'the plan panel has no plan section');
 });
 
 /**
@@ -108,7 +108,7 @@ test('the editor hand says which of the three things happened', () => {
   assert.ok(/showHand\(/.test(ext), 'nothing hands the outcome to the panel');
   const plan = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'plan.ts'), 'utf8');
   assert.ok(/showHand\(/.test(plan), 'the panel has no way in for it');
-  assert.ok(/section\(["'][^"']*editor[^"']*["']/.test(plan), 'the panel never draws a section for it');
+  assert.ok(/section\(t\.editorTools,/.test(plan), 'the panel never draws a section for it');
 
   // The attach answer carries WHAT attached. Two things have to hold and the first is worthless
   // alone: the wire type declares `tools` (undeclared, it cannot be read at all), AND the code

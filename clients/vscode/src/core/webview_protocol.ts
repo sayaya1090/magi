@@ -3,7 +3,7 @@ import { Row } from './transcript';
 import { Ask } from './touched';
 import { Activity } from './activity';
 
-export type PaintedRow = Row & { label: string };
+export type PaintedRow = Row & { label: string; speaker?: string; badge?: string };
 
 export interface PanelNoteInfo {
   text: string;

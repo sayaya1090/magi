@@ -1510,3 +1510,5 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 `output.test.ts`와 `diff.test.ts`는 `vscode-uri`의 실제 파서로 macOS·한글·Windows·UNC 경로를 검증합니다. 첫 경로 앞에 `/snapshot/`을 두어 절대경로의 `%2F`가 디코딩돼도 경로가 `//`로 시작하지 않게 합니다. `output_provider.test.ts`도 같은 파서를 사용해 편집창 열기까지 확인합니다.
 
 `webview.test.ts`는 VS Code의 의미별 팔레트를 JetBrains `Palette.kt`의 밝음·어두움 값과 대조합니다. Playwright `semantic_text_colors_match_jetbrains`는 두 테마에서 사용자·Magi·카운슬 3인·판정·오류의 실제 계산 색을 확인합니다. 접근성 하네스는 색 변수와 VS Code의 테마 body 클래스를 함께 전환합니다.
+
+`chat_host.test.ts`는 시작 시 데몬이 없었다가 연결되는 경우 최근 대화를 자동으로 열고 스트림을 중복 생성하지 않는지 확인합니다. `plan_host.test.ts`는 드롭다운 값의 허용 목록, 세션 고정, 중복 변경 차단과 프로바이더 API 선택을 검증합니다. Playwright `sidebar_inline_controls_and_locales`는 한국어·영어 패널에서 현재 값, 키보드 스위치, 적용 중 표시, 선택 중 포커스 유지와 320/840px 폭을 확인합니다. 같은 실행에서 각 행의 시각과 복사 버튼의 우측 좌표도 비교합니다.

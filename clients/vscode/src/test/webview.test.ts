@@ -1,3 +1,4 @@
+import { panelText } from '../core/i18n';
 import { ideColors } from '../core/palette';
 import { test } from 'node:test';
 import { chatWebviewSource } from './support/webview_source';
@@ -96,7 +97,7 @@ test('no webview script contains a backtick', () => {
 
 /** And every interpolation in there is one we meant — a stray ${ is a hole, not a value. */
 test('every interpolation in a webview is a named one', () => {
-  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri', 'idePaletteCss']);
+  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri', 'idePaletteCss', 'uiJson', 'language']);
   for (const { file, body } of templates()) {
     for (const m of body.matchAll(/\$\{([^}]*)\}/g)) {
       assert.ok(allowed.has(m[1].trim()), `${file}: unexpected interpolation \${${m[1]}}`);
@@ -5660,4 +5661,13 @@ test('VS Code semantic colors match both JetBrains palette variants', () => {
   for (const [role, colors] of Object.entries(ideColors)) {
     assert.ok(source.includes(`val ${role} = Ink("${colors.light}", "${colors.dark}")`), `palette mismatch: ${role}`);
   }
+});
+
+
+test('panel and icon labels follow the VS Code locale with English fallback', () => {
+  assert.equal(panelText('ko-KR').model, '모델');
+  assert.equal(panelText('en-US').model, 'Model');
+  assert.deepEqual(panelText('fr'), panelText('en'));
+  assert.equal(panelText('ko').copy, '복사');
+  assert.equal(panelText('en').copy, 'Copy');
 });
