@@ -87,7 +87,7 @@ caller ──connect──▶ fleet.sock
 - **Connection-scoped, so replay is dead.** A fresh nonce per connection beats signing every
   request: simpler, and there is nothing to capture and re-send.
 - **The caller's NAME stops being self-asserted.** `Hand` takes a label today
-  (`"— asked by master on mini"`) and writes it into the conversation verbatim. After this, who is
+  (`"— asked by master on mini"`) and writes it into the chat verbatim. After this, who is
   asking comes from the admitted record; the caller supplies only what the work is.
 - The key never leaves its machine, and a key whose recorded host no longer matches is regenerated
   — a shared config directory would otherwise be a shared identity.
@@ -192,7 +192,7 @@ Why the log is not simply served by the daemon, which is the obvious alternative
   companions that are **no longer running**. A daemon-served log loses both: no daemon, no history.
 - The daemon **does not know people**. It knows a uid and (after §3) a companion's fingerprint. A
   transcript is the most sensitive read in this system — it holds the code and the whole
-  conversation — so "may this person read it" needs an identity the daemon does not have. Serving
+  chat — so "may this person read it" needs an identity the daemon does not have. Serving
   the log from the daemon would move the bytes and leave the authorization unanswered.
 
 The file is already safe for a second reader: `jsonl` writes compactions to a temporary file and
@@ -223,7 +223,7 @@ socket at another machine draws an empty screen. Three ways out, in the order th
 
    **A raw log endpoint.** `/log?since=` returning `[]event.Event`. The TUI renders
    `session.Message` with its own renderer; feeding it the web's already-rendered rows would make
-   the two windows disagree about the same conversation, which this tree has been caught by more
+   the two windows disagree about the same chat, which this tree has been caught by more
    than once (the council read differently in each).
 
    **A token for a client that is not a browser.** The standard answer is the OAuth **device

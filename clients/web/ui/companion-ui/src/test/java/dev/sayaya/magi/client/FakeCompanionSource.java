@@ -26,13 +26,19 @@ public class FakeCompanionSource implements CompanionSource {
     @JsFunction
     interface PastHook { void call(String past); }
 
+    private static CompanionContext codingContext(String past) {
+        CompanionContext ctx = CompanionContext.of("/tmp/a1.sock", null, "1", past);
+        ctx.ui = "coding";
+        return ctx;
+    }
+
     @Override
     public void start(Listener l) {
         listener = l;
         // 층위 전환은 주소(셸)의 것 — 단독 테스트는 이 훅으로 컨텍스트를 갈아탄다.
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_past", (PastHook) past ->
-                listener.context(CompanionContext.of("/tmp/a1.sock", null, "1", past)));
-        l.context(CompanionContext.of("/tmp/a1.sock", null, "1", null));
+                listener.context(codingContext(past)));
+        l.context(codingContext(null));
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +
                 "{\"who\":\"thinking\",\"text\":\"read the log first\\nthen build\"}," +
@@ -169,6 +175,7 @@ public class FakeCompanionSource implements CompanionSource {
     @Override
     public void roster(Consumer<Object> cb) {
         rosterCb = cb;
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_redraw", (StopFn) () -> roster(rosterCb));
         openAskDoor();
         openStopDoor();
         openThinkingDoor();
@@ -239,6 +246,20 @@ public class FakeCompanionSource implements CompanionSource {
                 "\"lastAt\":\"2026-08-27T04:31:00\"}"));
     }
 
+    @JsFunction
+    interface CompactRelease { void call(String why); }
+
+    @Override
+    public void compact(CompanionContext ctx, String session, Consumer<String> done) {
+        JsPropertyMap<Object> window = Js.asPropertyMap(DomGlobal.window);
+        Object count = window.get("__magi_test_compact_calls");
+        window.set("__magi_test_compact_calls", count == null ? 1 : Js.coerceToDouble(count) + 1);
+        window.set("__magi_test_compact_session", session);
+        if (Js.isTruthy(window.get("__magi_test_hold_compact"))) {
+            window.set("__magi_test_compact_release", (CompactRelease) done::accept);
+        } else done.accept("");
+    }
+
     @Override
     public void compact(CompanionContext ctx, Runnable done) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_compacted", ctx.socket);
@@ -272,9 +293,20 @@ public class FakeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void councilState(CompanionContext ctx, String session, java.util.function.Consumer<Object> cb) {
+        cb.accept(Global.JSON.parse("{\"enabled\":false}"));
+    }
+    @Override
+    public void setCouncil(CompanionContext ctx, String session, boolean enabled, java.util.function.Consumer<String> why) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_council", session + ":" + enabled);
+        why.accept("");
+    }
+
+    @Override
     public void model(CompanionContext ctx, String name, java.util.function.Consumer<String> why) {
         jsinterop.base.Js.asPropertyMap(elemental2.dom.DomGlobal.window).set("__magi_test_model", name);
-        why.accept("");
+        Object failure = Js.asPropertyMap(DomGlobal.window).get("__magi_test_model_why");
+        why.accept(failure == null ? "" : String.valueOf(failure));
     }
 
     @Override

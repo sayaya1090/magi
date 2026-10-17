@@ -1,3 +1,4 @@
+import { URI } from 'vscode-uri';
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
@@ -390,4 +391,16 @@ test('AskStore associates asks with companion and session at arrival time', () =
 
   store.clear();
   assert.equal(store.size, 0);
+});
+
+
+test('approvalDiffUri survives the actual VS Code URI parser for absolute workspace paths', () => {
+  assert.throws(() => URI.parse('magi-diff:/%2FUsers%2Ftest/s1/id'), /UriError/);
+  for (const key of ['/Users/test/repo', '/프로젝트/경로', 'C:\\Users\\test', '//server/share']) {
+    const uri = URI.parse(approvalDiffUri(key, 's1', 'call:1', 'before', '답변.md'));
+    assert.equal(uri.scheme, 'magi-diff');
+    assert.equal(uri.authority, '');
+    assert.ok(uri.path.startsWith('/snapshot/'));
+    assert.equal(URI.parse(uri.toString()).path, uri.path);
+  }
 });

@@ -884,4 +884,11 @@ class RowsTest {
             "적어 보낸 거짓을 읽기 전용으로 읽는다 — 있다는 것을 참으로 삼고 있다")
     }
 
+    @Test
+    fun `final review is separate from member approval`() {
+        val r = Rows()
+        r.feed(ev("council.decided", """{"round":1,"decision":"continue","tally":{"done":3,"continue":0,"voters":3},"closingDecision":"continue","closingReason":"verify 72dp"}"""))
+        assertTrue("final review: held" in r.list().last().text)
+        assertTrue("verify 72dp" in r.list().last().text)
+    }
 }

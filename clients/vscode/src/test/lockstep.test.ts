@@ -140,7 +140,7 @@ test('the deadline belongs to the door, not to the wire', () => {
  * need the core's `Reviewer`, and it is the wrong set — `open-file` needs it and answers instantly.
  * So the list is a judgement, and this pins the one entry whose justification can be read.
  */
-test('the door that folds the conversation still generates in the core', () => {
+test('the door that folds the chat still generates in the core', () => {
   const app = fs.readFileSync(
     path.join(__dirname, '..', '..', '..', '..', 'internal', 'app', 'app.go'), 'utf8');
   const at = app.indexOf('func (a *App) Compact(');

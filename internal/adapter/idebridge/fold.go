@@ -704,6 +704,15 @@ func decidedRow(seq int64, d map[string]any) *Row {
 		}
 	}
 	note := strings.TrimSpace(str(d, "note"))
+	if closing := str(d, "closingDecision"); closing != "" {
+		verdict := "approved"
+		if closing == "continue" {
+			verdict = "held"
+		}
+		note = "member vote → final review: " + verdict + "\n" + str(d, "closingReason")
+	} else if str(d, "decision") == "continue" && t != nil && n("done") > 0 && n("continue") == 0 && n("abstain") == 0 {
+		note = "members approved; final outcome held (legacy record)\n" + str(d, "feedback")
+	}
 	if note == "" {
 		note = strings.TrimSpace(str(d, "feedback"))
 	}

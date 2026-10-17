@@ -5434,3 +5434,27 @@
       padding-inline-start:var(--magi-sys-space-500);
     }
   }
+
+/* Shared transcript header: action/time alignment is independent of row type and bubble. */
+#log .chat-row { grid-template-columns:minmax(0,1fr); gap:4px; padding:8px 10px; border:1px solid transparent; border-radius:10px; margin:0 0 8px; }
+#log .chat-row > .row-head { display:flex; align-items:center; gap:8px; min-width:0; min-height:24px; }
+#log .chat-row .row-head > .who { flex:1; min-width:0; text-align:left; }
+#log .chat-row .row-head > .when { flex:none; width:8ch; text-align:right; white-space:nowrap; font:400 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono); color:var(--magi-ref-muted); font-variant-numeric:tabular-nums; }
+#log .row-actions { display:flex; gap:4px; flex:none; }
+#log .row-actions .copy { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; padding:4px; border:0; border-radius:4px; background:transparent; color:var(--magi-ref-muted); cursor:pointer; }
+#log .row-actions .copy:hover, #log .row-actions .copy:focus-visible { background:color-mix(in srgb,var(--magi-ref-fg) 8%,transparent); color:var(--magi-ref-primary); }
+#log .row-actions .copy:focus-visible { outline:2px solid var(--magi-ref-primary); outline-offset:2px; }
+#log .chat-row.user, #log .chat-row.assistant { background:color-mix(in srgb,var(--message-tone) 7.06%,transparent); border-color:color-mix(in srgb,var(--message-tone) 25.49%,transparent); }
+#log .chat-row.user { --message-tone:var(--magi-ref-primary); }
+#log .chat-row.assistant { --message-tone:var(--magi-ref-accent); }
+#log .chat-row.assistant .who { color:var(--magi-ref-accent); }
+#log .chat-row.user > .txt { border:0; padding:0; margin:0; color:var(--magi-ref-fg); }
+#log .chat-row .fold[open] > summary .fold-preview { display:none; }
+
+#detail .setting-feedback { grid-column:1 / -1; color:var(--magi-ref-warn); white-space:pre-wrap; }
+#detail .setting-feedback:empty { display:none; }
+
+#log .row-actions .hit48::after { inset:0; width:auto; height:auto; transform:none; }
+@media (pointer:coarse) { #log .row-actions .copy { width:48px; height:48px; } }
+
+#log .row-actions .copy.done { color:var(--magi-ref-success); }

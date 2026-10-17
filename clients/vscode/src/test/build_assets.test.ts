@@ -115,6 +115,7 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
     await mkdir(tempSrcWebDir, { recursive: true });
 
     const requiredFiles = [
+      { name: 'src/core/i18n.ts', realPath: path.join(realRoot, 'src', 'core', 'i18n.ts'), tempPath: path.join(tempSrcCoreDir, 'i18n.ts') },
       { name: 'out/core/answer_state.js', realPath: path.join(realRoot, 'out', 'core', 'answer_state.js'), tempPath: path.join(tempCoreDir, 'answer_state.js') },
       { name: 'out/core/recovery_state.js', realPath: path.join(realRoot, 'out', 'core', 'recovery_state.js'), tempPath: path.join(tempCoreDir, 'recovery_state.js') },
       { name: 'src/web/dom_interaction.ts', realPath: path.join(realRoot, 'src', 'web', 'dom_interaction.ts'), tempPath: path.join(tempSrcWebDir, 'dom_interaction.ts') },

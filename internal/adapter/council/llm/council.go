@@ -152,6 +152,7 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		// that says the three walks were read against each other and held up.
 		if err == nil {
 			d.Close = closeSaid(cl)
+			d.CloseDecision = cl.Decision
 		}
 		return d, err
 	}

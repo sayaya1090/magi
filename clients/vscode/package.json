@@ -57,145 +57,145 @@
     "commands": [
       {
         "command": "magi.focusChat",
-        "title": "Open the conversation",
-        "category": "magi"
+        "title": "%magi.focusChat.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.start",
-        "title": "Start the companion for this workspace",
-        "category": "magi"
+        "title": "%magi.start.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.getCore",
-        "title": "magi: Download the magi core",
-        "category": "magi"
+        "title": "%magi.getCore.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.interrupt",
-        "title": "Stop what the companion is doing",
-        "category": "magi",
+        "title": "%magi.interrupt.title%",
+        "category": "Magi",
         "icon": "$(debug-stop)"
       },
       {
         "command": "magi.lookNow",
-        "title": "Look over this file now",
-        "category": "magi",
+        "title": "%magi.lookNow.title%",
+        "category": "Magi",
         "icon": "$(eye)"
       },
       {
         "command": "magi.attach",
-        "title": "Add this code to the conversation",
-        "category": "magi"
+        "title": "%magi.attach.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.attachFiles",
-        "title": "Add these files to the conversation",
-        "category": "magi"
+        "title": "%magi.attachFiles.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.askAbout",
-        "title": "Ask about this code",
-        "category": "magi"
+        "title": "%magi.askAbout.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.whoWrote",
-        "title": "Which turn wrote this line",
-        "category": "magi"
+        "title": "%magi.whoWrote.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.explainOutput",
-        "title": "Explain this output",
-        "category": "magi"
+        "title": "%magi.explainOutput.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.draftCommit",
-        "title": "Draft a commit message",
-        "category": "magi",
+        "title": "%magi.draftCommit.title%",
+        "category": "Magi",
         "icon": "$(sparkle)"
       },
       {
         "command": "magi.chooseModel",
-        "title": "Choose the model",
-        "category": "magi"
+        "title": "%magi.chooseModel.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.chooseBackend",
-        "title": "Choose the backend",
-        "category": "magi"
+        "title": "%magi.chooseBackend.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.updateCore",
-        "title": "Update this companion",
-        "category": "magi"
+        "title": "%magi.updateCore.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.restartDaemon",
-        "title": "Restart this companion",
-        "category": "magi"
+        "title": "%magi.restartDaemon.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.choosePermission",
-        "title": "Choose the approval mode",
-        "category": "magi"
+        "title": "%magi.choosePermission.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.openConversation",
-        "title": "Open another conversation",
-        "category": "magi"
+        "title": "%magi.openConversation.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.setup",
-        "title": "Show what magi is running",
+        "title": "%magi.setup.title%",
         "icon": "$(server-process)",
-        "category": "magi"
+        "category": "Magi"
       },
       {
         "command": "magi.changeSetting",
-        "title": "Change one of magi's own settings",
-        "category": "magi"
+        "title": "%magi.changeSetting.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.newConversation",
-        "title": "Start a new conversation",
-        "category": "magi"
+        "title": "%magi.newConversation.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.resume",
-        "title": "Resume a conversation",
-        "category": "magi"
+        "title": "%magi.resume.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.compact",
-        "title": "Compact context",
-        "category": "magi"
+        "title": "%magi.compact.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.rewind",
-        "title": "Go back to an earlier point",
-        "category": "magi"
+        "title": "%magi.rewind.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.stopJob",
-        "title": "Stop a background job",
+        "title": "%magi.stopJob.title%",
         "icon": "$(stop-circle)",
-        "category": "magi"
+        "category": "Magi"
       },
       {
         "command": "magi.children",
-        "title": "Show child conversations",
-        "category": "magi"
+        "title": "%magi.children.title%",
+        "category": "Magi"
       },
       {
         "command": "magi.schedules",
-        "title": "Scheduled work",
+        "title": "%magi.schedules.title%",
         "icon": "$(calendar)",
-        "category": "magi"
+        "category": "Magi"
       },
       {
         "command": "magi.handOff",
-        "title": "Ask another companion to do something",
+        "title": "%magi.handOff.title%",
         "icon": "$(send)",
-        "category": "magi"
+        "category": "Magi"
       }
     ],
     "submenus": [
@@ -390,7 +390,7 @@
             "Open it every time this window opens."
           ],
           "default": "whenRunning",
-          "description": "Whether the conversation panel opens by itself when a window opens. It never takes the keyboard focus."
+          "description": "Whether the chat panel opens by itself when a window opens. It never takes the keyboard focus."
         },
         "magi.startCompanion": {
           "type": "boolean",
@@ -410,7 +410,7 @@
         "magi.suggest": {
           "type": "boolean",
           "default": true,
-          "description": "Suggest how to finish what you are typing in the conversation box. Asks the companion while you type, like the JetBrains plugin and the web console do."
+          "description": "Suggest how to finish what you are typing in the chat box. Asks the companion while you type, like the JetBrains plugin and the web console do."
         },
         "magi.showEditMarks": {
           "type": "boolean",
@@ -439,6 +439,7 @@
     "markdown-it": "^15.0.2",
     "rxjs": "^7.8.2",
     "typescript": "^5.5.0",
-    "valibot": "^1.5.0"
+    "valibot": "^1.5.0",
+    "vscode-uri": "^3.1.0"
   }
 }

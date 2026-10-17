@@ -384,6 +384,7 @@ function runHostScenario(fixture: FixtureData): void {
   const hintEl = { textContent: '' };
 
   const actions: WebviewActionAdapter = {
+    copyText: () => true,
     openFile: () => { documentsOpened++; return true; },
     openDiff: () => { documentsOpened++; return true; },
     openOutput: () => { documentsOpened++; return true; },

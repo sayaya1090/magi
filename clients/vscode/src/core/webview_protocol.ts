@@ -3,7 +3,7 @@ import { Row } from './transcript';
 import { Ask } from './touched';
 import { Activity } from './activity';
 
-export type PaintedRow = Row & { label: string };
+export type PaintedRow = Row & { label: string; speaker?: string; badge?: string };
 
 export interface PanelNoteInfo {
   text: string;
@@ -72,6 +72,10 @@ export const OpenMessageSchema = v.object({
   ),
 });
 
+export const CopyMessageSchema = v.object({
+  kind: v.literal('copy'), session: NonEmptyStringSchema, text: v.string(),
+});
+
 export const OutputMessageSchema = v.object({
   kind: v.literal('output'),
   session: NonEmptyStringSchema,
@@ -118,6 +122,7 @@ export const WebviewToHostMessageSchema = v.union([
   DiffMessageSchema,
   OpenMessageSchema,
   OutputMessageSchema,
+  CopyMessageSchema,
   AnswerMessageSchema,
   ReplyMessageSchema,
   MentionMessageSchema,

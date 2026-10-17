@@ -252,7 +252,7 @@ test('a turn is open while a question stands unanswered under it', () => {
   const answered = [...asked, { seq: 2, type: 'turn.finished', data: {} }];
   assert.equal(turnOpen(answered), false, 'the turn ended — the next thing typed is a new request');
 
-  assert.equal(turnOpen([]), false, 'an empty conversation is not a running turn');
+  assert.equal(turnOpen([]), false, 'an empty chat is not a running turn');
 
   // And an abandoned prompt is not an open turn either: nobody is working on it.
   const dropped = [...asked, { seq: 2, type: 'prompt.abandoned', data: { msgId: 'm1' } }];
@@ -586,7 +586,7 @@ test('the retry waits, grows, stops growing, and is not in lockstep', () => {
  */
 test('a stream that a newer attempt overtook does not install itself', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
-  const at = chat.indexOf('private async openStream(');
+  const at = chat.indexOf('private async openStreamAttempt(');
   assert.ok(at > 0, 'openStream was not found — this guard is reading nothing');
   const body = chat.slice(at, chat.indexOf('\n  private draw(', at));
   assert.ok(body.length > 200, 'openStream did not cut cleanly');
@@ -813,7 +813,7 @@ test('a question answered later sits with its answer, once', () => {
     { seq: 3, type: 'prompt.submitted', data: { messageId: 'm2', parts: [{ kind: 'text', text: 'second' }] } },
   ] as unknown as Parameters<typeof rows>[0]);
   assert.deepEqual(plain.map((r) => r.text), ['first', 'ok', 'second'],
-    'an ordinary conversation was reordered — the pairing fired without a link');
+    'an ordinary chat was reordered — the pairing fired without a link');
 });
 
 /**
@@ -901,7 +901,7 @@ test('a prompt the daemon submitted is not drawn as the person', () => {
   assert.ok(note, 'the daemon\'s note is dropped — this window then shows less than the headless printer');
   assert.match(note!.text, /orchestrator/, 'the note does not say who made it');
   assert.ok(!/second line/.test(note!.text),
-    'the whole note is drawn — one line only, or a note pushes the conversation out');
+    'the whole note is drawn — one line only, or a note pushes the chat out');
 
   assert.ok(!drawn.some((r) => /child reports back/.test(r.text)),
     'a subagent report is repeated here — its body belongs to that child\'s own transcript');
@@ -958,7 +958,7 @@ test('a round with no task still says it opened', () => {
  * another conversation. The terminal draws this line and the JetBrains client draws it and follows
  * it; only this window said nothing (measured 2026-09-10).
  */
-test('a companion that moved to another conversation says where it went', () => {
+test('a companion that moved to another chat says where it went', () => {
   const out = rows([
     { seq: 1, type: 'part.appended',
       data: { part: { kind: 'text', text: 'working on it' } } } as unknown as Event,
@@ -967,13 +967,13 @@ test('a companion that moved to another conversation says where it went', () => 
   const moved = out.filter((r) => r.text.includes('s_9f3c'));
   assert.equal(moved.length, 1, 'the move is not drawn — the transcript just stops');
   assert.equal(moved[0].who, 'system', 'the move is drawn as somebody talking');
-  assert.match(moved[0].text, /ends here/, 'the row does not say this conversation is over');
+  assert.match(moved[0].text, /ends here/, 'the row does not say this chat is over');
 
   // Where it went is the point: "ctrl+g to follow it" in the terminal, the resume picker here. A
   // row that says only "it moved" leaves a person with nowhere to go.
   const blind = rows([{ seq: 1, type: 'session.moved', data: {} } as unknown as Event]);
   assert.equal(blind.length, 1, 'a move with no destination is dropped entirely');
-  assert.match(blind[0].text, /another conversation/,
+  assert.match(blind[0].text, /another chat/,
     'a move with no destination invents one or says nothing');
 });
 
@@ -1145,15 +1145,15 @@ test('a round judging a turn that changed nothing says so', () => {
  * Two facts, so two checks: the shaper gives nothing for nothing, and the call site draws at the
  * moment it empties. `chat.ts` imports `vscode`, so the second is read off the source.
  */
-test('attaching draws the empty conversation instead of leaving the last one up', () => {
-  assert.deepEqual(rows([]), [], 'an empty conversation shapes into something');
-  assert.equal(pendingAsk([]), null, 'an empty conversation carries the previous one\'s open ask');
-  assert.equal(usage([]), '', 'an empty conversation carries the previous one\'s context meter');
+test('attaching draws the empty chat instead of leaving the last one up', () => {
+  assert.deepEqual(rows([]), [], 'an empty chat shapes into something');
+  assert.equal(pendingAsk([]), null, 'an empty chat carries the previous one\'s open ask');
+  assert.equal(usage([]), '', 'an empty chat carries the previous one\'s context meter');
 
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const at = chat.indexOf('this.events = [];\n    this.draw();');
   assert.ok(at > 0,
-    'the panel is emptied without being redrawn — the rows on screen are the last conversation\'s');
+    'the panel is emptied without being redrawn — the rows on screen are the last chat\'s');
   // Before the stream opens, not after: a frame that lands between the two would be drawn and then
   // wiped by a redraw that follows it.
   assert.ok(at < chat.indexOf("s.stream({ method: 'transcript'"),
@@ -1323,4 +1323,12 @@ test('a stream connection that fails is said', () => {
   const failed = chat.slice(at, chat.indexOf('\n    }\n', at));
   assert.ok(/if \(!s\) \{/.test(failed), 'a failed connection is not handled as its own case');
   assert.ok(/kind: 'note'/.test(failed), 'a failed stream connection leaves the panel empty and says nothing');
+});
+
+test('final review is distinct from three approving members, including legacy replay', () => {
+  const data = { round: 1, decision: 'continue', tally: {done: 3, continue: 0, voters: 3},
+    closingDecision: 'continue', closingReason: 'verify 72dp', feedback: 'verify 72dp' };
+  const render = (d: unknown) => rows([{seq: 1, type: 'council.decided', data: d} as unknown as Event])[0].text;
+  assert.match(render(data), /final review: held\nverify 72dp/);
+  assert.match(render({...data, closingDecision: undefined}), /members approved; final outcome held/);
 });

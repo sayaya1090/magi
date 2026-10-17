@@ -1,13 +1,48 @@
+import { checkPanel } from '../panel-harness.mjs';
 import assert from 'node:assert/strict';
 import { createRowsMessage, createStateMessage } from '../../transcript-fixtures.mjs';
 
 export const layoutScenarios = [
+      { id: 'sidebar_inline_controls_and_locales', name: '우측 패널 드롭다운·스위치·i18n·포커스·좁은 폭', run: page => checkPanel(page.context()) },
+      {
+        id: 'semantic_text_colors_match_jetbrains',
+        name: '발화자·카운슬 멤버·판정·오류의 밝고 어두운 텍스트 색',
+        run: async (page) => {
+          await page.evaluate(m => window.postMessage(m, '*'), createRowsMessage({ rows: [
+            { who: 'user', label: '나', speaker: '나', text: 'request' },
+            { who: 'agent', label: 'magi', speaker: 'magi', text: 'answer' },
+            ...['melchior', 'balthasar', 'casper'].map((member, i) => ({ who: 'council', member, label: member, speaker: member,
+              decision: i === 0 ? 'done' : 'continue', badge: i === 0 ? ' ✓ done' : ' ✗ reject', text: 'review' })),
+            { who: 'error', label: 'error', text: 'failed' },
+            { who: 'tool', label: 'tool', text: 'read' },
+            { who: 'system', label: 'system', text: 'notice' },
+          ].map(row => ({ ...row, at: '2026-10-17T12:30:00+09:00' })) }));
+          await page.locator('.row.council').first().waitFor();
+          const edges = await page.evaluate(() => [...document.querySelectorAll('#rows > .row')].map(row => ({
+            clock: row.querySelector('.row-time').getBoundingClientRect().right,
+            copy: row.querySelector('.copy-btn').getBoundingClientRect().right,
+          })));
+          for (const edge of edges) { assert.ok(Math.abs(edge.clock - edges[0].clock) < 1, JSON.stringify(edges)); assert.ok(Math.abs(edge.copy - edges[0].copy) < 1, JSON.stringify(edges)); }
+          for (const [theme, expected] of [
+            ['vscode-dark', ['rgb(255, 122, 26)', 'rgb(92, 216, 230)', 'rgb(255, 180, 84)', 'rgb(92, 216, 230)', 'rgb(216, 180, 254)', 'rgb(242, 184, 181)']],
+            ['vscode-light', ['rgb(180, 83, 9)', 'rgb(14, 116, 144)', 'rgb(180, 83, 9)', 'rgb(14, 116, 144)', 'rgb(109, 40, 217)', 'rgb(179, 38, 30)']],
+          ]) {
+            await page.evaluate(theme => { document.body.classList.remove('vscode-dark', 'vscode-light', 'vscode-high-contrast'); document.body.classList.add(theme); }, theme);
+            const actual = await page.evaluate(() => ['.user .row-label', '.agent .row-label', '[data-member="melchior"] .row-label',
+              '[data-member="balthasar"] .row-label', '[data-member="casper"] .row-label', '.row.error .body'].map(s => getComputedStyle(document.querySelector(s)).color));
+            assert.deepEqual(actual, expected);
+            const badges = await page.evaluate(() => [...document.querySelectorAll('.row-badge')].map(e => getComputedStyle(e).color));
+            assert.deepEqual(badges, theme === 'vscode-dark' ? ['rgb(134, 239, 172)', 'rgb(255, 212, 121)', 'rgb(255, 212, 121)'] : ['rgb(21, 128, 61)', 'rgb(146, 96, 10)', 'rgb(146, 96, 10)']);
+          }
+          await page.evaluate(() => { document.body.classList.remove('vscode-light'); document.body.classList.add('vscode-dark'); });
+        },
+      },
       {
         id: 'streaming_preserves_completed_rows_and_reading_position',
         name: '스트리밍 중 완료 행 DOM·위치·선택 보존과 말풍선 색 구분',
         run: async (page) => {
           const history = [
-            { seq: 1, who: 'user', label: 'you', text: 'my previous request' },
+            { seq: 1, who: 'user', label: 'you', text: 'my previous request', at: '2026-10-17T12:30:00+09:00' },
             { seq: 2, who: 'agent', label: 'magi', text: 'previous completed answer\n'.repeat(50) },
           ];
           const send = (text, draft = true) => page.evaluate((m) => window.postMessage(m, '*'),
@@ -52,6 +87,17 @@ export const layoutScenarios = [
             assert.equal(snapshot.removed, 0);
             assert.equal(snapshot.selected, 'my');
           }
+          const copiedBefore = await page.evaluate(() => window.__posted.length);
+          await page.locator('#rows .row:last-child .copy-btn').click();
+          await page.waitForFunction(({ before, text }) => window.__posted.slice(before).some(m => m.kind === 'copy' && m.text === text), { before: copiedBefore, text });
+          assert.match(await page.locator('#rows .row:first-child .row-time').textContent(), /^\d{2}:\d{2}:00$/);
+          const header = await page.locator('#rows .row:first-child').evaluate(row => {
+            const label = row.querySelector('.row-label').getBoundingClientRect();
+            const copy = row.querySelector('.copy-btn').getBoundingClientRect();
+            const time = row.querySelector('.row-time').getBoundingClientRect();
+            return { ordered: label.right <= copy.left && copy.right <= time.left, width: copy.width, height: copy.height };
+          });
+          assert.deepEqual(header, { ordered: true, width: 24, height: 24 });
           const colors = await page.evaluate(() => ['.user', '.agent'].map((s) => getComputedStyle(document.querySelector(s)).backgroundColor));
           assert.notEqual(colors[0], colors[1], '사용자와 마기 말풍선의 배경이 달라야 한다');
           await send('```js\nconst final = true;\n```', false);

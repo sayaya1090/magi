@@ -170,7 +170,7 @@ yourself to the **latest** release" (it names no version; the original sketch's
   waiting for an idle **turn** belongs to the auto path (below), and the manual push
   restarts immediately on purpose (an operator pressing a button and watching should
   not have their reply held hostage to an idle moment). A restarted daemon **reopens
-  the conversation it was on** — the predecessor leaves the session id in the
+  the chat it was on** — the predecessor leaves the session id in the
   environment (`MAGI_RESTART_SESSION`, consumed once) so a Resume the operator made
   survives the restart.
 - **B5. Rollback — a pre-flight, not a post-restart health check.** What shipped:

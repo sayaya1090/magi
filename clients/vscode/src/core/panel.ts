@@ -318,7 +318,7 @@ export function context(resp: Response | null): string {
 
 /** The five parts of the window, in the order the Office task pane and the JetBrains panel draw them. */
 export const CONTEXT_PARTS = [
-  ['system', 'system'], ['tools', 'tool list'], ['talk', 'conversation'], ['calls', 'calls'], ['results', 'results'],
+  ['system', 'system'], ['tools', 'tool list'], ['talk', 'chat'], ['calls', 'calls'], ['results', 'results'],
 ] as const;
 
 export interface Gauge {

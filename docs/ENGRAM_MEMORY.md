@@ -70,7 +70,7 @@ flowchart LR
 | kind | lesson, fact or procedure. Wiki pages may assemble related objects. |
 | revision_id, parents[] | SHA-256 of the canonical full payload and parent revisions. Hash state, scope and evidence as well as body. |
 | claim, applies_when, excludes, procedure, verification | Assertion, applicability, exclusions, steps and checks. OS/product/version/project constraints participate in consolidation. |
-| evidence[] | observation_id, source turn/session reference, host outcome, observation time and contributor. Do not share raw conversations or secrets by default. |
+| evidence[] | observation_id, source turn/session reference, host outcome, observation time and contributor. Do not share raw chats or secrets by default. |
 | state, pinned, authored_by, visibility | active/conflicted/superseded/withdrawn, retention pin, human/automatic authorship and explicit read/write policy. Local archiving is separate. |
 | aliases[], supersedes[], derived_from[] | Canonical duplicate links, corrections and provenance across scopes. Copy with provenance rather than merging across scopes. |
 | operation_id, actor_id, expected_heads[], reason | Retry deduplication, authenticated contributor, concurrency check and change reason. |
@@ -109,7 +109,7 @@ Proposed host ports are `Propose(observation)`, `PlanMerge(ids, heads)`, `Apply(
 |---|---|
 | manifest.json | Rebuildable namespace/schema/current-policy-head view. Signed policy operations are authoritative; editing this file cannot grant access. |
 | operations/ | Immutable JSON change transactions. Authoritative and replicated to authorized peers, including corrections and withdrawals. |
-| blobs/ | Hashed chunks for bodies/attachments too large for a 64 KiB operation. Replicate only referenced chunks with the operation's ACL. No automatic raw-conversation attachments. |
+| blobs/ | Hashed chunks for bodies/attachments too large for a 64 KiB operation. Replicate only referenced chunks with the operation's ACL. No automatic raw-chat attachments. |
 | snapshots/ | Verifiable heads/state checkpoints over a specified operation set. Do not replace/delete the log before retention requirements are met. |
 | quarantine/, incoming/ | Unverified files and incomplete batches. Exclude from retrieval, views and forwarding. |
 | views/ | Object-ID Markdown for people; rebuildable from the log. |
@@ -334,7 +334,7 @@ Build indexes and view files after commit; both are rebuildable from authoritati
 
 The analyzer cannot verify a turn. Automatic procedure promotion requires the host's verified outcome and traceable evidence. guard/error/unverified/ungated must not become active procedures merely because the model says success. Record manual authorship/approval separately. Preserve observations on analysis failure and retry; do not label failure as “no duplicates” or “merge completed.”
 
-Initial maintenance limits are one worker per namespace per installation, batches of 100 objects, at most 20 analyzed pairs and 60 seconds per run. Schedule daily by default; queues must not block conversation work. Resume by operation_id without learning the same observation twice. Raw-session retention and learned-object retention are separate settings.
+Initial maintenance limits are one worker per namespace per installation, batches of 100 objects, at most 20 analyzed pairs and 60 seconds per run. Schedule daily by default; queues must not block chat work. Resume by operation_id without learning the same observation twice. Raw-session retention and learned-object retention are separate settings.
 
 ## 9. Migration, ownership and acceptance
 

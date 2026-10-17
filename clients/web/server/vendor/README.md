@@ -76,16 +76,15 @@ rows are NOT cards for the same reason: they are links, and this component would
 
 Licence: Apache-2.0, same as this repository.
 
-## marked.js — marked 18.0.9, 41.3KB, **lexer only**
+## marked.js — marked 18.1.1, 45.4KB, **lexer only**
 
-    npm pack marked@18                  # marked-18.0.9.tgz
-    #   sha256 3017275f02c3bb33d668a892566f47c129da751292f29cfcaf45bded787d0dc6
-    mkdir -p node_modules && tar xzf marked-18.0.9.tgz && mv package node_modules/marked
+    npm pack marked@18.1.1              # marked-18.1.1.tgz
+    mkdir -p node_modules && tar xzf marked-18.1.1.tgz && mv package node_modules/marked
     cat > entry.mjs <<'ENTRY'
     export { lexer } from 'marked';
     ENTRY
-    npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=marked.js
-    #   sha256 991cb97e6124dd65bec8acc26d85a4f7d23557779e0ec8b12d351565e8325c3a
+    npx esbuild@0.25.12 entry.mjs --bundle --format=esm --minify --outfile=marked.js
+    #   sha256 6cb3abdef30d09fe576be18224b81ab8ac703fd50cb22c3b3482f0f2396998d4
 
 Only `lexer` is exported, and that is the whole point rather than a size optimisation.
 

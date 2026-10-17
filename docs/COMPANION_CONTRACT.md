@@ -97,4 +97,15 @@ description = "Maintain this project's source and tests"
 
 `can` and `does` count only declared tasks and operations, using `task:` and `call:` prefixes. Learning a skill or attaching an MCP server never adds an advertised offer. Detail queries show purpose, responsibilities, tasks and constraints, and access scope first. Skills appear separately as experience. Deleting policy clears offers; invalid policy clears stale offers and reports an error state. Existing `companion.role` remains a compatibility introduction, not a permission grant or task list.
 
-Access modes are read, write, execute, deny, and approval. They communicate boundaries to the own model and peers but do not constrain the OS permissions of ordinary shell tools. Direct read authority comes only from operations.root. Enforcement across all ordinary tools remains follow-up work. The actual gwt workspace is not automatically configured or granted access.
+Access modes are read, write, execute, deny, and approval. They communicate boundaries to the own model and peers but do not constrain the OS permissions of ordinary shell tools. Direct read authority comes only from operations.root. Enforcement across all ordinary tools remains follow-up work. Coding companions may fill missing descriptive metadata after understanding their workspace. Access is never granted automatically.
+
+## Self-description after understanding a workspace
+
+Coding companions (VS Code, JetBrains and TUI) fill missing purpose, responsibilities and offered tasks after reading project files, documentation and tools. They do not do so every turn or infer offers solely from learned skills. A prepared coding-task runner does not publish a separate identity.
+
+1. Read the current declaration with `magi --companion-policy-show` in the original workspace.
+2. Describe concrete work in the user's language, including inputs, expected results and constraints.
+3. Send JSON with `purpose`, `responsibilities` and `tasks` to `magi --companion-profile-write` on stdin. Only empty sections are filled. Existing descriptions and constraints remain intact. Access, instructions and direct operations cannot be changed.
+4. Read the declaration again to verify persistence. The daemon's existing advertisement refresh picks up changes. New system guidance applies on the next turn of a daemon running the updated binary.
+
+Unknown JSON fields and invalid task IDs are rejected. The merged declaration is validated before atomic replacement. Full-policy and profile writers share a cross-process lock. Users can inspect and amend the result through the full-policy CLI. This provides persistence, not a guarantee that a model describes its work correctly.

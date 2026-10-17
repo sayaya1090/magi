@@ -79,7 +79,7 @@ flowchart TB
 ```
 
 ### 1. 🖥️ Resident Daemon — Work Never Dies on Window Close
-With most coding agents, closing the terminal window immediately destroys ongoing work and conversation context. magi decouples the agent engine into an **independent resident daemon per workspace**:
+With most coding agents, closing the terminal window immediately destroys ongoing work and chat context. magi decouples the agent engine into an **independent resident daemon per workspace**:
 - **Attach from anywhere**: Connect seamlessly via terminal TUI, web console, VS Code, or JetBrains plugins, and detach at any time without disturbing the agent.
 - **Long-running stability**: Kick off heavy builds or lengthy test suites and shut your IDE. The daemon continues working quietly in the background.
 

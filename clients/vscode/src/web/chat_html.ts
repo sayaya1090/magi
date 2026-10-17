@@ -1,3 +1,5 @@
+import { idePaletteCss } from '../core/palette';
+
 /**
  * Renders the HTML for the chat webview.
  * This module has no dependencies on vscode, fs, or the workspace environment,
@@ -6,6 +8,7 @@
 
 export interface RenderChatHtmlOptions {
   nonce: string;
+  language?: string;
   cspSource: string;
   scriptUri: string;
   adapterUri: string;
@@ -24,12 +27,14 @@ export interface RenderChatHtmlOptions {
 
 export function renderChatHtml(options: RenderChatHtmlOptions): string {
   const { nonce, cspSource, scriptUri, adapterUri, viewUri } = options;
+  const language = !options.language || options.language.toLowerCase().startsWith('ko') ? 'ko' : 'en';
   const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};`;
-  return `<!DOCTYPE html><html lang="ko"><head>
+  return `<!DOCTYPE html><html lang="${language}"><head>
 <meta charset="UTF-8">
 <title>MAGI Chat</title>
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
+${idePaletteCss}
   /* Every colour is the editor's. Nothing here picks one. */
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
              overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border-width:0; }
@@ -39,21 +44,21 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   [hidden] { display:none !important; }
   #rows { margin:0; padding:0; }
   #scroll { flex:1; min-height:0; overflow-y:auto; scrollbar-gutter:stable; padding:8px 10px; }
-  .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
+  .row { box-sizing:border-box; border:1px solid transparent; padding:8px 10px; margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
   .tool-spinner { display:inline-block; width:10px; height:10px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:middle; animation:tool-spin 1s linear infinite; }
   @keyframes tool-spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .tool-spinner { animation:none; } }
-  .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
-  .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
+  .who { font-family:var(--vscode-font-family, sans-serif); font-size:calc(var(--vscode-font-size, 13px) * .85); color:var(--vscode-descriptionForeground); margin-bottom:2px; }
+  .user { border:1px solid var(--vscode-widget-border, var(--vscode-focusBorder, transparent)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); }
   .user { background:color-mix(in srgb, var(--vscode-focusBorder, #b45309) 10%, var(--vscode-editor-background, #1e1e1e)); }
   .agent { border:1px solid var(--vscode-charts-green, var(--vscode-textLink-foreground, #0e7490)); border-radius:10px; padding:8px 10px; background:var(--vscode-editor-background); background:color-mix(in srgb, var(--vscode-charts-green, var(--vscode-textLink-foreground, #0e7490)) 8%, var(--vscode-editor-background, #1e1e1e)); }
   .user .who, .agent .who { color:var(--vscode-foreground); }
   .agent.draft .body { white-space:pre-wrap; }
-  .system { border:1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground)); border-radius:8px; padding:6px 10px; background:var(--vscode-editor-background); }
+  .system { border:1px solid var(--vscode-widget-border, var(--vscode-descriptionForeground, transparent)); border-radius:8px; padding:6px 10px; background:var(--vscode-editor-background); }
   .pending { opacity:.75; }
   /* Parked, not being worked on. Its own mark because "asked and waiting" and "shelved until
      this turn ends" draw the same bar otherwise, and a person cannot tell which they typed. */
-  .queued .who::after { content:' ⏸'; }
+  .queued .row-label::after { content:' ⏸'; }
   .agent { white-space:normal; }
   .agent p { margin:0 0 6px; white-space:pre-wrap; word-break:break-word; }
   .agent p:last-child { margin-bottom:0; }
@@ -80,8 +85,8 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .agent .diff-del { color:var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c); }
   .agent .diff-hunk { color:var(--vscode-gitDecoration-modifiedResourceForeground, #3794ff); opacity:.8; }
   .abandoned { opacity:.6; text-decoration:line-through; }
-  .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
-  .error { color:var(--vscode-errorForeground); }
+  .thinking, .tool { font-family:var(--vscode-editor-font-family); font-size:.9em; }
+  .error { color:var(--magi-error); }
   /* A note about the conversation, not something the companion said — a fold, a recovered error.
      It had no rule at all, so it read as the agent's own words with a small label beside it. The
      JetBrains client draws the same rows small, italic and faint; this is that, in this editor's
@@ -89,7 +94,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .system { color:var(--vscode-descriptionForeground); font-style:italic; font-size:.9em; }
   /* What a tool was asked to do, beside its name. Dimmer than the name and clipped to one line:
      it is the answer to "which one", not the argument's full text. */
-  .args { color:var(--vscode-descriptionForeground); opacity:.85; }
+  .args { color:var(--magi-muted); }
   /* The companion itself, folded away. A gear rather than "…": the card is what this companion is
      RUNNING ON and what you can change about it, and a gear is the word every editor already uses
      for that — "…" says "more of the same", which this is not. */
@@ -183,11 +188,34 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
     border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
     padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; }
   .args-toggle-btn:hover { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
-  .output-open-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
-    border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
-    padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; margin-left:6px; }
-  .output-open-btn:hover:not(:disabled) { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
-  .output-open-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .who { display:flex; align-items:center; gap:6px; min-height:24px; }
+  .row-label { flex:1; min-width:0; }
+  .tool .row-label .body { display:inline; font-family:var(--vscode-editor-font-family, monospace); font-weight:400; }
+  .tool .row-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row-actions { display:inline-flex; gap:2px; flex:none; }
+  .row-time { font-family:var(--vscode-font-family, sans-serif); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .row-icon-btn { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:4px; margin:0; border:0; border-radius:4px; background:transparent; color:inherit; cursor:pointer; box-sizing:border-box; }
+  .row-icon-btn svg { width:16px; height:16px; fill:currentColor; }
+  .row-icon-btn:hover:not(:disabled) { background:var(--vscode-toolbar-hoverBackground, #80808026); }
+  .row-icon-btn:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:1px; }
+  .row-icon-btn:disabled { opacity:.5; cursor:default; }
+  .user, .agent, .system { background:color-mix(in srgb, var(--bubble-tone) 7.06%, var(--vscode-editor-background, #1e1e1e)); border-color:color-mix(in srgb, var(--bubble-tone) 25.49%, transparent); }
+  .user { --bubble-tone:var(--magi-primary); }
+  .agent { --bubble-tone:var(--magi-accent); }
+  .system { --bubble-tone:var(--magi-muted); }
+  .user .row-label { color:var(--magi-primary); }
+  .agent .row-label, .tool .row-label { color:var(--magi-accent); }
+  .row-label { font-weight:600; }
+  .thinking .row-label { color:var(--magi-muted); }
+  .row-time, .row-actions, .row-badge, .system, .image, .thought { color:var(--magi-muted); }
+  .row-status.success, .row-badge.success { color:var(--magi-success); }
+  .row-status.error, .row-badge.error, .out { color:var(--magi-error); }
+  .row-status.warn, .row-badge.warn { color:var(--magi-warn); }
+  .council[data-member="melchior"] { --seat-color:var(--magi-melchior); }
+  .council[data-member="balthasar"] { --seat-color:var(--magi-balthasar); }
+  .council[data-member="casper"] { --seat-color:var(--magi-casper); }
+  .council { border-color:var(--seat-color, var(--magi-muted)); }
+  .council .row-label { color:var(--seat-color, var(--vscode-foreground)); }
   pre.raw-args { font-family:var(--vscode-editor-font-family); font-size:.85em; margin:4px 0 6px;
     padding:4px 6px; background:var(--vscode-editor-background, rgba(0, 0, 0, 0.02));
     border-left:2px solid var(--vscode-textLink-foreground); border-radius:2px;
@@ -253,7 +281,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
-  .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
+  .out { color:var(--magi-error); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
   /* What a verdict stands on, and what it says to keep — two different kinds of text.
      ⚠ No backticks in this block: it is inside a template literal and one closes it.
      The cite is a FRAGMENT OF THE RECORD: measured against a live run, nine of twelve were diffs,
@@ -263,16 +291,16 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
      (magi looks the fragment up in what the member was shown), and a reader can only check what
      is drawn as it is. Capped, because one member's evidence must not push the round off screen.
      The keep is the member's own prose, so it stays in the reading font. */
-  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; color:var(--vscode-descriptionForeground); margin-top:2px;
+  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; color:var(--magi-muted); margin-top:2px;
     max-height:9em; overflow:auto; }
-  .keep { font-size:.9em; color:var(--vscode-descriptionForeground); margin-top:2px; }
+  .keep { font-size:.9em; color:var(--magi-muted); margin-top:2px; }
   /* Keep reasoning in the outer transcript flow, including its original line breaks. */
   .thought { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.6;
     margin-top:2px; white-space:pre-wrap; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
-  .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
-  .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
+  .image { font-family:var(--vscode-editor-font-family); font-size:.9em; }
+  .council { border-left:2px solid var(--seat-color, var(--magi-muted)); padding-left:8px; }
   /* 세로 여백이 4px 인 이유: 둘이 **각각** 서므로 6px 이면 위아래로 24px 이 안내 두 줄에 붙는다.
      실측(1200×200)에서 그 잔여가 바깥 오버플로 2px 로 남았다 — 안내는 줄어들어도 여백은 안
      줄기 때문이다. 하나를 숨겨서 풀지 않는다. */
@@ -319,7 +347,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
            border-radius:2px; padding:4px 10px; cursor:pointer; }
   button:hover { background:var(--vscode-button-hoverBackground); }
 </style></head><body>
-<header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></header>
+<header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false"><svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg></button></header>
 <aside id="info" aria-label="컴패니언 정보" hidden></aside>
 <main id="scroll"><h1 class="sr-only">MAGI Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><p id="empty-note" hidden></p><div id="ask-body" hidden></div></main>
 <section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="state-note" role="region" aria-label="컴패니언 상태"></div><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>

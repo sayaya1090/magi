@@ -387,10 +387,12 @@ type CouncilVerdictData struct {
 // CouncilDecidedData — TypeCouncilDecided (the tallied outcome). Feedback is set
 // only when the decision is "continue" (it is injected back into the loop).
 type CouncilDecidedData struct {
-	Round    int               `json:"round"`
-	Decision string            `json:"decision"` // done | continue
-	Tally    council.Breakdown `json:"tally"`
-	Feedback string            `json:"feedback,omitempty"`
+	ClosingDecision string            `json:"closingDecision,omitempty"`
+	ClosingReason   string            `json:"closingReason,omitempty"`
+	Round           int               `json:"round"`
+	Decision        string            `json:"decision"` // done | continue
+	Tally           council.Breakdown `json:"tally"`
+	Feedback        string            `json:"feedback,omitempty"`
 	// Note says what the outcome means in words, alongside the tally.
 	Note string `json:"note,omitempty"`
 	// Debate carries the disagreement-triggered rebuttal round when one ran: the
@@ -404,6 +406,25 @@ type CouncilDecidedData struct {
 	// therefore unanswerable from a run — which is the only way to know if it earns its
 	// three extra calls.
 	Debate *council.DebateOutcome `json:"debate,omitempty"`
+}
+
+// OutcomeNote keeps the member tally distinct from the final review, including replayed logs.
+func (d CouncilDecidedData) OutcomeNote() string {
+	if d.ClosingDecision != "" {
+		verdict := "approved"
+		if d.ClosingDecision == "continue" {
+			verdict = "held"
+		}
+		text := "member vote → final review: " + verdict
+		if d.ClosingReason != "" {
+			text += "\n" + d.ClosingReason
+		}
+		return text
+	}
+	if d.Decision == "continue" && d.Tally.Done > 0 && d.Tally.Continue == 0 && d.Tally.Abstain == 0 {
+		return "members approved; final outcome held (legacy record)\n" + d.Feedback
+	}
+	return d.Note
 }
 
 // FeedbackLines renders a rejection's feedback for a human surface: the non-blank lines, each

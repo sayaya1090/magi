@@ -12,7 +12,7 @@ For builds, use `wait_for` with a job ID; its default wait is 300 seconds. The b
 
 ## Optional local Codex plugin
 
-This machine's optional Codex plugin was using `codex mcp-server` for a persistent conversation. Installed Codex CLI 0.163.0 does not expose that command, so the plugin fell back to a fresh `codex exec` for each request. A successful one-shot response hid the loss of conversation continuity.
+This machine's optional Codex plugin was using `codex mcp-server` for a persistent chat. Installed Codex CLI 0.163.0 does not expose that command, so the plugin fell back to a fresh `codex exec` for each request. A successful one-shot response hid the loss of chat continuity.
 
 The replacement uses the supported `codex app-server` protocol: `initialize`, `thread/start`, and `turn/start`. Continuations keep the thread ID. The adapter requires a read-only sandbox and never approves server-initiated tool requests. Magi remains responsible for its own tool calls. Cumulative usage notifications are converted to per-call deltas; repeated notifications are not summed. Reasoning tokens are already a subset of output tokens and are not added again.
 

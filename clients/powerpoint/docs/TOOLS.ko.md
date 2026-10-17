@@ -31,9 +31,9 @@
 | `describe_style` | What this deck actually looks like: the font, size and colour its titles and bodies consistently use, and how many placeholders that was … | 0 | — |
 | `read_notes` | The speaker notes on one slide. read_slide cannot see these — notes live outside the object model — so this is the only way to know what … | 2 | — |
 | `read_theme_colors` | The twelve theme colours of a layer as they are now: dark1/dark2, light1/light2, accent1-6, hyperlink, followedHyperlink. Read this befor… | 3 | — |
-| `read_tags` | Notes you left on a slide or shape earlier, stored INSIDE the deck. This is your memory between conversations: shape ids are bare numbers… | 3 | — |
+| `read_tags` | Notes you left on a slide or shape earlier, stored INSIDE the deck. This is your memory between chats: shape ids are bare numbers… | 3 | — |
 | `read_animation` | What already animates on one slide, and in what order. read_slide cannot see this. Read it before animate_slide on a deck you did not bui… | 2 | — |
-| `read_suggestions` | Fix-suggestions sitting in this deck, from you or from an earlier conversation. They live in the FILE, so they survive the deck being clo… | 2 | — |
+| `read_suggestions` | Fix-suggestions sitting in this deck, from you or from an earlier chat. They live in the FILE, so they survive the deck being clo… | 2 | — |
 | `export_slide_ooxml` | The slide's own OOXML, narrowed to a part — for what the object model stays silent about (chart data, speaker notes, animation). Reading … | 4 | — |
 
 ### 그림으로 확인

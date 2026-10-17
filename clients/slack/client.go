@@ -224,6 +224,11 @@ func (c *Client) watch(ctx context.Context, cv *conversation) {
 						}
 						c.mu.Unlock()
 					}
+				case event.TypeCouncilDecided:
+					var d event.CouncilDecidedData
+					if json.Unmarshal(e.Data, &d) == nil {
+						deliveryErr = c.post(ctx, cv, fmt.Sprintf("Council member vote: %d done / %d continue\n%s", d.Tally.Done, d.Tally.Continue, d.OutcomeNote()))
+					}
 				case event.TypePartAppended:
 					var p event.PartAppendedData
 					if json.Unmarshal(e.Data, &p) == nil && p.Role == session.RoleAssistant && p.Part.Kind == session.PartText {

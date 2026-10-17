@@ -105,7 +105,7 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
 
     const items = getVisibleItems();
     recoveryBtn.textContent = '복구 초안 ' + items.length;
-    recoveryBtn.setAttribute('aria-label', '복구 초안 ' + items.length + '개');
+    recoveryBtn.setAttribute('aria-label', recoveryBtn.textContent);
     if (recoveryScopeAll) {
       recoveryScopeAll.checked = scopeAll;
     }

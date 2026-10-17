@@ -37,7 +37,7 @@ export class Status implements vscode.Disposable {
     const model = this.setup.model ? ` · ${this.setup.model}` : '';
     this.item.text = `${spin}magi: ${activity.label(a)}${model}`;
     this.item.tooltip = a.state === activity.State.NotRunning
-      ? 'No companion is listening on this workspace. Open the conversation to start one.'
+      ? 'No companion is listening on this workspace. Open the chat to start one.'
       : [`magi — ${activity.label(a)}`,
          this.setup.model && `model: ${this.setup.model}`,
          this.setup.council && `council: ${this.setup.council}`,

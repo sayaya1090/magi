@@ -543,7 +543,7 @@ fetching RAG over HTTP, or driving an SSO login flow from a plugin, needs.
 | API | Permission | Notes |
 |---|---|---|
 | `magi.exec(cmd, {args}, {timeout="15s"}?)` | `exec:<cmd>` | direct exec, no shell (so no injection), relative to the workdir. 60s timeout by default; the manifest widens it (`exec_timeout`, clamped to [1s, 10m]) and the per-call third argument can only shorten it. Returns `{stdout,stderr,code}` |
-| `magi.pipe(cmd, {args}, {neutral_dir=,idle=}?)` | `exec:<cmd>` | `magi.exec`'s **living twin**: a child that stays up between calls with stdin/stdout held open, so a plugin can hold a *conversation* with a subprocess instead of a transaction. Returns a handle — `write(line)` (a missing newline is added), `read{timeout=}` → the next line, `nil` at the deadline (a quiet child is not a dead one), `alive()`, `close()`, `pid`. Gated on the **same** `exec:<cmd>` as one-shot exec — same reach, only duration and interactivity are new. Killed on `close()`, on unload, and after `idle` (10m default); at most 4 alive per plugin; stdout is drained into a bounded queue. It exists because a CLI driven as a language model has to re-send the whole conversation when the process cannot remember the last turn — measured on one backend, holding the process open took billed input from ~9,800 tokens a turn to 527 |
+| `magi.pipe(cmd, {args}, {neutral_dir=,idle=}?)` | `exec:<cmd>` | `magi.exec`'s **living twin**: a child that stays up between calls with stdin/stdout held open, so a plugin can hold a *chat* with a subprocess instead of a transaction. Returns a handle — `write(line)` (a missing newline is added), `read{timeout=}` → the next line, `nil` at the deadline (a quiet child is not a dead one), `alive()`, `close()`, `pid`. Gated on the **same** `exec:<cmd>` as one-shot exec — same reach, only duration and interactivity are new. Killed on `close()`, on unload, and after `idle` (10m default); at most 4 alive per plugin; stdout is drained into a bounded queue. It exists because a CLI driven as a language model has to re-send the whole chat when the process cannot remember the last turn — measured on one backend, holding the process open took billed input from ~9,800 tokens a turn to 527 |
 | `magi.open_url(url)` | `exec:open-url` | opens the OS default browser. **http/https only** |
 | `magi.http{url,method,headers,body}` | `net:<host>` | http/https only, 30s timeout, 5MB response cap. Returns `{status,body}` |
 | `magi.serve{port,handler}` | `net:listen` | a **long-lived in-process HTTP server** on `127.0.0.1` (no external runtime → one binary, same on every OS). `port=0` takes a free port. Returns `{port, stop()}` |
@@ -615,7 +615,7 @@ The general-purpose way for a plugin to **interact with the user at startup** (t
   - **streaming body**: return `body = function() … end` instead of a string and the host pulls
     it chunk by chunk, flushing each one — return a string to send it (`""` means "nothing yet,
     ask again"), `nil` to finish. The plugin lock is held only for each pull, so a slow stream does
-    not block the plugin's other requests (two conversations on one model shim run side by side).
+    not block the plugin's other requests (two chats on one model shim run side by side).
     An optional `abort = function() … end` on the same table is called once if the client goes
     away first. This is how a CLI-backed model shim streams tokens as SSE.
   Being **in-process**, it needs no external runtime and works inside the single static binary —
@@ -885,7 +885,7 @@ magi.register_tool{
 
 **What the child gets.** Your `system`, your `prompt` **verbatim**, AGENTS.md, the runtime
 environment, the parent's working directory and scratch, and exactly the tools in `tools`. It does
-**not** get the parent's conversation — there is no summary step, because a paraphrased brief is how
+**not** get the parent's chat — there is no summary step, because a paraphrased brief is how
 this tree lost graded identifiers six times out of six. The tool's own arguments are the filter: the
 caller has the full context and chooses what to put in them, and nothing rewrites it afterwards. If
 that is not enough, the child reads the same tree for itself.

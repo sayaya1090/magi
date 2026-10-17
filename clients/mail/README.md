@@ -25,7 +25,7 @@ IMAP uses implicit TLS. SMTP defaults to implicit TLS, typically port 465. For p
 
 This first version supports one account, one recipient per draft and INBOX only in the UI. The read API supports another mailbox when explicitly requested. It does not implement OAuth, attachments, search, folders, reply threading, delete/move, delivery retries or Sent-folder append. Multipart plain text, base64 and quoted-printable are decoded; legacy non-UTF-8 charset conversion is not implemented. HTML never renders as HTML. HTML-only mail is available as original MIME, with a notice in the body view. Messages above 2 MiB and drafts above 1 MiB are rejected.
 
-Magi events render as user messages, assistant replies, tool calls/results, errors and completion notices. The first version uses plain-text conversation rows; it does not render Markdown. Permission requests offer Allow/Deny controls and questions offer choices or a text answer. Switching messages clears recipient, subject, body and chat input, and cancels the old event stream; tools remain bound to their original selected message. Drafts exist only in this process and are lost on restart.
+Magi events render as user messages, assistant replies, tool calls/results, errors and completion notices. The first version uses plain-text chat rows; it does not render Markdown. Permission requests offer Allow/Deny controls and questions offer choices or a text answer. Switching messages clears recipient, subject, body and chat input, and cancels the old event stream; tools remain bound to their original selected message. Drafts exist only in this process and are lost on restart.
 
 ## Verification
 
@@ -39,7 +39,7 @@ Build an executable with `go build -o /tmp/magi-mail ./clients/mail/cmd`, then r
 
 Select a message before sending a Magi request. Use **Magi 초안 가져오기** to copy that message's saved draft into the editor; edit it before confirming delivery. Changing messages clears the visible draft deliberately so another message's recipient cannot survive unnoticed. A draft response arriving after a selection change is ignored. Ask/approval buttons retain their original binding and cannot answer another message's request.
 
-If the bearer token is wrong, replace it and refresh INBOX. If IMAP authentication fails, stop the client, update the app password and restart. If Magi connection fails, confirm `magi` is on PATH and that its model settings are valid; select the message again. The bridge can start its own isolated companion. A broken event connection displays an error; reselect the message to reconnect and replay persisted conversation. Unsaved edits and in-memory drafts do not survive a restart. The UI preserves typed input after a failed request, so retry after resolving the connection error.
+If the bearer token is wrong, replace it and refresh INBOX. If IMAP authentication fails, stop the client, update the app password and restart. If Magi connection fails, confirm `magi` is on PATH and that its model settings are valid; select the message again. The bridge can start its own isolated companion. A broken event connection displays an error; reselect the message to reconnect and replay persisted chat. Unsaved edits and in-memory drafts do not survive a restart. The UI preserves typed input after a failed request, so retry after resolving the connection error.
 
 For local browser tests, run `npm ci --prefix clients/web/e2e`, install Chromium with that package's Playwright tool, then run `node clients/mail/test/ui-playwright.mjs`. Tests also cover old draft clearing, late draft response rejection and readable text/plain bridge errors. No account credentials are needed for these tests.
 # Official protocol review
@@ -53,7 +53,7 @@ This review checks implementation contracts. It does not establish interoperabil
 
 ## Session and execution controls
 
-New session starts another conversation while keeping the selected mail target. Enter a model name and use Change model to select it; Stop interrupts the current run. Failed requests preserve typed input, and events from an old session are excluded after switching.
+New session starts another chat while keeping the selected mail target. Enter a model name and use Change model to select it; Stop interrupts the current run. Failed requests preserve typed input, and events from an old session are excluded after switching.
 
 Before reading a body, RFC822.SIZE rejects messages above 2 MiB. Allowed messages use a partial BODY.PEEK request for at most 2 MiB plus one byte. `network_test.go` verifies oversized rejection before body fetch and bounded partial fetching against a local TLS IMAP server. This is separate from testing a real provider.
 

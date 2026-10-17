@@ -184,7 +184,7 @@ test('§5.9 P2: magi.newConversation registration and invocation across 4 capabi
       await flush();
       assert.equal(sessionNewCalled, 0, 'session-new must not be called when capability is absent');
       assert.equal(shown.length, 0, 'showSession must not be called');
-      assert.deepEqual(warnings, ['magi: this companion does not offer opening a new conversation.']);
+      assert.deepEqual(warnings, ['magi: this companion does not offer opening a new chat.']);
     } finally {
       disposables.forEach((d: any) => d.dispose());
     }

@@ -18,6 +18,8 @@ export type Who = 'user' | 'agent' | 'tool' | 'thinking' | 'council' | 'system' 
 export interface Row {
   /** The event that put this row here, so a later frame can find it again. */
   seq: number;
+  /** Original event time for the row header, never synthesized from repaint time. */
+  at?: string;
   /**
    * A row built from streaming chunks, not yet written as a fact.
    *
@@ -454,7 +456,11 @@ export function rows(events: Event[]): Row[] {
             : before !== after ? `debated: ${before}→${after}, ${moved} moved`
               : `debated: ${after} held, ${moved} moved`;
         }
-        const note = String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
+        const closing = String(d.closingDecision ?? '');
+        const note = closing ? `member vote → final review: ${closing === 'continue' ? 'held' : 'approved'}\n${String(d.closingReason ?? '')}`
+          : d.decision === 'continue' && t && n('done') > 0 && n('continue') === 0 && n('abstain') === 0
+            ? `members approved; final outcome held (legacy record)\n${String(d.feedback ?? '')}`
+            : String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
         out.push({
           seq: e.seq, who: 'council',
           text: [note, counts, debated].filter(Boolean).join(' — '),
@@ -524,7 +530,7 @@ export function rows(events: Event[]): Row[] {
           seq: e.seq, who: 'system',
           text: to
             ? `\u21e2 the companion moved to ${to} — this conversation ends here`
-            : '\u21e2 the companion moved to another conversation — this one ends here',
+            : '\u21e2 the companion moved to another chat — this one ends here',
         });
         break;
       }
@@ -649,7 +655,7 @@ export function rows(events: Event[]): Row[] {
       case 'compaction': {
         const before = Number(d.tokensBefore ?? 0);
         const after = Number(d.tokensAfter ?? 0);
-        out.push({ seq: e.seq, who: 'system', text: `↯ folded the conversation: ~${before}→${after} tok (${sizeNote(before, after)})` });
+        out.push({ seq: e.seq, who: 'system', text: `↯ folded the chat: ~${before}→${after} tok (${sizeNote(before, after)})` });
         break;
       }
       case 'turn.finished':

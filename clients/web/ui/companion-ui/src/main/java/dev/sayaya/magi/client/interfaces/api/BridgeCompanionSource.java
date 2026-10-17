@@ -93,6 +93,17 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void councilState(CompanionContext ctx, String session, Consumer<Object> cb) {
+        Console.fetchList("/council-mode?d=" + Global.encodeURIComponent(ctx.socket) + (ctx.peer == null ? "" : "&p=" + Global.encodeURIComponent(ctx.peer)) + "&session=" + Global.encodeURIComponent(session), cb::accept);
+    }
+
+    @Override
+    public void setCouncil(CompanionContext ctx, String session, boolean enabled, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams(); body.set("session", session); body.set("enabled", String.valueOf(enabled));
+        Console.post("/council-mode", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
+    }
+
+    @Override
     public void model(CompanionContext ctx, String name, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("model", name);
@@ -155,6 +166,12 @@ public class BridgeCompanionSource implements CompanionSource {
     @Override
     public void context(CompanionContext ctx, Consumer<Object> cb) {
         Console.fetchList("/context" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void compact(CompanionContext ctx, String session, Consumer<String> done) {
+        URLSearchParams body = new URLSearchParams(); body.set("session", session);
+        Console.post("/compact", body, ctx.socket, ctx.peer, (ok, why) -> done.accept(Console.why(ok, why)));
     }
 
     @Override

@@ -605,8 +605,8 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 			line += fmt.Sprintf(" [debated: %s held, %s moved]", db.After, moved)
 		}
 	}
-	if d.Note != "" {
-		line += " (" + d.Note + ")"
+	if note := d.OutcomeNote(); note != "" {
+		line += " (" + note + ")"
 	} else if d.Feedback != "" {
 		line += " → feedback injected"
 	}

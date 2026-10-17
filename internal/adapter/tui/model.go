@@ -915,7 +915,7 @@ const helpText = "commands:\n" +
 	"  /diff         show the working-tree git diff\n" +
 	"  /init         analyze the project and write AGENTS.md\n" +
 	"  /permission   cycle permission mode (ask/auto/allow/deny)\n" +
-	"  /compact      summarize & shrink the conversation context\n" +
+	"  /compact      summarize & shrink the chat context\n" +
 	"  /clear        clear the visible transcript\n" +
 	"  /quit         exit magi\n" +
 	"mentions:\n" +

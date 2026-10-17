@@ -101,7 +101,7 @@ ago". Today that is `git` if it happened to be committed, and nothing if it was 
 ### 2.6 Keyboard shortcuts for the supervision loop
 
 Not an IDE keymap. Six or seven keys that make the loop fast: next companion waiting on you, answer
-yes / answer no, interrupt, jump to the workspace, jump to the conversation, open the palette. The
+yes / answer no, interrupt, jump to the workspace, jump to the chat, open the palette. The
 page already has the actions and the notion of "who is waiting"; what is missing is that a person
 supervising four companions currently drives them with a mouse.
 

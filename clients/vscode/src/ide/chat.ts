@@ -3,7 +3,7 @@ import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos, turnOpen, verdictWord } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
-import { panelNote, label as activityLabel } from '../core/activity';
+import { State, panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
 import { Ref, refText, wireRef, globQuote } from '../core/refs';
 import { noteCompletion } from '../core/complete';
@@ -13,7 +13,7 @@ import { DiffProvider, openApprovalDiff } from './diff';
 import { OutputProvider, openOutputDocument } from './output';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath, ActionOriginOptions } from '../core/nav';
-import { parseWebviewToHostMessage, HostToWebviewMessage } from '../core/webview_protocol';
+import { parseWebviewToHostMessage, HostToWebviewMessage, PaintedRow } from '../core/webview_protocol';
 import { renderChatHtml } from '../web/chat_html';
 
 /**
@@ -43,7 +43,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 
   constructor(private readonly companion: Companion, private readonly extUri: vscode.Uri) {
     this.subs.push(
-      companion.onChanged(() => this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) })),
+      companion.onChanged(() => {
+        this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) });
+        if (this.view && !this.stream && !this.openingActive && !this.sessionCreating &&
+            [State.Attached, State.Working, State.Waiting].includes(companion.state.state)) {
+          void this.openStream();
+        }
+      }),
       vscode.workspace.registerTextDocumentContentProvider(DiffProvider.scheme, this.diffProvider),
       this.diffProvider,
       vscode.workspace.registerTextDocumentContentProvider(OutputProvider.scheme, this.outputProvider),
@@ -75,6 +81,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     view.onDidDispose(() => {
       if (this.view === capturedView) {
         this.view = null;
+        this.opening++;
         this.stream?.close();
         this.stream = null;
       }
@@ -82,8 +89,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     void this.openStream();
   }
 
-  /** Open the transcript stream and keep it open. */
+  private openingActive = 0;
+
+  /** Track pending opens so status notifications cannot recursively open another stream. */
   private async openStream(): Promise<void> {
+    this.openingActive++;
+    try { await this.openStreamAttempt(); }
+    finally { this.openingActive--; }
+  }
+
+  /** Open the transcript stream and keep it open. */
+  private async openStreamAttempt(): Promise<void> {
     if (this.stream) return;
     // The number is taken BEFORE the first wait, not after: an attempt that cannot tell it was
     // overtaken during its first await is not guarded, it is guarded later. A guard added to some
@@ -100,7 +116,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!sid) {
       const list = await this.companion.ask('sessions');
       if (mine !== this.opening) return;   // somebody asked for another conversation while we waited
-      const first = (list?.sessions ?? [])[0];
+      if (!list?.ok) {
+        this.post({ kind: 'note', text: '최근 대화를 불러오지 못했습니다. 데몬 연결을 확인해 주세요.' });
+        return;
+      }
+      const first = (list.sessions ?? [])[0];
       sid = first?.id ?? '';
       this.sid = sid;
       // The status poll needs it too: the model is only in a reply that names a conversation.
@@ -119,7 +139,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       if (mine !== this.opening) return;   // overtaken — the newer attempt speaks for itself
       // The companion answered `reach` a moment ago and then refused the stream: it went away in
       // between. Said, so the panel does not sit empty and read as a conversation with nothing in it.
-      this.post({ kind: 'note', text: 'could not open the conversation — the companion stopped answering.' });
+      this.post({ kind: 'note', text: 'could not open the chat — the companion stopped answering.' });
       return;
     }
     // A newer attempt started while this one was connecting. Hand this socket back rather than
@@ -144,7 +164,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       // `this.stream !== s` and stays a no-op — the same guard that already makes the two endings
       // idempotent.
       s.close();
-      this.post({ kind: 'note', text: 'lost the conversation — reconnecting…' });
+      this.post({ kind: 'note', text: 'lost the chat — reconnecting…' });
       void this.reattach();
     };
     // Two ways to learn it, and the socket is the less reliable one.
@@ -212,10 +232,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       ? { ...rawAsk, diffKind: determineApprovalDiffKind(rawAsk), filePath: extractAskFilePath(rawAsk) }
       : null;
     if (ask) this.asks.record(ask, this.companion.workdir, this.session);
+    const rowTimes = new Map(this.events.filter(e => e.seq > 0).map(e => [e.seq, e.ts]));
     this.post({
       kind: 'rows',
       session: this.session,
-      rows: rows(this.events).map((r) => paint(r, this.companion.you)),
+      rows: rows(this.events).map((r) => paint(r, this.companion.you, rowTimes.get(r.seq))),
       ask,
       refs: this.refs.map(refText),
       companionKey: this.companion.workdir,
@@ -457,14 +478,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
                 const created = await this.companion.ask('session-new');
                 sid = created?.session ?? '';
                 if (!sid) {
-                  failureErr = created?.error ?? 'the companion could not open a conversation.';
+                  failureErr = created?.error ?? 'the companion could not open a chat.';
                 }
               } catch (e: any) {
-                failureErr = e?.message ?? 'the companion could not open a conversation.';
+                failureErr = e?.message ?? 'the companion could not open a chat.';
               }
 
               if (failureErr || !sid) {
-                const err = failureErr || 'the companion could not open a conversation.';
+                const err = failureErr || 'the companion could not open a chat.';
                 if (this.view === capturedView && this.currentWebviewId === capturedWebviewId) {
                   this.post({
                     kind: 'sessionCreationFailed',
@@ -511,7 +532,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
             try {
               resolvedSid = await pendingCreation;
             } catch (e: any) {
-              this.giveBack(body, sent, e?.message ?? 'the companion could not open a conversation.');
+              this.giveBack(body, sent, e?.message ?? 'the companion could not open a chat.');
               break;
             }
             if (this.generation === creationGen && !this.sid) {
@@ -604,6 +625,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
             },
           },
         });
+        break;
+      }
+      case 'copy': {
+        if (m.session !== this.session) break;
+        try { await vscode.env.clipboard.writeText(m.text); }
+        catch (error) { this.post({ kind: 'note', text: '복사하지 못했습니다: ' + String(error) }); }
         break;
       }
       case 'output': {
@@ -770,6 +797,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   dispose(): void {
+    this.view = null;
+    this.opening++;
     this.stream?.close();
     this.edits.dispose();
     this.asks.clear();
@@ -789,6 +818,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_view.bundle.js')).toString()
       : 'out/web/chat_view.bundle.js';
     return renderChatHtml({
+      language: vscode.env?.language || 'en',
       nonce,
       cspSource,
       scriptUri,
@@ -799,12 +829,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 /** The one place a row gets its visible label, so two screens cannot spell it differently. */
-function paint(r: Row, you?: string): Row & { label: string } {
+function paint(r: Row, you?: string, at?: string): PaintedRow {
   // The person's own name when something has told us one. Every screen said "user" at whoever
   // had logged in, because the field the daemon fills for exactly this was never read.
   const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase()
     : r.who === 'user' && you ? you
-    : r.who;
+    : r.who === 'agent' ? 'magi' : r.who === 'user' ? '나' : r.who;
   // A council row's label carries the vote and the round. Without them nine rows over three rounds
   // read as one undifferentiated block, and the one thing a verdict IS — how they voted — is absent.
   const v = r.who === 'council' ? verdictWord(r.decision, r.silent) : { icon: '', word: '' };
@@ -825,5 +855,5 @@ function paint(r: Row, you?: string): Row & { label: string } {
   // into ✗ is the defect the core measured on a live run — a file that was written and then
   // linted drew as a write that failed.
   const mark = r.who !== 'tool' || r.ok === undefined ? '' : r.note ? ' ⚑' : r.ok ? ' ✓' : ' ✗';
-  return { ...r, label: who + vote + mark };
+  return { ...r, ...(at ? { at } : {}), speaker: who, badge: vote + mark, label: who + vote + mark };
 }

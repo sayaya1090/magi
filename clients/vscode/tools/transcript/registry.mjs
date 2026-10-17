@@ -7,7 +7,7 @@ import { createA11yBundle } from './scenarios/a11y.mjs';
 import { markdownBundle } from './scenarios/markdown.mjs';
 
 export const EXPECTED_BUNDLE_COUNTS = {
-  layout: 14,
+  layout: 16,
   asks: 14,
   autocomplete: 2,
   diff: 13,

@@ -85,20 +85,22 @@ class CoreProbeTest {
     /** 그리고 남기지 않는다: 시한 초과한 자식은 죽어 있어야 한다. */
     @Test
     fun `기한에 걸린 자식을 남기지 않는다`() {
-        val marker = Files.createTempFile("probe-alive", ".txt").toFile()
-        marker.deleteOnExit()
-        // 살아 있는 동안 계속 흔적을 갱신하는 자식. 조회가 돌아온 뒤로는 멈춰 있어야 한다.
-        // ⚠ 기한 안에 감싼다. 재려는 구현이 **안 끝나는** 것이 바로 이 시험이 잡는 결함이라,
-        // 안 감싸면 실패가 정지로 나타난다 — 기한이 읽기 뒤에 선 판으로 돌려 봤더니 이 줄이
-        // 끝없이 도는 자식 앞에서 영영 안 돌아왔고, 빌드가 멈춘 채로 남았다(2026-09-11 실측).
-        assertTimeoutPreemptively<Set<String>>(Duration.ofSeconds(10)) {
-            CoreProbe.features(stand("spin", marker.absolutePath), timeoutMs = patience)
+        var child: Process? = null
+        try {
+            assertTimeoutPreemptively<Set<String>>(Duration.ofSeconds(10)) {
+                CoreProbe.features(stand("hang"), patience) { command ->
+                    ProcessBuilder(command).start().also { child = it }
+                }
+            }
+            val process = requireNotNull(child) { "probe process was not started" }
+            // Inspect the OS process: a busy CI runner can kill the JVM before main writes a
+            // marker. That is successful cleanup, not evidence that no child was started.
+            assertTrue(process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS),
+                "timed-out probe is still running after features returned")
+            assertTrue(!process.isAlive, "timed-out probe process survived")
+        } finally {
+            child?.destroyForcibly()
         }
-        val first = File(marker.absolutePath).readText()
-        assertTrue(first.isNotBlank(), "대역이 기한 안에 한 번도 안 썼다 — 기다림이 JVM 기동보다 짧다")
-        Thread.sleep(600)
-        assertEquals(first, File(marker.absolutePath).readText(),
-            "조회가 끝난 뒤에도 자식이 살아서 쓰고 있다 — 시한 초과에 아무도 안 치웠다")
     }
 
     /**

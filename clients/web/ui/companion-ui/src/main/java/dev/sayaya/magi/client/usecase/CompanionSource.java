@@ -19,6 +19,11 @@ public interface CompanionSource {
     }
 
     void start(Listener l);
+    default void compact(CompanionContext ctx, String session, java.util.function.Consumer<String> done) { compact(ctx, () -> done.accept("")); }
+
+    default void councilState(CompanionContext ctx, String session, java.util.function.Consumer<Object> cb) { cb.accept(null); }
+    default void setCouncil(CompanionContext ctx, String session, boolean enabled, java.util.function.Consumer<String> why) { why.accept("Not supported"); }
+
 
     /** 명단 — 셸이 호스팅하면 그 구독으로, 단독이면 /fleet 한 번. 사실판이 읽는다. */
     void roster(java.util.function.Consumer<Object> listOrNull);

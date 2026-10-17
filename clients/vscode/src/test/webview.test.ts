@@ -1,3 +1,5 @@
+import { panelText } from '../core/i18n';
+import { ideColors } from '../core/palette';
 import { test } from 'node:test';
 import { chatWebviewSource } from './support/webview_source';
 import * as assert from 'node:assert/strict';
@@ -95,7 +97,7 @@ test('no webview script contains a backtick', () => {
 
 /** And every interpolation in there is one we meant — a stray ${ is a hole, not a value. */
 test('every interpolation in a webview is a named one', () => {
-  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri']);
+  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri', 'idePaletteCss', 'uiJson', 'language']);
   for (const { file, body } of templates()) {
     for (const m of body.matchAll(/\$\{([^}]*)\}/g)) {
       assert.ok(allowed.has(m[1].trim()), `${file}: unexpected interpolation \${${m[1]}}`);
@@ -390,13 +392,13 @@ test('the children list draws who opened each child', () => {
  * The third time this session that a helper was written, unit-tested, and could still have been
  * left uncalled by the screen it was written for. `doors.ts` imports `vscode`, so it is read as text.
  */
-test('the conversation list stamps its rows in local time', () => {
+test('the chat list stamps its rows in local time', () => {
   const src = fs.readFileSync(path.join(IDE, 'doors.ts'), 'utf8');
   const at = src.indexOf("reg('magi.resume'");
   assert.ok(at > 0, 'the resume command is not where this guard looks for it');
   const block = src.slice(at, src.indexOf('\n    }),', at));
   assert.ok(/localStamp\(\s*s\.lastActivity\s*\)/.test(block),
-    'the conversation list draws the wire timestamp raw — UTC, with the T and the Z');
+    'the chat list draws the wire timestamp raw — UTC, with the T and the Z');
 });
 
 /**
@@ -5610,7 +5612,7 @@ test('§6.9: the panel has a persistent state notice separate from the transient
   assert.ok(/stateNoteEl\.append\(b\)/.test(chatWebviewSource()), 'the start button is appended to the persistent notice');
 });
 
-test('↑/↓ in the composer bring back what was typed in any conversation, only from the edge line', () => {
+test('↑/↓ in the composer bring back what was typed in any chat, only from the edge line', () => {
   const listeners: Record<string, (e: any) => void> = {};
   const elements = {
     say: {
@@ -5651,4 +5653,37 @@ test('↑/↓ in the composer bring back what was typed in any conversation, onl
   assert.equal(key('ArrowUp'), false);
   assert.equal(elements.say.value, 'one\ntwo');
   inputAdapter.dispose();
+});
+
+
+test('VS Code semantic colors match both JetBrains palette variants', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../../jetbrains/plugin/core/src/main/kotlin/dev/sayaya/magi/ide/usecase/Palette.kt'), 'utf8');
+  for (const [role, colors] of Object.entries(ideColors)) {
+    assert.ok(source.includes(`val ${role} = Ink("${colors.light}", "${colors.dark}")`), `palette mismatch: ${role}`);
+  }
+});
+
+
+test('panel and icon labels follow the VS Code locale with English fallback', () => {
+  assert.equal(panelText('ko-KR').model, '모델');
+  assert.equal(panelText('en-US').model, 'Model');
+  assert.deepEqual(panelText('fr'), panelText('en'));
+  assert.equal(panelText('ko').copy, '복사');
+  assert.equal(panelText('en').copy, 'Copy');
+});
+
+
+test('native commands have matching locale keys and a count-neutral Magi file action', () => {
+  const root = path.resolve(__dirname, '../..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const english = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.json'), 'utf8'));
+  const korean = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.ko.json'), 'utf8'));
+  assert.deepEqual(Object.keys(english).sort(), Object.keys(korean).sort());
+  for (const command of manifest.contributes.commands) {
+    assert.match(command.title, /^%[^%]+%$/);
+    const key = command.title.slice(1, -1);
+    assert.ok(english[key] && korean[key], command.command);
+  }
+  assert.equal(english['magi.attachFiles.title'], 'Add to Magi chat');
+  assert.equal(korean['magi.attachFiles.title'], 'Magi 대화에 추가');
 });

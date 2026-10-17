@@ -31,7 +31,11 @@ func (s *server) compact(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) || s.forwarded(w, r, s.proxy) {
 		return
 	}
+	wanted := r.FormValue("session")
 	err := s.alone(r, func(cl *daemon.Client, sid session.SessionID) error {
+		if wanted != "" && wanted != string(sid) {
+			return daemon.Refused{Why: "the active chat has changed; refresh before compacting"}
+		}
 		return cl.Compact(context.Background(), command.Compact{SessionID: sid})
 	})
 	if err != nil {

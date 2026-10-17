@@ -75,6 +75,44 @@ internal class CompanionPanelTest : GwtTestSpec({
             // 답하고, 그 백엔드의 목록은 fast-model·deep-model이다. 고르개가 「답한 것만」
             // 내놓으면 켤 값이 없어 이 칸은 <b>빈 칸</b>이 되고, 사람은 제 컴패니언이 무엇으로
             // 돌고 있는지 모른 채 그것을 바꾸라는 말을 듣는다(실측: 클라우드 모델 위의 데몬).
+            Then("압축은 재렌더 중에도 잠기며 중복 요청을 막고 실패 후 다시 사용할 수 있다") {
+                page.evaluate("window.__magi_test_hold_compact = true")
+                val compact = page.locator("#detail .context-compact")
+                page.waitForCondition { compact.count() == 1 }
+                compact.evaluate("b => b.click()")
+                compact.getAttribute("data-aria-busy") shouldBe "true"
+                page.evaluate("window.__magi_test_redraw()")
+                page.locator("#detail .context-compact").getAttribute("disabled") shouldBe ""
+                page.locator("#detail .context-compact").evaluate("b => b.dispatchEvent(new MouseEvent('click', {bubbles:true}))")
+                page.evaluate("window.__magi_test_compact_calls") shouldBe 1
+                page.evaluate("window.__magi_test_compact_session") shouldBe "s_demo1"
+                page.evaluate("window.__magi_test_compact_release('model timeout')")
+                page.locator("#detail .f[data-k=\"field.context\"] .setting-feedback").textContent() shouldContain "model timeout"
+                page.locator("#detail .context-compact").getAttribute("data-aria-busy") shouldBe "false"
+                page.evaluate("window.__magi_test_hold_compact = false")
+            }
+            Then("카운슬은 캐시 안내 확인 후에만 현재 대화에 적용된다") {
+                val toggle = page.locator("#detail .f[data-k=\"field.council\"] md-switch")
+                page.waitForCondition { toggle.count() == 1 }
+                toggle.evaluate("b => { b.selected = true; b.dispatchEvent(new Event('change', {bubbles:true})); }")
+                val dialog = page.locator("md-dialog.askconfirm")
+                dialog.locator("[slot=content]").textContent() shouldContain "council.enable_confirm"
+                dialog.locator("md-text-button").first().evaluate("b => b.click()")
+                page.waitForCondition { page.locator("md-dialog.askconfirm").count() == 0 }
+                (page.evaluate("typeof window.__magi_test_council === 'undefined'") as Boolean) shouldBe true
+                toggle.evaluate("b => { b.selected = true; b.dispatchEvent(new Event('change', {bubbles:true})); }")
+                page.locator("md-dialog.askconfirm .armed").evaluate("b => b.click()")
+                page.waitForCondition { page.evaluate("window.__magi_test_council") == "s_demo1:true" }
+                (toggle.evaluate("b => b.selected") as Boolean) shouldBe true
+            }
+            Then("모델 변경 거절은 기존 값과 읽을 수 있는 오류로 돌아온다") {
+                val model = page.locator("#detail .f[data-k=\"field.provider_model\"] md-outlined-select[data-aria-label=\"field.model\"]")
+                page.waitForCondition { model.count() == 1 }
+                page.evaluate("window.__magi_test_model_why = 'authentication failed'")
+                model.evaluate("b => { b.value = 'deep-model'; b.dispatchEvent(new Event('change', {bubbles:true})); }")
+                page.waitForCondition { model.evaluate("b => b.value") == "gpt-oss:120b" }
+                page.locator("#detail .f[data-k=\"field.provider_model\"] .setting-feedback").textContent() shouldContain "authentication failed"
+            }
             Then("모델 칸은 돌고 있는 것을 보여 준다 — 그 이름이 백엔드의 목록에 없어도") {
                 val pick = "#detail .f[data-k=\"field.provider_model\"] " +
                     "md-outlined-select[data-aria-label=\"field.model\"]"
@@ -111,10 +149,10 @@ internal class CompanionPanelTest : GwtTestSpec({
                     "window.__magi_labels = {'time.ago': '{d}'}; window.__magi_labels_v = 1;"
                 )
                 val age = page.locator("#detail .f[data-k=\"field.last_activity\"] .v")
-                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent()) }
-                val first = Regex("\\d+").find(age.textContent())!!.value.toInt()
+                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent().orEmpty()) }
+                val first = Regex("\\d+").find(age.textContent().orEmpty())!!.value.toInt()
                 page.waitForCondition {
-                    Regex("\\d+").find(age.textContent())!!.value.toInt() >= first + 2
+                    Regex("\\d+").find(age.textContent().orEmpty())!!.value.toInt() >= first + 2
                 }
             }
             Then("손잡이를 누르면 그 기둥이 열린다 — 닫힌 기둥의 속은 보이지 않는 것이 옳다") {
@@ -361,7 +399,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 명단 행은 진행률을 매 프레임 실어 나르는데, 항목 목록은 컴패니언을 바꿀 때만
                 // 물었다. 그래서 막대는 움직이고 그 밑의 체크는 안 바뀐다.
                 page.evaluate("window.__magi_test_thinking()")     // planDone 1/3
-                page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("working") }
+                page.waitForCondition { page.locator("#detail .foldbar").textContent().orEmpty().contains("working") }
                 val before = page.evaluate("window.__magi_test_plan_asks || 0") as Int
                 page.evaluate("window.__magi_test_idle_no_steps()") // planDone 2/3
                 page.waitForCondition {
@@ -369,14 +407,14 @@ internal class CompanionPanelTest : GwtTestSpec({
                 }
                 // 다시 물은 목록이 실제로 그려진다 — 묻기만 하고 안 그리면 사람 눈엔 같다.
                 page.waitForCondition {
-                    page.locator("#side #plan").textContent().contains("(again)")
+                    page.locator("#side #plan").textContent().orEmpty().contains("(again)")
                 }
             }
             Then("진행률이 그대로면 묻지 않는다") {
                 val before = page.evaluate("window.__magi_test_plan_asks || 0") as Int
                 repeat(3) {
                     page.evaluate("window.__magi_test_idle_no_steps()")
-                    page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("idle") }
+                    page.waitForCondition { page.locator("#detail .foldbar").textContent().orEmpty().contains("idle") }
                 }
                 (page.evaluate("window.__magi_test_plan_asks || 0") as Int) shouldBe before
             }
@@ -387,9 +425,9 @@ internal class CompanionPanelTest : GwtTestSpec({
                 val before = page.evaluate("window.__magi_test_context_asks || 0")
                 // 도는 중 → 쉬는 중. 이 전이가 사람이 이 수를 보고 판단하는 시점이다.
                 page.evaluate("window.__magi_test_thinking()")
-                page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("working") }
+                page.waitForCondition { page.locator("#detail .foldbar").textContent().orEmpty().contains("working") }
                 page.evaluate("window.__magi_test_idle_no_steps()")
-                page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("idle") }
+                page.waitForCondition { page.locator("#detail .foldbar").textContent().orEmpty().contains("idle") }
                 // 컴패니언을 바꿀 때만 묻던 자리다. 컨텍스트는 자라는 값이고, 실측에서 서버가
                 // 49,589 토큰을 답하는 동안 화면은 페이지를 열 때의 「~0 tokens」를 계속 보였다.
                 page.waitForCondition {
@@ -398,7 +436,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 }
                 // 다시 물은 값이 실제로 그려진다 — 묻기만 하고 안 그리면 사람 눈엔 같다.
                 page.waitForCondition {
-                    page.locator("#detail .f[data-k=\"field.context\"] .v").textContent().contains("91,500")
+                    page.locator("#detail .f[data-k=\"field.context\"] .v").textContent().orEmpty().contains("91,500")
                 }
             }
             Then("도는 동안에는 묻지 않는다 — 그 답은 로그를 통째로 다시 재생하는 값이다") {
@@ -408,7 +446,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 val before = page.evaluate("window.__magi_test_context_asks || 0") as Int
                 repeat(3) {
                     page.evaluate("window.__magi_test_thinking()")
-                    page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("working") }
+                    page.waitForCondition { page.locator("#detail .foldbar").textContent().orEmpty().contains("working") }
                 }
                 (page.evaluate("window.__magi_test_context_asks || 0") as Int) shouldBe before
             }
@@ -419,7 +457,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_thinking()")
                 // 요약줄로 기다린다: field.status 는 큐가 있을 때만 그려지고, 이 목에는 없다.
                 page.waitForCondition {
-                    page.locator("#detail .foldbar").textContent().contains("working")
+                    page.locator("#detail .foldbar").textContent().orEmpty().contains("working")
                 }
                 // 명단은 <b>열린 턴이 있을 때만</b> 이 수를 채운다. 그래서 쉬는 컴패니언의 0 은
                 // "셀 것이 없다"이고 대시가 맞지만, 도는 턴의 0 은 "아직 아무 도구도 안 불렀다"
@@ -432,7 +470,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 「언제나 숫자로 그리기」 변이가 통과한다 — 실제로 통과했다.
                 page.evaluate("window.__magi_test_idle_no_steps()")
                 page.waitForCondition {
-                    page.locator("#detail .foldbar").textContent().contains("idle")
+                    page.locator("#detail .foldbar").textContent().orEmpty().contains("idle")
                 }
                 page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "—"
             }
@@ -508,7 +546,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 요약 줄이 먼저 바뀐다 — 그 한 줄이 상태와 작업공간을 같이 인다.
                 // 팩이 없는 페이지에서 stateWord는 원어를 돌려준다(키가 아니라 "stopped").
                 page.waitForCondition {
-                    (page.locator("#detail .foldbar .sum").textContent() ?: "").startsWith("stopped")
+                    (page.locator("#detail .foldbar .sum").textContent().orEmpty() ?: "").startsWith("stopped")
                 }
                 page.locator("#detail[hidden]").count() shouldBe 0
                 page.locator("#detail .foldbar .sum").textContent() shouldContain "/Users/you/work/app"
@@ -523,11 +561,11 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.waitForCondition { opts.count() == 4 }
                 // 첫 줄은 명단이 아직 못 따라잡은 지금 이 세션(픽스처의 history엔 없다).
                 // 팩이 없는 페이지에서 tr은 키를 돌려주므로 키 계약으로 잰다.
-                opts.nth(0).textContent()?.trim() shouldBe "s_demo1 · session.thisone"
-                opts.nth(1).textContent()?.trim() shouldBe "s_now · the open one"
-                opts.nth(2).textContent()?.trim() shouldBe "s_old · fix the retry storm"
+                opts.nth(0).textContent().orEmpty()?.trim() shouldBe "s_demo1 · session.thisone"
+                opts.nth(1).textContent().orEmpty()?.trim() shouldBe "s_now · the open one"
+                opts.nth(2).textContent().orEmpty()?.trim() shouldBe "s_old · fix the retry storm"
                 // 지난 세션의 제목 없음은 지금 이 세션의 그것과 다른 말이다.
-                opts.nth(3).textContent()?.trim() shouldBe "s_bare · session.untitled"
+                opts.nth(3).textContent().orEmpty()?.trim() shouldBe "s_bare · session.untitled"
             }
         }
 
@@ -553,7 +591,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                     " return d.scrollHeight > d.clientHeight" +
                     " && getComputedStyle(d).overflowY !== 'hidden'; })()") as Boolean) shouldBe true
                 // 질문은 통째로 있다(가로로 잘라 내지 않는다 — 명령은 끝까지 읽어야 한다).
-                ((page.locator("#prompt .asking").textContent()?.length ?: 0) > 1000) shouldBe true
+                ((page.locator("#prompt .asking").textContent().orEmpty()?.length ?: 0) > 1000) shouldBe true
                 (page.evaluate("(() => { const q = document.querySelector('#prompt .asking');" +
                     " return q.scrollWidth <= q.clientWidth + 1; })()") as Boolean) shouldBe true
             }

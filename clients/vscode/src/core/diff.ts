@@ -90,7 +90,7 @@ export function approvalDiffUri(
   const encCall = encodeURIComponent(callId);
   const encSide = encodeURIComponent(side);
   const encFile = encodeURIComponent(filename);
-  return `magi-diff:/${encCompanion}/${encSession}/${encCall}/${encSide}/${encFile}`;
+  return `magi-diff:/snapshot/${encCompanion}/${encSession}/${encCall}/${encSide}/${encFile}`;
 }
 
 /**

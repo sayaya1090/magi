@@ -58,7 +58,7 @@ code --install-extension magi-0.2.0.vsix --force
 | **우측 보조 사이드바 `magi`** | 계획 및 계기판 뷰 |
 | **상태 표시줄 좌측** | 컴패니언 실행 상태 **및 적용 모델명**. 클릭 시 상세 메뉴(§5.1)가 호출됩니다 |
 
-패널이 보이지 않을 경우 커맨드 팔레트(⇧⌘P)에서 **magi: Open the conversation**을 실행하십시오. 창 오픈 시 패널 자동 노출 여부는 `magi.openConversation` 설정으로 제어할 수 있습니다 (`whenRunning`(기본값), `always`, `never`).
+패널이 보이지 않을 경우 커맨드 팔레트(⇧⌘P)에서 **magi: Open Magi chat**을 실행하십시오. 창 오픈 시 패널 자동 노출 여부는 `magi.openConversation` 설정으로 제어할 수 있습니다 (`whenRunning`(기본값), `always`, `never`).
 우측 보조 사이드바가 접혀 있을 경우 **보기 > 모양 > 보조 사이드바**(⌥⌘B)로 열 수 있습니다.
 
 ---
@@ -89,7 +89,7 @@ code --install-extension magi-0.2.0.vsix --force
 
 **Enter 키로 전송하며, Shift+Enter는 줄바꿈을 수행합니다.**
 
-입력창 상단에는 **참조 칩(Chip)**이 표시됩니다. 에디터 컨텍스트 메뉴의 「Add this code to the conversation」으로 첨부된 코드 조각들이며, 전송 시 함께 전달된 후 자동으로 비워집니다. 개별 `clear` 버튼으로 제거할 수도 있습니다.
+입력창 상단에는 **참조 칩(Chip)**이 표시됩니다. 에디터 컨텍스트 메뉴의 「Add code to Magi chat」으로 첨부된 코드 조각들이며, 전송 시 함께 전달된 후 자동으로 비워집니다. 개별 `clear` 버튼으로 제거할 수도 있습니다.
 
 ### 3.3 승인 및 위험 도구 검토
 
@@ -167,7 +167,7 @@ code --install-extension magi-0.2.0.vsix --force
 
 이 힌트는 입력이 멈출 때마다(450ms, 4자 이상) 컴패니언에게 추천을 요청합니다. 모델을 호출하는 작업이므로 `magi.suggest` 설정을 통해 비활성화할 수 있으며(기본값 켜짐), JetBrains 플러그인 및 웹 콘솔과 동일한 설정 스위치를 제공합니다. 비활성화 시 추천 힌트만 숨겨지고 나머지 입력 기능은 정상 유지됩니다.
 
-컴패니언이 현재 세션을 벗어나 **다른 대화로 이동할 경우**(웹 콘솔, 터미널, 타 IDE에서 세션을 전환한 경우), 전사 내역에 세션 이동 사실과 이동 대상 대화 식별자가 명시됩니다. 사용자의 작업 흐름을 방해하지 않도록 화면을 강제로 전환하지는 않으므로, 이동한 대화를 이어서 보려면 커맨드 팔레트의 **magi: Resume a conversation**에서 해당 대화를 선택하십시오. 이 안내 행이 없으면 대화가 단순히 멈춘 것처럼 보여 데몬 비정상 종료와 구별하기 어렵기 때문에 반드시 이동 내역을 기록합니다.
+컴패니언이 현재 세션을 벗어나 **다른 대화로 이동할 경우**(웹 콘솔, 터미널, 타 IDE에서 세션을 전환한 경우), 전사 내역에 세션 이동 사실과 이동 대상 대화 식별자가 명시됩니다. 사용자의 작업 흐름을 방해하지 않도록 화면을 강제로 전환하지는 않으므로, 이동한 대화를 이어서 보려면 커맨드 팔레트의 **magi: Continue a chat**에서 해당 대화를 선택하십시오. 이 안내 행이 없으면 대화가 단순히 멈춘 것처럼 보여 데몬 비정상 종료와 구별하기 어렵기 때문에 반드시 이동 내역을 기록합니다.
 
 ### 3.6 뷰 툴바 액션
 
@@ -193,6 +193,14 @@ code --install-extension magi-0.2.0.vsix --force
 ---
 
 ## 4. 보조 사이드바 — 계획 및 계기판
+
+패널 맨 위의 상태 점과 설명으로 데몬 연결을 확인합니다. 초록색은 연결됨, 노란색은 사용자 응답 대기, 빨간색은 연결 끊김입니다. 확인할 수 없는 상태는 회색으로 표시하며 작업이 없다고 단정하지 않습니다.
+
+우측 패널의 `현재 대화`, `프로바이더`, `모델`, `승인 방식` 드롭다운에서 값을 바로 변경합니다. 현재 대화 옆의 `+`는 새 대화를 만듭니다. 카운슬은 스위치로 켜고 끄며, 캐시 영향 안내를 확인한 뒤 적용합니다. 변경 중에는 `적용 중…`이 표시되고 실패하면 서버의 현재 값으로 복원됩니다. 목록을 고르는 동안에는 자동 새로고침이 컨트롤을 교체하지 않습니다. 세부 항목은 `에이전트 설정…`, 연결 정보는 `연결 설정…`에서 엽니다.
+
+VS Code를 열 때 데몬이 늦게 연결돼도 연결 확인 후 최근 대화를 자동으로 선택합니다. 화면 언어는 VS Code 설정을 따라 한국어 또는 영어로 표시하며, 다른 언어는 영어로 표시합니다. 채팅창 제목 표시줄의 아이콘 안내와 파일 우클릭 메뉴도 같은 언어를 사용합니다. 파일 탐색기 메뉴는 `Magi 대화에 추가`(`Add to Magi chat`)로 표시됩니다.
+
+채팅 행 상단에는 발화자, 편집창 열기 아이콘, 복사 아이콘, `HH:mm:ss` 시간이 표시됩니다. 편집창 열기는 확정된 출력에 제공되며 복사는 화면의 원문을 클립보드에 넣습니다. 출력 중에도 복사 내용은 최신 텍스트를 따릅니다. 사용자와 Magi의 이름과 말풍선은 JetBrains와 같은 주황·청록 계열로 구분합니다. 카운슬의 Melchior는 주황, Balthasar는 청록, Casper는 보라색입니다. 승인 결과는 초록, 작업 보완 요구는 노랑, 오류는 빨강으로 표시합니다. 시각과 보조 설명은 별도의 약한 글자색을 사용하며 밝은 테마와 어두운 테마의 색을 각각 적용합니다.
 
 ![보조 사이드바 — now, plan, context, jobs, scheduled, fleet, handed over 7개 섹션](img/03-sidebar-plan.png)
 
@@ -243,7 +251,7 @@ code --install-extension magi-0.2.0.vsix --force
 
 | 메뉴 항목 | 기능 및 세부 동작 |
 |---|---|
-| Open the conversation | 대화 패널 포커스 |
+| Open Magi chat | 대화 패널 포커스 |
 | Model: … | 현재 데몬이 제공하는 모델 목록 중 선택 (`models` → `set-model`) |
 | Backend: … | 프로파일 선택 또는 **기본 백엔드로 복귀** (`profiles` → `use-backend`) |
 | Approval: … | 승인 모드 전환 (ask · auto · allow · deny) |
@@ -294,14 +302,14 @@ VS Code 설정(`settings.json` 또는 GUI 설정 편집기)에서 `magi` 네임�
 
 | 메뉴 항목 | 진입 위치 |
 |---|---|
-| Add this code to the conversation | 에디터 우클릭 메뉴 · 탐색기 파일 다중 선택 우클릭 |
-| Ask about this code | 에디터 우클릭 메뉴 · 에디터 코드 액션(💡) |
+| Add code to Magi chat | 에디터 우클릭 메뉴 · 탐색기 파일 다중 선택 우클릭 |
+| Ask Magi about this code | 에디터 우클릭 메뉴 · 에디터 코드 액션(💡) |
 | Look over this file now | 에디터 우클릭 메뉴 · 대화 패널 툴바 |
 | Which turn wrote this line | 에디터 우클릭 메뉴 |
-| Explain this output | 터미널 우클릭 메뉴 · **문제 패널 진단(`Diagnostic`) 라인의 코드 액션** |
+| Ask Magi to explain this output | 터미널 우클릭 메뉴 · **문제 패널 진단(`Diagnostic`) 라인의 코드 액션** |
 | Draft a commit message | 소스 제어(SCM) 커밋 메시지 입력창 액션 |
 
-- ⚠ **탐색기 다중 파일 첨부 (`magi.attachFiles`):** VS Code 파일 탐색기에서 파일을 복수 선택(Shift/Cmd 클릭)한 후 우클릭하여 `Add these files to the conversation`을 실행하면 선택된 모든 파일이 대화 패널의 참조 칩으로 한 번에 등록됩니다.
+- ⚠ **탐색기 다중 파일 첨부 (`magi.attachFiles`):** VS Code 파일 탐색기에서 파일을 복수 선택(Shift/Cmd 클릭)한 후 우클릭하여 `Add to Magi chat`을 실행하면 선택된 모든 파일이 대화 패널의 참조 칩으로 한 번에 등록됩니다.
 - ⚠ **터미널 출력 설명의 VS Code 네이티브 매핑:** xterm 터미널의 줄 단위 컨텍스트 캡처 한계를 극복하기 위해, 빌드 오류 및 린트 오류가 집중되는 문제 패널의 진단 라인 코드 액션으로 이전하여 제공합니다.
 - **단축키 설정:** 충돌 방지를 위해 기본 단축키는 선점되어 있지 않으며, Keyboard Shortcuts 설정에서 `magi`로 검색하여 원하는 단축키를 지정할 수 있습니다.
 
@@ -311,31 +319,31 @@ VS Code 설정(`settings.json` 또는 GUI 설정 편집기)에서 `magi` 네임�
 
 | 팔레트 영문 제목 | 주요 기능 | 상세 절 |
 |---|---|---|
-| Open the conversation | 대화 패널을 엽니다 | §3 |
+| Open Magi chat | 대화 패널을 엽니다 | §3 |
 | Start the companion for this workspace | 워크스페이스용 데몬을 구동합니다 | §1 |
 | magi: Download the magi core | 컴패니언 실행 바이너리를 다운로드합니다 | §1 |
 | Stop what the companion is doing | **실행 중인 턴을 즉시 중단합니다.** 대화 기록은 보존되며 현재 작업만 안전하게 멈춥니다 | §3.2 |
 | Look over this file now | 현재 활성 파일을 검토합니다 | §7 |
-| Add this code to the conversation | 선택한 코드를 대화 참조 칩으로 첨부합니다 | §7 |
-| Add these files to the conversation | **탐색기에서 선택한 복수 파일**을 한 번에 첨부합니다 | §7 |
-| Ask about this code | 선택한 코드를 첨부하고 **머리말만** 입력창에 배치합니다(실제 질문은 사용자가 직접 작성합니다). 입력 중이던 문구가 존재할 경우 **해당 텍스트를 삭제하지 않고 그 앞에** 머리말을 삽입하며, 커서는 머리말 끝에 위치시킵니다 | §7 |
+| Add code to Magi chat | 선택한 코드를 대화 참조 칩으로 첨부합니다 | §7 |
+| Add to Magi chat | **탐색기에서 선택한 복수 파일**을 한 번에 첨부합니다 | §7 |
+| Ask Magi about this code | 선택한 코드를 첨부하고 **머리말만** 입력창에 배치합니다(실제 질문은 사용자가 직접 작성합니다). 입력 중이던 문구가 존재할 경우 **해당 텍스트를 삭제하지 않고 그 앞에** 머리말을 삽입하며, 커서는 머리말 끝에 위치시킵니다 | §7 |
 | Which turn wrote this line | 현재 라인을 작성한 작업 턴을 조회합니다 | §6 |
-| Explain this output | 진단 또는 터미널 선택 출력을 설명합니다 | §7 |
+| Ask Magi to explain this output | 진단 또는 터미널 선택 출력을 설명합니다 | §7 |
 | Draft a commit message | 변경 사항 기반 커밋 메시지 초안을 생성합니다 | §7 |
 | Choose the model | 질의를 수행할 모델을 선택합니다 | §3.6a · §5.1 |
 | Choose the backend | 사용할 백엔드 프로파일을 선택합니다 | §3.6a · §5.1 |
 | Update this companion | 최신 빌드로 업데이트합니다. 확인 대화상자가 **둘을 고르게 합니다** — **Update, restart when idle**(기본으로 먼저 놓임: 새 빌드는 지금 디스크에 놓고 재기동은 컴패니언이 조용해질 때)와 **Update and restart now**(지금 돌아가는 턴을 끝내고 갈아치움). 어느 쪽이 일어났는지는 데몬이 제 말로 답합니다 | §3.6a |
 | Restart this companion | 데몬 프로세스를 재시작합니다 (확인 대화상자 선행) | §3.6a |
 | Choose the approval mode | 승인 모드를 변경합니다 (ask · auto · allow · deny) | §3.6a · §5.1 |
-| Open another conversation | 타 대화 세션을 읽기 전용으로 조회합니다 | §7.1 |
+| Open a previous chat | 타 대화 세션을 읽기 전용으로 조회합니다 | §7.1 |
 | Show what magi is running | 런타임 환경 현황을 조회합니다 | §5.1 |
 | Change one of magi's own settings | 데몬 고유 설정을 변경합니다 | §5.1 |
-| Start a new conversation | 새 대화 세션을 개시합니다 | §7.1 |
-| Resume a conversation | 이전 대화 세션을 재개합니다 | §7.1 |
+| New chat | 새 대화 세션을 개시합니다 | §7.1 |
+| Continue a chat | 이전 대화 세션을 재개합니다 | §7.1 |
 | Compact context | 컨텍스트를 압축 요약합니다 (확인 대화상자 선행) | §7.1 |
 | Go back to an earlier point | 이전 턴 위치로 대화를 되감습니다 (확인 대화상자 선행) | §7.1 |
 | Stop a background job | 백그라운드 작업을 중단합니다 | §7.2 |
-| Show child conversations | 서브에이전트 자식 대화 세션 목록을 조회합니다 | §7.1 |
+| Show child chats | 서브에이전트 자식 대화 세션 목록을 조회합니다 | §7.1 |
 | Scheduled work | 주기적 예약 작업을 관리합니다 | §7.2 |
 | Ask another companion to do something | 타 컴패니언에게 작업을 인계합니다 (도달 가능한 로컬 인스턴스 전용) | §7.1.5 |
 
@@ -347,12 +355,12 @@ VS Code 설정(`settings.json` 또는 GUI 설정 편집기)에서 `magi` 네임�
 
 | 커맨드 | 호출 엔드포인트 | 동작 사양 |
 |---|---|---|
-| Start a new conversation | `session-new` | 신규 세션 ID는 데몬이 생성합니다 |
-| Resume a conversation | `sessions` → `resume` | 과거 세션을 로드하여 활성 대화로 지정합니다 |
-| Open another conversation | `sessions` | 현재 활성 세션을 유지한 채 읽기 전용으로 타 세션을 조회합니다 |
+| New chat | `session-new` | 신규 세션 ID는 데몬이 생성합니다 |
+| Continue a chat | `sessions` → `resume` | 과거 세션을 로드하여 활성 대화로 지정합니다 |
+| Open a previous chat | `sessions` | 현재 활성 세션을 유지한 채 읽기 전용으로 타 세션을 조회합니다 |
 | Compact context | `compact` | **사전 확인 후 실행.** 이전 대화를 압축 요약본으로 치환합니다 |
 | Go back to an earlier point | `rewind` | **사전 확인 후 실행.** 사용자가 질의한 시점을 기준으로 턴 수 단위를 산정하여 되감기를 수행합니다 |
-| Show child conversations | `children` | 서브에이전트 및 회의 세션을 읽기 전용으로 조회합니다 |
+| Show child chats | `children` | 서브에이전트 및 회의 세션을 읽기 전용으로 조회합니다 |
 
 ## 7.1.5 타 컴패니언 작업 인계 (`hand_off`)
 

@@ -142,8 +142,10 @@ test('the manual names every command the palette offers', () => {
   const cmds = manifest.contributes.commands ?? [];
   assert.ok(cmds.length >= 20, `only ${cmds.length} commands read from the manifest — the scan is dead`);
   const doc = fs.readFileSync(path.join(root, 'docs', 'MANUAL.ko.md'), 'utf8');
+  const translations = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.json'), 'utf8'));
   for (const c of cmds) {
-    assert.ok(doc.includes(c.title),
+    const title = c.title.startsWith('%') ? translations[c.title.slice(1, -1)] : c.title;
+    assert.ok(typeof title === 'string' && doc.includes(title),
       `the palette offers "${c.title}" and the manual never says those words — it cannot be looked up`);
   }
 });

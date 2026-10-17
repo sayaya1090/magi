@@ -184,7 +184,7 @@ test('going back to a prompt is counted in turns, newest first', () => {
 });
 
 /** A seq that is not one of these rows is 0 — and a caller must not send 0 as "rewind nothing". */
-test('a point no longer in the conversation counts as none', () => {
+test('a point no longer in the chat counts as none', () => {
   assert.equal(turnsBack([{ seq: 10, who: 'user', text: 'x' }], 99), 0);
   assert.equal(turnsBack([], 10), 0);
 });
@@ -592,7 +592,7 @@ test('the two seats a meeting opens do not draw the same', () => {
  * The date comes along when it is not today, because in a list spanning weeks a bare "14:32" says
  * nothing. Same shape as the JetBrains client's `RowText.asked`, so one fact keeps one spelling.
  */
-test('a conversation is stamped in local time, with the date when it is not today', () => {
+test('a chat is stamped in local time, with the date when it is not today', () => {
   const now = new Date('2026-09-10T12:00:00Z');
   // Built FROM now rather than written out, so this does not depend on the machine's zone.
   const earlier = new Date(now.getTime() - 60 * 60 * 1000);

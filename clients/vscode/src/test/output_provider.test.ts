@@ -23,14 +23,7 @@ const vscodeMock = {
   },
   Uri: {
     file: (f: string) => ({ fsPath: f, scheme: 'file', path: f, toString: () => `file://${f}` }),
-    parse: (u: string) => {
-      const scheme = u.split(':/')[0];
-      return {
-        scheme,
-        toString: () => u,
-        path: u.slice(scheme.length + 1),
-      };
-    },
+    parse: (u: string) => require('vscode-uri').URI.parse(u),
     joinPath: (base: any, ...paths: string[]) => ({
       fsPath: [base.fsPath, ...paths].join('/'),
       scheme: 'file',

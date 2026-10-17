@@ -61,12 +61,14 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row.toolfail .foldbody pre.diff .dhunk").count() shouldBe 1
                 page.locator("#log .row.toolfail .foldbody").textContent() shouldContain "main.go"
             }
-            When("성공한 툴 행을 눌러 펼치면") {
+            And("성공한 툴 행을 눌러 펼치면") {
                 page.locator("#log .row.toolok summary").click()
                 Then("물은 것과 답한 것이 각자 라벨 아래 선다") {
                     page.locator("#log .row.toolok details[open]").count() shouldBe 1
                     page.locator("#log .row.toolok .foldbody .foldk").count() shouldBe 2
                     page.locator("#log .row.toolok .foldbody pre").last().textContent() shouldContain "warnings: 0"
+                    page.locator("#log .row.toolok .fold-preview").isVisible shouldBe false
+                    page.locator("#log .row.toolok .fold-title").textContent() shouldBe "bash"
                 }
             }
             Then("카운슬의 행은 제 자리와 제 표를 입는다 — 같은 갈색 아홉 줄이 아니라") {
@@ -76,7 +78,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row.council.v-continue.seated.m-melchior").count() shouldBe 1
                 page.locator("#log .row.council.v-done.seated.m-balthasar").count() shouldBe 1
             }
-            When("한 자리의 이름을 눌러 그 표를 열면") {
+            And("한 자리의 이름을 눌러 그 표를 열면") {
                 page.locator("#log .row.council button.whoin").first().click()
                 Then("표 자체가 읽힌다 — 결정·렌즈·확신이 한 칩에") {
                     page.waitForSelector("#fileview .dinsp")
@@ -88,9 +90,9 @@ internal class CodingScreenTest : GwtTestSpec({
                 }
                 Then("증거 다음에 표의 넷이 선다 — 이유·다음·유지·근거") {
                     val keys = page.locator("#fileview .dinsp .dk")
-                    val said = (0 until keys.count()).joinToString("|") { keys.nth(it).textContent() ?: "" }
+                    val said = (0 until keys.count()).joinToString("|") { keys.nth(it).textContent().orEmpty() ?: "" }
                     said shouldContain "detail.rationale|detail.next|detail.keep|detail.grounds"
-                    val body = page.locator("#fileview .dinsp").textContent() ?: ""
+                    val body = page.locator("#fileview .dinsp").textContent().orEmpty() ?: ""
                     body shouldContain "the report summarises instead of quoting"
                     body shouldContain "paste the exact output"
                     body shouldContain "the build fix already landed"
@@ -110,14 +112,14 @@ internal class CodingScreenTest : GwtTestSpec({
                 }
                 page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
             }
-            When("아무 것도 대지 않은 표를 열면") {
+            And("아무 것도 대지 않은 표를 열면") {
                 page.locator("#log .row.council button.whoin").last().click()
                 Then("근거 없음을 말로 적는다 — 빈 자리로 두지 않는다") {
                     page.waitForCondition {
                         page.locator("#fileview .filebar .filedir").textContent() == "Balthasar"
                     }
                     page.locator("#fileview .filebar .dchip").textContent() shouldBe "council.accept"
-                    (page.locator("#fileview .dinsp").textContent() ?: "") shouldContain "detail.no_grounds"
+                    (page.locator("#fileview .dinsp").textContent().orEmpty() ?: "") shouldContain "detail.no_grounds"
                 }
                 page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
             }
@@ -126,13 +128,26 @@ internal class CodingScreenTest : GwtTestSpec({
                 // 사람이 화면에서 달리 얻을 수 없는 것이라 두 산문 행에만 둔다.
                 // 산문 행마다 하나씩, 그 행의 홈통에.
                 (page.evaluate("[...document.querySelectorAll('#log .row.user, #log .row.assistant')]" +
-                    ".every(r => r.querySelectorAll('.who .copy').length === 1)") as Boolean) shouldBe true
+                    ".every(r => r.querySelectorAll('.row-actions .copy:not(.source)').length === 1)") as Boolean) shouldBe true
                 (page.locator("#log .row.user").count() > 0) shouldBe true
-                page.locator("#log .row.toolok .copy").count() shouldBe 0
-                page.locator("#log .row.user .who .copy").first().getAttribute("aria-label") shouldBe "action.copy"
+                page.locator("#log .row.toolok .row-actions .copy:not(.source)").count() shouldBe 1
+                page.locator("#log .row.user .row-actions .copy:not(.source)").first().getAttribute("aria-label") shouldBe "action.copy"
+            }
+            Then("모든 행의 액션과 시각은 같은 우측 기준선에 놓인다") {
+                (page.evaluate("(() => { const rows = [...document.querySelectorAll('#log .chat-row')]; const rights = rows.map(r => r.querySelector('.row-head > .when').getBoundingClientRect().right); return rights.length === 8 && rights.every(x => Math.abs(x-rights[0]) < 1); })()") as Boolean) shouldBe true
+            }
+            Then("도구 원문 보기는 읽기 전용 카드이며 요약으로 잘리지 않는다") {
+                page.locator("#log .row.toolok .source").evaluate("b => b.click()")
+                val source = page.locator("[id^='source:'] pre")
+                source.textContent() shouldContain "go build ./..."
+                source.textContent() shouldContain "warnings: 0"
+                page.locator("[id^='source:'] [contenteditable=true]").count() shouldBe 0
+                page.locator("#log .row.toolok .source").getAttribute("aria-label") shouldBe "action.view_source"
+                page.evaluate("window.__magi_cards[window.__magi_cards.length - 1].close()")
             }
             Then("시각은 행의 홈통에 붙는다") {
-                page.locator("#log .row.user .who .when").count() shouldBe 1
+                page.locator("#log .row.user .row-head .when").count() shouldBe 1
+                page.locator("#log .row.user .row-head .when").textContent().orEmpty().matches(Regex("\\d{2}:\\d{2}:00")) shouldBe true
             }
         }
         When("컴포저에 쓰다 말면") {
@@ -292,13 +307,13 @@ internal class CodingScreenTest : GwtTestSpec({
                 // 하나 끼우면 textContent는 그대로라 눈치채지 못하므로, 자식 수로 잰다.
                 ask.locator("[slot=content]").textContent() shouldBe "move.body"
                 ask.locator("[slot=content] > *").count() shouldBe 0
-                ask.locator("md-text-button.armed").textContent().trim() shouldBe "action.move_and_send"
+                ask.locator("md-text-button.armed").textContent().orEmpty().trim() shouldBe "action.move_and_send"
                 // 되돌릴 수 없는 쪽은 채운 버튼이 아니라 armed이고, 상자는 alert다(운영 계약).
                 ask.locator("md-text-button").count() shouldBe 2
                 ask.getAttribute("type") shouldBe "alert"
                 // 표는 자식이 아니라 슬롯에 온다 — 자식으로 붙이면 라벨 크기를 물려받아 작아진다.
                 ask.locator("md-text-button.armed svg[slot=icon]").count() shouldBe 1
-                ask.locator("md-text-button:not(.armed)").textContent().trim() shouldBe "action.cancel"
+                ask.locator("md-text-button:not(.armed)").textContent().orEmpty().trim() shouldBe "action.cancel"
                 ask.locator("md-text-button:not(.armed) svg[slot=icon]").count() shouldBe 1
             }
             page.locator("md-dialog.askconfirm md-text-button.armed").last().click()
@@ -585,9 +600,9 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             Then("번호는 제 기둥에 서고 본문에는 없다 — 끌어 복사하면 코드만 딸려온다") {
                 // 읽기 툴이 낸 `번호⇥본문`을 그대로 두면 붙여 넣은 모든 줄 앞에 번호가 붙는다.
-                page.locator("#fileview .filebody .filegutter").textContent()?.trim() shouldBe "1\n2\n3"
+                page.locator("#fileview .filebody .filegutter").textContent().orEmpty()?.trim() shouldBe "1\n2\n3"
                 page.locator("#fileview .filebody .filecode").textContent() shouldContain "package main"
-                (page.locator("#fileview .filebody .filecode").textContent() ?: "") shouldNotContain "1\tpackage"
+                (page.locator("#fileview .filebody .filecode").textContent().orEmpty() ?: "") shouldNotContain "1\tpackage"
             }
             Then("훑기가 주석을 가른다 — 파서가 아니라 표시다") {
                 page.locator("#fileview .filebody .filecode .tok-note").first().textContent() shouldContain "// go"
@@ -663,7 +678,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 // 사람에게 다시 묻지 않으려는 규칙) — 저장한 쪽이 그 사본을 비워 주지 않으면
                 // 화면은 제가 보낸 글자를 디스크라고 부른다.
                 page.waitForCondition {
-                    page.locator("#fileview .filebody .filecode").textContent().contains("formatted on save")
+                    page.locator("#fileview .filebody .filecode").textContent().orEmpty().contains("formatted on save")
                 }
             }
         }
@@ -1066,7 +1081,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 // 마흔 개 이름 아래 깔린 판은 아무도 스크롤해 내려가지 않는다(운영이 이 화면에서 배운 것).
                 page.locator("#files .panelrow .panelword").textContent() shouldBe "git.section"
             }
-            When("그 줄을 누르면") {
+            And("그 줄을 누르면") {
                 page.locator("#files .panelrow").click()
                 Then("git이 그 자리에 서고, 돌아가는 줄이 생긴다") {
                     page.waitForSelector("#files[data-shows=git] .panelback")
@@ -1152,7 +1167,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("document.querySelectorAll('#log .row').forEach((n,i)=>{n.dataset.wmark='w'+i})")
                 val grown = (1..401).joinToString(",") { """{"who":"assistant","text":"row $it"}""" }
                 page.evaluate("""window.__magi_test_transcript('[$grown]')""")
-                page.waitForCondition { page.locator("#log .row").last().textContent().contains("row 401") }
+                page.waitForCondition { page.locator("#log .row").last().textContent().orEmpty().contains("row 401") }
                 val marked = page.evaluate(
                     "Array.from(document.querySelectorAll('#log .row')).filter(n=>n.dataset.wmark).length")
                 withClue("표가 남은 노드 $marked — 0이면 창이 움직일 때마다 전부 다시 짓는 것이다") {

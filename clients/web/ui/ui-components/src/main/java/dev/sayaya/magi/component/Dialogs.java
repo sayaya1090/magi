@@ -112,6 +112,7 @@ public class Dialogs {
      */
     public void confirm(String head, String body, String keep, String keepMark,
                         String doIt, String doMark, Runnable onKeep, Runnable then) {
+        final boolean[] decided = {false};
         HTMLElement dialog = el("md-dialog");
         dialog.className = "askconfirm";
         // 되돌릴 수 없는 일을 묻는 상자는 alert다 — 바깥을 눌러 흘려보낼 수 있는 상자가 아니고,
@@ -130,14 +131,23 @@ public class Dialogs {
         actions.setAttribute("slot", "actions");
         HTMLElement keepBtn = el("md-text-button");
         Icons.say(keepBtn, keep == null || keep.isEmpty() ? tr("action.cancel") : keep, keepMark);
-        keepBtn.addEventListener("click", evt -> { close(dialog); if (onKeep != null) onKeep.run(); });
+        keepBtn.addEventListener("click", evt -> { if (decided[0]) return; decided[0] = true; close(dialog); if (onKeep != null) onKeep.run(); });
         // 하는 쪽은 <b>채운 버튼이 아니라</b> armed다: 채워 두면 그 상자에서 가장 눈에 띄는 것이
         // 되돌릴 수 없는 쪽이 된다. 운영은 색으로만 말하고(그것도 hover가 아니라 늘), 손가락이
         // 잘못 닿기 쉬운 화면에서 그 신호가 사라지지 않게 한다.
         HTMLElement go = el("md-text-button");
         go.className = "armed";
         Icons.say(go, doIt, doMark);
-        go.addEventListener("click", evt -> { close(dialog); then.run(); });
+        go.addEventListener("click", evt -> { if (decided[0]) return; decided[0] = true; close(dialog); then.run(); });
+        dialog.addEventListener("cancel", evt -> {
+            evt.preventDefault();
+            if (decided[0]) return;
+            decided[0] = true; close(dialog); if (onKeep != null) onKeep.run();
+        });
+        dialog.addEventListener("closed", evt -> {
+            dialog.remove();
+            if (!decided[0]) { decided[0] = true; if (onKeep != null) onKeep.run(); }
+        });
         actions.append(keepBtn, go);
         dialog.append(h, content, actions);
         DomGlobal.document.body.append(dialog);

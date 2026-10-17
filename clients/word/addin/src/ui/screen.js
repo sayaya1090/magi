@@ -482,7 +482,15 @@ export function councilBody(r) {
   const c = r?.council;
   if (!c) return '';
   if (c.stage === 'verdict') return [c.rationale, c.thought ? `생각 (판정 아님)\n${c.thought}` : ''].filter(Boolean).join('\n\n');
-  if (c.stage === 'decided') return [c.note, c.feedback].filter(Boolean).join('\n');
+  if (c.stage === 'decided') {
+    if (c.closingDecision) return [
+      `위원 표결 → 최종 종합 검토: ${c.closingDecision === 'continue' ? '보류' : '승인'}`,
+      c.closingReason, c.feedback !== c.closingReason ? c.feedback : '',
+    ].filter(Boolean).join('\n');
+    if (c.decision === 'continue' && c.tally?.done > 0 && !c.tally?.continue && !c.tally?.abstain)
+      return ['위원 표결 승인 / 최종 결과 보류 (이전 기록)', c.feedback].filter(Boolean).join('\n');
+    return [c.note, c.feedback].filter(Boolean).join('\n');
+  }
   return '';
 }
 

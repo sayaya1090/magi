@@ -439,6 +439,15 @@ export const diffScenarios = [
           // Expand
           await toggleBtn.click();
           assert.equal(await rawBox.isVisible(), true, 'raw-args block is visible after toggle click');
+          const order = await page.locator('.row.tool').evaluate(row => {
+            const header = row.querySelector('.who').getBoundingClientRect();
+            const title = row.querySelector('.body').getBoundingClientRect();
+            const args = row.querySelector('.raw-args').getBoundingClientRect();
+            return title.top >= header.top && title.bottom <= header.bottom && header.bottom <= args.top;
+          });
+          assert.equal(order, true, 'tool title stays in the header and expanded arguments stay below it');
+          assert.equal(await page.locator('.row.tool > .body').count(), 0, 'tool title must not add a second heading line');
+          assert.equal(await page.locator('.row.tool .args').isVisible(), false, 'expanded arguments replace the clipped summary');
           assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'true');
           const renderedRaw = await rawBox.textContent();
           assert.ok(renderedRaw.includes(longOldText), 'raw-args preserves 150-character old argument');
@@ -451,6 +460,7 @@ export const diffScenarios = [
           // Fold again
           await toggleBtn.click();
           assert.equal(await rawBox.isHidden(), true, 'raw-args is folded again after second click');
+          assert.equal(await page.locator('.row.tool .args').isVisible(), true, 'folding restores the summary');
         }
       },
       {
@@ -683,13 +693,14 @@ export const diffScenarios = [
           await page.waitForSelector('.row.agent .output-open-btn');
           const agentBtn = page.locator('.row.agent .output-open-btn');
           assert.equal(await agentBtn.count(), 1, 'only finalized assistant row has output open button');
-          assert.equal(await agentBtn.textContent(), '편집창에서 열기');
+          assert.equal(await agentBtn.getAttribute('aria-label'), '편집창에서 열기 (읽기 전용)');
+          assert.equal(await agentBtn.locator('svg').count(), 1);
           assert.equal(await agentBtn.isDisabled(), false, 'button is enabled when session is confirmed');
 
           await page.waitForSelector('.row.tool .output-open-btn');
           const toolBtn = page.locator('.row.tool .output-open-btn');
           assert.equal(await toolBtn.count(), 1, 'tool row with outputId has output open button');
-          assert.equal(await toolBtn.textContent(), '편집창에서 열기');
+          assert.equal(await toolBtn.getAttribute('aria-label'), '편집창에서 열기 (읽기 전용)');
           assert.equal(await toolBtn.isDisabled(), false);
 
           // Click assistant button: verify postMessage sends kind: 'output' with exact session and outputId

@@ -257,7 +257,7 @@ on to the turn's wall clock.
 ## L5 — Core domain classes (`internal/core`)
 
 `core` **imports nothing but the standard library**. There is no LLM here, no filesystem, no
-terminal — only a description of what a conversation is made of.
+terminal — only a description of what a chat is made of.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -952,8 +952,8 @@ sequenceDiagram
 
 ### L10.5 — What each participant is thinking, live
 
-The daemons write their room conversations to the same store the console reads. The meeting's own
-stream carries them, merged: one connection for a screen watching four conversations.
+The daemons write their room chats to the same store the console reads. The meeting's own
+stream carries them, merged: one connection for a screen watching four chats.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%

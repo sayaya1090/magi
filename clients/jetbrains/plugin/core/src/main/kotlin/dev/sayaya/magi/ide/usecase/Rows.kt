@@ -763,7 +763,13 @@ class Rows {
                 else -> "debated: $after held, $moved moved"
             }
         }.orEmpty()
-        val note = d["note"]?.jsonPrimitive?.content.orEmpty()
+        val closing = d["closingDecision"]?.jsonPrimitive?.content.orEmpty()
+        val note = if (closing.isNotEmpty()) {
+            "member vote → final review: " + (if (closing == "continue") "held" else "approved") +
+                "\n" + d["closingReason"]?.jsonPrimitive?.content.orEmpty()
+        } else if (d["decision"]?.jsonPrimitive?.content == "continue" && t != null && n("done") > 0 && n("continue") == 0 && n("abstain") == 0) {
+            "members approved; final outcome held (legacy record)\n" + d["feedback"]?.jsonPrimitive?.content.orEmpty()
+        } else d["note"]?.jsonPrimitive?.content.orEmpty()
         rows += Row(
             Who.Council,
             listOf(note, counts, debated).filter { it.isNotBlank() }.joinToString(" — "),

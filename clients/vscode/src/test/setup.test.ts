@@ -186,7 +186,7 @@ test('the person is called what the daemon calls them', () => {
   // And it reaches the label. A name read into a field nobody paints is the same defect.
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   assert.ok(/r\.who === 'user' && you \? you/.test(chat), "the user row's label ignores the name");
-  assert.ok(/paint\(r, this\.companion\.you\)/.test(chat), 'the name is never handed to the painter');
+  assert.ok(/paint\(r, this\.companion\.you(?:, rowTimes\.get\(r\.seq\))?\)/.test(chat), 'the name is never handed to the painter');
 });
 
 /**

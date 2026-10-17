@@ -1,3 +1,4 @@
+import { URI } from 'vscode-uri';
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { Event } from '../core/protocol';
@@ -450,4 +451,16 @@ test('OutputSnapshots.protectTemp supports nested concurrent protections with re
 
   assert.equal(snapshots.get(sharedKey), 'shared-data');
   assert.equal(snapshots.tempPinnedSize, 0);
+});
+
+
+test('outputUri survives the actual VS Code URI parser for absolute workspace paths', () => {
+  assert.throws(() => URI.parse('magi-output:/%2FUsers%2Ftest/s1/id'), /UriError/);
+  for (const key of ['/Users/test/repo', '/프로젝트/경로', 'C:\\Users\\test', '//server/share']) {
+    const uri = URI.parse(outputUri(key, 's1', 'assistant', 'assistant:1', '답변.md'));
+    assert.equal(uri.scheme, 'magi-output');
+    assert.equal(uri.authority, '');
+    assert.ok(uri.path.startsWith('/snapshot/'));
+    assert.equal(URI.parse(uri.toString()).path, uri.path);
+  }
 });

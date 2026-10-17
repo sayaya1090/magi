@@ -1,3 +1,5 @@
+import { panelText } from '../core/i18n';
+const uiText = panelText(document.documentElement.lang);
 import type * as Adapter from './chat_adapter';
 import type { createAnswerState as CreateAnswerState } from '../core/answer_state';
 import type { createRecoveryState as CreateRecoveryState } from '../core/recovery_state';
@@ -480,6 +482,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     const old = paintedChatRows.get(key);
     if (old && (old.signature === signature || (r.who === 'agent' && r.draft && old.draftSignature === draftSignature))) {
       if (old.signature !== signature) old.node.querySelector<HTMLElement>('.body')!.textContent = r.text;
+      old.node.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
       nextPainted.set(key, { signature, draftSignature, node: old.node });
       nextNodes.push(old.node);
       continue;
@@ -487,9 +490,28 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     const d = document.createElement('div');
     d.className = 'row ' + r.who + (r.draft ? ' draft' : '') + (r.pending ? ' pending' : '')
       + (r.queued ? ' queued' : '') + (r.abandoned ? ' abandoned' : '');
+    if (r.who === 'council' && r.member) d.dataset.member = r.member.toLowerCase();
     const w = document.createElement('div');
     w.className = 'who';
-    w.textContent = r.label;
+    const label = document.createElement('span'); label.className = 'row-label'; label.textContent = r.speaker || r.label;
+    if (r.badge) {
+      const badge = document.createElement('span'); badge.className = 'row-badge';
+      const outcome = r.who === 'council'
+        ? r.silent ? '' : r.decision === 'done' ? 'success' : r.decision === 'continue' ? 'warn' : ''
+        : r.who === 'tool' ? r.note ? 'warn' : r.ok === true ? 'success' : r.ok === false ? 'error' : '' : '';
+      if (outcome) badge.classList.add(outcome);
+      badge.textContent = r.badge; label.append(badge);
+    }
+    const controls = document.createElement('span'); controls.className = 'row-actions';
+    w.append(label, controls);
+    function iconButton(cls: string, title: string, path: string): HTMLButtonElement {
+      const button = document.createElement('button'); button.type = 'button'; button.className = cls + ' row-icon-btn';
+      button.title = title; button.setAttribute('aria-label', title);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('aria-hidden', 'true');
+      const shape = document.createElementNS('http://www.w3.org/2000/svg', 'path'); shape.setAttribute('d', path);
+      svg.append(shape); button.append(svg); return button;
+    }
     if (r.who === 'tool' && r.background) {
       d.setAttribute('aria-busy', 'true');
       const spinner = document.createElement('span');
@@ -500,12 +522,10 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     }
     if (r.outputId) {
       const boundOutputId = r.outputId;
-      const openOutputBtn = document.createElement('button');
+      const openOutputBtn = iconButton('output-open-btn', uiText.openOutput, 'M3 2h6v1H3v10h10V7h1v7H2V2zm7-1h5v5h-1V2.7L7.7 9 7 8.3 13.3 2H10z');
       openOutputBtn.type = 'button';
-      openOutputBtn.className = 'output-open-btn';
-      openOutputBtn.textContent = '편집창에서 열기';
-      openOutputBtn.title = '편집창에서 열기 (읽기 전용)';
-      openOutputBtn.setAttribute('aria-label', '편집창에서 열기 (읽기 전용)');
+      openOutputBtn.title = uiText.openOutput;
+      openOutputBtn.setAttribute('aria-label', uiText.openOutput);
       openOutputBtn.dataset.outputId = boundOutputId;
       if (!boundSession) {
         openOutputBtn.disabled = true;
@@ -515,7 +535,21 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
           actions.openOutput(boundSession, boundOutputId);
         });
       }
-      w.append(' ', openOutputBtn);
+      controls.append(openOutputBtn);
+    }
+    d.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
+    const copy = iconButton('copy-btn', uiText.copy, 'M5 1h9v11h-3v3H1V4h4zm1 3h5v7h2V2H6zM2 5v9h8V5z');
+    copy.disabled = !boundSession;
+    copy.addEventListener('click', ev => {
+      ev.stopPropagation();
+      actions.copyText(boundSession || '', d.dataset.copyText || '');
+    });
+    controls.append(copy);
+    if (r.at && Number.isFinite(Date.parse(r.at))) {
+      const time = document.createElement('time'); time.className = 'row-time'; time.dateTime = r.at;
+      const stamp = new Date(r.at);
+      time.textContent = [stamp.getHours(), stamp.getMinutes(), stamp.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+      time.title = stamp.toLocaleString(); w.append(time);
     }
     const b = document.createElement('div');
     b.className = 'body';
@@ -524,6 +558,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     } else {
       b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
     }
+    d.append(w, b);
     /* A tool row names the call AND what it was asked to do. Without the second half a turn that
        runs thirty commands is thirty rows reading the same word, and the transcript cannot answer
        the one question it exists for. Its own element so it can be dimmed and clipped without
@@ -589,34 +624,42 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     if (r.who === 'tool' && r.rawArgs && r.rawArgs !== r.args) {
       const toggle = document.createElement('button');
       toggle.type = 'button';
-      toggle.className = 'args-toggle-btn';
+      toggle.className = 'args-toggle-btn row-icon-btn';
       if (r.callId) toggle.dataset.callId = r.callId;
       const isExpanded = !!(boundSession && r.callId && expandedCallIds.has(r.callId));
-      toggle.textContent = isExpanded ? '접기' : '…';
-      toggle.title = isExpanded ? '인자 접기' : '인자 전체 펼치기';
+      toggle.textContent = isExpanded ? uiText.collapse : '…';
+      toggle.title = isExpanded ? uiText.collapseArgs : uiText.expandArgs;
       toggle.setAttribute('aria-label', toggle.title);
       toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
       const rawBox = document.createElement('pre');
       rawBox.className = 'raw-args';
       rawBox.textContent = r.rawArgs;
       rawBox.hidden = !isExpanded;
+      const summary = b.querySelector<HTMLElement>('.args');
+      if (summary) summary.hidden = isExpanded;
       toggle.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const open = rawBox.hidden;
         rawBox.hidden = !open;
+        if (summary) summary.hidden = open;
         toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        toggle.textContent = open ? '접기' : '…';
-        toggle.title = open ? '인자 접기' : '인자 전체 펼치기';
+        toggle.textContent = open ? uiText.collapse : '…';
+        toggle.title = open ? uiText.collapseArgs : uiText.expandArgs;
         toggle.setAttribute('aria-label', toggle.title);
         if (boundSession && r.callId) {
           if (open) expandedCallIds.add(r.callId);
           else expandedCallIds.delete(r.callId);
         }
       });
-      b.append(' ', toggle);
-      d.append(rawBox);
+      controls.prepend(toggle);
+      b.after(rawBox);
     }
-    d.append(w, b);
+    if (r.who === 'tool') {
+      const badge = label.querySelector('.row-badge');
+      label.textContent = '';
+      label.append(b);
+      if (badge) w.insertBefore(badge, controls);
+    }
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);
   }
@@ -671,3 +714,6 @@ window.addEventListener('message', (e) => {
 actions.ready();
 
 export {};
+
+const companionInfoButton = document.getElementById('more');
+if (companionInfoButton) { companionInfoButton.title = uiText.companionInfo; companionInfoButton.setAttribute('aria-label', uiText.companionInfo); }

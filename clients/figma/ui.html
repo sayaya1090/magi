@@ -43,6 +43,12 @@ function render(e){const d=e.data;if(!d||typeof d!=='object')return;
  if(e.type==='part.appended'&&d.part&&typeof d.part==='object'){const p=d.part;if(typeof p.text==='string')append((d.role||'assistant')+': '+p.text);else if(p.toolResult)append('도구 결과: '+JSON.stringify(p.toolResult.content));else if(p.error)append('오류: '+p.error);}
  else if(e.type==='permission.requested'||e.type==='question.requested'){if(typeof d.callId!=='string'||!d.callId)return;ask={...d,kind:e.type};$('ask').textContent=e.type==='permission.requested'?'승인: '+d.name+'\n'+JSON.stringify(d.args,null,2)+(d.reason?'\n'+d.reason:''):(d.question||'질문')+(Array.isArray(d.options)?'\n'+d.options.join('\n'):'');for(const b of document.querySelectorAll('[data-decision]'))b.hidden=e.type!=='permission.requested';$('reply').hidden=e.type!=='question.requested';$('answer').parentElement.hidden=e.type!=='question.requested';$('approval').style.display='block';}
  else if((e.type==='permission.decided'||e.type==='question.answered')&&ask?.callId===d.callId)clearAsk();
+ else if(e.type==='council.decided'){
+  const t=d.tally;const votes=t?`위원 표결: ${t.done||0}명 승인 / ${t.continue||0}명 보류`:'';
+  const review=d.closingDecision?`최종 종합 검토: ${d.closingDecision==='continue'?'보류':'승인'}`:
+    d.decision==='continue'&&t?.done>0&&!t?.continue&&!t?.abstain?'위원 승인 / 최종 결과 보류 (이전 기록)':d.note;
+  append(['카운슬',votes,review,d.closingReason,d.feedback!==d.closingReason?d.feedback:''].filter(Boolean).join('\n'));
+ }
  else if(e.type==='error')append('오류: '+(d.message||JSON.stringify(d)));
 }
 async function events(version,streamVersion){try{let since=0;const boundSession=session;while(binding&&version===epoch&&streamVersion===eventEpoch){const d=await api('/api/figma/events',{binding,since},controller.signal);if(version!==epoch||streamVersion!==eventEpoch)return;if(!Array.isArray(d.events)||d.events.length>200)throw Error('잘못된 이벤트 응답입니다.');for(const e of d.events){if(!e||typeof e!=='object')throw Error('잘못된 이벤트입니다.');if(e.sessionId&&e.sessionId!==boundSession)continue;if(typeof e.seq==='number')since=Math.max(since,e.seq);render(e);}}}catch(e){if(e.name!=='AbortError'&&version===epoch&&streamVersion===eventEpoch)status(e.message);}}

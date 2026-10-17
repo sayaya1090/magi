@@ -72,12 +72,13 @@ export async function openOutputDocument(options: OpenOutputOptions): Promise<Op
     return { opened: false, error: '자료를 더 이상 열 수 없음' };
   }
 
-  const filename = defaultOutputFilename(item);
-  const uriStr = outputUri(companionKey, session, item.kind, outputId, filename);
-  const uri = vscode.Uri.parse(uriStr);
-
-  const unprotect = provider.protectTemp([uri]);
+  let unprotect = () => {};
   try {
+    const filename = defaultOutputFilename(item);
+    const uriStr = outputUri(companionKey, session, item.kind, outputId, filename);
+    const uri = vscode.Uri.parse(uriStr);
+
+    unprotect = provider.protectTemp([uri]);
     provider.put(uri, item.content);
     let doc = await vscode.workspace.openTextDocument(uri);
     let warning: string | undefined;

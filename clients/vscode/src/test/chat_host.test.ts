@@ -4,6 +4,7 @@ const Module = require('module');
 
 // Stub 'vscode' module before loading Chat
 const hostCommands = new Map<string, () => Promise<void>>();
+const clipboardWrites: string[] = [];
 let modelPick: { label: string } | undefined;
 const origLoad = (Module as any)._load;
 (Module as any)._load = function (request: string, parent: any, isMain: boolean) {
@@ -33,6 +34,7 @@ const origLoad = (Module as any)._load;
         onDidCloseTextDocument: () => ({ dispose() {} }),
         getConfiguration: () => ({ get: () => true }),
       },
+      env: { clipboard: { writeText: async (text: string) => { clipboardWrites.push(text); } } },
       commands: {
         registerCommand: (id: string, run: () => Promise<void>) => {
           hostCommands.set(id, run);
@@ -664,7 +666,7 @@ test('Chat §4.5 Item 1: session-new 실패 시 sessionCreationFailed 이벤트 
 
 
 
-test('Chat: open/diff requests resolve against this conversation as it is now (actionOrigin)', async () => {
+test('Chat: open/diff requests resolve against this chat as it is now (actionOrigin)', async () => {
   const companion = createMockCompanion();
   companion.state = { state: 'working' as any };
   const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
@@ -754,4 +756,47 @@ test('successful model selection immediately refreshes status', async () => {
     await hostCommands.get('magi.chooseModel')!();
     assert.deepEqual(calls, ['models', 'status', 'set-model', 'refresh']);
   } finally { modelPick = undefined; hostCommands.clear(); }
+});
+
+
+test('copy writes exact text only for the displayed session', async () => {
+  const companion = createMockCompanion();
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).sid = 'copy-session';
+  const before = clipboardWrites.length;
+  await chat.fromView({ kind: 'copy', session: 'old', text: 'stale' });
+  assert.equal(clipboardWrites.length, before);
+  await chat.fromView({ kind: 'copy', session: chat.session, text: '  original\n\n' });
+  assert.deepEqual(clipboardWrites.slice(before), ['  original\n\n']);
+  chat.dispose();
+});
+
+test('startup retries session selection when the daemon becomes reachable and avoids duplicate streams', async () => {
+  const { Daemon } = require('../core/daemon');
+  const connect = Daemon.connect;
+  const companion = createMockCompanion();
+  let changed: () => void = () => {};
+  companion.onChanged = (fn: any) => { changed = fn; return { dispose() {} }; };
+  const streamed: any[] = [];
+  let connections = 0;
+  let reachable = false;
+  companion.reach = async () => reachable ? {} as any : null;
+  companion.ask = async (door: string) => door === 'sessions'
+    ? { ok: true, sessions: [{ id: 'newest', title: 'recent' }] } : { ok: true };
+  Daemon.connect = async () => { connections++; return { whenClosed() {}, close() {}, stream: (request: any) => streamed.push(request) }; };
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  try {
+    chat.resolveWebviewView(createMockWebviewView().view as any);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(chat.session, '');
+    reachable = true; companion.state = { state: 'attached' };
+    changed(); changed();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(chat.session, 'newest');
+    assert.deepEqual(streamed, [{ method: 'transcript', session: 'newest' }]);
+    assert.equal(connections, 1);
+    changed();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(connections, 1);
+  } finally { chat.dispose(); Daemon.connect = connect; }
 });
