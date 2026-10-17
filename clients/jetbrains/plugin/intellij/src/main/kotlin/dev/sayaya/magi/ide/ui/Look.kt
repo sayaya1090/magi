@@ -124,7 +124,7 @@ internal object Look {
     )
 
     /** Section title and a theme-colored divider share one row. */
-    fun sectionHeading(text: String): JComponent = javax.swing.JPanel(java.awt.GridBagLayout()).apply {
+    fun sectionHeading(text: String, action: JComponent? = null): JComponent = javax.swing.JPanel(java.awt.GridBagLayout()).apply {
         isOpaque = false
         add(gutter(text), java.awt.GridBagConstraints().apply {
             gridx = 0; anchor = java.awt.GridBagConstraints.LINE_START
@@ -132,6 +132,10 @@ internal object Look {
         add(rule(), java.awt.GridBagConstraints().apply {
             gridx = 1; weightx = 1.0
             fill = java.awt.GridBagConstraints.HORIZONTAL
+            insets = java.awt.Insets(0, 0, 0, JBUI.scale(12))
+        })
+        if (action != null) add(action, java.awt.GridBagConstraints().apply {
+            gridx = 2; anchor = java.awt.GridBagConstraints.LINE_END
             insets = java.awt.Insets(0, 0, 0, JBUI.scale(12))
         })
     }

@@ -370,7 +370,7 @@ function drawInfo() {
   if (info.council) infoEl.append(line('council', info.council));
   const acts = document.createElement('div');
   acts.className = 'acts';
-  for (const [text, cmd] of [['fold context', 'magi.compact'],
+  for (const [text, cmd] of [['컨텍스트 압축', 'magi.compact'],
                              ['restart', 'magi.restartDaemon'],
                              ['update', 'magi.updateCore']]) {
     const b = document.createElement('button');

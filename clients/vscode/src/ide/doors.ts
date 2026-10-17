@@ -263,14 +263,15 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       if (await call('restart')) void vscode.window.showInformationMessage('magi: restarting.');
     }),
 
-    reg('magi.compact', async () => {
+    vscode.commands.registerCommand('magi.compact', async (requestedSession?: unknown) => {
+      const target = typeof requestedSession === 'string' && requestedSession ? requestedSession : chat.session;
       // No capability for this door — see `has`. Ask the person, then let the daemon answer.
       const ok = await vscode.window.showWarningMessage(
-        'Fold this conversation? The companion keeps a summary and loses the detail.',
-        { modal: true }, 'Fold');
-      if (ok !== 'Fold') return;
-      if (await call('compact', { session: chat.session })) {
-        void vscode.window.showInformationMessage('magi: folded.');
+        '컨텍스트를 압축할까요? 요약은 남지만 세부 내용은 현재 컨텍스트에서 제외됩니다.',
+        { modal: true }, '압축');
+      if (ok !== '압축') return;
+      if (await call('compact', { session: target })) {
+        void vscode.window.showInformationMessage('magi: 컨텍스트 압축을 요청했습니다.');
       }
     }),
 

@@ -211,9 +211,15 @@ class PlanToolWindow : ToolWindowFactory {
         }
         val compact = JButton(MagiBundle.msg("plan.compact")).apply {
             addActionListener {
-                workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
-                    val r = comp.compact()
-                    tell(if (r.ok) MagiBundle.msg("plan.compact.sent") else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+                isEnabled = false
+                workspace.onDaemon({
+                    tell(MagiBundle.msg("common.failed", it))
+                    SwingUtilities.invokeLater { isEnabled = true }
+                }) { comp ->
+                    try {
+                        val r = comp.compact()
+                        tell(if (r.ok) MagiBundle.msg("plan.compact.sent") else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+                    } finally { SwingUtilities.invokeLater { isEnabled = true } }
                 }
             }
         }
@@ -226,15 +232,16 @@ class PlanToolWindow : ToolWindowFactory {
             add(changes)
             add(section(MagiBundle.msg("plan.requests")))
             add(askedPane)
-            add(section(MagiBundle.msg("plan.usage")))
+            add(Look.sectionHeading(MagiBundle.msg("plan.usage"), compact).apply {
+                border = JBUI.Borders.emptyTop(10)
+            })
             add(ctx)
             add(ctxRow)
             add(ctxKeys)
             add(ctxParts)
             add(section(MagiBundle.msg("plan.controls")))
             // 두 콤보는 「무엇을 고르는 칸인가」를 왼쪽에 적고(라벨 폭을 맞춰 칸의 시작이 한 줄에 선다),
-            // 동사 단추 둘은 그 아래 한 줄에 모은다. 전에는 「새 채팅」이 대화 콤보 옆에, 「채팅 요약」이
-            // 홀로 아래에 있어 같은 층의 동작이 흩어져 보였다(사용자 지적, 2026-09-26).
+            // 새 대화는 콤보 아래에, 컨텍스트 압축은 위의 사용량 그래프 제목 옆에 둡니다.
             val talkLabel = JBLabel(MagiBundle.msg("plan.control.talk")).apply { foreground = Look.faint }
             val modelLabel = JBLabel(MagiBundle.msg("plan.control.model")).apply { foreground = Look.faint }
             val labelWidth = maxOf(talkLabel.preferredSize.width, modelLabel.preferredSize.width) + JBUI.scale(8)
@@ -253,7 +260,6 @@ class PlanToolWindow : ToolWindowFactory {
             add(JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
                 border = JBUI.Borders.empty(6, 12 - 8 + labelWidth, 2, 12)
                 add(fresh)
-                add(compact)
             })
             add(said)
             add(section(MagiBundle.msg("plan.companions")))
