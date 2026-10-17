@@ -1114,6 +1114,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 붙는 중인지 데몬이 없어 못 붙었는지는 제목표시줄의 수준과 `link` 글리프의
                 // 툴팁에만 있었다 — 사용자 실측("뜨는중인지 무슨 문제가 있는지 불안해").
                 // 사유는 [mood] 에서 꺼낸다: 글리프와 한 자리라 둘이 어긋날 수가 없다(R6).
+                var preservedRows = 0
                 val next = rows.mapIndexed { index, r ->
                     val old = paintedRows.getOrNull(index)
                     val open = shows(r)
@@ -1132,9 +1133,10 @@ class MagiToolWindow : ToolWindowFactory {
                         }
                         else -> rowPanel(r).also { copying.install(it, r) { shaper.list() } }
                     }
+                    if (old?.panel === panel) preservedRows++
                     if (old?.row?.draft == true && !r.draft && r.who == Who.Agent) {
                         com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info(
-                            "magi: stable stream finished updates=${old.panel.getClientProperty("magi.draft.updates") ?: 0} preservedRows=$index")
+                            "magi: stable stream finished updates=${old.panel.getClientProperty("magi.draft.updates") ?: 0} preservedRows=$preservedRows")
                     }
                     PaintedRow(r, open, rich, currentSendSession(), youName, panel)
                 }
