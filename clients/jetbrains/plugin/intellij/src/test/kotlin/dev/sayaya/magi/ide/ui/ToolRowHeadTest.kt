@@ -17,6 +17,18 @@ import javax.swing.JPanel
  * the time to an edge).
  */
 class ToolRowHeadTest : BasePlatformTestCase() {
+    fun testUserAndMagiMessagesHaveDifferentSurfaces() {
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        try {
+            val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
+            fun surface(who: dev.sayaya.magi.ide.usecase.Who): java.awt.Color {
+                val panel = render.invoke(view, dev.sayaya.magi.ide.usecase.Row(who = who, text = "hello")) as JComponent
+                return panel.getClientProperty("magi.message.surface") as java.awt.Color
+            }
+            assertFalse(surface(dev.sayaya.magi.ide.usecase.Who.User).rgb == surface(dev.sayaya.magi.ide.usecase.Who.Agent).rgb)
+        } finally { com.intellij.openapi.util.Disposer.dispose(view) }
+    }
+
     fun testBackgroundHeaderUsesSpinnerInsteadOfCompletedGlyph() {
         val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
         val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }

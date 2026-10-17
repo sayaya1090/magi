@@ -464,14 +464,28 @@ function drawRefs(rs: string[]) {
     refsEl.append(b);
   }
 }
+type PaintedChatRow = { signature: string; draftSignature: string; node: HTMLDivElement };
+let paintedChatRows = new Map<string, PaintedChatRow>();
 function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
   const boundSession = currentSession;
   const activeEl = document.activeElement as HTMLElement | null;
   const focusedCallId = (activeEl && activeEl.classList && activeEl.classList.contains('args-toggle-btn')) ? activeEl.dataset.callId : null;
-  rowsEl.textContent = '';
-  for (const r of rs) {
+  const nextPainted = new Map<string, PaintedChatRow>();
+  const nextNodes: HTMLDivElement[] = [];
+  const scope = JSON.stringify([currentCompanionKey, boundSession, currentGeneration, currentWebviewId]);
+  for (const [index, r] of rs.entries()) {
+    const key = scope + ':' + index;
+    const signature = JSON.stringify(r);
+    const draftSignature = JSON.stringify({ ...r, text: '' });
+    const old = paintedChatRows.get(key);
+    if (old && (old.signature === signature || (r.who === 'agent' && r.draft && old.draftSignature === draftSignature))) {
+      if (old.signature !== signature) old.node.querySelector<HTMLElement>('.body')!.textContent = r.text;
+      nextPainted.set(key, { signature, draftSignature, node: old.node });
+      nextNodes.push(old.node);
+      continue;
+    }
     const d = document.createElement('div');
-    d.className = 'row ' + r.who + (r.pending ? ' pending' : '')
+    d.className = 'row ' + r.who + (r.draft ? ' draft' : '') + (r.pending ? ' pending' : '')
       + (r.queued ? ' queued' : '') + (r.abandoned ? ' abandoned' : '');
     const w = document.createElement('div');
     w.className = 'who';
@@ -505,7 +519,7 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     }
     const b = document.createElement('div');
     b.className = 'body';
-    if (r.who === 'agent' && typeof renderMarkdown === 'function') {
+    if (r.who === 'agent' && !r.draft && typeof renderMarkdown === 'function') {
       renderMarkdown(b, r.text);
     } else {
       b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
@@ -603,8 +617,18 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
       d.append(rawBox);
     }
     d.append(w, b);
-    rowsEl.append(d);
+    nextPainted.set(key, { signature, draftSignature, node: d });
+    nextNodes.push(d);
   }
+  nextNodes.forEach((node, index) => {
+    const current = rowsEl.children[index];
+    if (current !== node) rowsEl.insertBefore(node, current ?? null);
+  });
+  const retained = new Set(nextNodes);
+  for (const node of Array.from(rowsEl.children)) {
+    if (!retained.has(node as HTMLDivElement)) node.remove();
+  }
+  paintedChatRows = nextPainted;
   if (focusedCallId) {
     const btns = rowsEl.querySelectorAll<HTMLElement>('.args-toggle-btn');
     for (let i = 0; i < btns.length; i++) {

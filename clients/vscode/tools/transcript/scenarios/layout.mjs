@@ -3,6 +3,64 @@ import { createRowsMessage, createStateMessage } from '../../transcript-fixtures
 
 export const layoutScenarios = [
       {
+        id: 'streaming_preserves_completed_rows_and_reading_position',
+        name: '스트리밍 중 완료 행 DOM·위치·선택 보존과 말풍선 색 구분',
+        run: async (page) => {
+          const history = [
+            { seq: 1, who: 'user', label: 'you', text: 'my previous request' },
+            { seq: 2, who: 'agent', label: 'magi', text: 'previous completed answer\n'.repeat(50) },
+          ];
+          const send = (text, draft = true) => page.evaluate((m) => window.postMessage(m, '*'),
+            createRowsMessage({ rows: [...history, { seq: 3, who: 'agent', label: 'magi', text, draft }] }));
+          let text = '```js\n' + 'const initial = 1;\n'.repeat(30);
+          await send(text);
+          await page.waitForFunction(() => document.querySelectorAll('#rows > .row').length === 3);
+          await page.evaluate(() => {
+            const rows = [...document.querySelectorAll('#rows > .row')];
+            const scroll = document.getElementById('scroll');
+            scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+            scroll.scrollTop = 80;
+            window.__stableRows = rows;
+            window.__stableTops = rows.slice(0, 2).map((r) => r.offsetTop);
+            window.__stableRemoved = 0;
+            window.__stableObserver = new MutationObserver((records) => {
+              for (const record of records) for (const node of record.removedNodes)
+                if (rows.slice(0, 2).includes(node)) window.__stableRemoved++;
+            });
+            window.__stableObserver.observe(document.getElementById('rows'), { childList: true });
+            const range = document.createRange();
+            range.setStart(rows[0].querySelector('.body').firstChild, 0);
+            range.setEnd(rows[0].querySelector('.body').firstChild, 2);
+            getSelection().removeAllRanges(); getSelection().addRange(range);
+          });
+          const reading = await page.locator('#scroll').evaluate((s) => s.scrollTop);
+          for (let i = 0; i < 20; i++) {
+            text += 'const line' + i + ' = ' + i + ';\n';
+            await send(text);
+            await page.waitForFunction((t) => document.querySelectorAll('#rows .body')[2].textContent === t, text);
+            const snapshot = await page.evaluate(() => ({
+              kept: [...document.querySelectorAll('#rows > .row')].every((r, i) => r === window.__stableRows[i]),
+              tops: [...document.querySelectorAll('#rows > .row')].slice(0, 2).map((r) => r.offsetTop),
+              previousTops: window.__stableTops,
+              top: document.getElementById('scroll').scrollTop,
+              removed: window.__stableRemoved,
+              selected: getSelection().toString(),
+            }));
+            assert.equal(snapshot.kept, true, '스트리밍은 기존 행을 떼거나 새로 만들지 않는다');
+            assert.deepEqual(snapshot.tops, snapshot.previousTops);
+            assert.equal(snapshot.top, reading);
+            assert.equal(snapshot.removed, 0);
+            assert.equal(snapshot.selected, 'my');
+          }
+          const colors = await page.evaluate(() => ['.user', '.agent'].map((s) => getComputedStyle(document.querySelector(s)).backgroundColor));
+          assert.notEqual(colors[0], colors[1], '사용자와 마기 말풍선의 배경이 달라야 한다');
+          await send('```js\nconst final = true;\n```', false);
+          await page.locator('#rows .row:last-child pre').waitFor();
+          assert.equal(await page.evaluate(() => document.querySelector('#rows .row') === window.__stableRows[0]), true);
+          await page.evaluate(() => { window.__stableObserver.disconnect(); getSelection().removeAllRanges(); });
+        },
+      },
+      {
         id: 'background_tool_spinner_until_process_exit',
         name: '백그라운드 실행 중 스피너와 종료 후 해제',
         run: async (page) => {

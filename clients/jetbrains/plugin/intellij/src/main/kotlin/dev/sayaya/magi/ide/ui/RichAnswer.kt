@@ -17,20 +17,22 @@ import javax.swing.JComponent
  * 2. 코드 펜스, 마크다운 테이블, 링크, 이미지, 인용 블록 등 복합 서식이 포함된 경우에만 IDE 엔진을 사용한다.
  * 3. 동시에 활성화되는 패널 수는 최근 [KEEP]개로 제한하며, 범위를 벗어난 이전 응답은 경량 렌더러로 복귀시키고 브라우저 리소스를 해제한다.
  */
-internal object RichAnswer {
+internal class RichAnswer {
 
     /**
      * 동시 유지할 최대 IDE 마크다운 렌더 패널 수 (프로세스 리소스 제약).
      */
-    const val KEEP = 4
+    companion object {
+        const val KEEP = 4
 
-    /**
-     * 경량 렌더러에서 지원하지 못하는 복합 마크다운 서식(펜스, 인용, 표, 링크, 이미지) 포함 여부를 판별한다.
-     */
-    fun needsRich(md: String): Boolean = md.lineSequence().any { line ->
-        val t = line.trimStart()
-        t.startsWith("```") || t.startsWith(">") || t.startsWith("|") ||
-            "](" in line || "![" in line
+        /**
+         * 경량 렌더러에서 지원하지 못하는 복합 마크다운 서식(펜스, 인용, 표, 링크, 이미지) 포함 여부를 판별한다.
+         */
+        fun needsRich(md: String): Boolean = md.lineSequence().any { line ->
+            val t = line.trimStart()
+            t.startsWith("```") || t.startsWith(">") || t.startsWith("|") ||
+                "](" in line || "![" in line
+        }
     }
 
     /**

@@ -72,12 +72,11 @@ internal class Copying {
      * 내부 텍스트 영역 컴포넌트가 마우스 이벤트를 가로채는 현상을 방어하기 위해 계층 구조를 재귀 순회하여 리스너를 연결한다.
      */
     fun install(panel: JComponent, r: Row, rows: () -> List<Row>) {
-        val key = RowText.foldKey(r)
-        painted[key] = panel
-        paint(panel, key, rows())
+        retain(panel, r, rows)
         val h = object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 if (!SwingUtilities.isLeftMouseButton(e)) return
+                val key = RowText.foldKey(current(panel, r))
                 anchor = key; focus = key; dragged = false
                 repaint()
             }
@@ -99,6 +98,14 @@ internal class Copying {
             if (c is java.awt.Container) c.components.forEach(::arm)
         }
         arm(panel)
+    }
+
+    fun current(panel: JComponent, fallback: Row): Row = panel.getClientProperty("magi.row.snapshot") as? Row ?: fallback
+    fun retain(panel: JComponent, r: Row, rows: () -> List<Row>) {
+        panel.putClientProperty("magi.row.snapshot", r)
+        val key = RowText.foldKey(r)
+        painted[key] = panel
+        paint(panel, key, rows())
     }
 
     /** 선택 상태에 따라 행 패널 배경색 및 불투명도를 갱신한다. */

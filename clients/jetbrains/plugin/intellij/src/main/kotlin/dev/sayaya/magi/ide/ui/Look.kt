@@ -569,6 +569,7 @@ internal object Look {
      */
     fun prose(text: String): JComponent = javax.swing.JTextArea(text).apply {
         isEditable = false
+        (caret as? javax.swing.text.DefaultCaret)?.updatePolicy = javax.swing.text.DefaultCaret.NEVER_UPDATE
         isOpaque = false
         lineWrap = true
         wrapStyleWord = true
@@ -680,6 +681,7 @@ internal object Look {
         "text/html", "<html><body>" + Markup.markdown(md) + "</body></html>",
     ).apply {
         isEditable = false
+        (caret as? javax.swing.text.DefaultCaret)?.updatePolicy = javax.swing.text.DefaultCaret.NEVER_UPDATE
         isOpaque = false
         putClientProperty(javax.swing.JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
         font = JBFont.regular()
