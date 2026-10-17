@@ -80,4 +80,77 @@ class TailScrollTest : BasePlatformTestCase() {
         } finally { view.dispose() }
     }
 
+    fun testStreamingKeepsCompletedRowsAttachedAndReaderPositionStable() {
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        try {
+            fun field(name: String) = view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view)
+            val rows = field("shaper") as dev.sayaya.magi.ide.usecase.Rows
+            val pane = field("scroll") as JScrollPane
+            val column = field("column") as javax.swing.JComponent
+            val redraw = view.javaClass.getDeclaredMethod("redrawLog").apply { isAccessible = true }
+            var seq = 0L
+            fun feed(type: String, data: kotlinx.serialization.json.JsonElement) {
+                rows.feed(dev.sayaya.magi.ide.model.LogEvent(seq = ++seq, type = type, data = data))
+                redraw.invoke(view)
+                UIUtil.dispatchAllInvocationEvents()
+            }
+            fun delta(text: String) = feed("part.delta", kotlinx.serialization.json.buildJsonObject {
+                put("messageId", kotlinx.serialization.json.JsonPrimitive("stream"))
+                put("kind", kotlinx.serialization.json.JsonPrimitive("text"))
+                put("text", kotlinx.serialization.json.JsonPrimitive(text))
+            })
+            fun layout(c: java.awt.Container) { c.doLayout(); c.components.filterIsInstance<java.awt.Container>().forEach(::layout) }
+            pane.size = Dimension(480, 320)
+            fun settle() { repeat(3) {
+                pane.doLayout()
+                column.setSize(pane.viewport.width, column.preferredSize.height)
+                layout(column); pane.viewport.doLayout(); UIUtil.dispatchAllInvocationEvents()
+            } }
+            for (n in 1..2) feed("part.appended", kotlinx.serialization.json.buildJsonObject {
+                put("messageId", kotlinx.serialization.json.JsonPrimitive("old-$n"))
+                put("part", kotlinx.serialization.json.buildJsonObject {
+                    put("kind", kotlinx.serialization.json.JsonPrimitive("text"))
+                    put("text", kotlinx.serialization.json.JsonPrimitive("finished answer $n. ".repeat(80)))
+                })
+            })
+            delta("```kotlin\n" + "val x = 1\n".repeat(80))
+            settle()
+            assertAtEnd(pane)
+            repeat(3) { delta("still following\n"); settle(); assertAtEnd(pane) }
+            val history = listOf(column.getComponent(0), column.getComponent(1))
+            val bounds = history.map { java.awt.Rectangle(it.bounds) }
+            val draft = column.getComponent(2) as javax.swing.JComponent
+            val draftBody = draft.getClientProperty("magi.draft.body")
+            assertTrue("streaming must not reload CEF", draftBody is javax.swing.JTextArea)
+            var detachedHistory = 0
+            column.addContainerListener(object : java.awt.event.ContainerAdapter() {
+                override fun componentRemoved(e: java.awt.event.ContainerEvent) { if (e.child in history) detachedHistory++ }
+            })
+            pane.dispatchEvent(MouseWheelEvent(pane, MouseEvent.MOUSE_WHEEL, 0, 0, 10, 10, 0, false, MouseWheelEvent.WHEEL_UNIT_SCROLL, 3, -1))
+            settle()
+            val reading = pane.viewport.viewPosition.y
+            repeat(20) {
+                delta("val line$it = $it\n".repeat(4))
+                settle()
+                assertSame(history[0], column.getComponent(0))
+                assertSame(history[1], column.getComponent(1))
+                assertEquals(bounds, history.map { java.awt.Rectangle(it.bounds) })
+                assertSame(draft, column.getComponent(2))
+                assertSame(draftBody, draft.getClientProperty("magi.draft.body"))
+                assertEquals("reading position moved during streaming", reading, pane.viewport.viewPosition.y)
+            }
+            assertEquals(0, detachedHistory)
+            assertTrue((draft.getClientProperty("magi.row.snapshot") as dev.sayaya.magi.ide.usecase.Row).text.contains("line19"))
+            val other = MagiToolWindow.View(project, sendSession = { "s2" }, sendConnection = { _, _, _ -> })
+            try {
+                val owned = field("richAnswers") as RichAnswer
+                val second = other.javaClass.getDeclaredField("richAnswers").apply { isAccessible = true }.get(other) as RichAnswer
+                owned.keepOnly(listOf("first")); second.keepOnly(listOf("second"))
+                val eligible = RichAnswer::class.java.getDeclaredField("eligible").apply { isAccessible = true }
+                assertEquals(setOf("first"), eligible.get(owned))
+                assertEquals(setOf("second"), eligible.get(second))
+            } finally { com.intellij.openapi.util.Disposer.dispose(other) }
+        } finally { com.intellij.openapi.util.Disposer.dispose(view) }
+    }
+
 }

@@ -289,6 +289,10 @@ class MagiToolWindow : ToolWindowFactory {
          * 트랜스크립트 뷰 컴포넌트.
          * 스트리밍 프로토콜은 단일 연결을 전용 점유하므로 일반 요청/응답 채널과 공유하지 않습니다(설계 문서 §3 「스트리밍」).
          */
+        private val richAnswers = RichAnswer()
+        private data class PaintedRow(val row: Row, val open: Boolean, val rich: Boolean, val session: String?, val user: String?, val panel: JBPanel<JBPanel<*>>)
+        private var paintedRows = emptyList<PaintedRow>()
+        private fun richRenderKey(r: Row) = RowText.richKey(r) + ":" + (r.outputSeq?.toString() ?: r.text.hashCode().toString())
         private val column = Look.column()
 
         /** 트랜스크립트 복사 액션 핸들러(단일 말풍선 복사 및 범위 선택 복사 지원). */
@@ -301,6 +305,8 @@ class MagiToolWindow : ToolWindowFactory {
             setViewportView(column)
             border = JBUI.Borders.empty()
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            // Keep viewport width constant when the growing answer first needs scrolling.
+            verticalScrollBarPolicy = javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
         }
         private val tailScroll = TailScroll(scroll)
 
@@ -831,7 +837,7 @@ class MagiToolWindow : ToolWindowFactory {
             //     at MagiToolWindow$View.dispose
             // 이에 따라 각 리소스 해제 호출부를 `runCatching`으로 개별 격리하여 단일 실패가 전체 정리를 중단시키지 않도록 방어합니다.
             if (pinned == null) {
-                runCatching { RichAnswer.forget() }
+                runCatching { richAnswers.forget() }
                 runCatching { EditMarkers.release() }
             }
 
@@ -1092,35 +1098,60 @@ class MagiToolWindow : ToolWindowFactory {
                 // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
                 // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
                 val rows0 = shaper.list()
-                // 고정 탭은 무거운 렌더를 안 세운다: 상태가 전역이라 두 판이 서로의 브라우저를
-                // 갈아엎는다(리뷰 F5 — 같은 함정을 hand/등록에서 이미 한 번 겪었다).
-                if (pinned == null) RichAnswer.keepOnly(
-                    rows0.filter { it.who == Who.Agent && RichAnswer.needsRich(it.text) }
-                        .takeLast(RichAnswer.KEEP).map { RowText.richKey(it) },
+                // Completed rich renderers belong to this view. Drafts do not reload CEF
+                // or evict any completed answer while tokens arrive.
+                if (pinned == null) richAnswers.keepOnly(
+                    rows0.filter { it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text) }
+                        .takeLast(RichAnswer.KEEP).map { richRenderKey(it) },
                 )
                 // Delayed row sizing changes geometry, not the user's follow intent.
-                column.removeAll()
-                // 다시 그릴 때마다 선택의 손도 새 패널을 잡는다 — 지나간 패널을 들고 있으면
-                // 안 보이는 것을 칠한다. 고른 것 자체는 행 열쇠로 들고 있어 살아남는다.
+                val richKeys = rows0.filter { it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text) }
+                    .takeLast(RichAnswer.KEEP).map { richRenderKey(it) }.toSet()
+                // Rebuild selection bookkeeping while retaining unchanged row components.
                 copying.beginBuild()
-                val rows = shaper.list()
+                val rows = rows0
                 // 빈 전사는 **아무 말도 안 하던 자리**였다. 창을 처음 열면 판이 비고, 지금
                 // 붙는 중인지 데몬이 없어 못 붙었는지는 제목표시줄의 수준과 `link` 글리프의
                 // 툴팁에만 있었다 — 사용자 실측("뜨는중인지 무슨 문제가 있는지 불안해").
                 // 사유는 [mood] 에서 꺼낸다: 글리프와 한 자리라 둘이 어긋날 수가 없다(R6).
-                if (rows.isEmpty()) column.add(
-                    Look.welcome(
-                        MagiBundle.msg("chat.welcome.title"),
-                        mood.why,
-                        mood.colour,
-                        MagiBundle.msg("chat.welcome.hint"),
-                    ),
-                )
-                rows.forEach { r ->
-                    val panel = rowPanel(r)
-                    copying.install(panel, r) { shaper.list() }
-                    column.add(panel)
+                val next = rows.mapIndexed { index, r ->
+                    val old = paintedRows.getOrNull(index)
+                    val open = shows(r)
+                    val rich = pinned == null && !r.draft && richRenderKey(r) in richKeys
+                    val samePresentation = old != null && old.open == open && old.rich == rich &&
+                        old.session == currentSendSession() && old.user == youName
+                    val panel = when {
+                        samePresentation && old.row == r -> old.panel.also { copying.retain(it, r) { shaper.list() } }
+                        samePresentation && old.row.draft && r.draft && r.who == Who.Agent &&
+                            old.row.copy(text = r.text) == r && old.panel.getClientProperty("magi.draft.body") is javax.swing.JTextArea -> {
+                            val body = old.panel.getClientProperty("magi.draft.body") as javax.swing.JTextArea
+                            body.text = r.text + " ▌"
+                            old.panel.putClientProperty("magi.draft.updates", (old.panel.getClientProperty("magi.draft.updates") as? Int ?: 0) + 1)
+                            copying.retain(old.panel, r) { shaper.list() }
+                            old.panel
+                        }
+                        else -> rowPanel(r).also { copying.install(it, r) { shaper.list() } }
+                    }
+                    if (old?.row?.draft == true && !r.draft && r.who == Who.Agent) {
+                        com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info(
+                            "magi: stable stream finished updates=${old.panel.getClientProperty("magi.draft.updates") ?: 0} preservedRows=$index")
+                    }
+                    PaintedRow(r, open, rich, currentSendSession(), youName, panel)
                 }
+                val components: List<java.awt.Component> = if (rows.isEmpty()) listOf(
+                    Look.welcome(MagiBundle.msg("chat.welcome.title"), mood.why, mood.colour, MagiBundle.msg("chat.welcome.hint"))
+                ) else next.map { it.panel }
+                components.forEachIndexed { index, component ->
+                    if (index >= column.componentCount || column.getComponent(index) !== component) {
+                        if (component.parent === column) column.setComponentZOrder(component, index)
+                        else {
+                            if (index < column.componentCount) column.remove(index)
+                            column.add(component, index)
+                        }
+                    }
+                }
+                while (column.componentCount > components.size) column.remove(column.componentCount - 1)
+                paintedRows = next
                 column.revalidate()
                 column.repaint()
                 tailScroll.contentChanged()
@@ -1136,6 +1167,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun rowPanel(r: Row): JBPanel<JBPanel<*>> {
             val surface = when (r.who) {
                 Who.User -> Look.primary
+                Who.Agent -> Look.accent
                 Who.System -> Look.muted
                 else -> null
             }
@@ -1161,6 +1193,7 @@ class MagiToolWindow : ToolWindowFactory {
                 else -> Look.row()
             }
             p.isOpaque = false
+            p.putClientProperty("magi.message.surface", surface)
             // 개별 말풍선 텍스트 복사 버튼:
             // 시각적 스타일(발화자, 실행 상태 등)은 `RowText.plain`을 통해 표준 텍스트 서식으로 직렬화하여 클립보드에 전달합니다.
             val actions = javax.swing.JPanel(java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 2, 0)).apply { isOpaque = false }
@@ -1180,7 +1213,7 @@ class MagiToolWindow : ToolWindowFactory {
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }
-            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) })
+            actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(copying.current(p, r)) })
             // 헤더가 시각을 싣는 행(도구·말·카운슬)은 아이콘도 헤더에 싣는다 — [아이콘] [시각] 한 줄.
             // 헤더가 없는 행(생각 등)만 본문 옆에 세운다.
             var headTookActions = false
@@ -1202,11 +1235,16 @@ class MagiToolWindow : ToolWindowFactory {
                         // 에이전트 마크다운 답변 렌더링:
                         // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,
                         // 일반 텍스트는 경량 Swing 컴포넌트로 렌더링하여 프로세스 메모리를 절약합니다.
-                        val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
-                            RichAnswer.panel(project, r.text, RowText.richKey(r), this@View, streaming = r.draft)
+                        val rich = if (pinned == null && !r.draft && RichAnswer.needsRich(r.text)) {
+                            richAnswers.panel(project, r.text, richRenderKey(r), this@View)
                         } else null
                         // 스트리밍 중인 초안은 커서 글리프(" ▌")를 붙여 완료된 텍스트와 구별합니다(리뷰 F11).
-                        p.add(rich ?: Look.rich(r.text + if (r.draft) " ▌" else ""), BorderLayout.CENTER)
+                        val body = if (r.draft) Look.prose(r.text + " ▌").also {
+                            ((it as? javax.swing.JTextArea)?.caret as? javax.swing.text.DefaultCaret)?.updatePolicy = javax.swing.text.DefaultCaret.NEVER_UPDATE
+                            p.putClientProperty("magi.draft.body", it)
+                            com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info("magi: stable stream text renderer started")
+                        } else rich ?: Look.rich(r.text)
+                        p.add(body, BorderLayout.CENTER)
                     } else {
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     }
