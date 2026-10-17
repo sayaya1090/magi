@@ -60,6 +60,8 @@ type Engine interface {
 	SessionDiff(ctx context.Context, aSid, bSid session.SessionID) (string, error)
 	SessionModel(sid session.SessionID) string
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
+	// RecentPrompts is the composer's ↑/↓ list — what a person typed here across conversations.
+	RecentPrompts(ctx context.Context, workdir string, limit int) ([]app.PastPrompt, error)
 	// SuggestPrompt is the composer's ghost text: how the person is likely to finish the instruction
 	// they are typing, on the composer profile. Returns "" when composer suggestion is off or no
 	// profile is routed. See app.SuggestPrompt.

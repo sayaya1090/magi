@@ -359,8 +359,25 @@ func New(ctx context.Context, a Engine, cmds CommandSource, sid session.SessionI
 	// Seed the user label from any value a startup plugin already set (its transient
 	// broadcast fires before this model subscribes, so read the stored value here).
 	m.userLbl = a.UserLabel(sid)
+	m.history = m.recentHistory(nil) // ↑ works before the first prompt, from earlier conversations
+	m.histIdx = len(m.history)
 	m.applyWidgetStyles() // theme-dependent textarea/spinner styling (re-applied on theme flip)
 	return m
+}
+
+// recentHistory is the composer's ↑/↓ list, oldest first as m.history keeps it: what a person typed
+// to this workspace's companion ACROSS conversations (App.RecentPrompts). It used to be the prompts
+// of the conversation on screen, so a switch threw the list away (2026-10-17, asked for in every
+// client). Falls back to that conversation's own prompts when the store cannot answer.
+func (m *Model) recentHistory(msgs []session.Message) []string {
+	if ps, err := m.app.RecentPrompts(m.ctx, m.workdir, 200); err == nil && len(ps) > 0 {
+		out := make([]string, len(ps))
+		for i, p := range ps {
+			out[len(ps)-1-i] = p.Text
+		}
+		return out
+	}
+	return userPrompts(msgs)
 }
 
 // applyWidgetStyles (re)applies the active theme's colors to the textarea and
@@ -705,7 +722,7 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	}
 	m.sid = sid
 	m.blocks = rebuildBlocks(msgs)
-	m.history = userPrompts(msgs)               // seed ↑/↓ recall + tab completion from prior turns
+	m.history = m.recentHistory(msgs)           // seed ↑/↓ recall + tab completion, across conversations
 	m.histIdx, m.histDraft = len(m.history), "" // a switched session carries no draft
 	m.cache = m.cache[:0]
 	m.liveText, m.liveThink, m.liveProgress, m.running, m.activeAgents = "", "", "", false, nil
