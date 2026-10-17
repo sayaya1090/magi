@@ -51,6 +51,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private async refresh(): Promise<void> {
     if (!this.view) return;
+    const session = this.companion.session;
     // Each of these is a door the daemon may or may not have. `about` says which, and a door that
     // is not advertised is not called — reading a refusal to find out is how a client learns to
     // draw an empty panel for an old build.
@@ -74,12 +75,13 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
        * No session yet means no window to report, so it is not asked — a conversation that has not
        * started has nothing to be full of.
        */
-      caps.has('context') && this.companion.session
-        ? this.companion.ask('context', { session: this.companion.session })
+      caps.has('context') && session
+        ? this.companion.ask('context', { session })
         : null,
       caps.has('roster') ? this.companion.ask('roster') : null,
       caps.has('cron') ? this.companion.ask('cron') : null,
     ]);
+    if (!this.view || session !== this.companion.session) return;
     this.view.webview.postMessage({
       kind: 'plan',
       state: activity.label(this.companion.state),
@@ -94,7 +96,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       context: ctx === null ? (this.usage || null) : (contextOf(ctx) || this.usage),
       // The same door, as a gauge (see `panel.gauge`); the text above stays the fallback when there is none.
       gauge: ctx === null ? null : gaugeOf(ctx),
-      session: this.companion.session,
+      session,
       compacting: this.compacting,
       fleet: fleet === null ? null : fleetRows(fleet),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
