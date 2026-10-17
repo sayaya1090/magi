@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -55,5 +56,7 @@ func (s *server) councilMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"enabled": state, "session": wanted})
+	if err := json.NewEncoder(w).Encode(map[string]any{"enabled": state, "session": wanted}); err != nil {
+		log.Printf("write council state: %v", err)
+	}
 }

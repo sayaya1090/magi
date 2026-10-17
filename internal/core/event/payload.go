@@ -408,15 +408,6 @@ type CouncilDecidedData struct {
 	Debate *council.DebateOutcome `json:"debate,omitempty"`
 }
 
-// FeedbackLines renders a rejection's feedback for a human surface: the non-blank lines, each
-// truncated, and the whole capped — enough to name every demand holding the turn open without
-// letting one verbose member's reasoning bury the transcript. Empty feedback (an approval, or a
-// forced finish whose reason is already in the note) renders nothing.
-//
-// It lives on the payload because BOTH surfaces need it and neither may show less than the other:
-// the injected feedback reaches the transcript only as a system note clipped to its first line,
-// with the advisory keep-list prepended above it — so the clip is spent on the advisory and the
-// objection that actually held the turn open appears nowhere.
 // OutcomeNote keeps the member tally distinct from the final review, including replayed logs.
 func (d CouncilDecidedData) OutcomeNote() string {
 	if d.ClosingDecision != "" {
@@ -436,6 +427,15 @@ func (d CouncilDecidedData) OutcomeNote() string {
 	return d.Note
 }
 
+// FeedbackLines renders a rejection's feedback for a human surface: the non-blank lines, each
+// truncated, and the whole capped — enough to name every demand holding the turn open without
+// letting one verbose member's reasoning bury the transcript. Empty feedback (an approval, or a
+// forced finish whose reason is already in the note) renders nothing.
+//
+// It lives on the payload because BOTH surfaces need it and neither may show less than the other:
+// the injected feedback reaches the transcript only as a system note clipped to its first line,
+// with the advisory keep-list prepended above it — so the clip is spent on the advisory and the
+// objection that actually held the turn open appears nowhere.
 func (d CouncilDecidedData) FeedbackLines() []string {
 	const maxLines, maxWidth = 12, 200
 	var out []string
