@@ -923,8 +923,9 @@ command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
 
 The pipe is deliberately the only ssh-specific part: a container is `kubectl exec -i … magi --fleet-door` and the same seven methods.
 
-**Publishing callable operations.** In the workspace, run `magi --companion-policy-path`, then create
-that user-owned TOML file with its purpose, instructions, and explicitly allowed operations. A
+**Publishing callable operations.** In the workspace, run `magi --companion-policy-write < declaration.toml` to validate and save the
+user declaration, and `magi --companion-policy-show` to inspect it. Declare purpose, responsibilities,
+offered tasks, access scope, instructions, and explicitly allowed operations in that user-owned TOML file. A
 `read_file` operation specifies an absolute root and is the only executor initially supported.
 Peers use `companion_call` with `list`, `describe`, and `call`; skills remain separate procedures.
 The policy is reloaded on discovery and execution, and removing an operation revokes new calls.

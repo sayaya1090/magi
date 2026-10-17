@@ -24,7 +24,7 @@ The first executor supports `read_file`. Callers supply a relative `path`, with 
 
 Purpose and instructions appear in the companion's own system context and its public introduction. Instructions are guidance, not an OS sandbox. Initial enforcement covers the published read executor; it does not restrict every existing bash call or `hand_off` operation. Companions run as the same user, so this policy is not an OS security boundary against malicious local code.
 
-To create a policy, make the parent directory printed by the command and save the TOML file there. This change does not automatically publish the current gwt workspace. Discovery and invocation reload policy. Own instructions take effect at the next context assembly. The ordinary roster publishes role and counts at daemon startup, so refreshing those summaries requires a restart.
+To create a policy, make the parent directory printed by the command and save the TOML file there. This change does not automatically publish the current gwt workspace. Discovery and invocation reload policy. Own instructions take effect at the next context assembly. The daemon refreshes purpose and advertised work every three seconds. Peer roster caches follow their own refresh interval.
 
 Authorization follows the current companion connection boundary: the local user socket and admitted SSH/TLS fleet connections. There is no caller-specific ACL initially. Every caller admitted through that boundary can invoke a published read operation. Leave an operation unpublished if it needs per-peer restrictions.
 
@@ -70,3 +70,31 @@ Test missing policy, malformed TOML, unknown version, duplicate IDs, and unsuppo
 ## 6. Initial implementation scope
 
 The initial implementation includes policy loading, own instructions, public introductions, `companion_call` discovery and reads, and daemon/SSH routing. A settings editor, command and mutation executors, per-peer ACLs, and enforcement across all ordinary agent tools remain unimplemented. The actual gwt workspace has not been granted publication rights. Tests use temporary workspaces.
+
+
+## 7. User-declared advertising
+
+Save a declaration with `magi --companion-policy-write < declaration.toml`; inspect it using `magi --companion-policy-show`. Writes validate before atomic replacement and preserve an existing declaration on invalid input. Only an explicit local CLI action exposes writing, never a model tool or remote fleet method.
+
+Users declare purpose, responsibilities, instructions, offered tasks, and access scope. Tasks are model-mediated work offers. Operations invoke an executor without a receiving model.
+
+```toml
+version = 1
+purpose = "Develop and validate the GWT plugin"
+responsibilities = ["Maintain plugin source and tests."]
+instructions = ["Do not publish without a request."]
+
+[[tasks]]
+id = "diagnose-build"
+description = "Diagnose and fix GWT build failures."
+constraints = ["Report verification before and after changes."]
+
+[[access]]
+resource = "/Users/me/projects/gwt"
+mode = "write"
+description = "Maintain this project's source and tests"
+```
+
+`can` and `does` count only declared tasks and operations, using `task:` and `call:` prefixes. Learning a skill or attaching an MCP server never adds an advertised offer. Detail queries show purpose, responsibilities, tasks and constraints, and access scope first. Skills appear separately as experience. Deleting policy clears offers; invalid policy clears stale offers and reports an error state. Existing `companion.role` remains a compatibility introduction, not a permission grant or task list.
+
+Access modes are read, write, execute, deny, and approval. They communicate boundaries to the own model and peers but do not constrain the OS permissions of ordinary shell tools. Direct read authority comes only from operations.root. Enforcement across all ordinary tools remains follow-up work. The actual gwt workspace is not automatically configured or granted access.

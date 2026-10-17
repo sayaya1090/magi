@@ -750,8 +750,9 @@ command="magi --fleet-door",restrict ssh-ed25519 AAAA… lee@laptop
 
 SSH 파이프는 의도적으로 유일한 SSH 의존부로 설계되었습니다. 컨테이너 환경에서는 `kubectl exec -i … magi --fleet-door` 형태로 동일한 일곱 가지 메서드를 그대로 사용할 수 있습니다.
 
-**직접 호출 기능 공개하기.** 작업 공간에서 `magi --companion-policy-path`로 경로를 확인하고,
-그 사용자 전용 TOML 파일에 목적, 운영 지침과 공개할 기능을 작성합니다. 첫 실행기는 절대 경로 root를
+**직접 호출 기능 공개하기.** 작업 공간에서 `magi --companion-policy-write < declaration.toml`로 선언을 검증·저장하고,
+`magi --companion-policy-show`로 현재 선언을 확인합니다. `magi --companion-policy-path`가 가리키는
+사용자 전용 TOML에는 목적·책임·맡길 수 있는 작업·접근 범위·운영 지침·공개할 기능을 작성합니다. 첫 실행기는 절대 경로 root를
 지정하는 `read_file`입니다. 상대는 `companion_call`의 `list`, `describe`, `call`로 조회·호출합니다.
 스킬은 별도의 보유 절차로 표시합니다. 정책은 조회·실행마다 다시 읽으며 기능을 삭제하면 새 호출부터
 거절합니다. 자신의 일반 도구 권한은 기존 설정을 따릅니다. [설정 예시와 설계](COMPANION_CONTRACT.ko.md)를 참고하십시오.

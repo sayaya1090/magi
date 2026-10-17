@@ -281,6 +281,9 @@ func runDaemonMode(p daemonModeParams) int {
 			case <-cronCtx.Done():
 				return
 			case <-tick.C:
+				if err := refreshCompanionAdvertisement(plat.ConfigDir(), wd, sockPath, cfg.Companion.Role); err != nil {
+					fmt.Fprintln(os.Stderr, "magi: refreshing companion declaration:", err)
+				}
 				if serr := daemon.NoteState(sockPath, companionState(a, sid)); serr != nil {
 					fmt.Fprintln(os.Stderr, "magi:", serr)
 				}

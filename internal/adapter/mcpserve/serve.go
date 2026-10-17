@@ -367,6 +367,29 @@ func Describe(c Card) string {
 		if c.Contract.Purpose != "" {
 			b.WriteString("\nUser-declared purpose: " + c.Contract.Purpose + "\n")
 		}
+		if len(c.Contract.Responsibilities) > 0 {
+			b.WriteString("Responsibilities:\n")
+			for _, s := range c.Contract.Responsibilities {
+				b.WriteString("  - " + s + "\n")
+			}
+		}
+		b.WriteString("\nWork you may request through hand_off:\n")
+		if len(c.Contract.Tasks) == 0 {
+			b.WriteString("  No user-declared tasks. Do not infer an offer from learned skills.\n")
+		}
+		for _, task := range c.Contract.Tasks {
+			fmt.Fprintf(&b, "  %s — %s\n", task.ID, task.Description)
+			for _, s := range task.Constraints {
+				b.WriteString("    Constraint: " + s + "\n")
+			}
+		}
+		b.WriteString("\nUser-declared access scope (guidance for model work; enforced only by published operation executors):\n")
+		if len(c.Contract.Access) == 0 {
+			b.WriteString("  Not declared; no additional access grant.\n")
+		}
+		for _, a := range c.Contract.Access {
+			fmt.Fprintf(&b, "  %s %s — %s\n", a.Mode, a.Resource, a.Description)
+		}
 		if len(c.Contract.Instructions) > 0 {
 			b.WriteString("Operating instructions (guidance; not an OS sandbox):\n")
 			for _, s := range c.Contract.Instructions {
@@ -385,7 +408,7 @@ func Describe(c Card) string {
 		}
 	}
 	if len(c.Skills) > 0 {
-		b.WriteString("\nWhat it has written procedures for:\n")
+		b.WriteString("\nLearned procedures (experience only; not advertised tasks or access grants):\n")
 		for _, sk := range c.Skills {
 			b.WriteString("  " + sk.Name)
 			if d := strings.TrimSpace(sk.Description); d != "" {

@@ -44,10 +44,13 @@ func Path(configDir, workdir string) (string, error) {
 }
 
 type declaration struct {
-	Version      int      `toml:"version"`
-	Purpose      string   `toml:"purpose"`
-	Instructions []string `toml:"instructions"`
-	Operations   []struct {
+	Version          int                `toml:"version"`
+	Purpose          string             `toml:"purpose"`
+	Responsibilities []string           `toml:"responsibilities"`
+	Tasks            []companion.Task   `toml:"tasks"`
+	Access           []companion.Access `toml:"access"`
+	Instructions     []string           `toml:"instructions"`
+	Operations       []struct {
 		ID          string `toml:"id"`
 		Description string `toml:"description"`
 		Kind        string `toml:"kind"`
@@ -57,7 +60,7 @@ type declaration struct {
 
 // Load returns no exports when absent. Invalid policy is an error, never an implicit grant.
 func Load(configDir, workdir string) (companion.Contract, error) {
-	out := companion.Contract{Version: 1, Operations: []companion.Operation{}}
+	out := companion.Contract{Version: 1, Operations: []companion.Operation{}, Tasks: []companion.Task{}, Access: []companion.Access{}}
 	path, err := Path(configDir, workdir)
 	if err != nil {
 		return out, err
@@ -121,6 +124,39 @@ func Load(configDir, workdir string) (companion.Contract, error) {
 	if instructionBytes > 16384 {
 		return out, fmt.Errorf("instructions exceed 16 KiB")
 	}
+	if len(d.Tasks) > 64 || len(d.Access) > 64 || len(d.Responsibilities) > 32 {
+		return out, fmt.Errorf("too many tasks, access entries, or responsibilities")
+	}
+	taskIDs := map[string]bool{}
+	for _, task := range d.Tasks {
+		if !identifier.MatchString(task.ID) || taskIDs[task.ID] || strings.TrimSpace(task.Description) == "" || len(task.Description) > 2048 {
+			return out, fmt.Errorf("invalid or duplicate task %q", task.ID)
+		}
+		taskIDs[task.ID] = true
+		if len(task.Constraints) > 32 {
+			return out, fmt.Errorf("too many constraints on task %s", task.ID)
+		}
+		for _, s := range task.Constraints {
+			if len(s) > 2048 {
+				return out, fmt.Errorf("task constraint exceeds 2048 bytes")
+			}
+		}
+	}
+	for _, a := range d.Access {
+		if strings.TrimSpace(a.Resource) == "" || len(a.Resource) > 4096 || len(a.Description) > 2048 {
+			return out, fmt.Errorf("invalid access resource")
+		}
+		switch a.Mode {
+		case "read", "write", "execute", "deny", "approval":
+		default:
+			return out, fmt.Errorf("invalid access mode %q", a.Mode)
+		}
+	}
+	for _, s := range d.Responsibilities {
+		if len(s) > 2048 {
+			return out, fmt.Errorf("responsibility exceeds 2048 bytes")
+		}
+	}
 	seen := map[string]bool{}
 	for _, op := range d.Operations {
 		if !identifier.MatchString(op.ID) || seen[op.ID] {
@@ -139,6 +175,9 @@ func Load(configDir, workdir string) (companion.Contract, error) {
 		out.Operations = append(out.Operations, companion.Operation{ID: op.ID, Description: op.Description, Kind: op.Kind, Root: filepath.Clean(op.Root), ReadOnly: true, InputSchema: json.RawMessage(inputSchema), OutputSchema: json.RawMessage(outputSchema)})
 	}
 	out.Purpose, out.Instructions = d.Purpose, d.Instructions
+	out.Responsibilities = d.Responsibilities
+	out.Tasks = append([]companion.Task{}, d.Tasks...)
+	out.Access = append([]companion.Access{}, d.Access...)
 	return out, nil
 }
 
@@ -272,14 +311,38 @@ func fail(s string) session.ToolResult {
 
 // Guide tells the agent what the user declared without claiming a process sandbox exists.
 func Guide(c companion.Contract) string {
-	if c.Purpose == "" && len(c.Instructions) == 0 {
+	if c.Purpose == "" && len(c.Instructions) == 0 && len(c.Tasks) == 0 && len(c.Access) == 0 && len(c.Responsibilities) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n\n# User-declared companion purpose\n" + c.Purpose + "\n")
+	for _, s := range c.Responsibilities {
+		b.WriteString("Responsibility: " + s + "\n")
+	}
+	for _, task := range c.Tasks {
+		b.WriteString("Offered task " + task.ID + ": " + task.Description + "\n")
+		for _, s := range task.Constraints {
+			b.WriteString("  Constraint: " + s + "\n")
+		}
+	}
+	for _, a := range c.Access {
+		b.WriteString("User-declared access: " + a.Mode + " " + a.Resource + " " + a.Description + "\n")
+	}
 	for _, s := range c.Instructions {
 		b.WriteString("- " + s + "\n")
 	}
 	b.WriteString("These operating instructions apply to your work. Published operations grant peers only their declared access; they do not expand your own tool permissions.\n")
 	return b.String()
+}
+
+// Advertisement derives only what the user explicitly offers, never learned skills or MCP connections.
+func Advertisement(c companion.Contract) (int, []string) {
+	names := make([]string, 0, len(c.Tasks)+len(c.Operations))
+	for _, task := range c.Tasks {
+		names = append(names, "task:"+task.ID)
+	}
+	for _, op := range c.Operations {
+		names = append(names, "call:"+op.ID)
+	}
+	return len(names), names
 }

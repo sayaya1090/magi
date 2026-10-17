@@ -394,6 +394,8 @@ func runWithContext(runCtx context.Context) int {
 		clientOwned = flag.Bool("client-owned", false, "with --daemon: this daemon belongs to whoever started it — stdin is the owner's pipe, and its EOF stops the daemon")
 		attachMode  = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		joinTo      = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
+		policyWrite = flag.Bool("companion-policy-write", false, "validate TOML from stdin and save this workspace user-owned declaration")
+		policyShow  = flag.Bool("companion-policy-show", false, "print the current user-declared purpose, tasks, and scope as JSON")
 		policyPath  = flag.Bool("companion-policy-path", false, "print the user-owned publication policy path for this workspace and exit")
 		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
 		stopDaemon  = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
@@ -534,6 +536,14 @@ func runWithContext(runCtx context.Context) int {
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
+	if *policyWrite {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return companionPolicyCommand(platform.New().ConfigDir(), wd, true, os.Stdin, os.Stdout, os.Stderr)
+	}
 	promptText, err := resolvePrompt(*prompt, os.Stdin)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: read stdin:", err)
@@ -554,6 +564,9 @@ func runWithContext(runCtx context.Context) int {
 	}
 
 	plat := platform.New()
+	if *policyShow {
+		return companionPolicyCommand(plat.ConfigDir(), wd, false, os.Stdin, os.Stdout, os.Stderr)
+	}
 	if *policyPath {
 		p, err := companionpolicy.Path(plat.ConfigDir(), wd)
 		if err != nil {

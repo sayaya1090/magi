@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/sayaya1090/magi/internal/adapter/companionpolicy"
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/core/cluster"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -38,4 +40,23 @@ func (d daemonEngine) CompanionOperation(ctx context.Context, action, id string,
 	default:
 		return nil, nil, fmt.Errorf("unknown companion operation action %q", action)
 	}
+}
+
+func refreshCompanionAdvertisement(configDir, workdir, socket, fallbackRole string) error {
+	c, err := companionpolicy.Load(configDir, workdir)
+	if err != nil {
+		if clearErr := daemon.Advertise(socket, "Publication policy invalid", 0, nil); clearErr != nil {
+			return fmt.Errorf("%v; clear advertisement: %w", err, clearErr)
+		}
+		return err
+	}
+	role := c.Purpose
+	if role == "" {
+		role = fallbackRole
+	}
+	count, names := companionpolicy.Advertisement(c)
+	if len(names) > cluster.MaxDoes {
+		names = names[:cluster.MaxDoes]
+	}
+	return daemon.Advertise(socket, role, count, names)
 }

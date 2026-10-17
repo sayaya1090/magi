@@ -129,3 +129,19 @@ func TestReadOperationRefusesOversizedLineRangeWithoutSilentlyClipping(t *testin
 		t.Fatal(string(r.Content), e)
 	}
 }
+
+func TestTaskAndAccessDeclarationValidation(t *testing.T) {
+	cfg, wd := t.TempDir(), t.TempDir()
+	p, _ := Path(cfg, wd)
+	os.MkdirAll(filepath.Dir(p), 0700)
+	for _, body := range []string{
+		"version=1\n[[tasks]]\nid='x'\ndescription='one'\n[[tasks]]\nid='x'\ndescription='two'",
+		"version=1\n[[access]]\nresource='/tmp'\nmode='full'",
+		"version=1\n[[tasks]]\nid='build'\ndescripton='typo'",
+	} {
+		os.WriteFile(p, []byte(body), 0600)
+		if _, err := Load(cfg, wd); err == nil {
+			t.Fatal("invalid declaration accepted", body)
+		}
+	}
+}
