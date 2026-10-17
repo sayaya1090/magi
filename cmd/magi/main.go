@@ -374,34 +374,35 @@ func run() int { return runWithContext(context.Background()) }
 
 func runWithContext(runCtx context.Context) int {
 	var (
-		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
-		clientRole  = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "client kind: coding|figma|mail|slack|powerpoint|word|excel|docker|kubernetes|browser (empty: legacy coding alias)")
-		output      = flag.String("output", "text", "output format: text|json")
-		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
-		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
-		apiKey      = flag.String("api-key", env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), "API key for the backend (or set MAGI_API_KEY; note a CLI value is visible in the process list)")
-		permission  = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
-		profile     = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
-		workflow    = flag.Bool("workflow", envflag.Enabled("MAGI_WORKFLOW", false), "drive the task through the deterministic localize→implement→verify→review pipeline")
-		verifyCmd   = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
-		noCache     = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
-		httpTimeout = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
-		pluginsDir  = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
-		listModels  = flag.Bool("list-models", false, "list the backend's available models and exit")
-		doctor      = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
-		daemonMode  = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
-		detachMode  = flag.Bool("detach", false, "with --daemon: start it in a session of its own, so it outlives this command, and return once it is listening")
-		clientOwned = flag.Bool("client-owned", false, "with --daemon: this daemon belongs to whoever started it — stdin is the owner's pipe, and its EOF stops the daemon")
-		attachMode  = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
-		joinTo      = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
-		policyWrite = flag.Bool("companion-policy-write", false, "validate TOML from stdin and save this workspace user-owned declaration")
-		policyShow  = flag.Bool("companion-policy-show", false, "print the current user-declared purpose, tasks, and scope as JSON")
-		policyPath  = flag.Bool("companion-policy-path", false, "print the user-owned publication policy path for this workspace and exit")
-		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
-		stopDaemon  = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
-		mcpTo       = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion: its name, or words from its role. Reach another machine's with ssh")
-		mcpAs       = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
-		showMembers = flag.Bool("members", false,
+		prompt       = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
+		clientRole   = flag.String("client-role", env("MAGI_CLIENT_ROLE", ""), "client kind: coding|figma|mail|slack|powerpoint|word|excel|docker|kubernetes|browser (empty: legacy coding alias)")
+		output       = flag.String("output", "text", "output format: text|json")
+		model        = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
+		baseURL      = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
+		apiKey       = flag.String("api-key", env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), "API key for the backend (or set MAGI_API_KEY; note a CLI value is visible in the process list)")
+		permission   = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
+		profile      = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
+		workflow     = flag.Bool("workflow", envflag.Enabled("MAGI_WORKFLOW", false), "drive the task through the deterministic localize→implement→verify→review pipeline")
+		verifyCmd    = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
+		noCache      = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
+		httpTimeout  = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
+		pluginsDir   = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
+		listModels   = flag.Bool("list-models", false, "list the backend's available models and exit")
+		doctor       = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
+		daemonMode   = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
+		detachMode   = flag.Bool("detach", false, "with --daemon: start it in a session of its own, so it outlives this command, and return once it is listening")
+		clientOwned  = flag.Bool("client-owned", false, "with --daemon: this daemon belongs to whoever started it — stdin is the owner's pipe, and its EOF stops the daemon")
+		attachMode   = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
+		joinTo       = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
+		profileWrite = flag.Bool("companion-profile-write", false, "fill missing purpose and offered tasks from JSON stdin; cannot change access or operations")
+		policyWrite  = flag.Bool("companion-policy-write", false, "validate TOML from stdin and save this workspace user-owned declaration")
+		policyShow   = flag.Bool("companion-policy-show", false, "print the current user-declared purpose, tasks, and scope as JSON")
+		policyPath   = flag.Bool("companion-policy-path", false, "print the user-owned publication policy path for this workspace and exit")
+		listAgents   = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
+		stopDaemon   = flag.Bool("stop", false, "stop the daemon holding this workspace, and stop its scheduled work with it")
+		mcpTo        = flag.String("mcp", "", "answer MCP on stdin/stdout for one companion: its name, or words from its role. Reach another machine's with ssh")
+		mcpAs        = flag.String("mcp-as", "", "the companion this MCP session speaks for; set by magi when it attaches a peer")
+		showMembers  = flag.Bool("members", false,
 			"print the companions this machine knows about, as JSON; a member list on stdin is merged in first")
 		joinCluster = flag.String("join-cluster", "",
 			"trade member lists with a companion's machine over ssh and join its cluster. Not --join, which reads one workspace's shared settings as a proposal")
@@ -536,11 +537,18 @@ func runWithContext(runCtx context.Context) int {
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
-	if *policyWrite {
+	if *policyWrite || *profileWrite {
+		if *policyWrite && *profileWrite {
+			fmt.Fprintln(os.Stderr, "choose either full policy write or profile write")
+			return 1
+		}
 		wd, err := os.Getwd()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
+		}
+		if *profileWrite {
+			return companionProfileCommand(platform.New().ConfigDir(), wd, os.Stdin, os.Stdout, os.Stderr)
 		}
 		return companionPolicyCommand(platform.New().ConfigDir(), wd, true, os.Stdin, os.Stdout, os.Stderr)
 	}
@@ -887,7 +895,13 @@ func runWithContext(runCtx context.Context) int {
 			if err != nil {
 				return "\n\nCompanion publication policy is invalid; directly callable operations are disabled.\n"
 			}
-			return companionpolicy.Guide(c)
+			guide := companionpolicy.Guide(c)
+			if app.NormalizeClientKind(*clientRole) == app.ClientCoding && runCtx.Value(codingTaskRunKey{}) != true {
+				if executable, err := os.Executable(); err == nil {
+					guide = companionSelfDescriptionGuide(workdir, executable) + guide
+				}
+			}
+			return guide
 		},
 		System:              clientSystem(*clientRole),
 		ClientRole:          *clientRole,

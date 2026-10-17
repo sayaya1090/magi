@@ -1,18 +1,47 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/filelock"
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/companionpolicy"
 	"github.com/sayaya1090/magi/internal/atomicfile"
 )
 
-// Only an explicit local CLI action writes authority. No model tool or fleet method exposes this.
+// Full policy changes remain a local user action. Self-description has a narrower writer.
 func companionPolicyCommand(configDir, workdir string, write bool, in io.Reader, out, errOut io.Writer) int {
+	if !write {
+		return companionPolicyCommandUnlocked(configDir, workdir, false, in, out, errOut)
+	}
+	unlock, err := lockCompanionPolicy(configDir, workdir)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	defer unlock()
+	return companionPolicyCommandUnlocked(configDir, workdir, true, in, out, errOut)
+}
+
+func lockCompanionPolicy(configDir, workdir string) (func(), error) {
+	path, err := companionpolicy.Path(configDir, workdir)
+	if err != nil {
+		return nil, err
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return filelock.Acquire(ctx, path+".lock")
+}
+
+func companionPolicyCommandUnlocked(configDir, workdir string, write bool, in io.Reader, out, errOut io.Writer) int {
 	if !write {
 		c, err := companionpolicy.Load(configDir, workdir)
 		if err != nil {
