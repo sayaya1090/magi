@@ -241,6 +241,14 @@ func (a *App) UseBackend(sid session.SessionID, base string) error {
 	return nil
 }
 
+// ReconcileBackendModel aligns a restored session after startup plugins select the backend.
+// A failed or absent model catalog leaves the existing selection untouched.
+func (a *App) ReconcileBackendModel(sid session.SessionID) {
+	if a.sessionProviderRoute(sid) == "" {
+		a.adoptServedModel(sid)
+	}
+}
+
 // adoptServedModel moves this session onto a model the NEW backend actually serves.
 //
 // Redirecting the base URL used to be the whole of a backend switch, and the model name was left
