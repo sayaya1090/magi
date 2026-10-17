@@ -47,27 +47,50 @@ func (a *App) RecentPrompts(ctx context.Context, workdir string, limit int) ([]P
 	seen := map[string]bool{}
 	scanned := 0
 	for _, m := range metas {
-		if len(out) >= limit || scanned >= promptScanSessions {
+		if scanned >= promptScanSessions {
 			break
 		}
 		if m.Parent != "" || strings.HasPrefix(m.Origin, "cron:") {
 			continue
 		}
 		scanned++
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		evs, err := a.store.Read(ctx, m.ID, 0)
 		if err != nil {
 			continue // one unreadable log costs its own lines, not the whole history
 		}
-		for i := len(evs) - 1; i >= 0 && len(out) < limit; i-- {
+		// Each conversation can contribute at most limit distinct candidates.
+		// The final limit and deduplication must follow the cross-session time sort.
+		seen = map[string]bool{}
+		count := 0
+		for i := len(evs) - 1; i >= 0 && count < limit; i-- {
 			t, ok := typedPrompt(evs[i])
 			if !ok || seen[t] {
 				continue
 			}
 			seen[t] = true
+			count++
 			out = append(out, PastPrompt{Text: t, At: evs[i].TS, Session: m.ID})
 		}
 	}
-	return out, nil
+	// A session can become active because of a long-running tool or an assistant
+	// reply. Its activity timestamp cannot order prompts from other conversations.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
+	seen = map[string]bool{}
+	selected := make([]PastPrompt, 0, min(limit, len(out)))
+	for _, p := range out {
+		if seen[p.Text] {
+			continue
+		}
+		seen[p.Text] = true
+		selected = append(selected, p)
+		if len(selected) == limit {
+			break
+		}
+	}
+	return selected, nil
 }
 
 // typedPrompt is the text of a prompt a person typed, or false. Read off the event rather than the
