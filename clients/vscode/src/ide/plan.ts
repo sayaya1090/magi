@@ -76,7 +76,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
        * started has nothing to be full of.
        */
       caps.has('context') && session
-        ? this.companion.ask('context', { session })
+        ? this.companion.ask('context', { session: session })
         : null,
       caps.has('roster') ? this.companion.ask('roster') : null,
       caps.has('cron') ? this.companion.ask('cron') : null,
