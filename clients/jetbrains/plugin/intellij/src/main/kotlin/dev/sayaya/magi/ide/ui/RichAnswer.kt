@@ -50,9 +50,12 @@ internal object RichAnswer {
      * 지정된 응답의 마크다운 렌더 패널을 반환한다. 생성 실패 또는 자격 미달 시 null을 반환하여 경량 렌더러로 폴백한다.
      * 패널은 [parent]에 등록되어 창 닫힘 시 함께 해제된다.
      */
-    fun panel(project: Project, md: String, key: String, parent: Disposable): JComponent? {
+    fun panel(project: Project, md: String, key: String, parent: Disposable, streaming: Boolean = false): JComponent? {
         // 스트리밍 응답 텍스트 증가 시 패널 내용 및 실측 높이를 재계산한다 (리뷰 F1: 초기 펜스만 열린 상태로 고정되는 결함 방지).
         live[key]?.let { held ->
+            val wasStreaming = held.sizing.streaming
+            held.sizing.streaming = streaming
+            if (held.md == md && wasStreaming != streaming) held.measure()
             if (held.md != md) runCatching {
                 val vf = LightVirtualFile("magi-답.md", md)
                 held.setHtml(org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
@@ -88,7 +91,8 @@ internal object RichAnswer {
                 add(htmlPanel.component, java.awt.BorderLayout.CENTER)
             }
             // 브라우저에 실제 렌더링 완료 높이(scrollHeight)를 비동기 질의하여 패널 높이를 조정한다.
-            val measure = measurer(htmlPanel, holder)
+            val sizing = StreamingHeight(streaming)
+            val measure = measurer(htmlPanel, holder, sizing)
             measure()
             // 패널 폭(가로) 변경 시 텍스트 래핑 변화로 높이가 달라지므로 폭 변경 시에만 높이를 재측정한다.
             // 높이 변경으로 인한 리사이즈 이벤트는 재측정 루프(EDT 포화)를 유발하므로 제외한다 (샌드박스 실측 결함 대응).
@@ -101,7 +105,7 @@ internal object RichAnswer {
                     measure()
                 }
             })
-            live[key] = Held(holder, htmlPanel, md, { h, f -> htmlPanel.setHtml(h, 0, f) }, measure)
+            live[key] = Held(holder, htmlPanel, md, { h, f -> htmlPanel.setHtml(h, 0, f) }, measure, sizing)
             holder
         }.onFailure { LOG.info("magi: IDE 마크다운 렌더러 생성 실패 — 경량 렌더러로 폴백", it) }
             .getOrNull()
@@ -115,6 +119,7 @@ internal object RichAnswer {
         var md: String,
         val setHtml: (String, com.intellij.openapi.vfs.VirtualFile) -> Unit,
         val measure: () -> Unit,
+        val sizing: StreamingHeight,
     )
 
     /**
@@ -123,12 +128,13 @@ internal object RichAnswer {
      *
      * 렌더링 초기 시점의 지연을 감안하여 다단계 타이머(350ms, 1400ms)와 로드 완료 이벤트([CefLoadHandlerAdapter.onLoadEnd])를 결합한다.
      */
-    private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>): () -> Unit {
+    private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>, sizing: StreamingHeight): () -> Unit {
         // JBCefJSQuery 생성 (리뷰 F7: setHtml 직후 쿼리를 등록하여 CEF 바이트코드 레벨의 조용한 무응답 방어)
         val browser = panel as? com.intellij.ui.jcef.JBCefBrowser ?: return {}
         val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase) }.getOrNull() ?: return {}
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
+        var transientLogged = false
         query.addHandler { said ->
             if (said.startsWith("wheel:")) {
                 said.removePrefix("wheel:").toDoubleOrNull()?.takeIf { it.isFinite() }?.let { delta ->
@@ -142,9 +148,14 @@ internal object RichAnswer {
                 answered = true
                 val h = (px.toLong() + holder.insets.top + holder.insets.bottom).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 javax.swing.SwingUtilities.invokeLater {
-                    if (holder.preferredSize.height != h) {
-                        holder.preferredSize = java.awt.Dimension(0, h)
-                        holder.maximumSize = java.awt.Dimension(Integer.MAX_VALUE, h)
+                    val stable = sizing.accept(h, holder.width) ?: return@invokeLater
+                    if (stable != h && !transientLogged) {
+                        transientLogged = true
+                        LOG.info("magi: streaming preview ignored transient height $h; keeping $stable at width ${holder.width}")
+                    }
+                    if (holder.preferredSize.height != stable) {
+                        holder.preferredSize = java.awt.Dimension(0, stable)
+                        holder.maximumSize = java.awt.Dimension(Integer.MAX_VALUE, stable)
                         holder.revalidate()
                         holder.parent?.revalidate()
                     }

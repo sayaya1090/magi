@@ -1131,6 +1131,7 @@ export interface WebviewReceiveAdapterOptions {
   setNoteText: (text: string) => void;
   getNoteText: () => string;
   scrollContainer?: HTMLElement | null;
+  scrollFollowing?: { beforeRender(): boolean; afterRender(following: boolean): void };
 }
 
 export function createWebviewReceiveHandlers(
@@ -1176,9 +1177,9 @@ export function createWebviewReceiveHandlers(
       }
 
       const scrollEl = options.scrollContainer;
-      const wasAtBottom = scrollEl
-        ? scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40
-        : false;
+      const wasAtBottom = options.scrollFollowing
+        ? options.scrollFollowing.beforeRender()
+        : scrollEl ? scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40 : false;
       const initialScrollTop = scrollEl ? scrollEl.scrollTop : 0;
 
       options.drawRows(payload.rows);
@@ -1201,6 +1202,7 @@ export function createWebviewReceiveHandlers(
           if (scrollEl.scrollTop > maxScroll) scrollEl.scrollTop = maxScroll;
         }
       }
+      options.scrollFollowing?.afterRender(wasAtBottom);
       // Same constant as the producer: if the two spelled it differently this would never clear.
       if (options.getNoteText() === SENDING) {
         options.setNoteText('');

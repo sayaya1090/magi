@@ -2013,3 +2013,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 ```sh
 ./gradlew :intellij:test --tests '*TailScrollTest' --no-daemon
 ```
+
+
+## 스트리밍 중 스크롤 안정성 회귀 (2026-10-17)
+
+`StreamingHeightTest`는 같은 폭에서 스트리밍 DOM 높이가 1800→72→2200→96→2600으로 보고되어도 표시 높이와 하단 스크롤이 뒤로 움직이지 않는지 검사합니다. 스트리밍 종료와 실제 폭 변경 때는 높이 감소를 허용합니다. 아직 배치되지 않은 폭 0의 측정은 무시합니다.
+
+`TranscriptViewport`는 채팅 입력창에 포커스가 있는 동안 새 읽기 전용 텍스트의 caret 표시 요청이 전사를 움직이지 못하게 합니다. 전사 자체에 포커스가 있으면 키보드 탐색에 필요한 표시 요청은 허용합니다. 실제 Swing 뷰포트 좌표로 두 경우를 검사합니다. 사용자가 휠로 위로 이동하면 새 내용이 추가되어도 위치를 유지하는 기존 `TailScrollTest`도 함께 실행합니다.
+
+이 검증은 공통 IntelliJ Platform 코드와 Swing 동작을 대상으로 합니다. PyCharm·WebStorm·GoLand 각각의 실물 UI 인수를 대신하지 않습니다. JCEF에서 일시적인 작은 높이를 억제하면 해당 응답당 한 번 `streaming preview ignored transient height`를 IDE 로그에 남깁니다.

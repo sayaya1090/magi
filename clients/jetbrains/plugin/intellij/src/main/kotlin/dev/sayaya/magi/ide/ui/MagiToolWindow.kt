@@ -296,7 +296,9 @@ class MagiToolWindow : ToolWindowFactory {
             c.rows { shaper.list() }
             c.popup(column) { shaper.list() }
         }
-        private val scroll = JBScrollPane(column).apply {
+        private val scroll = JBScrollPane().apply {
+            viewport = TranscriptViewport()
+            setViewportView(column)
             border = JBUI.Borders.empty()
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
@@ -1182,7 +1184,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,
                         // 일반 텍스트는 경량 Swing 컴포넌트로 렌더링하여 프로세스 메모리를 절약합니다.
                         val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
-                            RichAnswer.panel(project, r.text, RowText.richKey(r), this@View)
+                            RichAnswer.panel(project, r.text, RowText.richKey(r), this@View, streaming = r.draft)
                         } else null
                         // 스트리밍 중인 초안은 커서 글리프(" ▌")를 붙여 완료된 텍스트와 구별합니다(리뷰 F11).
                         p.add(rich ?: Look.rich(r.text + if (r.draft) " ▌" else ""), BorderLayout.CENTER)

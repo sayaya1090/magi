@@ -822,10 +822,32 @@ export const layoutScenarios = [
           });
           assert.ok(atBottom2, '많은 행 도착 후에도 하단 추적 유지');
 
+          // Markdown/image layout may grow after the rows message has already been painted.
+          await page.evaluate(() => {
+            const body = document.querySelector('#rows .row:last-child .body');
+            const late = document.createElement('div');
+            late.id = 'late-layout-growth';
+            late.style.height = '350px';
+            body.append(late);
+          });
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          const afterLateGrowth = await page.evaluate(() => {
+            const el = document.getElementById('scroll');
+            return el.scrollHeight - el.scrollTop - el.clientHeight;
+          });
+          assert.ok(afterLateGrowth < 5, `delayed layout lost tail following: ${afterLateGrowth}px`);
+
+
           /* 위로 올려 읽는다 — state 재수신으로 scrollTop 을 빼앗지 않는다 */
           await page.evaluate(() => { document.getElementById('scroll').scrollTop = 50; });
           const scrollBefore = await page.evaluate(() => document.getElementById('scroll').scrollTop);
           assert.equal(scrollBefore, 50, '스크롤을 50 으로 올렸다');
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          await page.evaluate(() => { document.getElementById('late-layout-growth').style.height = '650px'; });
+          await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+          assert.equal(await page.locator('#scroll').evaluate(el => el.scrollTop), 50,
+            'delayed growth must not pull a reader back to the bottom');
+
 
           // state 재수신
           await stateMsg('working', '작업 중');
