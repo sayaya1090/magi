@@ -56,7 +56,11 @@ export function approvalSupport(companion: Companion): vscode.Disposable {
       if (answer === undefined) return;
     } else return;
     const fresh = await companion.ask('jobs');
-    if (!fresh?.ok || !fresh.jobs?.approvals?.some(x => key(x) === key(item))) {
+    if (!fresh?.ok) {
+      void vscode.window.showErrorMessage(t('Response was not sent: {0}', fresh?.error ?? t('Companion unavailable')));
+      return;
+    }
+    if (!fresh.jobs?.approvals?.some(x => key(x) === key(item))) {
       void vscode.window.showWarningMessage(t('This request is no longer pending.'));
       return;
     }

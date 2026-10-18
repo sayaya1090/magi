@@ -67,7 +67,8 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
         scope.launch {
             val result = runCatching { workspace.askWithoutChat { companion ->
                 val fresh = companion.jobs()
-                check(fresh.ok && fresh.jobs?.approvals.orEmpty().any { key(it) == key(p) }) { MagiBundle.msg("approval.stale") }
+                check(fresh.ok) { fresh.error ?: MagiBundle.msg("approval.failed") }
+                check(fresh.jobs?.approvals.orEmpty().any { key(it) == key(p) }) { MagiBundle.msg("approval.stale") }
                 companion.respondDelegated(p, decision, answer)
             } }
             ApplicationManager.getApplication().invokeLater {

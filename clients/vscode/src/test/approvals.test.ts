@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
 
-async function fixture(action?: string, stale = false) {
+async function fixture(action?: string, stale = false, unavailable = false) {
   const exports: any = {}; let command: any; let tick: any;
   const calls: any[] = []; const notices: string[] = [];
   const prompt = { session: 'delegated', requester: 'handbook', prompt: { id: 'call', kind: 'permission', what: 'bash', args: { command: 'git status' } } };
@@ -22,6 +22,7 @@ async function fixture(action?: string, stale = false) {
     calls.push({ method, extra });
     if (method !== 'jobs') return { ok: true };
     reads++;
+    if (unavailable && reads >= 4) return { ok: false, error: 'connection failed' };
     return { ok: true, jobs: { approvals: stale && reads >= 4 ? [] : [prompt] } };
   } });
   await new Promise(resolve => setImmediate(resolve));
@@ -47,4 +48,11 @@ test('delegated approval uses original session and call id, never selected chat'
 test('stale delegated approval cannot be answered', async () => {
   const { calls } = await fixture('Reject', true);
   assert.ok(calls.every(c => c.method === 'jobs'));
+});
+
+test('failed verification is not reported as an expired or rejected request', async () => {
+  const { calls, notices } = await fixture('Allow once', false, true);
+  assert.ok(calls.every(c => c.method === 'jobs'));
+  assert.ok(notices.includes('Response was not sent: {0}'));
+  assert.ok(!notices.includes('This request is no longer pending.'));
 });
