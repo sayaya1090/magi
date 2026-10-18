@@ -40,6 +40,7 @@ final class Knowledge {
                 skills = skills().filter((v, i) -> !name.equals(Js.asPropertyMap(v).get("name")));
                 return Mock.took(path, init);
             }
+            case "/retention": return Mock.took(path, init);
             case "/remember": return Mock.took(path, init);
             default: return null;
         }
