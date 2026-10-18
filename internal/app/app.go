@@ -31,6 +31,7 @@ type App struct {
 	profileIntroNudged atomic.Bool
 	profileCancel      context.CancelFunc // guarded by mu; foreground work wins
 
+	profilePending      map[session.SessionID]bool // guarded by mu; source chats waiting for the metadata worker
 	profileBusy         atomic.Bool
 	profileLast         atomic.Int64
 	backgroundAuthority atomic.Bool

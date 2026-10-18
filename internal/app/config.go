@@ -182,6 +182,7 @@ func DefaultDangerTools() map[string]bool {
 type Config struct {
 	// CompanionInstructions reads the user-owned workspace declaration; it grants no extra tools.
 	CompanionInstructions       func(workdir string) string
+	ProfileMaintainer           port.ProfileMaintenance
 	CompanionProfileNeeded      func(workdir string) bool
 	CompanionProfileUnpublished func(workdir string) bool
 	CompanionProfileSave        func(workdir, profile string) error

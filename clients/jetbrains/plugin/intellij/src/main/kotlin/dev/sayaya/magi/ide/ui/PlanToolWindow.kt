@@ -231,7 +231,15 @@ class PlanToolWindow : ToolWindowFactory {
                 }
             }
         }
+        val maintenance = JButton(MagiBundle.msg("maintenance.title")).apply {
+            addActionListener {
+                workspace.onDaemonWithoutChat({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
+                    SwingUtilities.invokeLater { ProfileMaintenanceDialog(project, comp).show() }
+                }
+            }
+        }
         val controls = stack(0, 0).apply {
+            add(maintenance)
             add(knowledge)
             add(stale)
             add(section(MagiBundle.msg("plan.tasks")))
