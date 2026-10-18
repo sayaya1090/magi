@@ -17,6 +17,25 @@ import javax.swing.JPanel
  */
 class PlanPanelLayoutTest : BasePlatformTestCase() {
 
+    fun testDelegatedReviewPreservesCustomReportOrderAndEscapesUntrustedText() {
+        val waiting = dev.sayaya.magi.ide.model.Waiting(
+            id = "call", kind = "question", what = "<script>question</script>",
+            report = listOf(
+                dev.sayaya.magi.ide.model.Ground("custom-evidence", "<b>evidence</b>"),
+                dev.sayaya.magi.ide.model.Ground("custom-risks", "risks"),
+                dev.sayaya.magi.ide.model.Ground("custom-choice", "recommendation"),
+            ),
+        )
+        val html = delegatedReviewHtml(dev.sayaya.magi.ide.model.PendingPrompt("source-session", "requester", waiting))
+        assertTrue(html.contains("source-session"))
+        assertTrue(html.contains("&lt;script&gt;"))
+        assertFalse(html.contains("<script>"))
+        assertTrue(html.indexOf("custom-evidence") < html.indexOf("custom-risks"))
+        assertTrue(html.indexOf("custom-risks") < html.indexOf("custom-choice"))
+        assertTrue(html.contains("&lt;b&gt;evidence&lt;/b&gt;"))
+        assertFalse(html.contains("tried:"))
+    }
+
     fun testInlineMaintenanceFitsNarrowPanelAndKeepsStatusHeightBounded() {
         val panel = ProfileMaintenancePanel(Workspace(project))
         try {

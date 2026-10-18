@@ -4,7 +4,7 @@ A tool requested by another companion still needs the local operator's permissio
 
 `App.PendingPrompts` collects pending permissions and questions from delegated sessions. The local daemon exposes them in `jobs.approvals`, with the source `session`, `requester`, and full `prompt`. Existing clients can ignore this optional field. Fleet permissions are unchanged.
 
-VS Code and JetBrains poll independently of their chat and status panels. A new prompt produces one notification. Pending requests remain accessible in the status panel; VS Code also provides a status-bar entry and the `magi.approvals` command. Review shows the requester, source session, arguments, reason, diff, and question report. Closing review leaves the request pending.
+VS Code and JetBrains poll independently of their chat and status panels. A new prompt produces one notification. Pending requests remain accessible in the status panel; VS Code also provides a status-bar entry and the `magi.approvals` command. Review shows the requester, source session, arguments, reason, diff, and question report. JetBrains embeds review above the main composer, preserving the originating companion’s ordered report sections and source-session response routing; notification and status actions open that area. VS Code currently uses native review dialogs. Closing or hiding review leaves the request pending.
 
 Before submitting, each client checks that the source session and prompt ID are still pending. The daemon accepts only the first response. Permission actions offer one-call approval or rejection; they never create a persistent grant. Questions use the existing `answer` method.
 
