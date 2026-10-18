@@ -1,6 +1,5 @@
 package dev.sayaya.magi.ide.ui
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBPanel
@@ -60,8 +59,8 @@ internal class ProfileMaintenancePanel(private val workspace: Workspace) : JBPan
         refresh.isEnabled = false; reload.isEnabled = false
         requests.launch {
             val result = runCatching { workspace.askWithoutChat { it.profileMaintenance(request) } }
-            ApplicationManager.getApplication().invokeLater {
-                if (!alive) return@invokeLater
+            managementUiLater {
+                if (!alive) return@managementUiLater
                 refresh.isEnabled = true; reload.isEnabled = true
                 val response = result.getOrNull()
                 if (response?.ok != true) {

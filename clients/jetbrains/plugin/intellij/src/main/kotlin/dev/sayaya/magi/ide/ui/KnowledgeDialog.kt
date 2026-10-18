@@ -1,6 +1,5 @@
 package dev.sayaya.magi.ide.ui
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
@@ -81,8 +80,8 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
             val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action) } }
             // Always reload after mutation, including stale revision or lost acknowledgement.
             val inventory = if (item != null) runCatching { workspace.askWithoutChat { it.knowledge() } } else result
-            ApplicationManager.getApplication().invokeLater {
-                if (!alive) return@invokeLater
+            managementUiLater {
+                if (!alive) return@managementUiLater
                 busy = false
                 val response = inventory.getOrNull()
                 val changed = result.getOrNull()
