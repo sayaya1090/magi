@@ -45,6 +45,19 @@ internal class KnowledgeScreenTest : GwtTestSpec({
         }
         When("보관 후보를 고정하고 로컬 보관 후 복원하면") {
             Then("내용 revision과 동작을 전달하고 상태에 맞는 버튼을 그린다") {
+                val viewport = page.viewportSize()
+                for (width in listOf(320, 420, 1400)) {
+                    page.setViewportSize(width, 950)
+                    page.evaluate("""() => {
+                        const actions = document.querySelector('.retention-actions');
+                        const parent = actions.getBoundingClientRect();
+                        return Array.from(actions.children).every(button => {
+                            const r = button.getBoundingClientRect();
+                            return r.width > 0 && r.height >= 40 && r.left >= parent.left - 1 && r.right <= parent.right + 1;
+                        });
+                    }""") shouldBe true
+                }
+                if (viewport != null) page.setViewportSize(viewport.width, viewport.height)
                 page.evaluate("window.__magi_test_retention_fail = true")
                 page.locator("#skills [data-retention-action=pin]").click()
                 page.locator("#skills").textContent() shouldContain "content revision conflict"
