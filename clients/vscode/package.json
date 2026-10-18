@@ -196,6 +196,11 @@
         "title": "%magi.handOff.title%",
         "icon": "$(send)",
         "category": "Magi"
+      },
+      {
+        "command": "magi.knowledge",
+        "title": "%magi.knowledge.title%",
+        "category": "Magi"
       }
     ],
     "submenus": [
@@ -295,6 +300,10 @@
           "command": "magi.handOff",
           "when": "view == magi.plan",
           "group": "navigation@3"
+        },
+        {
+          "command": "magi.knowledge",
+          "when": "view == magi.plan"
         }
       ],
       "editor/context": [

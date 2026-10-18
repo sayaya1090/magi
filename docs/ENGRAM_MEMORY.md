@@ -42,7 +42,7 @@ Device state lives under the OS user config directory at `magi/experience-local/
 
 Inventory entries include `retention`: observation time, content revision, pin, cold, archive-candidate, and locally archived status. `POST /retention` uses the existing Curate permission and published-project selection. Send `tier=project`, `name=managed:<object_id>`, the inventory's `retention.content_revision` as `revision`, and `action=pin|unpin|archive|restore`. The existing `d` socket selector identifies the project. An empty action reads status. Stale content revisions are rejected. Pinning prevents automatic demotion and candidate marking. Explicit local archiving removes the entry from automatic search while retaining inventory and source content. Restoration starts a new observation period; it cannot restore a withdrawn or archived source object.
 
-This step covers the managed store and management API. The web knowledge screen now shows device-local state and observation dates, with pin/unpin/archive/restore controls. It disables the row actions during a request, displays failure reasons, and reloads inventory. Dedicated JetBrains/VS Code controls and migration of legacy `.claude/skills` files remain unfinished. Section 0.4 covers active-task protection and the supported verification evidence. This policy does not move human-authored or edited files. Explicit legacy file-moving settings remain effective; use `/engram-prune-days 0` to disable them.
+This step covers the managed store and management API. The web knowledge screen now shows device-local state and observation dates, with pin/unpin/archive/restore controls. It disables the row actions during a request, displays failure reasons, and reloads inventory. Dedicated JetBrains/VS Code controls are now available through the project-only `knowledge` daemon capability. VS Code uses the command palette and status-panel menu; JetBrains uses the status panel’s management dialog. Both show protected/retention state and verification history, submit the displayed content revision, and reload after actions. Legacy entries remain read-only. Section 0.5 describes explicit registration of local legacy skill snapshots. Section 0.4 covers active-task protection and the supported verification evidence. This policy does not move human-authored or edited files. Explicit legacy file-moving settings remain effective; use `/engram-prune-days 0` to disable them.
 
 ### 0.4. Verification evidence and active-task protection
 
@@ -53,6 +53,15 @@ This proves successful execution of the unchanged verifier. It does not prove ev
 Loaded managed skills and explicitly recalled managed memories acquire a two-minute host lease, renewed every 30 seconds. A live lease prevents cold demotion and archive-candidate marking without refreshing age. Foreground completion releases its references; outstanding background tool jobs retain them until completion. Independent turns hold independent references. A process crash leaves protection only until lease expiry. Explicit user archiving and source withdrawal remain effective.
 
 The web knowledge screen shows protection, successful verification count and last verification time. Reference identifiers and execution receipts stay in device-local metadata and are omitted from public inventory. Each object accepts at most 256 concurrent references and 4,096 deduplication receipts; exceeding a limit reports an error without silently dropping evidence. Native verifier adapters and causal application evidence for memories remain future work.
+
+
+### 0.5. Explicit registration of legacy local skills
+
+The IDE inventory lists workspace `.claude/skills/<name>/SKILL.md` files as import candidates, excluding already managed skills. **Register a managed copy** asks for confirmation and sends the reviewed document hash. If the file has changed, registration fails and the list reloads. Documents must be nonempty regular files of at most 256 KiB; rooted filesystem reads reject symlinks escaping the workspace.
+
+Registration creates a `user:legacy-import` skill snapshot in the project experience store. It is pinned on its first local observation. The source file is never rewritten, moved or deleted, and no verification success or executable verification snapshot is invented. Identical retries reuse the publication and preserve later user pin/archive choices. A changed document cannot silently replace an existing managed copy. Correcting or reconciling those copies remains manual.
+
+This is an explicit copy, not continuous synchronization. Archiving the managed copy removes it from shared-experience retrieval; the original local skill remains available to the local skill loader. Team/global legacy stores, attachment migration and automatic reconciliation of subsequent human edits are outside this first registration path.
 
 ## 1. Implementation review
 

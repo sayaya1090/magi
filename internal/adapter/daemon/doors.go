@@ -186,6 +186,7 @@ func init() {
 		// Advertised. Each of these decides whether a screen exists, which is what the handshake is for.
 		"config-get":    {run: answerConfigGet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot read out its settings", cap: "settings"},
 		"config-set":    {run: answerConfigSet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot change its settings", cap: "settings"},
+		"knowledge":     {run: answerKnowledge, needs: (*KnowledgeManager)(nil), why: "this companion does not offer knowledge management", cap: "knowledge"},
 		"profiles":      {run: answerProfiles, needs: (*ConfigKeeper)(nil), why: "this daemon cannot list its backends", cap: "settings"},
 		"mcp-attach":    {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
 		"mcp-detach":    {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},

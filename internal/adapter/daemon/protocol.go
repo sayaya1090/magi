@@ -10,6 +10,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // CapabilityHost provides only user-published operations, independently of model turns.
@@ -732,10 +733,11 @@ type Request struct {
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
 // failed cannot tell a rejected session id from a dead engine, and would retry both.
 type Response struct {
-	Declaration     json.RawMessage     `json:"declaration,omitempty"`
-	OperationResult *session.ToolResult `json:"operationResult,omitempty"`
-	OK              bool                `json:"ok"`
-	Err             string              `json:"error,omitempty"`
+	Knowledge       []port.KnowledgeItem `json:"knowledge,omitempty"`
+	Declaration     json.RawMessage      `json:"declaration,omitempty"`
+	OperationResult *session.ToolResult  `json:"operationResult,omitempty"`
+	OK              bool                 `json:"ok"`
+	Err             string               `json:"error,omitempty"`
 	// Minutes is the meeting document as the speaker just revised it, on a meet reply. Its own
 	// field rather than folded into Out, which carries what was SAID: a screen draws those two in
 	// different places, and one field meaning "the sentence, or the document, depending" is a wire

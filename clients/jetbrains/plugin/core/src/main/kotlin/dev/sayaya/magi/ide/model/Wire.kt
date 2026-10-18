@@ -92,6 +92,7 @@ data class FileRef(
 
 @Serializable
 data class Response(
+    val knowledge: List<KnowledgeItem>? = null,
     val declaration: JsonElement? = null,
     val operationResult: JsonElement? = null,
     val ok: Boolean = false,
@@ -706,4 +707,23 @@ data class ConfigItem(
 data class ProfileChoice(
     val name: String = "",
     val tier: String? = null,
+)
+
+
+@Serializable
+data class KnowledgeItem(
+    val importable: Boolean = false,
+    val name: String = "",
+    val kind: String = "",
+    val description: String = "",
+    val revision: String = "",
+    val managed: Boolean = false,
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
+    val cold: Boolean = false,
+    @SerialName("archive_candidate") val archiveCandidate: Boolean = false,
+    @SerialName("protected") val inUse: Boolean = false,
+    @SerialName("application_count") val applicationCount: Int = 0,
+    val since: String = "",
+    @SerialName("last_applied") val lastApplied: String = "",
 )

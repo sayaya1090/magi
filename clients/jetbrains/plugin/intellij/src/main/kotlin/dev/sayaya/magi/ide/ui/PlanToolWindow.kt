@@ -224,7 +224,15 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
 
+        val knowledge = JButton(MagiBundle.msg("knowledge.title")).apply {
+            addActionListener {
+                workspace.onDaemonWithoutChat({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
+                    SwingUtilities.invokeLater { KnowledgeDialog(project, comp).show() }
+                }
+            }
+        }
         val controls = stack(0, 0).apply {
+            add(knowledge)
             add(stale)
             add(section(MagiBundle.msg("plan.tasks")))
             add(work)
