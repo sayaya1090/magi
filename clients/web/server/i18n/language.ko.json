@@ -639,5 +639,8 @@
   "retention.unpin": "고정 해제",
   "retention.archive": "이 기기에 보관",
   "retention.restore": "복원",
-  "retention.since": "관찰 시작 {date}"
+  "retention.since": "관찰 시작 {date}",
+  "retention.protected": "진행 중인 작업에서 참조 중",
+  "retention.applications": "검증 실행 성공 {count}회",
+  "retention.last_applied": "최근 검증 {date}"
 }

@@ -46,7 +46,8 @@ type bashArgs struct {
 // was worth keeping and is now plain prose: run the check directly, do not pipe it through
 // tail/head, because then the exit you get back is the pager's.
 
-func (Bash) Name() string { return "bash" }
+func (Bash) Name() string              { return "bash" }
+func (Bash) ObservesProcessExit() bool { return true }
 func (Bash) Description() string {
 	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code (a non-zero exit is normal output — never mask it with `|| true`). Each call is a FRESH shell: cd affects only that command and never changes the session file-tool root. timeout limits FOREGROUND calls only; background jobs have no automatic deadline. Use wait_for{job:ID} to wait, not repeated bash_output polling. To keep a process (e.g. a server) alive across steps set background=true — it returns an id: poll with bash_output, stop with bash_kill, send input with bash_input. START a process and VERIFY it in SEPARATE calls: start it with background=true, then check it (netstat/pgrep/curl) in a foreground call so you see the result. Add pty=true (with background) for programs needing a real terminal (ssh password prompt, serial login, curses UI). When a command IS your build/test check, run it directly — piping it through tail/head gives you the pager's exit code, not the check's."
 }

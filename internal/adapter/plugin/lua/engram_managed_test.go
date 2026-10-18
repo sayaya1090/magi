@@ -2,6 +2,8 @@ package lua
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -339,5 +341,38 @@ func TestEngramDefaultRetentionDoesNotMoveLegacySkillFiles(t *testing.T) {
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != body {
 		t.Fatalf("default policy moved legacy file: %s %v", got, err)
+	}
+}
+
+func TestEngramPublicationSnapshotsMatchSavedArtifacts(t *testing.T) {
+	wd := t.TempDir()
+	store := expgit.New(t.TempDir())
+	verify := "#!/bin/sh\n" + strings.Repeat("printf 'verified\\n'\n", 20)
+	reply, err := json.Marshal(map[string]any{"skill": map[string]string{"name": "snapshot_contract", "description": "snapshot publication", "technique": "Check the saved artifacts", "verify": verify}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, Analyzer: &fakeAnalyzer{replies: []string{string(reply)}}, Experience: store, DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: wd}})
+	if _, err := h.Load(context.Background(), filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+	h.FireEventWith("user_message", map[string]string{"session": "s", "text": "snapshot publication"})
+	h.DrainEvents(5 * time.Second)
+	h.FireEventWith("turn_finished", map[string]string{"session": "s", "text": "snapshot publication verified", "outcome": "verified"})
+	h.DrainEvents(5 * time.Second)
+	refs, err := store.ExperienceReferences(context.Background(), "snapshot_contract")
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("published references: %+v %v", refs, err)
+	}
+	for rel, want := range map[string]string{"SKILL.md": refs[0].DocumentDigest, "scripts/verify.sh": refs[0].VerificationDigest} {
+		b, err := os.ReadFile(filepath.Join(wd, ".claude", "skills", "snapshot_contract", rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(b)
+		if got := hex.EncodeToString(digest[:]); want == "" || got != want {
+			t.Fatalf("%s snapshot mismatch: %s != %s", rel, got, want)
+		}
 	}
 }

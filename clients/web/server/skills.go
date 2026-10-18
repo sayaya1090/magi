@@ -318,5 +318,5 @@ func (s *server) experienceRetention(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	writeJSON(w, "experience-retention", state)
+	writeJSON(w, "experience-retention", state.Public())
 }

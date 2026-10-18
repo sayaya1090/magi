@@ -39,7 +39,7 @@ public class FakeKnowledgeSource implements KnowledgeSource {
         JsPropertyMap<Object> first = Js.asPropertyMap(skills.getAt(0));
         first.set("tier", "project");
         first.set("socket", "/tmp/retention.sock");
-        first.set("retention", Global.JSON.parse("{\"content_revision\":\"rev-1\",\"since\":\"2026-08-01T00:00:00Z\",\"cold\":true,\"archive_candidate\":true}"));
+        first.set("retention", Global.JSON.parse("{\"content_revision\":\"rev-1\",\"since\":\"2026-08-01T00:00:00Z\",\"cold\":true,\"archive_candidate\":true,\"protected\":true,\"application_count\":2,\"last_applied\":\"2026-10-18T01:00:00Z\"}"));
     }
 
     @Override
