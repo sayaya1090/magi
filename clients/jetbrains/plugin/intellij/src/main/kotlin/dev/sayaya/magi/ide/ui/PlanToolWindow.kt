@@ -89,6 +89,8 @@ class PlanToolWindow : ToolWindowFactory {
         val cronScroll = JBScrollPane(cronList).apply {
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
+        val pendingAsked = stack(8, 12)
+        var pendingAskedCount = 0
         val askedPane = stack(0, 12)
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         /**
@@ -248,6 +250,7 @@ class PlanToolWindow : ToolWindowFactory {
             add(section(MagiBundle.msg("plan.changes")))
             add(changes)
             add(section(MagiBundle.msg("plan.requests")))
+            add(pendingAsked)
             add(askedPane)
             add(Look.sectionHeading(MagiBundle.msg("plan.usage"), compact).apply {
                 border = JBUI.Borders.emptyTop(10)
@@ -490,11 +493,14 @@ class PlanToolWindow : ToolWindowFactory {
                         foreground = Look.faint
                     })
                 } else if (queued.isEmpty() && bgRunning.isEmpty() && bgBad.isEmpty() &&
-                    kids.isEmpty() && past.isEmpty() && outgoing.isEmpty() && j.approvals.isNullOrEmpty()) {
+                    kids.isEmpty() && past.isEmpty() && j.approvals.isNullOrEmpty()) {
                     work.add(none(MagiBundle.msg("plan.tasks.none")))
                 }
+                pendingAsked.removeAll()
+                pendingAskedCount = outgoing.size
+                askedPane.isVisible = pendingAskedCount == 0 || synchronized(asked) { asked.isNotEmpty() }
                 outgoing.forEach { h ->
-                    work.add(JBLabel(
+                    pendingAsked.add(JBLabel(
                         "${h.to} · ${MagiBundle.msg("plan.handoff.waiting")} · ${h.request.lineSequence().firstOrNull().orEmpty().take(90)}",
                         com.intellij.ui.AnimatedIcon.Default.INSTANCE,
                         javax.swing.SwingConstants.LEADING
@@ -504,6 +510,7 @@ class PlanToolWindow : ToolWindowFactory {
                         border = JBUI.Borders.empty(2, 0)
                     })
                 }
+                pendingAsked.revalidate(); pendingAsked.repaint()
                 queued.forEach { q ->
                     // 사용자 요청 우선, 이후 위임된 작업(handover) 순으로 렌더링합니다.
                     val head = if (q.kind == "handover") "↤ ${q.from ?: MagiBundle.msg("plan.someone")}: " else "· "
@@ -773,6 +780,7 @@ class PlanToolWindow : ToolWindowFactory {
         fun paintAskedNow() = SwingUtilities.invokeLater {
             askedPane.removeAll()
             val snap = synchronized(asked) { asked.toList() }
+            askedPane.isVisible = pendingAskedCount == 0 || snap.isNotEmpty()
             // 빈 구역도 말을 한다 — 옆 구역들이 전부 그렇게 한다(빈 상태 규칙).
             if (snap.isEmpty()) askedPane.add(none(MagiBundle.msg("plan.requests.none")))
             snap.forEach { a ->
@@ -812,6 +820,7 @@ class PlanToolWindow : ToolWindowFactory {
             SwingUtilities.invokeLater {
                 if (my != pollSeq.get()) return@invokeLater // 늦은 완료가 새 그림을 덮지 않게(F6)
                 askedPane.removeAll()
+                askedPane.isVisible = pendingAskedCount == 0 || snap.isNotEmpty()
                 if (snap.isEmpty()) askedPane.add(none(MagiBundle.msg("plan.requests.none")))
                 snap.forEach { a ->
                     val t = "→ ${a.who}: ${a.ask.lineSequence().first().take(40)} — ${a.line ?: "…"}"
