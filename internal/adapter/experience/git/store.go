@@ -44,8 +44,10 @@ type Same interface {
 // EXTENDING.md taught a promotion step nobody could ever perform. See Propose for why the gate is
 // gone.
 type Store struct {
-	dir  string
-	same Same
+	retentionDir string
+	retentionNow func() time.Time
+	dir          string
+	same         Same
 	// usageMu serializes THIS instance's read-modify-write of wiki/.usage. Instances are
 	// sometimes ad hoc (New per call), so the cross-process and cross-instance halves are
 	// covered by WikiTouch's merge-on-write, not by this lock.
@@ -163,7 +165,7 @@ func (s *Store) Pool(ctx context.Context, query string, agentGroups []string) ([
 		})
 	}
 
-	managedMem, managedSkills, err := s.managedPool(query)
+	managedMem, managedSkills, err := s.managedPool(ctx, query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -357,12 +359,18 @@ func (s *Store) gitCommit(ctx context.Context, msg string) {
 // ranks across tiers and needs the score to fuse with, not just the order this tier would have
 // used.
 type Scored[T any] struct {
+	Cold  bool
 	Score int
 	V     T
 }
 
 func topMemories(xs []Scored[port.Memory], n int) []port.Memory {
-	sort.SliceStable(xs, func(i, j int) bool { return xs[i].Score > xs[j].Score })
+	sort.SliceStable(xs, func(i, j int) bool {
+		if xs[i].Cold != xs[j].Cold {
+			return !xs[i].Cold
+		}
+		return xs[i].Score > xs[j].Score
+	})
 	var out []port.Memory
 	for _, x := range xs {
 		if x.Score == 0 {
@@ -377,7 +385,12 @@ func topMemories(xs []Scored[port.Memory], n int) []port.Memory {
 }
 
 func topSkills(xs []Scored[port.Skill], n int) []port.Skill {
-	sort.SliceStable(xs, func(i, j int) bool { return xs[i].Score > xs[j].Score })
+	sort.SliceStable(xs, func(i, j int) bool {
+		if xs[i].Cold != xs[j].Cold {
+			return !xs[i].Cold
+		}
+		return xs[i].Score > xs[j].Score
+	})
 	var out []port.Skill
 	for _, x := range xs {
 		if x.Score == 0 {
@@ -500,10 +513,11 @@ func sanitize(s string) string {
 // been re-learned says whether it is settled, when it was last seen says whether it still applies,
 // and the groups say who it reaches.
 type SkillInfo struct {
-	Name        string `json:"name"`
-	Kind        string `json:"kind"` // "skill" — a procedure; "memory" — a fact
-	Description string `json:"description"`
-	Body        string `json:"body"`
+	Retention   *LocalRetention `json:"retention,omitempty"`
+	Name        string          `json:"name"`
+	Kind        string          `json:"kind"` // "skill" — a procedure; "memory" — a fact
+	Description string          `json:"description"`
+	Body        string          `json:"body"`
 	// Groups gate a SKILL's visibility: an agent outside them never sees it. Tags decorate a
 	// MEMORY and gate nothing. Two fields rather than one because that difference is the whole
 	// reason a person reads this screen — a skill that reaches nobody and a memory labelled
@@ -549,7 +563,7 @@ func (s *Store) Inventory(ctx context.Context) ([]SkillInfo, error) {
 			Observed: 1, // a fact is written once; there is no second observation to count
 		})
 	}
-	managed, err := s.managedInventory()
+	managed, err := s.managedInventory(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -130,11 +130,19 @@ func (s *Store) ApplyExperience(ctx context.Context, c port.ExperienceChange) (p
 	return receipt, nil
 }
 
-func (s *Store) managedPool(query string) ([]Scored[port.Memory], []Scored[port.Skill], error) {
+func (s *Store) managedPool(ctx context.Context, query string) ([]Scored[port.Memory], []Scored[port.Skill], error) {
 	paths, err := filepath.Glob(filepath.Join(s.dir, "managed", "*.json"))
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(paths) == 0 {
+		return nil, nil, nil
+	}
+	release, err := filelock.Acquire(ctx, filepath.Join(s.dir, ".managed-write.lock"))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
 	var memories []Scored[port.Memory]
 	var skills []Scored[port.Skill]
 	terms := tokenize(query)
@@ -150,6 +158,13 @@ func (s *Store) managedPool(query string) ([]Scored[port.Memory], []Scored[port.
 		if r.Change.State != "active" {
 			continue
 		}
+		retention, err := s.retention(ctx, r, "")
+		if err != nil {
+			return nil, nil, err
+		}
+		if retention.Archived {
+			continue
+		}
 		if r.Change.Kind == "memory" && r.Change.Memory != nil {
 			m := *r.Change.Memory
 			contentRevision := r.ContentRevision
@@ -157,20 +172,28 @@ func (s *Store) managedPool(query string) ([]Scored[port.Memory], []Scored[port.
 				contentRevision = r.Revision
 			}
 			m.ID = "managed:" + r.Change.ObjectID + "@" + contentRevision
-			memories = append(memories, Scored[port.Memory]{Score: overlap(terms, m.Text), V: m})
+			memories = append(memories, Scored[port.Memory]{Score: overlap(terms, m.Text), Cold: retention.Cold, V: m})
 		} else if r.Change.Kind == "skill" && r.Change.Skill != nil {
 			sk := *r.Change.Skill
-			skills = append(skills, Scored[port.Skill]{Score: overlap(terms, sk.Name+" "+sk.Description+" "+sk.Body), V: sk})
+			skills = append(skills, Scored[port.Skill]{Score: overlap(terms, sk.Name+" "+sk.Description+" "+sk.Body), Cold: retention.Cold, V: sk})
 		}
 	}
 	return memories, skills, nil
 }
 
-func (s *Store) managedInventory() ([]SkillInfo, error) {
+func (s *Store) managedInventory(ctx context.Context) ([]SkillInfo, error) {
 	paths, err := filepath.Glob(filepath.Join(s.dir, "managed", "*.json"))
 	if err != nil {
 		return nil, err
 	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	release, err := filelock.Acquire(ctx, filepath.Join(s.dir, ".managed-write.lock"))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	var out []SkillInfo
 	for _, path := range paths {
 		b, err := atomicfile.ReadFile(path)
@@ -184,7 +207,14 @@ func (s *Store) managedInventory() ([]SkillInfo, error) {
 		if r.Change.State != "active" {
 			continue
 		}
+		retention, err := s.retention(ctx, r, "")
+		if err != nil {
+			return nil, err
+		}
 		info := SkillInfo{Name: "managed:" + r.Change.ObjectID, Kind: r.Change.Kind, Observed: 1}
+		if r.Change.Owner == "plugin:engram" {
+			info.Retention = &retention
+		}
 		if r.Change.Memory != nil {
 			info.Description = r.Change.Memory.Text
 			info.Body = r.Change.Memory.Text

@@ -314,3 +314,45 @@ func TestWritingSomethingDownLandsInTheChosenTier(t *testing.T) {
 		t.Errorf("a team name that is a path answered %d", code)
 	}
 }
+
+func TestLocalRetentionAPIRequiresCurrentRevisionAndPreservesSource(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.daemonAt(wd, "api", true)
+	f.session("api", wd, "x", 1, false)
+	st := expgit.New(filepath.Join(wd, ".magi", "experience"))
+	c := port.ExperienceChange{ObjectID: "auto-object", OperationID: "create", ObservationID: "obs", Owner: "plugin:engram", Kind: "memory", State: "active", Memory: &port.Memory{Text: "compiler retention"}}
+	receipt, err := st.ApplyExperience(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/retention?d=" + url.QueryEscape(sock)
+	fields := url.Values{"tier": {"project"}, "name": {"managed:auto-object"}, "revision": {receipt.ContentRevision}, "action": {"archive"}}
+	if w := post(t, f.srv, f.srv.experienceRetention, path, fields); w.Code != http.StatusOK {
+		t.Fatalf("archive: %d %s", w.Code, w.Body.String())
+	}
+	mem, _, err := st.Retrieve(context.Background(), "compiler", nil)
+	if err != nil || len(mem) != 0 {
+		t.Fatalf("archived: %v %v", mem, err)
+	}
+	list, err := st.Inventory(context.Background())
+	if err != nil || len(list) != 1 || !list[0].Retention.Archived {
+		t.Fatalf("source lost: %v %v", list, err)
+	}
+	fields.Set("action", "restore")
+	fields.Set("revision", "stale")
+	if w := post(t, f.srv, f.srv.experienceRetention, path, fields); w.Code != http.StatusConflict {
+		t.Fatalf("stale restore: %d", w.Code)
+	}
+	fields.Set("revision", receipt.ContentRevision)
+	if w := post(t, f.srv, f.srv.experienceRetention, path, fields); w.Code != http.StatusOK {
+		t.Fatalf("restore: %d %s", w.Code, w.Body.String())
+	}
+	mem, _, err = st.Retrieve(context.Background(), "compiler", nil)
+	if err != nil || len(mem) != 1 {
+		t.Fatalf("restore: %v %v", mem, err)
+	}
+	if w := get(t, f.srv.experienceRetention, path); w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET mutation: %d", w.Code)
+	}
+}

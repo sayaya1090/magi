@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -289,5 +290,22 @@ func TestABrokenEmbedderLeavesTheLexicalAnswer(t *testing.T) {
 	}
 	if f.saw == 0 {
 		t.Error("the embedder was never asked, so this proves nothing about the failure path")
+	}
+}
+
+func TestColdFallbackSurvivesSemanticFusion(t *testing.T) {
+	xs := []expgit.Scored[port.Memory]{
+		{Cold: true, Score: 100, V: port.Memory{Text: "cold"}},
+		{Score: 1, V: port.Memory{Text: "active"}},
+	}
+	for _, emb := range []Embedder{nil, &fakeEmbedder{vec: map[string][]float32{"query": {1, 0}, "cold": {1, 0}, "active": {0.1, 1}}}} {
+		got := rank(context.Background(), emb, "query", xs, 1, func(m port.Memory) string { return m.Text })
+		if len(got) != 1 || got[0].Text != "active" {
+			t.Fatalf("cold displaced active after fusion: %v", got)
+		}
+		got = rank(context.Background(), emb, "query", xs, 3, func(m port.Memory) string { return m.Text })
+		if len(got) != 2 || got[1].Text != "cold" {
+			t.Fatalf("cold fallback unavailable: %v", got)
+		}
 	}
 }

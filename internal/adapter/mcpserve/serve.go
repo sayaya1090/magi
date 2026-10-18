@@ -130,6 +130,8 @@ type Server struct {
 
 // entry is one thing this companion wrote down, flattened out of the store's two kinds.
 type entry struct {
+	Cold     bool
+	Archived bool
 	ID       string
 	Kind     string // "rule" or "fact"
 	Title    string
@@ -157,7 +159,12 @@ func (s *Server) load(ctx context.Context) ([]entry, error) {
 		if e.LastSeen != "" && e.LastSeen != e.FirstSeen {
 			seen = e.FirstSeen + " → " + e.LastSeen
 		}
+		cold, archived := false, false
+		if e.Retention != nil {
+			cold, archived = e.Retention.Cold, e.Retention.Archived
+		}
 		out = append(out, entry{
+			Cold: cold, Archived: archived,
 			ID: e.Name, Kind: kind, Title: title, Body: e.Body,
 			Observed: e.Observed, Seen: seen,
 		})
@@ -174,6 +181,13 @@ func (s *Server) knows(ctx context.Context, about string, limit int) string {
 	if err != nil {
 		return "cannot read what " + s.Name + " has written down: " + err.Error()
 	}
+	visible := all[:0]
+	for _, e := range all {
+		if !e.Archived {
+			visible = append(visible, e)
+		}
+	}
+	all = visible
 	if len(all) == 0 {
 		return s.Name + " has written nothing down."
 	}
@@ -185,6 +199,7 @@ func (s *Server) knows(ctx context.Context, about string, limit int) string {
 	}
 	lexical := rank.ByIDF(about, docs)
 	order, how := s.fuse(ctx, about, docs, lexical)
+	sort.SliceStable(order, func(i, j int) bool { return !all[order[i]].Cold && all[order[j]].Cold })
 	if len(order) == 0 {
 		// Named, so the caller can tell "nothing on this" from "wrong companion". Without it the
 		// two look identical and the caller asks the same question again somewhere else.

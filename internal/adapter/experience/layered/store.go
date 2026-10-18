@@ -187,6 +187,9 @@ func rank[T any](ctx context.Context, emb Embedder, query string, xs []expgit.Sc
 		// interpret, but a search that fails outright over a missing sidecar is worse still — the
 		// turn needs its memories either way.
 	}
+	// Keep the fused ranking within each age class, then use cold only to
+	// fill slots not satisfied by active candidates across ALL tiers.
+	sort.SliceStable(order, func(a, b int) bool { return !xs[order[a]].Cold && xs[order[b]].Cold })
 	out := make([]T, 0, n)
 	for _, i := range order {
 		out = append(out, xs[i].V)

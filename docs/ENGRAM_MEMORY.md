@@ -32,7 +32,17 @@ Tests cover Korean inflections, decomposed Hangul, full-width Latin, mixed scrip
 
 `skill_usage` records load counts, verified-turn counts, and failed-turn counts. These observations do not prove application. Loading a skill no longer refreshes `skill_lastused`, even when the turn is verified. Existing dates remain unchanged; automatic skills without dates start their observation period at the first cleanup. Lifetime renewal based on actual application evidence is not implemented yet.
 
-Local archiving retains the existing seven-day default and `/engram-prune-days` setting. Section 5's 30-day cold state, 90-day archive candidates, pin/active-task protection, and reactivation after actual application remain follow-up work. Automatic archiving moves recoverable content and retains human-edit protection. This step does not complete section 5.
+Section 0.3 below disables the former seven-day file-moving policy by default. Only an explicitly configured `/engram-prune-days` value enables legacy file moves. Set it to `0` to disable them.
+
+### 0.3. Device-local cold state and archive candidates
+
+Managed memories and skills owned by `plugin:engram` age from the first local observation of their content revision. After 30 days they become cold: ordinary retrieval and MCP `knows` rank them after active candidates. Cold entries fill slots left by active results. At 90 days they become archive candidates; this never automatically moves, withdraws, or deletes content. A new device or changed content revision gets a fresh observation period. Reads, loads, and repeated observations of unchanged content do not renew it.
+
+Device state lives under the OS user config directory at `magi/experience-local/<absolute-store-path-hash>/<object_id>.json`, outside the Git-backed store and exp-sync inventory. File locks and atomic replacement protect concurrent local actions. Corrupt state is not overwritten. Clock rollback does not pull a future observation timestamp backward; its age remains below the cutoff during that interval.
+
+Inventory entries include `retention`: observation time, content revision, pin, cold, archive-candidate, and locally archived status. `POST /retention` uses the existing Curate permission and published-project selection. Send `tier=project`, `name=managed:<object_id>`, the inventory's `retention.content_revision` as `revision`, and `action=pin|unpin|archive|restore`. The existing `d` socket selector identifies the project. An empty action reads status. Stale content revisions are rejected. Pinning prevents automatic demotion and candidate marking. Explicit local archiving removes the entry from automatic search while retaining inventory and source content. Restoration starts a new observation period; it cannot restore a withdrawn or archived source object.
+
+This step covers the managed store and management API. Client-specific pin/restore controls, automatic active-task protection, lifetime renewal from actual application evidence, and migration of legacy `.claude/skills` files remain unfinished. This policy does not move human-authored or edited files. Explicit legacy file-moving settings remain effective; use `/engram-prune-days 0` to disable them.
 
 ## 1. Implementation review
 
