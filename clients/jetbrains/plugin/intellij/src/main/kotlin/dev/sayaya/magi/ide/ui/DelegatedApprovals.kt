@@ -28,6 +28,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
     private val notices = mutableMapOf<String, com.intellij.notification.Notification>()
     private val views = mutableSetOf<Review>()
     private var pending = emptyList<PendingPrompt>()
+    private var taskAutoApproval = false
     private var selected: String? = null
     private fun key(p: PendingPrompt) = p.session + ":" + p.prompt.id
 
@@ -37,7 +38,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
                 val response = runCatching { workspace.askPolling { it.jobs() } }.getOrNull()
                 if (response?.ok == true) {
                     val next = response.jobs?.approvals.orEmpty()
-                    ApplicationManager.getApplication().invokeLater { if (!project.isDisposed) update(next) }
+                    ApplicationManager.getApplication().invokeLater { if (!project.isDisposed) { taskAutoApproval = response.jobs?.taskAutoApproval == true; update(next) } }
                 }
                 delay(3000)
             }
@@ -78,6 +79,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
                 val fresh = companion.jobs()
                 check(fresh.ok) { fresh.error ?: MagiBundle.msg("approval.failed") }
                 check(fresh.jobs?.approvals.orEmpty().any { key(it) == key(p) }) { MagiBundle.msg("approval.stale") }
+                check(decision != "task_allow" || fresh.jobs?.taskAutoApproval == true) { MagiBundle.msg("approval.failed") }
                 companion.respondDelegated(p, decision, answer)
             } }
             ApplicationManager.getApplication().invokeLater {
@@ -100,6 +102,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
         private var painting = false
         private var busy = false
         private var drawn: PendingPrompt? = null
+        private var drawnAuto = false
         init {
             isOpaque = false
             maximumSize = java.awt.Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
@@ -118,7 +121,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
             if (pending.isEmpty()) { drawn = null; return }
             val index = pending.indexOfFirst { key(it) == selected }.takeIf { it >= 0 } ?: 0
             val p = pending[index]
-            val unchanged = drawn == p
+            val unchanged = drawn == p && drawnAuto == taskAutoApproval
             painting = true
             pick.removeAllItems()
             pending.forEach { pick.addItem(it.requester + " · " + it.prompt.what) }
@@ -127,6 +130,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
             if (unchanged) return // Update the queue selector, preserving the current form.
             val sameRequest = drawn?.let { key(it) == key(p) } == true
             drawn = p
+            drawnAuto = taskAutoApproval
             text.text = delegatedReviewHtml(p)
             text.caretPosition = 0
             actions.removeAll()
@@ -153,7 +157,7 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
                 is Ask.Permission -> {
                     button(MagiBundle.msg("chat.perm.allow"), "allow")
                     button(MagiBundle.msg("chat.perm.deny"), "deny")
-                    button(MagiBundle.msg("approval.autoTask"), "task_allow")
+                    if (taskAutoApproval) button(MagiBundle.msg("approval.autoTask"), "task_allow")
                 }
                 is Ask.Choose -> {
                     ask.options.forEach { option -> button(option, value = { option }) }

@@ -21,3 +21,5 @@ Interactive delegated requests have no approval timer. Explicit response, cancel
 A rejected tool result uses the recorded reason. Successful approvals have no denial reason. Old events without these optional fields remain readable; their provenance cannot be reconstructed reliably from the old `deny` value alone.
 
 Regression tests cover waiting past the ordinary timer, global discovery, source-session routing, review dismissal, notification deduplication, stale prompts, and distinct refusal reasons. Already expired handoffs are not retried automatically.
+
+Clients offer task approval only when `jobs.taskAutoApproval` is true, and check it again before sending. Older daemons keep one-call review.

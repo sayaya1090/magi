@@ -64,10 +64,11 @@ type PendingPrompt struct {
 type PendingPromptLister interface{ PendingPrompts() []app.PendingPrompt }
 
 type Jobs struct {
-	Approvals  []PendingPrompt   `json:"approvals,omitempty"`
-	Outgoing   []OutgoingHandoff `json:"outgoing,omitempty"`
-	Background []BackgroundJob   `json:"background,omitempty"`
-	Children   []ChildJob        `json:"children,omitempty"`
+	TaskAutoApproval bool              `json:"taskAutoApproval,omitempty"`
+	Approvals        []PendingPrompt   `json:"approvals,omitempty"`
+	Outgoing         []OutgoingHandoff `json:"outgoing,omitempty"`
+	Background       []BackgroundJob   `json:"background,omitempty"`
+	Children         []ChildJob        `json:"children,omitempty"`
 	// Queued is what will run NEXT, in the order it will run: the person's own parked words first,
 	// then work handed over by somebody else.
 	//

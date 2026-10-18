@@ -977,6 +977,9 @@ func TestJobsExposeDelegatedApprovalOutsideSelectedSession(t *testing.T) {
 	if !r.OK || r.Jobs == nil || len(r.Jobs.Approvals) != 1 {
 		t.Fatalf("missing approval: %+v", r)
 	}
+	if !r.Jobs.TaskAutoApproval {
+		t.Fatal("delegated task approval capability missing")
+	}
 	p := r.Jobs.Approvals[0]
 	if p.Session != "delegated" || p.Requester != "handbook" || p.Prompt.ID != "call" || p.Prompt.Diff != "diff" || string(p.Prompt.Args) != `{"command":"git status"}` {
 		t.Fatalf("wrong approval: %+v", p)
