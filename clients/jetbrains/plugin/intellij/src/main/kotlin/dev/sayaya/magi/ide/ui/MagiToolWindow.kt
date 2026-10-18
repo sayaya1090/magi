@@ -677,7 +677,12 @@ class MagiToolWindow : ToolWindowFactory {
             val bottom = JBPanel<JBPanel<*>>(BorderLayout()).apply { border = JBUI.Borders.emptyBottom(10) }
             bottom.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
-                add(head, BorderLayout.NORTH)
+                add(JBPanel<JBPanel<*>>().apply {
+                    isOpaque = false
+                    layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                    add(project.getService(DelegatedApprovals::class.java).panel(this@View))
+                    add(head)
+                }, BorderLayout.NORTH)
                 add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     isOpaque = false
                     add(Look.rule(), BorderLayout.NORTH)
