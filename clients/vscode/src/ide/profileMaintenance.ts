@@ -8,12 +8,13 @@ export async function profileMaintenance(companion: Companion, session?: string)
   for (;;) {
     const response = await companion.ask('profile-maintenance');
     if (!response?.ok || !response.out) { await vscode.window.showWarningMessage(response?.error || t('Could not read maintenance status.')); return; }
-    let state: { id: string; running: boolean; enabled: boolean; pending: boolean; last_attempt: string; last_success: string; last_error?: string; history?: { at: string; status: string; added?: string[]; updated?: string[]; error?: string }[] };
+    let state: { id: string; running: boolean; enabled: boolean; pending: boolean; last_attempt: string; last_success: string; last_error?: string; pending_sources?: Record<string, number>; history?: { at: string; status: string; added?: string[]; updated?: string[]; error?: string }[] };
     try { state = JSON.parse(response.out); } catch { await vscode.window.showWarningMessage(t('Could not read maintenance status.')); return; }
     const date = (s: string) => !s || s.startsWith('0001-') ? t('Never') : s;
     const rows = [
       { label: t('Request description refresh'), description: t('Uses new project-read evidence; waits for idle and respects the cooldown.'), refresh: true },
       { label: !state.enabled ? t('Disabled') : state.running ? t('Running') : state.pending ? t('Waiting for idle or cooldown') : t('Idle'), description: state.id, refresh: false },
+      ...Object.entries(state.pending_sources || {}).map(([source, through]) => ({ label: t('Queued source chat'), description: source, detail: t('Waiting through event {0}; preserved across companion restarts.', String(through)), refresh: false })),
       { label: t('Last attempt'), description: date(state.last_attempt), refresh: false },
       { label: t('Last success'), description: date(state.last_success), refresh: false },
       ...(state.last_error ? [{ label: t('Last error'), detail: state.last_error, refresh: false }] : []),

@@ -61,6 +61,10 @@ func (m *Maintainer) load(wd string) (maintenanceRecord, error) {
 	} else if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.State.ID == "" || r.State.Checkpoints == nil {
 		return r, fmt.Errorf("invalid maintenance session; refusing overwrite")
 	}
+	if r.State.PendingSources == nil {
+		r.State.PendingSources = map[string]int64{}
+	}
+	r.State.Pending = len(r.State.PendingSources) > 0
 	r.State.Current, err = Load(m.ConfigDir, wd)
 	if err != nil {
 		return r, err
@@ -125,14 +129,14 @@ func (m *Maintainer) BeginProfileMaintenance(ctx context.Context, wd, revision, 
 		return empty, fmt.Errorf("maintenance session changed or is already running")
 	}
 	if r.State.Checkpoints[source] >= through {
-		return empty, fmt.Errorf("evidence already processed")
+		return empty, port.ErrProfileEvidenceProcessed
 	}
 	if _, ok := r.State.Checkpoints[source]; !ok && len(r.State.Checkpoints) >= 256 {
 		return empty, fmt.Errorf("maintenance source limit reached")
 	}
 	for _, hash := range r.Evidence {
 		if hash == evidence {
-			return empty, fmt.Errorf("duplicate maintenance evidence")
+			return empty, port.ErrProfileEvidenceProcessed
 		}
 	}
 	// The durable cooldown applies across sources and daemon restarts.
@@ -206,6 +210,9 @@ func (m *Maintainer) FinishProfileMaintenance(ctx context.Context, wd string, ti
 		r.State.LastSuccess = entry.At
 		r.State.LastError = ""
 		r.State.Checkpoints[ticket.Source] = ticket.Through
+		if r.State.PendingSources[ticket.Source] <= ticket.Through {
+			delete(r.State.PendingSources, ticket.Source)
+		}
 		r.Evidence = append(r.Evidence, ticket.EvidenceHash)
 		if len(r.Evidence) > 256 {
 			r.Evidence = r.Evidence[len(r.Evidence)-256:]
@@ -215,6 +222,7 @@ func (m *Maintainer) FinishProfileMaintenance(ctx context.Context, wd string, ti
 	if len(r.State.History) > 32 {
 		r.State.History = r.State.History[len(r.State.History)-32:]
 	}
+	r.State.Pending = len(r.State.PendingSources) > 0
 	r.Ticket = port.ProfileMaintenanceTicket{}
 	r.State.Running = false
 	r.LeaseUntil = time.Time{}
@@ -311,4 +319,62 @@ func (m *Maintainer) writeProfile(wd string, profile companion.Contract) error {
 		return err
 	}
 	return atomicfile.Write(path, b.Bytes(), 0600)
+}
+
+// QueueProfileMaintenance coalesces repeated requests without replacing newer evidence.
+func (m *Maintainer) QueueProfileMaintenance(ctx context.Context, wd, source string, through int64) error {
+	if source == "" || len(source) > 128 || through <= 0 {
+		return fmt.Errorf("invalid maintenance source")
+	}
+	unlock, err := m.lock(ctx, wd)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	r, err := m.load(wd)
+	if err != nil {
+		return err
+	}
+	if r.State.Checkpoints[source] >= through || r.State.PendingSources[source] >= through {
+		return nil
+	}
+	if _, known := r.State.Checkpoints[source]; !known {
+		if _, queued := r.State.PendingSources[source]; !queued {
+			sources := len(r.State.Checkpoints)
+			for pending := range r.State.PendingSources {
+				if _, processed := r.State.Checkpoints[pending]; !processed {
+					sources++
+				}
+			}
+			if sources >= 256 {
+				return fmt.Errorf("maintenance source limit reached")
+			}
+		}
+	}
+	r.State.PendingSources[source] = through
+	r.State.Pending = true
+	return m.save(wd, r)
+}
+
+// AcknowledgeProfileMaintenance removes only work known to have been examined.
+// A newer read queued during extraction must survive the older result.
+func (m *Maintainer) AcknowledgeProfileMaintenance(ctx context.Context, wd, source string, through int64) error {
+	unlock, err := m.lock(ctx, wd)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	r, err := m.load(wd)
+	if err != nil {
+		return err
+	}
+	if pending, ok := r.State.PendingSources[source]; ok && pending <= through {
+		delete(r.State.PendingSources, source)
+		if r.State.Checkpoints[source] < through {
+			r.State.Checkpoints[source] = through
+		}
+		r.State.Pending = len(r.State.PendingSources) > 0
+		return m.save(wd, r)
+	}
+	return nil
 }

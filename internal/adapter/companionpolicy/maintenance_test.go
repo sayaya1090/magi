@@ -186,3 +186,53 @@ func TestMaintenancePublishesFollowupAndPreservesDeclaredAuthority(t *testing.T)
 		t.Fatal("authority or human metadata changed", state.Current)
 	}
 }
+
+func TestMaintenancePendingQueueSurvivesRestartAndPreservesNewerEvidence(t *testing.T) {
+	ctx := context.Background()
+	m, wd := maintenanceFixture(t)
+	if err := m.QueueProfileMaintenance(ctx, wd, "source", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.QueueProfileMaintenance(ctx, wd, "source", 8); err != nil {
+		t.Fatal(err)
+	}
+	reopened := &Maintainer{ConfigDir: m.ConfigDir}
+	state, err := reopened.ProfileMaintenanceState(ctx, wd)
+	if err != nil || !state.Pending || state.PendingSources["source"] != 10 {
+		t.Fatal(state, err)
+	}
+	ticket := maintenanceBegin(t, m, wd, "source", 10)
+	if err := reopened.QueueProfileMaintenance(ctx, wd, "source", 20); err != nil {
+		t.Fatal(err)
+	}
+	state, err = m.FinishProfileMaintenance(ctx, wd, ticket, nil, "")
+	if err != nil || !state.Pending || state.PendingSources["source"] != 20 {
+		t.Fatal("new evidence lost", state, err)
+	}
+	if err := m.AcknowledgeProfileMaintenance(ctx, wd, "source", 10); err != nil {
+		t.Fatal(err)
+	}
+	state, err = m.ProfileMaintenanceState(ctx, wd)
+	if err != nil || state.PendingSources["source"] != 20 {
+		t.Fatal("old acknowledgment dropped new evidence", state, err)
+	}
+	if err := m.AcknowledgeProfileMaintenance(ctx, wd, "source", 20); err != nil {
+		t.Fatal(err)
+	}
+	state, err = m.ProfileMaintenanceState(ctx, wd)
+	if err != nil || state.Pending || len(state.PendingSources) != 0 || state.Checkpoints["source"] != 20 {
+		t.Fatal(state, err)
+	}
+}
+func TestMaintenanceFailureRetainsPendingEvidence(t *testing.T) {
+	ctx := context.Background()
+	m, wd := maintenanceFixture(t)
+	if err := m.QueueProfileMaintenance(ctx, wd, "source", 10); err != nil {
+		t.Fatal(err)
+	}
+	ticket := maintenanceBegin(t, m, wd, "source", 10)
+	state, err := m.FinishProfileMaintenance(ctx, wd, ticket, nil, "provider unavailable")
+	if err != nil || !state.Pending || state.PendingSources["source"] != 10 || state.Checkpoints["source"] != 0 {
+		t.Fatal(state, err)
+	}
+}

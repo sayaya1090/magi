@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -22,6 +23,105 @@ import (
 // This worker is deliberately not Submit/generateStep: it has no executable
 // tools, council, user-session selection or recursive completion hooks.
 func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
+	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || a.cfg.ProfileMaintainer == nil || a.cfg.CompanionProfileNeeded == nil {
+		return
+	}
+	queue, durable := a.cfg.ProfileMaintainer.(port.ProfileMaintenanceQueue)
+	if !durable {
+		a.startProfileMaintenance(sid)
+		return
+	}
+	a.maintenanceBackground(func(ctx context.Context) {
+		// Drain an admitted metadata write on graceful shutdown without blocking a foreground turn.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		a.mu.Lock()
+		st := a.stateLocked(sid)
+		wd := st.meta.Workdir
+		a.mu.Unlock()
+		if wd == "" || !a.cfg.CompanionProfileNeeded(wd) {
+			return
+		}
+		state, err := a.cfg.ProfileMaintainer.ProfileMaintenanceState(ctx, wd)
+		if err != nil {
+			log.Printf("companion maintenance: cannot queue source: %v", err)
+			return
+		}
+		evs, err := a.store.Read(ctx, sid, state.Checkpoints[string(sid)])
+		if err != nil {
+			log.Printf("companion maintenance: cannot read queued evidence: %v", err)
+			return
+		}
+		evs = maintenanceEvents(evs)
+		if companionProfileEvidenceFor(evs, a.maintenanceReadTool) == "" {
+			return
+		}
+		var through int64
+		for _, e := range evs {
+			if e.Seq > through {
+				through = e.Seq
+			}
+		}
+		if err := queue.QueueProfileMaintenance(ctx, wd, string(sid), through); err != nil {
+			log.Printf("companion maintenance: cannot persist source: %v", err)
+			return
+		}
+		a.startProfileMaintenance(sid)
+	})
+}
+
+func (a *App) maintenanceBackground(work func(context.Context)) {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
+	a.wg.Add(1)
+	a.profileEnqueuing.Add(1)
+	a.mu.Unlock()
+	go func() { defer a.wg.Done(); defer a.profileEnqueuing.Add(-1); work(a.bgContext()) }()
+}
+
+// ResumeProfileMaintenance restores only explicitly queued metadata work. It never
+// creates or submits a user conversation and does not scan every historical chat.
+func (a *App) ResumeProfileMaintenance(wd string) {
+	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || a.cfg.ProfileMaintainer == nil || a.cfg.CompanionProfileNeeded == nil || !a.cfg.CompanionProfileNeeded(wd) {
+		return
+	}
+	queue, ok := a.cfg.ProfileMaintainer.(port.ProfileMaintenanceQueue)
+	if !ok {
+		return
+	}
+	a.maintenanceBackground(func(ctx context.Context) {
+		state, err := a.cfg.ProfileMaintainer.ProfileMaintenanceState(ctx, wd)
+		if err != nil {
+			log.Printf("companion maintenance: cannot restore pending sources: %v", err)
+			return
+		}
+		sources := make([]string, 0, len(state.PendingSources))
+		for source := range state.PendingSources {
+			sources = append(sources, source)
+		}
+		sort.Strings(sources)
+		for _, source := range sources {
+			if ctx.Err() != nil {
+				return
+			}
+			sid := session.SessionID(source)
+			if err := a.RequestProfileMaintenance(ctx, sid, wd); err != nil {
+				log.Printf("companion maintenance: cannot resume source %s: %v", source, err)
+				// Only discard a source if its checkpoint already covers the queued watermark.
+				if state.Checkpoints[source] >= state.PendingSources[source] {
+					if err := queue.AcknowledgeProfileMaintenance(ctx, wd, source, state.PendingSources[source]); err != nil {
+						log.Printf("companion maintenance: cannot acknowledge restored source: %v", err)
+					}
+				}
+			}
+		}
+	})
+}
+
+func (a *App) startProfileMaintenance(sid session.SessionID) {
 	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || a.cfg.CompanionProfileNeeded == nil {
 		return
 	}
@@ -55,13 +155,15 @@ func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
 		a.profileBusy.Store(false)
 		return
 	}
-	ctx, cancel := context.WithTimeout(a.bgContext(), 12*time.Minute)
+	ctx, cancel := context.WithCancel(a.bgContext())
 	a.profileCancel = cancel
 	a.wg.Add(1)
 	a.mu.Unlock()
 	go func() {
 		defer a.wg.Done()
+		defer cancel()
 		defer func() {
+
 			a.profileBusy.Store(false)
 			a.mu.Lock()
 			pending := a.profilePending
@@ -71,7 +173,6 @@ func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
 				a.scheduleProfileMaintenance(source)
 			}
 		}()
-		defer cancel()
 		state, err := a.cfg.ProfileMaintainer.ProfileMaintenanceState(ctx, wd)
 		if err != nil {
 			log.Printf("companion maintenance: cannot read session: %v", err)
@@ -82,7 +183,7 @@ func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
 			return
 		}
 		// Coalesce while the foreground is busy or the persisted cooldown is active.
-		ticker := time.NewTicker(100 * time.Millisecond)
+		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for {
 			if ctx.Err() != nil || !a.cfg.CompanionProfileNeeded(wd) {
@@ -128,7 +229,15 @@ func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
 		}
 		ticket, err := a.cfg.ProfileMaintainer.BeginProfileMaintenance(ctx, wd, state.Revision, string(sid), through, maintenanceEvidenceHashFor(evs, a.maintenanceReadTool))
 		if err != nil {
-			log.Printf("companion maintenance: not started: %v", err)
+			if errors.Is(err, port.ErrProfileEvidenceProcessed) {
+				if queue, ok := a.cfg.ProfileMaintainer.(port.ProfileMaintenanceQueue); ok {
+					if ackErr := queue.AcknowledgeProfileMaintenance(ctx, wd, string(sid), through); ackErr != nil {
+						log.Printf("companion maintenance: cannot acknowledge duplicate: %v", ackErr)
+					}
+				}
+			} else {
+				log.Printf("companion maintenance: not started: %v", err)
+			}
 			return
 		}
 		korean := lang.Detect(lastUserPromptText(evs)) == "Korean (한국어)"
@@ -281,7 +390,9 @@ func (a *App) RequestProfileMaintenance(ctx context.Context, sid session.Session
 	return nil
 }
 
-func (a *App) ProfileMaintenancePending() bool { return a.profileBusy.Load() }
+func (a *App) ProfileMaintenancePending() bool {
+	return a.profileBusy.Load() || a.profileEnqueuing.Load() > 0
+}
 
 // Authority and the full policy are irrelevant to extraction. Bound the
 // descriptive prefix independently of the 24 KiB evidence budget.

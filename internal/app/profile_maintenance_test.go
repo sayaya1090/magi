@@ -36,10 +36,10 @@ func TestMaintenanceUsesToolFreeWorkerAndPersistsOutsideChatList(t *testing.T) {
 	}
 	a.scheduleCompanionProfile(sid)
 	deadline := time.Now().Add(5 * time.Second)
-	for a.profileBusy.Load() && time.Now().Before(deadline) {
+	for a.ProfileMaintenancePending() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if a.profileBusy.Load() {
+	if a.ProfileMaintenancePending() {
 		t.Fatal("worker did not finish")
 	}
 	state, err := maintainer.ProfileMaintenanceState(ctx, wd)
@@ -69,7 +69,7 @@ func TestMaintenanceUsesToolFreeWorkerAndPersistsOutsideChatList(t *testing.T) {
 	}
 	a.scheduleCompanionProfile(sid)
 	deadline = time.Now().Add(time.Second)
-	for a.profileBusy.Load() && time.Now().Before(deadline) {
+	for a.ProfileMaintenancePending() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	again, err := maintainer.ProfileMaintenanceState(ctx, wd)
@@ -125,7 +125,7 @@ func TestMaintenanceCancellationPersistsFailureWithoutPublication(t *testing.T) 
 	}
 	a.CancelCompanionProfile()
 	deadline := time.Now().Add(3 * time.Second)
-	for a.profileBusy.Load() && time.Now().Before(deadline) {
+	for a.ProfileMaintenancePending() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	state, err := maintainer.ProfileMaintenanceState(ctx, wd)
@@ -177,7 +177,7 @@ func TestNativeMaintenanceUsesOnlyOwnReadOnlyTools(t *testing.T) {
 			}
 			a.scheduleCompanionProfile(sid)
 			deadline := time.Now().Add(3 * time.Second)
-			for a.profileBusy.Load() && time.Now().Before(deadline) {
+			for a.ProfileMaintenancePending() && time.Now().Before(deadline) {
 				time.Sleep(10 * time.Millisecond)
 			}
 			state, err := maintainer.ProfileMaintenanceState(context.Background(), wd)
@@ -233,10 +233,67 @@ func TestMaintenanceStateLockDoesNotBlockForegroundScheduling(t *testing.T) {
 	}
 	close(blocked.release)
 	deadline := time.Now().Add(time.Second)
-	for a.profileBusy.Load() && time.Now().Before(deadline) {
+	for a.ProfileMaintenancePending() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if llm.called() {
 		t.Fatal("empty evidence called the model")
+	}
+}
+
+func TestMaintenanceRestoresQueuedSourceWithoutStartingAUserTurn(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	maintainer := &companionpolicy.Maintainer{ConfigDir: t.TempDir()}
+	llm := &acCapLLM{text: `{"purpose":"Workspace","tasks":[{"id":"verify","description":"Run workspace tests and report results"}]}`}
+	cfg := Config{Interactive: true, ProfileMaintainer: maintainer, CompanionProfileNeeded: func(string) bool { return true }}
+	first := New(store, llm, builtin.Default(), bus.New(), nil, cfg)
+	wd := t.TempDir()
+	ctx := context.Background()
+	sid, err := first.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.store.Append(ctx, sid, evToolCall("docs", "read"), evToolResult("docs", "Project test documentation", false)); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := store.Read(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := maintainer.QueueProfileMaintenance(ctx, wd, string(sid), evs[len(evs)-1].Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	headlessConfig := cfg
+	headlessConfig.Interactive = false
+	headless := New(store, llm, builtin.Default(), bus.New(), nil, headlessConfig)
+	headless.ResumeProfileMaintenance(wd)
+	if err := headless.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if llm.called() {
+		t.Fatal("headless resumption called model")
+	}
+	resumed := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, cfg))
+	resumed.ResumeProfileMaintenance(wd)
+	deadline := time.Now().Add(3 * time.Second)
+	for resumed.ProfileMaintenancePending() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	state, err := maintainer.ProfileMaintenanceState(ctx, wd)
+	if err != nil || state.Pending || len(state.PendingSources) != 0 || len(state.History) != 1 || state.History[0].Status != "published" {
+		t.Fatal(state, err)
+	}
+	chats, err := resumed.ListSessions(ctx, wd)
+	if err != nil || len(chats) != 1 || chats[0].ID != sid {
+		t.Fatal("resumption created a chat", chats, err)
+	}
+	if len(llm.request().Tools) > 0 {
+		t.Fatal("resumed worker has executable tools")
 	}
 }

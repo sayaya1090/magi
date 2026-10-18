@@ -51,6 +51,9 @@ internal class ProfileMaintenanceDialog(project: Project, private val workspace:
                             if (request) appendLine(MagiBundle.msg("maintenance.requested"))
                             appendLine(value("id"))
                             appendLine(MagiBundle.msg(when { value("enabled") != "true" -> "maintenance.disabled"; value("running") == "true" -> "maintenance.running"; value("pending") == "true" -> "maintenance.pending"; else -> "maintenance.idle" }))
+                            (state["pending_sources"] as? JsonObject)?.forEach { (source, through) ->
+                                appendLine(MagiBundle.msg("maintenance.source", source, through.jsonPrimitive.content))
+                            }
                             appendLine(MagiBundle.msg("maintenance.attempt", date("last_attempt")))
                             appendLine(MagiBundle.msg("maintenance.success", date("last_success")))
                             if (value("last_error").isNotEmpty()) appendLine(value("last_error"))

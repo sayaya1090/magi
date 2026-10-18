@@ -30,3 +30,18 @@ test('maintenance refresh uses selected source chat and reports refusal', async 
   assert.equal(request.session, 'source'); assert.equal(request.name, 'refresh');
   assert.ok(view.notices.includes('no new evidence'));
 });
+
+test('maintenance shows durable queued source and watermark without requesting refresh', async () => {
+  const view = ui(rows => {
+    const queued = rows.find(r => r.label === 'Queued source chat');
+    assert.equal(queued.description, 'source-chat');
+    assert.ok(queued.detail.includes('preserved across companion restarts'));
+    return undefined;
+  });
+  const calls: any[] = [];
+  await view.run({ caps: async () => new Set(['profile-maintenance']), ask: async (method: string, extra?: any) => {
+    calls.push({ method, extra });
+    return { ok: true, out: JSON.stringify({ enabled: true, pending: true, pending_sources: { 'source-chat': 42 }, history: [] }) };
+  } });
+  assert.equal(calls.length, 1); assert.equal(calls[0].extra, undefined);
+});

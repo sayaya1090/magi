@@ -70,5 +70,7 @@
   "This request is no longer pending.": "더 이상 응답을 기다리는 요청이 아닙니다.",
   "Response was not sent: {0}": "응답을 보내지 못했습니다: {0}",
   "Companion unavailable": "컴패니언에 연결할 수 없습니다",
-  "Pending approvals and questions": "승인·질문 대기"
+  "Pending approvals and questions": "승인·질문 대기",
+  "Queued source chat": "대기 중인 원본 대화",
+  "Waiting through event {0}; preserved across companion restarts.": "이벤트 {0}번까지 처리 대기 중입니다. 컴패니언 재시작 후에도 보존됩니다."
 }
