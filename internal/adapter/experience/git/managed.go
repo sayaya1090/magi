@@ -213,7 +213,8 @@ func (s *Store) managedInventory(ctx context.Context) ([]SkillInfo, error) {
 		}
 		info := SkillInfo{Name: "managed:" + r.Change.ObjectID, Kind: r.Change.Kind, Observed: 1}
 		if r.Change.Owner == "plugin:engram" {
-			info.Retention = &retention
+			public := retention.Public()
+			info.Retention = &public
 		}
 		if r.Change.Memory != nil {
 			info.Description = r.Change.Memory.Text

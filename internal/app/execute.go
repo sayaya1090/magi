@@ -481,6 +481,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		}
 	}
 
+	var verification []loadedExperience
+	if runner, ok := tool.(port.ForegroundProcessTool); guard != nil && ok && runner.ObservesProcessExit() {
+		verification = guard.experience.before(tc)
+	}
 	var background <-chan port.BackgroundCompletion
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
@@ -517,13 +521,19 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		SetLabels:         func(ls []string) { a.putLabels(ctx, sid, actor, ls) },
 		NoteForTurn:       func(t string) error { return a.noteForTurn(sid, t) },
 		Propose:           a.proposeFn(ctx, sid, turnTask),
-		LoadSkill:         func(name string) (string, bool) { return a.skillBody(s.Workdir, name) },
+		LoadSkill: func(name string) (string, bool) {
+			body, ok := a.skillBody(s.Workdir, name)
+			if ok && guard != nil {
+				body = guard.experience.load(ctx, name, body)
+			}
+			return body, ok
+		},
 		Recall: func(query string) (string, error) {
 			// Budget/dedupe is applied inside recallContext, keyed on the RESOLVED topic
 			// (so two phrasings of one topic don't both spend it, and a miss is free).
 			return a.recallContext(ctx, sid, query, guard)
 		},
-		RecallMemory: a.recallMemoryFn(ctx, agent),
+		RecallMemory: a.recallMemoryFn(ctx, agent, guardExperience(guard)),
 		CodingTask:   func(c context.Context, raw json.RawMessage) (string, error) { return a.codingTask(c, workdir, raw) },
 		WikiAdvise:   func(page string) string { return a.wikiNeighborNote(ctx, page) },
 		Schedule: func(c port.ScheduleChange) (string, error) {
@@ -654,8 +664,13 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
+	if guard != nil && len(verification) > 0 && a.persistedVerification(ctx, sid, toolMsgID, res) {
+		guard.experience.confirm(ctx, tc, res, verification, string(sid)+"/"+toolMsgID+"/"+tc.CallID)
+	}
 	if res.Background && background != nil {
+		releaseExperience := guardExperience(guard).background()
 		go func() {
+			defer releaseExperience()
 			status, ok := <-background
 			state := "unknown"
 			if ok {
@@ -716,7 +731,7 @@ func (a *App) proposeFn(ctx context.Context, sid session.SessionID, turnTask str
 	}
 }
 
-func (a *App) recallMemoryFn(ctx context.Context, agent AgentSpec) func(string) (string, error) {
+func (a *App) recallMemoryFn(ctx context.Context, agent AgentSpec, activities ...*turnExperience) func(string) (string, error) {
 	return func(query string) (string, error) {
 		if a.cfg.Experience == nil {
 			return "", fmt.Errorf("shared experience not configured")
@@ -724,6 +739,17 @@ func (a *App) recallMemoryFn(ctx context.Context, agent AgentSpec) func(string) 
 		mems, skills, err := a.cfg.Experience.Retrieve(ctx, query, agent.Groups)
 		if err != nil {
 			return "", err
+		}
+		if len(activities) > 0 && activities[0] != nil {
+			x := activities[0]
+			x.holdMemories(ctx, mems)
+			for i := range skills {
+				name := strings.TrimPrefix(skills[i].Name, "[project] ")
+				if strings.HasPrefix(name, "[team] ") || strings.HasPrefix(name, "[global] ") {
+					continue
+				}
+				skills[i].Body = x.load(ctx, name, skills[i].Body)
+			}
 		}
 		out := formatExperienceFull(mems, skills)
 		// The wiki answers through the same door: one recall reaches both stores, so the

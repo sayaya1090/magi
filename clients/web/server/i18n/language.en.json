@@ -639,5 +639,8 @@
   "retention.unpin": "Unpin",
   "retention.archive": "Archive on this device",
   "retention.restore": "Restore",
-  "retention.since": "Observed since {date}"
+  "retention.since": "Observed since {date}",
+  "retention.protected": "In use by an active task",
+  "retention.applications": "Successful verification runs: {count}",
+  "retention.last_applied": "Last verified {date}"
 }

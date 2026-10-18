@@ -16,26 +16,35 @@ import (
 // LocalRetention is a device observation, not a replicated object state. Cold
 // records remain fallback candidates; ArchiveCandidate never deletes content.
 type LocalRetention struct {
-	ContentRevision  string    `json:"content_revision"`
-	Since            time.Time `json:"since"`
-	Pinned           bool      `json:"pinned,omitempty"`
-	Archived         bool      `json:"archived,omitempty"`
-	Cold             bool      `json:"cold"`
-	ArchiveCandidate bool      `json:"archive_candidate"`
+	ApplicationCount int                  `json:"application_count"`
+	References       map[string]time.Time `json:"references,omitempty"`
+	Applications     map[string]string    `json:"applications,omitempty"`
+	LastApplied      time.Time            `json:"last_applied,omitempty"`
+	Protected        bool                 `json:"protected"`
+	ContentRevision  string               `json:"content_revision"`
+	Since            time.Time            `json:"since"`
+	Pinned           bool                 `json:"pinned,omitempty"`
+	Archived         bool                 `json:"archived,omitempty"`
+	Cold             bool                 `json:"cold"`
+	ArchiveCandidate bool                 `json:"archive_candidate"`
 }
 
 func (s *Store) retentionPath(id string) (string, error) {
 	root := s.retentionDir
 	if root == "" {
-		config, err := os.UserConfigDir()
-		if err != nil {
-			return "", err
+		config := os.Getenv("MAGI_CONFIG_DIR")
+		if config == "" {
+			base, err := os.UserConfigDir()
+			if err != nil {
+				return "", err
+			}
+			config = filepath.Join(base, "magi")
 		}
 		abs, err := filepath.Abs(s.dir)
 		if err != nil {
 			return "", err
 		}
-		root = filepath.Join(config, "magi", "experience-local", digestJSON(filepath.Clean(abs)))
+		root = filepath.Join(config, "experience-local", digestJSON(filepath.Clean(abs)))
 	}
 	return filepath.Join(root, id+".json"), nil
 }
@@ -44,6 +53,9 @@ func (s *Store) retentionPath(id string) (string, error) {
 // content gets a full observation period. Reading/loading never renews it.
 // action is empty for observation, or an explicit local user pin/unpin/restore.
 func (s *Store) retention(ctx context.Context, r managedRecord, action string) (LocalRetention, error) {
+	return s.retentionUpdate(ctx, r, action, nil)
+}
+func (s *Store) retentionUpdate(ctx context.Context, r managedRecord, action string, update func(*LocalRetention, time.Time) error) (LocalRetention, error) {
 	var state LocalRetention
 	if r.Change.Owner != "plugin:engram" {
 		return state, nil
@@ -82,8 +94,25 @@ func (s *Store) retention(ctx context.Context, r managedRecord, action string) (
 	}
 	changed := !exists || state.ContentRevision != revision
 	if changed {
+		state.LastApplied = time.Time{}
+		state.References = nil
 		state.ContentRevision = revision
 		state.Since = now
+	}
+	if update != nil {
+		if err := update(&state, now); err != nil {
+			return state, err
+		}
+		changed = true
+	}
+	state.Protected = false
+	for id, until := range state.References {
+		if until.After(now) {
+			state.Protected = true
+		} else {
+			delete(state.References, id)
+			changed = true
+		}
 	}
 	switch action {
 	case "":
@@ -104,8 +133,8 @@ func (s *Store) retention(ctx context.Context, r managedRecord, action string) (
 		return state, fmt.Errorf("unknown local retention action")
 	}
 	age := now.Sub(state.Since)
-	state.Cold = !state.Pinned && age >= 30*24*time.Hour
-	state.ArchiveCandidate = !state.Pinned && age >= 90*24*time.Hour
+	state.Cold = !state.Pinned && !state.Protected && age >= 30*24*time.Hour
+	state.ArchiveCandidate = !state.Pinned && !state.Protected && age >= 90*24*time.Hour
 	if changed {
 		b, err = json.Marshal(state)
 		if err != nil {
@@ -151,4 +180,12 @@ func (s *Store) LocalExperienceRetention(ctx context.Context, id, revision, acti
 		return state, fmt.Errorf("managed experience content revision conflict")
 	}
 	return s.retention(ctx, r, action)
+}
+
+// Public omits internal turn IDs and dedup receipts from governance responses.
+func (s LocalRetention) Public() LocalRetention {
+	s.ApplicationCount = len(s.Applications)
+	s.Applications = nil
+	s.References = nil
+	return s
 }

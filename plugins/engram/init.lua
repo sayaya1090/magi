@@ -842,6 +842,8 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome)
         name = slug,
         description = tostring(skill.description or ""),
         body = tostring(skill.technique or ""),
+        document_snapshot = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/SKILL.md") or "",
+        verification_snapshot = magi.read_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh") or "",
     })
     if not synced then magi.notify(sid, "engram: 스킬은 로컬에 저장했지만 경험 저장소 반영은 대기 중입니다.") end
   end

@@ -398,11 +398,16 @@ public class KnowledgeElement {
             JsPropertyMap<Object> state = Js.asPropertyMap(retention);
             boolean pinned = Js.isTruthy(state.get("pinned"));
             boolean archived = Js.isTruthy(state.get("archived"));
-            String status = archived ? "archived" : pinned ? "pinned" :
+            String status = archived ? "archived" : pinned ? "pinned" : Js.isTruthy(state.get("protected")) ? "protected" :
                     Js.isTruthy(state.get("archive_candidate")) ? "candidate" :
                     Js.isTruthy(state.get("cold")) ? "cold" : "active";
             row.append(cell("meta retention-state", tr("retention." + status) + " · " +
                     tr("retention.since", "date", str(state, "since").split("T")[0])));
+            int applications = num(state, "application_count");
+            String applied = str(state, "last_applied");
+            if (applications > 0) row.append(cell("meta application-history",
+                    tr("retention.applications", "count", String.valueOf(applications)) +
+                    (applied.isEmpty() || applied.startsWith("0001-") ? "" : " · " + tr("retention.last_applied", "date", applied.split("T")[0]))));
             HTMLElement actions = cell("retention-actions");
             actions.style.display = "flex";
             actions.style.flexWrap = "wrap";

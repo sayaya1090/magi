@@ -30,7 +30,7 @@ Tests cover Korean inflections, decomposed Hangul, full-width Latin, mixed scrip
 
 ### 0.2. Separate load observations from the forgetting clock
 
-`skill_usage` records load counts, verified-turn counts, and failed-turn counts. These observations do not prove application. Loading a skill no longer refreshes `skill_lastused`, even when the turn is verified. Existing dates remain unchanged; automatic skills without dates start their observation period at the first cleanup. Lifetime renewal based on actual application evidence is not implemented yet.
+`skill_usage` records load counts, verified-turn counts, and failed-turn counts. These observations do not prove application. Loading a skill no longer refreshes `skill_lastused`, even when the turn is verified. Existing dates remain unchanged; automatic skills without dates start their observation period at the first cleanup. Section 0.4 describes the implemented verification evidence that can now renew a managed skill’s local lifetime.
 
 Section 0.3 below disables the former seven-day file-moving policy by default. Only an explicitly configured `/engram-prune-days` value enables legacy file moves. Set it to `0` to disable them.
 
@@ -42,7 +42,17 @@ Device state lives under the OS user config directory at `magi/experience-local/
 
 Inventory entries include `retention`: observation time, content revision, pin, cold, archive-candidate, and locally archived status. `POST /retention` uses the existing Curate permission and published-project selection. Send `tier=project`, `name=managed:<object_id>`, the inventory's `retention.content_revision` as `revision`, and `action=pin|unpin|archive|restore`. The existing `d` socket selector identifies the project. An empty action reads status. Stale content revisions are rejected. Pinning prevents automatic demotion and candidate marking. Explicit local archiving removes the entry from automatic search while retaining inventory and source content. Restoration starts a new observation period; it cannot restore a withdrawn or archived source object.
 
-This step covers the managed store and management API. The web knowledge screen now shows device-local state and observation dates, with pin/unpin/archive/restore controls. It disables the row actions during a request, displays failure reasons, and reloads inventory. Dedicated JetBrains/VS Code controls, automatic active-task protection, lifetime renewal from actual application evidence, and migration of legacy `.claude/skills` files remain unfinished. This policy does not move human-authored or edited files. Explicit legacy file-moving settings remain effective; use `/engram-prune-days 0` to disable them.
+This step covers the managed store and management API. The web knowledge screen now shows device-local state and observation dates, with pin/unpin/archive/restore controls. It disables the row actions during a request, displays failure reasons, and reloads inventory. Dedicated JetBrains/VS Code controls and migration of legacy `.claude/skills` files remain unfinished. Section 0.4 covers active-task protection and the supported verification evidence. This policy does not move human-authored or edited files. Explicit legacy file-moving settings remain effective; use `/engram-prune-days 0` to disable them.
+
+### 0.4. Verification evidence and active-task protection
+
+New automatic skills retain SHA-256 snapshots of their saved document and bundled `scripts/verify.sh`. After loading and applying a skill, the model is instructed to run the exact `bash -- '<absolute-script-path>'` command through the foreground Bash tool. The host checks both snapshots before and after execution, requires a successful process exit, and reads back the persisted tool result before recording an application receipt. Permission denial, cancellation, background execution, edited artifacts, command wrappers, or missing execution records do not count. Replaying the same receipt does not renew the clock again.
+
+This proves successful execution of the unchanged verifier. It does not prove every procedure was followed or that the skill caused the task’s success. Engram creates a bundled script only for recognized shell verification longer than 200 characters; short or prose verification, older skills without snapshots, and native Office verification do not qualify. Retrieved memories gain protection but no verified-application renewal.
+
+Loaded managed skills and explicitly recalled managed memories acquire a two-minute host lease, renewed every 30 seconds. A live lease prevents cold demotion and archive-candidate marking without refreshing age. Foreground completion releases its references; outstanding background tool jobs retain them until completion. Independent turns hold independent references. A process crash leaves protection only until lease expiry. Explicit user archiving and source withdrawal remain effective.
+
+The web knowledge screen shows protection, successful verification count and last verification time. Reference identifiers and execution receipts stay in device-local metadata and are omitted from public inventory. Each object accepts at most 256 concurrent references and 4,096 deduplication receipts; exceeding a limit reports an error without silently dropping evidence. Native verifier adapters and causal application evidence for memories remain future work.
 
 ## 1. Implementation review
 

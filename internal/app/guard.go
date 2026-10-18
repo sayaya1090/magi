@@ -60,7 +60,8 @@ const (
 // loop if nothing changed between calls — so re-running a test after editing the file
 // under test (the correct thing to do) is allowed, instead of being blocked blind.
 type runGuard struct {
-	mu sync.Mutex
+	experience *turnExperience
+	mu         sync.Mutex
 	// touches answers what a call does to a file: the path from its own arguments, and whether it
 	// writes. A function rather than a name list because a tool can now say so itself — an editor
 	// plugin's edit tool is called mcp__jetbrains__edit and by name is nothing.

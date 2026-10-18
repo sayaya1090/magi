@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/core/embed"
@@ -304,4 +305,42 @@ func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {
 		}
 	}
 	return out, nil
+}
+
+func (s *Store) ExperienceReferences(ctx context.Context, name string) ([]port.ExperienceReference, error) {
+	if s.project == nil {
+		return nil, nil
+	}
+	return s.project.ExperienceReferences(ctx, name)
+}
+func (s *Store) ProtectExperience(ctx context.Context, r port.ExperienceReference, id string, until time.Time) error {
+	if s.project == nil {
+		return fmt.Errorf("project experience unavailable")
+	}
+	return s.project.ProtectExperience(ctx, r, id, until)
+}
+func (s *Store) ReleaseExperience(ctx context.Context, r port.ExperienceReference, id string) error {
+	if s.project == nil {
+		return fmt.Errorf("project experience unavailable")
+	}
+	return s.project.ReleaseExperience(ctx, r, id)
+}
+func (s *Store) ConfirmExperienceApplication(ctx context.Context, r port.ExperienceReference, id, evidence string) error {
+	if s.project == nil {
+		return fmt.Errorf("project experience unavailable")
+	}
+	return s.project.ConfirmExperienceApplication(ctx, r, id, evidence)
+}
+
+func (s *Store) ManagedMemoryReferences(ctx context.Context, ids []string) ([]port.ExperienceReference, error) {
+	if s.project == nil {
+		return nil, nil
+	}
+	var project []string
+	for _, id := range ids {
+		if strings.HasPrefix(id, "[project] ") {
+			project = append(project, strings.TrimPrefix(id, "[project] "))
+		}
+	}
+	return s.project.ManagedMemoryReferences(ctx, project)
 }

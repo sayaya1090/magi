@@ -832,9 +832,11 @@ type Memory struct {
 
 // Skill is a reusable, named procedure.
 type Skill struct {
-	Name        string
-	Description string
-	Body        string
+	DocumentDigest     string `json:",omitempty"`
+	VerificationDigest string `json:",omitempty"`
+	Name               string
+	Description        string
+	Body               string
 }
 
 // Contribution is a proposed addition to the shared experience.

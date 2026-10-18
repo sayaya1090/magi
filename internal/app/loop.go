@@ -308,6 +308,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	guard := newRunGuard(a.touchesFile)
+	guard.experience = a.newTurnExperience(ctx, s.Workdir)
+	defer guard.experience.close()
 	ts := turnState{} // per-turn mutable bookkeeping (finish guards, council accounting); lives for the whole turn — reground resets only the guard's stall arm (see reground)
 	// Answers delivered BEFORE this turn began are already in its opening context — only ones that
 	// land while it runs are news to it.

@@ -2,6 +2,8 @@ package lua
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
@@ -33,6 +35,15 @@ func (p *plugin) bridgeApplyExperience(L *lua.LState) int {
 			c.Memory = &port.Memory{Text: str("text")}
 		} else if c.Kind == "skill" {
 			c.Skill = &port.Skill{Name: str("name"), Description: str("description"), Body: str("body")}
+			digest := func(text string) string {
+				if text == "" {
+					return ""
+				}
+				sum := sha256.Sum256([]byte(text))
+				return hex.EncodeToString(sum[:])
+			}
+			c.Skill.DocumentDigest = digest(str("document_snapshot"))
+			c.Skill.VerificationDigest = digest(str("verification_snapshot"))
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

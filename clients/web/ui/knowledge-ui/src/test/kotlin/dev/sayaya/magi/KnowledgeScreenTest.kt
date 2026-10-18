@@ -45,6 +45,8 @@ internal class KnowledgeScreenTest : GwtTestSpec({
         }
         When("보관 후보를 고정하고 로컬 보관 후 복원하면") {
             Then("내용 revision과 동작을 전달하고 상태에 맞는 버튼을 그린다") {
+                page.locator(".retention-state").textContent() shouldContain "retention.protected"
+                page.locator(".application-history").textContent() shouldContain "retention.applications"
                 val viewport = page.viewportSize()
                 for (width in listOf(320, 420, 1400)) {
                     page.setViewportSize(width, 950)
