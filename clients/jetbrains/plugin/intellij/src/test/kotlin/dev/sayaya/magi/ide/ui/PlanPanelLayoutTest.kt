@@ -17,6 +17,28 @@ import javax.swing.JPanel
  */
 class PlanPanelLayoutTest : BasePlatformTestCase() {
 
+    fun testInlineMaintenanceFitsNarrowPanelAndKeepsStatusHeightBounded() {
+        val panel = ProfileMaintenancePanel(Workspace(project))
+        try {
+            for (width in listOf(240, 420, 900, 240)) {
+                panel.setSize(width, panel.preferredSize.height)
+                panel.doLayout()
+                val scroll = panel.components.filterIsInstance<JBScrollPane>().single()
+                assertEquals(javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, scroll.horizontalScrollBarPolicy)
+                assertTrue(scroll.x >= com.intellij.util.ui.JBUI.scale(12))
+                assertTrue(scroll.x + scroll.width <= width-com.intellij.util.ui.JBUI.scale(12))
+                assertTrue(scroll.height > 0)
+                val actions = panel.components.filterIsInstance<JPanel>().first { it.layout is java.awt.GridLayout }
+                actions.doLayout()
+                val buttons = actions.components.filterIsInstance<JButton>()
+                assertEquals(2, buttons.size)
+                assertTrue(buttons.all { it.x >= 0 && it.x+it.width <= actions.width })
+                assertTrue(buttons[1].y-buttons[0].y-buttons[0].height >= com.intellij.util.ui.JBUI.scale(8))
+                assertTrue(panel.maximumSize.height <= com.intellij.util.ui.JBUI.scale(280))
+            }
+        } finally { panel.dispose() }
+    }
+
     fun testScheduleActionsFitNarrowPanelsAndSupportKeyboard() {
         var added = 0
         var reloaded = 0

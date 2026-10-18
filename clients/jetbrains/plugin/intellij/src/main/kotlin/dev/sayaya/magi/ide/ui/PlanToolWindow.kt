@@ -229,14 +229,9 @@ class PlanToolWindow : ToolWindowFactory {
                 KnowledgeDialog(project, workspace).show()
             }
         }
-        val maintenance = JButton(MagiBundle.msg("maintenance.title")).apply {
-            addActionListener {
-                ProfileMaintenanceDialog(project, workspace).show()
-            }
-        }
+        val maintenance = ProfileMaintenancePanel(workspace)
+        Disposer.register(project, maintenance)
         val controls = stack(0, 0).apply {
-            add(maintenance)
-            add(knowledge)
             add(stale)
             add(section(MagiBundle.msg("plan.tasks")))
             add(work)
@@ -278,6 +273,17 @@ class PlanToolWindow : ToolWindowFactory {
             add(fleet)
             add(section(MagiBundle.msg("plan.schedule")))
             add(cronPane)
+            add(section(MagiBundle.msg("plan.management")))
+            add(JBPanel<JBPanel<*>>(java.awt.GridBagLayout()).apply {
+                isOpaque = false
+                border = JBUI.Borders.empty(8, 12, 8, 12)
+                knowledge.toolTipText = knowledge.text
+                knowledge.minimumSize = java.awt.Dimension(0, knowledge.preferredSize.height)
+                add(knowledge, java.awt.GridBagConstraints().apply {
+                    weightx = 1.0; fill = java.awt.GridBagConstraints.HORIZONTAL
+                })
+            })
+            add(maintenance)
         }
         // 폭은 창을 따르고 높이만 스크롤된다(`Look.column` — 전사 창과 같은 판). 그냥 쌓은 판을
         // 스크롤 판에 넣으면 가장 긴 한 줄(다른 컴패니언 줄)의 폭으로 판이 넓어져 가로 스크롤바가
