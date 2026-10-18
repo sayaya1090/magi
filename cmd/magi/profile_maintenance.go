@@ -30,7 +30,7 @@ func (d daemonEngine) ProfileMaintenanceStatus(ctx context.Context, sid string, 
 	}
 	state.Enabled = companionMaintenanceEnabled(d.configDir, d.workdir)
 	if d.App != nil {
-		state.Pending = d.App.ProfileMaintenancePending() && !state.Running
+		state.Pending = (state.Pending || d.App.ProfileMaintenancePending()) && !state.Running
 	}
 	b, err := json.Marshal(state)
 	return string(b), err

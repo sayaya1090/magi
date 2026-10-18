@@ -1156,6 +1156,7 @@ func runWithContext(runCtx context.Context) int {
 	// Plugins can redirect the default endpoint before the restored model is reconciled.
 	a.ReconcileBackendModel(sid)
 	modelID = a.SessionModel(sid)
+	a.ResumeProfileMaintenance(wd)
 
 	// Context-window probe, deferred to here on purpose. Plugin startup and
 	// session_start handlers have now run, so a plugin that repoints the LLM at a

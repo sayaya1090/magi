@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/companion"
@@ -15,7 +16,17 @@ type ProfileMaintenance interface {
 	FinishProfileMaintenance(context.Context, string, ProfileMaintenanceTicket, *companion.Contract, string) (ProfileMaintenanceState, error)
 }
 
+// ProfileMaintenanceQueue stores source IDs and sequence watermarks, never evidence text.
+type ProfileMaintenanceQueue interface {
+	QueueProfileMaintenance(context.Context, string, string, int64) error
+	AcknowledgeProfileMaintenance(context.Context, string, string, int64) error
+}
+
+var ErrProfileEvidenceProcessed = errors.New("maintenance evidence already processed")
+
 type ProfileMaintenanceState struct {
+	PendingSources map[string]int64 `json:"pending_sources,omitempty"`
+
 	Enabled     bool                      `json:"enabled"`
 	Pending     bool                      `json:"pending"`
 	ID          string                    `json:"id"`

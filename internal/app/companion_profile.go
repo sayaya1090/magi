@@ -21,6 +21,12 @@ import (
 func (a *App) scheduleCompanionProfile(sid session.SessionID) {
 	if a.cfg.ProfileMaintainer != nil {
 		a.scheduleProfileMaintenance(sid)
+		a.mu.Lock()
+		wd := a.stateLocked(sid).meta.Workdir
+		a.mu.Unlock()
+		if wd != "" {
+			a.ResumeProfileMaintenance(wd)
+		}
 		return
 	}
 	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || a.cfg.CompanionProfileNeeded == nil || a.cfg.CompanionProfileSave == nil {

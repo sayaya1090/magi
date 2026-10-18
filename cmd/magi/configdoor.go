@@ -223,8 +223,12 @@ func (d daemonEngine) ConfigSet(ctx context.Context, key, value, tier string) (d
 		return daemon.ConfigItem{}, err
 	}
 	item := d.resolve(k)
-	if key == "companion_auto_describe" && item.Value == "off" && d.App != nil {
-		d.App.CancelCompanionProfile()
+	if key == "companion_auto_describe" && d.App != nil {
+		if item.Value == "off" {
+			d.App.CancelCompanionProfile()
+		} else if item.Value == "on" {
+			d.App.ResumeProfileMaintenance(d.workdir)
+		}
 	}
 	if item.Source == "env" && strings.TrimSpace(value) != "" {
 		// The write landed and something else still wins. Said here, because a screen that showed

@@ -33,6 +33,7 @@ type App struct {
 
 	profilePending      map[session.SessionID]bool // guarded by mu; source chats waiting for the metadata worker
 	profileBusy         atomic.Bool
+	profileEnqueuing    atomic.Int64
 	profileLast         atomic.Int64
 	backgroundAuthority atomic.Bool
 	backgroundMu        sync.Mutex
