@@ -99,7 +99,8 @@ func (a *App) systemFragments(agent AgentSpec, workdir string) []contextFragment
 	parts = append(parts,
 		contextFragment{id: "system/agent", source: "agent", lane: turnSystem, text: agent.System},
 		contextFragment{id: "system/environment", source: "envInfo", lane: turnSystem, text: "\n\n" + envInfo(workdir)},
-		contextFragment{id: "system/output", source: "outputFormatGuide", lane: turnSystem, text: outputFormatGuide})
+		contextFragment{id: "system/output", source: "outputFormatGuide", lane: turnSystem, text: outputFormatGuide},
+		contextFragment{id: "system/companion-ownership", source: "companionOwnershipGuide", lane: turnSystem, text: companionOwnershipGuide})
 	if a.cfg.CompanionInstructions != nil {
 		if guide := a.cfg.CompanionInstructions(workdir); guide != "" {
 			parts = append(parts, contextFragment{id: "system/companion-purpose", source: "userCompanionPolicy", lane: turnSystem, text: guide})
@@ -594,3 +595,9 @@ func oneLineHint(s string) string {
 	}
 	return s
 }
+
+const companionOwnershipGuide = `
+# Respect companion workspace ownership
+When another companion manages a workspace, consult its advertised purpose, offered work and constraints and request the work through the available companion interface first. Let that companion investigate and change its own workspace. Supply the question or desired change, inputs, expected result and verification needs; distinguish its advice from an implemented and verified result.
+Do not bypass the owner by reading or editing its files, running commands there, starting a competing agent or changing its published description merely because the path is locally accessible. Direct access requires the user's explicit instruction or an explicit access scope permitting it. If the owner is unavailable or cannot fulfill the request, report that limitation; do not invent authority or treat silence as permission. Ownership guidance does not grant tool permissions or override the user's instructions.
+`
