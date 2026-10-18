@@ -1052,6 +1052,8 @@ local function prune_stale()
   magi.log("engram: " .. #names .. "개 미사용 스킬 아카이브(>" .. cutoff .. "일): " .. table.concat(names, ", "))
 end
 
+-- Loading is an observation, not evidence of application. Even a verified turn
+-- cannot attribute its success to each loaded skill; never extend retention here.
 local function update_usage(skills_csv, outcome)
   if not skills_csv or skills_csv == "" then return end
   local map, order = {}, {}
@@ -1059,17 +1061,13 @@ local function update_usage(skills_csv, outcome)
     local n, l, o, b = string.match(line, "^([^\t]*)\t(%d+)\t(%d+)\t(%d+)$")
     if n then map[n] = { tonumber(l), tonumber(o), tonumber(b) } order[#order + 1] = n end
   end
-  local today = string.sub(magi.time(), 1, 10) -- YYYY-MM-DD (UTC), for last-used pruning
-  local lastused = load_lastused()
   for name in string.gmatch(skills_csv, "[^,]+") do
     local m = map[name]
     if not m then m = { 0, 0, 0 } map[name] = m order[#order + 1] = name end
     m[1] = m[1] + 1
     if outcome == "verified" then m[2] = m[2] + 1
     elseif outcome == "unverified" or outcome == "guard" or outcome == "error" then m[3] = m[3] + 1 end
-    lastused[name] = today -- loaded this turn → refresh its last-used date
   end
-  save_lastused(lastused)
   local out = {}
   for _, n in ipairs(order) do
     local m = map[n]

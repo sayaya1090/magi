@@ -28,6 +28,12 @@ Project/team/global candidates are reranked over the complete visible union. Exi
 
 Tests cover Korean inflections, decomposed Hangul, full-width Latin, mixed scripts, unrelated queries, repetitive distractors, cross-scope ranking, compacted context and existing English regressions. Morphology, synonyms, semantic negation and real-model task success are outside this validation. Larger frozen evaluation and heuristic calibration remain future work.
 
+### 0.2. Separate load observations from the forgetting clock
+
+`skill_usage` records load counts, verified-turn counts, and failed-turn counts. These observations do not prove application. Loading a skill no longer refreshes `skill_lastused`, even when the turn is verified. Existing dates remain unchanged; automatic skills without dates start their observation period at the first cleanup. Lifetime renewal based on actual application evidence is not implemented yet.
+
+Local archiving retains the existing seven-day default and `/engram-prune-days` setting. Section 5's 30-day cold state, 90-day archive candidates, pin/active-task protection, and reactivation after actual application remain follow-up work. Automatic archiving moves recoverable content and retains human-edit protection. This step does not complete section 5.
+
 ## 1. Implementation review
 
 | Evidence | Current behavior | Gap |
