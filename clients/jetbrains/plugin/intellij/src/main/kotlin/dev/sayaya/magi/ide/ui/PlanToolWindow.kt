@@ -204,7 +204,12 @@ class PlanToolWindow : ToolWindowFactory {
             workspace.onDaemonWithoutChat({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
                 // 「이미 그 대화다」는 지금 대화를 알 때만 답이 있다. 모르면 그냥 갈아탄다 —
                 // 모르는 것을 아는 척하지 않는다(대화가 없으면 「이미」도 없다).
-                if (comp.facts().session == id) return@onDaemonWithoutChat
+                if (comp.facts().session == id) {
+                    // The selected tab can be pinned to another chat even when the daemon
+                    // already uses this one. Always make an explicit selection visible.
+                    SwingUtilities.invokeLater { MagiTabs.open(project, id, "·" + id.takeLast(6)) }
+                    return@onDaemonWithoutChat
+                }
                 val r = comp.resume(id)
                 // 갈아타기의 나머지 절반은 대화 창이 한다 — session.moved 를 보고 새 대화에 붙는다.
                 if (r.ok) {
