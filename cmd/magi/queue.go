@@ -80,6 +80,8 @@ type pending struct {
 type waiting struct {
 	mu    sync.Mutex
 	items []pending
+	// active reserves a conversation until its own turn finishes, including read-only questions.
+	active map[session.SessionID]bool
 	// stopped is why a receipt will never answer, for the few that cannot be started at all.
 	// Without it a failed start is a receipt pointing at a session where nothing ever happens,
 	// which the asking side cannot tell from a companion still thinking.
@@ -196,11 +198,17 @@ func (w *waiting) peek() (pending, bool) {
 // next takes the head of the queue, if there is one.
 func (w *waiting) next() (pending, bool) {
 	w.mu.Lock()
-	if len(w.items) == 0 {
+	if len(w.items) == 0 || (w.items[0].session != "" && w.active[w.items[0].session]) {
 		w.mu.Unlock()
 		return pending{}, false
 	}
 	p := w.items[0]
+	if p.session != "" {
+		if w.active == nil {
+			w.active = map[session.SessionID]bool{}
+		}
+		w.active[p.session] = true
+	}
 	w.items = w.items[1:]
 	w.mu.Unlock()
 	w.annMu.Lock()
@@ -245,4 +253,12 @@ func (w *waiting) wake() {
 	case w.nudge <- struct{}{}:
 	default:
 	}
+}
+
+// A read-only request can overlap another session, but not its own conversation.
+func (w *waiting) releaseSession(sid session.SessionID) {
+	w.mu.Lock()
+	delete(w.active, sid)
+	w.mu.Unlock()
+	w.wake()
 }

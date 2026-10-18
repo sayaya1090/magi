@@ -949,3 +949,18 @@ func TestAnswerPromptsMapsLimitAndRows(t *testing.T) {
 		}
 	}
 }
+
+func (o *omniEngine) OutgoingHandoffs(sid session.SessionID) []OutgoingHandoff {
+	return []OutgoingHandoff{{Receipt: "r-1", To: "sayaya-ui", Request: "question for " + string(sid), Started: "2026-10-18T00:00:00Z"}}
+}
+
+func TestJobsIncludeSessionScopedOutgoingHandoffs(t *testing.T) {
+	r := answerJobs(context.Background(), &omniEngine{}, Request{Session: "selected"})
+	if r.Jobs == nil || len(r.Jobs.Outgoing) != 1 {
+		t.Fatal("outgoing handoff absent")
+	}
+	h := r.Jobs.Outgoing[0]
+	if h.Receipt != "r-1" || h.To != "sayaya-ui" || h.Request != "question for selected" {
+		t.Fatalf("wrong outgoing fields: %+v", h)
+	}
+}

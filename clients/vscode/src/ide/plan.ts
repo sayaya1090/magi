@@ -3,7 +3,7 @@ import { idePaletteCss } from '../core/palette';
 import * as vscode from 'vscode';
 import * as activity from '../core/activity';
 import { Companion } from './workspace';
-import { context as contextOf, fleetRows, gauge as gaugeOf, jobs as jobsOf, schedules } from '../core/panel';
+import { context as contextOf, fleetRows, gauge as gaugeOf, jobs as jobsOf, outgoing, schedules } from '../core/panel';
 import { planLines } from '../core/transcript';
 
 /**
@@ -191,6 +191,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       fleet: fleet === null ? null : fleetRows(fleet),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
+      outgoing: outgoing(jobs),
       hand: this.hand,
       plan: this.plan,
     });
@@ -300,6 +301,9 @@ ${idePaletteCss}
   button:focus-visible { outline:1px solid var(--vscode-focusBorder); outline-offset:2px; }
   pre { margin:0; white-space:pre-wrap; word-break:break-word;
         font-family:var(--vscode-editor-font-family); font-size:.9em; }
+  .handoff-row { display:flex; align-items:center; gap:6px; padding:3px 0; }
+  .handoff-spinner { width:10px; height:10px; flex:none; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:handoff-spin 1s linear infinite; }
+  @keyframes handoff-spin { to { transform:rotate(360deg); } }
   .none { opacity:.6; font-style:italic; }
   /* Context gauge — the Office task pane's shape: one thin bar whose scale is the whole window. */
   .gauge { display:flex; align-items:center; gap:8px; margin:2px 0; }
@@ -432,7 +436,15 @@ window.addEventListener('message', (e) => {
   body.append(controls);
   section(t.plan, m.plan);
   section(t.jobs, m.jobs);
-  section(t.handed, m.handed);
+  head(t.handed);
+  for (const row of m.outgoing || []) {
+    const line = document.createElement('div'); line.className = 'handoff-row'; line.setAttribute('aria-busy', 'true');
+    line.title = row.to + '\\n' + row.request + '\\n' + row.receipt;
+    const spinner = document.createElement('span'); spinner.className = 'handoff-spinner'; spinner.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span'); text.textContent = row.to + ' · ' + t.handoffWaiting + ' · ' + row.request.split('\\n')[0].slice(0, 90);
+    line.append(spinner, text); body.append(line);
+  }
+  const handed = document.createElement('pre'); handed.textContent = m.handed || (!(m.outgoing || []).length ? t.empty : ''); body.append(handed);
   contextSection(m.gauge, m.context, m.session, m.compacting);
   fleetSection(m.fleet);
   section(t.scheduled, m.cron);

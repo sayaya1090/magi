@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { carrying, context, fleet, fleetRows, gauge, jobs, kilo, localStamp, offers, originWord, sayState, schedules } from '../core/panel';
+import { carrying, context, fleet, fleetRows, gauge, jobs, outgoing, kilo, localStamp, offers, originWord, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -654,3 +654,10 @@ test('a fleet row says who and how it is; what it can do is in the tooltip', () 
   assert.ok(gone.line.includes('no answer'), gone.line);
 });
 
+
+test('outgoing handoffs preserve receipts and distinct questions for the same peer', () => {
+  const rows = [{ receipt: 'r1', to: 'ui', request: 'bundle?', started: '' }, { receipt: 'r2', to: 'ui', request: 'porting?', started: '' }];
+  assert.deepEqual(outgoing({ ok: true, jobs: { outgoing: rows } }), rows);
+  assert.deepEqual(outgoing({ ok: true, jobs: {} }), []);
+  assert.deepEqual(outgoing(null), []);
+});

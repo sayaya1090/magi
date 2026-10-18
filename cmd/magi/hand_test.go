@@ -1197,3 +1197,95 @@ func TestHandedOverWorkWaitsBehindThePerson(t *testing.T) {
 		t.Errorf("with the person's queue empty, the piece did not start (%d started)", n)
 	}
 }
+
+func TestTwoReadOnlyQuestionsDoNotShareAnAnswer(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+
+	first, err := cl.Hand("— asked by master", "count the lines", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the first piece to start", func() bool { return len(ar.prompts()) == 1 })
+	second, err := cl.Hand("— asked by master", "count the characters", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second receipt must still be queued, not positioned inside the first turn.
+	time.Sleep(100 * time.Millisecond)
+	if len(ar.prompts()) != 1 {
+		t.Fatal("second read-only question was submitted into the first running turn")
+	}
+	state, err := cl.Handed(second)
+	if err != nil || state.Done {
+		t.Fatalf("second request already answered: %+v %v", state, err)
+	}
+	// Both live in one side session, so nothing but the position tells their answers apart.
+	side := ar.side("s_design")
+	ar.finishes(side, "four lines")
+	until(t, "the second piece to start", func() bool { return len(ar.prompts()) == 2 })
+	ar.finishes(side, "eight characters")
+
+	one, err := cl.Handed(first)
+	if err != nil || !one.Done || one.Answer != "four lines" {
+		t.Fatalf("the first piece answered %+v %v", one, err)
+	}
+	two, err := cl.Handed(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if two.Answer == "four lines" {
+		t.Fatal("the second piece was handed the answer to the first, which is what a wrong " +
+			"answer that looks right is made of")
+	}
+	if !two.Done || two.Answer != "eight characters" {
+		t.Fatalf("the second piece answered %+v", two)
+	}
+}
+
+type lostHandoffSubscription struct{ *recordingWork }
+
+func (w lostHandoffSubscription) Subscribe(context.Context, session.SessionID, int64) (<-chan event.Event, func(), error) {
+	return nil, nil, errors.New("subscription lost")
+}
+
+func TestReadOnlyConversationRemainsReservedWhenSubscriptionFails(t *testing.T) {
+	ar := newArrival(t)
+	cl, _ := ar.publish("design", "s_design")
+	if _, err := cl.Hand("master", "question", true); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "question start", func() bool { return len(ar.prompts()) == 1 })
+	sid := session.SessionID(ar.side("s_design"))
+	q := newWaiting(nil)
+	q.active = map[session.SessionID]bool{sid: true}
+	q.began()
+	h := handover{work: lostHandoffSubscription{ar.work}, queued: q}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); h.wakeWhenDone(ctx, sid, 0) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case <-done:
+		t.Fatal("lost subscription released a still-running conversation")
+	case <-time.After(50 * time.Millisecond):
+	}
+	q.mu.Lock()
+	reserved := q.active[sid]
+	q.mu.Unlock()
+	if !reserved {
+		t.Fatal("conversation no longer reserved")
+	}
+	ar.finishes(string(sid), "answer")
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("persisted finish did not release reservation")
+	}
+	q.mu.Lock()
+	reserved = q.active[sid]
+	q.mu.Unlock()
+	if reserved {
+		t.Fatal("finished conversation still reserved")
+	}
+}

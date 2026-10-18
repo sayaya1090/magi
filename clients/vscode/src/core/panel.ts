@@ -431,3 +431,8 @@ export function usage(events: Event[]): string {
   return [`${last.tokens ?? 0} / ${last.window} (${pct}%)`,
     last.outTokens ? `out ${last.outTokens}` : ''].filter(Boolean).join(' · ');
 }
+
+/** Requests sent by this session, still awaiting a peer response. */
+export function outgoing(resp: Response | null): NonNullable<NonNullable<Response['jobs']>['outgoing']> {
+  return resp?.ok ? resp.jobs?.outgoing ?? [] : [];
+}

@@ -824,3 +824,21 @@ func TestAnAnswerThatLandsWhileTheTurnFinishesGetsAnotherStep(t *testing.T) {
 		t.Fatal("자식 턴을 붙잡았다")
 	}
 }
+
+func TestDeliveredHandoffClearsOnlyItsReceipt(t *testing.T) {
+	f := newHandoffFixture(t)
+	f.append("mine", ev(t, event.TypeSessionCreated, event.SessionCreatedData{Workdir: t.TempDir()}))
+	f.a.mu.Lock()
+	f.a.stateLocked("mine").handoffs = []pendingHandoff{
+		{Receipt: "r1", Who: "ui", Request: "same question"},
+		{Receipt: "r2", Who: "ui", Request: "same question"},
+	}
+	f.a.mu.Unlock()
+	if err := f.a.deliverHandoff(context.Background(), "mine", event.Actor{Kind: event.ActorAgent}, port.Elsewhere{Session: "r1", Who: "ui", Request: "same question"}, "answer one"); err != nil {
+		t.Fatal(err)
+	}
+	left := f.a.PendingHandoffs("mine")
+	if len(left) != 1 || left[0].Receipt != "r2" {
+		t.Fatalf("wrong pending requests after first reply: %+v", left)
+	}
+}

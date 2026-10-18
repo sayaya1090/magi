@@ -441,6 +441,7 @@ class PlanToolWindow : ToolWindowFactory {
                 stale.isVisible = false
                 work.removeAll()
                 val queued = j?.queued.orEmpty()
+                val outgoing = j?.outgoing.orEmpty()
                 val bgRunning = j?.background.orEmpty().filter { it.running }
                 // 비정상 종료된 백그라운드 명령 필터링:
                 // 성공한 명령은 공간 절약을 위해 생략하고, 강제 종료되었거나 0이 아닌 종료 코드로 끝난 실패 작업(`killed || exit != 0`)만 원인과 함께 표시합니다.
@@ -455,8 +456,19 @@ class PlanToolWindow : ToolWindowFactory {
                         foreground = Look.faint
                     })
                 } else if (queued.isEmpty() && bgRunning.isEmpty() && bgBad.isEmpty() &&
-                    kids.isEmpty() && past.isEmpty()) {
+                    kids.isEmpty() && past.isEmpty() && outgoing.isEmpty()) {
                     work.add(none(MagiBundle.msg("plan.tasks.none")))
+                }
+                outgoing.forEach { h ->
+                    work.add(JBLabel(
+                        "${h.to} · ${MagiBundle.msg("plan.handoff.waiting")} · ${h.request.lineSequence().firstOrNull().orEmpty().take(90)}",
+                        com.intellij.ui.AnimatedIcon.Default.INSTANCE,
+                        javax.swing.SwingConstants.LEADING
+                    ).apply {
+                        foreground = Look.accent
+                        toolTipText = "${h.to} · ${h.receipt} — ${h.request}"
+                        border = JBUI.Borders.empty(2, 0)
+                    })
                 }
                 queued.forEach { q ->
                     // 사용자 요청 우선, 이후 위임된 작업(handover) 순으로 렌더링합니다.

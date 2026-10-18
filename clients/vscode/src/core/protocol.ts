@@ -249,6 +249,7 @@ export interface Response {
    * an empty string parses to an empty list.
    */
   jobs?: {
+    outgoing?: { receipt: string; to: string; request: string; started: string }[];
     background?: { id?: string; command?: string; running?: boolean; killed?: boolean;
       exit?: number; started?: string; tail?: string }[];
     children?: { id?: string; tool?: string; task?: string; started?: string; ended?: string;
