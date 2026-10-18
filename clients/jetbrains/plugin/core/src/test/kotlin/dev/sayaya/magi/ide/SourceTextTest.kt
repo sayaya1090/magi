@@ -727,7 +727,7 @@ class SourceTextTest {
         assertTrue("ScheduleActions.row(st.canEditCron, crons != null" in panel,
             "「다시 읽기」가 목록 문 응답 여부에 연결되지 않았다")
         val actions = code(sources.first { it.name == "ScheduleActions.kt" })
-        assertTrue("if (canReload) add(Action(" in actions,
+        assertTrue("if (canReload) add(JButton(" in actions,
             "「다시 읽기」가 목록 문이 없는 데몬에도 선다")
         assertTrue("c.removeCron(name)" in panel && "c.reloadCron()" in panel, "감싸개를 부르는 화면이 없다")
     }
