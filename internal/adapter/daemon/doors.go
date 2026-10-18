@@ -594,6 +594,12 @@ func answerTools(ctx context.Context, eng Engine, req Request) Response {
 func answerJobs(ctx context.Context, eng Engine, req Request) Response {
 	var resp Response
 	resp = Response{OK: true, Jobs: &Jobs{}}
+	if pending, ok := eng.(PendingPromptLister); ok {
+		for _, p := range pending.PendingPrompts() {
+			ask := p.Ask
+			resp.Jobs.Approvals = append(resp.Jobs.Approvals, PendingPrompt{Session: string(p.Session), Requester: p.Requester, Prompt: Waiting{ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args, Reason: ask.Reason, Diff: ask.Diff, Options: ask.Options, Report: ask.Report, Index: ask.Index, Total: ask.Total, Since: ask.Since.UTC().Format(time.RFC3339)}})
+		}
+	}
 	if h, ok := eng.(OutgoingHandoffLister); ok {
 		resp.Jobs.Outgoing = h.OutgoingHandoffs(session.SessionID(req.Session))
 	}

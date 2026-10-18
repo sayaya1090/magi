@@ -16,6 +16,7 @@ internal class LookStartup : ProjectActivity {
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(
             LookWhileTyping.Ears(project), LookWhileTyping.scope(project),
         )
+        project.getService(DelegatedApprovals::class.java).start()
         stripes(project)
         // 프로젝트 워크스페이스가 초기화되었으므로 자동 기동 옵션 확인 후 필요 시 데몬을 기동한다.
         project.getService(OwnedCompanion::class.java).watch(project)

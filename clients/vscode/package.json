@@ -206,6 +206,11 @@
         "command": "magi.profileMaintenance",
         "title": "%magi.profileMaintenance.title%",
         "category": "Magi"
+      },
+      {
+        "command": "magi.approvals",
+        "title": "%command.approvals%",
+        "category": "Magi"
       }
     ],
     "submenus": [

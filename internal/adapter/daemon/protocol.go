@@ -56,7 +56,15 @@ type Engine interface {
 // processes can read it, and sending its transcript down this socket would be a second copy of
 // something already shared. What crosses is the fact of it — which children exist, and which just
 // ended.
+type PendingPrompt struct {
+	Session   string  `json:"session"`
+	Requester string  `json:"requester"`
+	Prompt    Waiting `json:"prompt"`
+}
+type PendingPromptLister interface{ PendingPrompts() []app.PendingPrompt }
+
 type Jobs struct {
+	Approvals  []PendingPrompt   `json:"approvals,omitempty"`
 	Outgoing   []OutgoingHandoff `json:"outgoing,omitempty"`
 	Background []BackgroundJob   `json:"background,omitempty"`
 	Children   []ChildJob        `json:"children,omitempty"`

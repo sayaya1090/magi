@@ -57,7 +57,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
         }).finally(() => { this.changingCouncil = false; void this.refresh(); });
       }
       const controls = new Set(['magi.chooseModel', 'magi.chooseBackend', 'magi.choosePermission',
-        'magi.openConversation', 'magi.newConversation', 'magi.changeSetting', 'magi.setup']);
+        'magi.openConversation', 'magi.newConversation', 'magi.changeSetting', 'magi.setup', 'magi.approvals']);
       if (m.kind === 'control' && typeof m.command === 'string' && controls.has(m.command)
           && typeof m.session === 'string' && m.session === this.companion.session) {
         void Promise.resolve(vscode.commands.executeCommand(m.command)).catch(error => {
@@ -169,6 +169,7 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!this.view || session !== this.companion.session) return;
     this.view.webview.postMessage({
       kind: 'plan',
+      approvals: jobs?.jobs?.approvals ?? [],
       state: activity.label(this.companion.state),
       connection: this.companion.state.state,
       // "not asked" and "asked and empty" are different facts, and the panel says which.
@@ -434,6 +435,15 @@ window.addEventListener('message', (e) => {
     button.addEventListener('click', () => { vs.postMessage({ kind: 'control', command, session: m.session }); button.blur(); }); controls.append(button);
   }
   body.append(controls);
+  if ((m.approvals || []).length) {
+    head(t.approvals);
+    for (const pending of m.approvals) {
+      const button = document.createElement('button');
+      button.textContent = pending.requester + ' · ' + pending.prompt.what;
+      button.addEventListener('click', () => vs.postMessage({ kind: 'control', command: 'magi.approvals', session: m.session }));
+      body.append(button);
+    }
+  }
   section(t.plan, m.plan);
   section(t.jobs, m.jobs);
   head(t.handed);

@@ -103,6 +103,21 @@ class Companion(
     fun roster(): Response = send(Request(method = "roster"))
 
     /** 작업 — 도는 백그라운드, 자식, 그리고 다음에 돌 대기열(사람 말 먼저, 그다음 건넨 일). */
+    fun respondDelegated(pending: dev.sayaya.magi.ide.model.PendingPrompt, decision: String?, answer: String?): Response {
+        require(pending.session.isNotBlank() && pending.prompt.id.isNotBlank())
+        return when (pending.prompt.kind) {
+            "permission" -> {
+                require(decision == "allow" || decision == "deny")
+                send(Request(method = "permission", session = pending.session, callId = pending.prompt.id, decision = decision))
+            }
+            "question" -> {
+                require(answer != null)
+                send(Request(method = "answer", session = pending.session, callId = pending.prompt.id, answer = answer))
+            }
+            else -> error("Unsupported delegated prompt kind")
+        }
+    }
+
     fun jobs(): Response = send(Request(method = "jobs", session = session))
 
     /**

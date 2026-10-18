@@ -73,9 +73,9 @@ func (a *App) dangerGated(name string) bool {
 func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
 	verdict, reason := a.policy.Decide(tc.Name, tc.Args)
 	if verdict == "deny" {
-		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny"})
-		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "blocked by policy: "+reason, true)
+		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny", Origin: "policy", Reason: reason})
+		a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePermissionDecided, actor, dd)
+		a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, "blocked by policy: "+reason, true)
 		return true
 	}
 	forcePrompt := verdict == "ask"
@@ -90,15 +90,16 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 	// dangerous invocation chained after it. So forcePrompt prompts regardless of the rule; the
 	// rule only skips the prompt for a routine danger-tool call the scanner did not flag.
 	if forcePrompt || (a.dangerGated(tc.Name) && !a.policy.AllowedByRule(tc.Name, tc.Args)) {
-		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt, reason)
+		outcome := permissionOutcome{}
+		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt, reason, &outcome)
 		decision := "allow"
 		if !allowed {
 			decision = "deny"
 		}
-		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: decision})
-		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
+		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: decision, Origin: outcome.Origin, Reason: outcome.Reason})
+		a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePermissionDecided, actor, dd)
 		if !allowed {
-			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, a.denyReason(tc.Name), true)
+			a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, outcome.Reason, true)
 			return true
 		}
 	}
@@ -111,7 +112,8 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 // dangerous/forced tool with no interactive prompt. Reporting that as "denied by
 // user" is a lie that invites a pointless retry — the agent re-issues the same call,
 // gets denied again, and flails. So name the real cause and tell it not to retry.
-// With an interactive human present it genuinely WAS a user decision.
+// Interactive calls use permissionOutcome at the gate; this legacy fallback
+// remains for callers without a recorded outcome.
 func (a *App) denyReason(tool string) string {
 	if a.cfg.Interactive {
 		return "denied by user"

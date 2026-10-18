@@ -59,5 +59,16 @@
   "Refresh requested. It uses new evidence and runs when idle; it may wait for the cooldown.": "갱신을 요청했습니다. 새 근거를 사용해 유휴 상태에서 실행하며 갱신 간격을 기다릴 수 있습니다.",
   "Maintain automatic workspace descriptions from new project evidence in a separate internal session. Uses additional model requests. Human edits and permissions are preserved.": "별도 내부 세션에서 새 프로젝트 근거로 자동 작성한 설명을 관리합니다. 추가 모델 요청을 사용하며 사용자 편집과 권한을 보존합니다.",
   "Disabled": "꺼짐",
-  "Waiting for idle or cooldown": "유휴 상태·갱신 간격 대기"
+  "Waiting for idle or cooldown": "유휴 상태·갱신 간격 대기",
+  "Review pending delegated approvals and questions": "위임 작업의 승인·질문 대기 목록 검토",
+  "Magi: {0} is waiting for your response ({1}).": "Magi: {0}의 요청이 응답을 기다립니다 ({1}).",
+  "Review": "검토",
+  "Review delegated tool request": "위임 작업의 도구 실행 요청 검토",
+  "Allow once": "이번만 허용",
+  "Reject": "거부",
+  "Answer": "답변",
+  "This request is no longer pending.": "더 이상 응답을 기다리는 요청이 아닙니다.",
+  "Response was not sent: {0}": "응답을 보내지 못했습니다: {0}",
+  "Companion unavailable": "컴패니언에 연결할 수 없습니다",
+  "Pending approvals and questions": "승인·질문 대기"
 }

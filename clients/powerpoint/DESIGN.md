@@ -2064,7 +2064,7 @@ the two survives a reattach`). 고친 술어는 `echoesFact(e) = e.type == "part
 | --- | --- | --- |
 | `permission.requested` · `question.requested` | 전이 | **안 온다** |
 | `question.answered` | 전이 | **안 온다** |
-| `permission.decided` | **사실**(`internal/app/execute.go`의 `appendFact`) | 붙을 때마다 **또 온다** |
+| `permission.decided` | **사실**(`internal/app/execute.go`의 `appendBestEffort`) | 붙을 때마다 **또 온다** |
 
 위 세 줄 중 첫째·둘째는 이 절이 아래에서 이미 답을 정한 자리다 — **붙을 때 두 곳에 묻는다**
 (스트림과 `status`). 여기 새로 붙는 것은 셋째 줄이다.

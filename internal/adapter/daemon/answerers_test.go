@@ -964,3 +964,21 @@ func TestJobsIncludeSessionScopedOutgoingHandoffs(t *testing.T) {
 		t.Fatalf("wrong outgoing fields: %+v", h)
 	}
 }
+
+type pendingEngine struct{ omniEngine }
+
+func (*pendingEngine) PendingPrompts() []app.PendingPrompt {
+	return []app.PendingPrompt{{Session: "delegated", Requester: "handbook", Ask: app.Ask{
+		ID: "call", Kind: "permission", What: "bash", Args: json.RawMessage(`{"command":"git status"}`), Reason: "review", Diff: "diff", Since: time.Unix(1, 0),
+	}}}
+}
+func TestJobsExposeDelegatedApprovalOutsideSelectedSession(t *testing.T) {
+	r := answerJobs(context.Background(), &pendingEngine{}, Request{Session: "selected"})
+	if !r.OK || r.Jobs == nil || len(r.Jobs.Approvals) != 1 {
+		t.Fatalf("missing approval: %+v", r)
+	}
+	p := r.Jobs.Approvals[0]
+	if p.Session != "delegated" || p.Requester != "handbook" || p.Prompt.ID != "call" || p.Prompt.Diff != "diff" || string(p.Prompt.Args) != `{"command":"git status"}` {
+		t.Fatalf("wrong approval: %+v", p)
+	}
+}
