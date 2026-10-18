@@ -90,7 +90,18 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 
 // requestPermission applies the permission policy, blocking for an interactive
 // decision when policy is "ask" (F-LOOP-PERMISSION).
-func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool, reason string) bool {
+type permissionOutcome struct{ Origin, Reason string }
+
+func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool, reason string, outcomes ...*permissionOutcome) bool {
+	finish := func(allowed bool, origin, why string) bool {
+		if allowed {
+			why = ""
+		}
+		if len(outcomes) > 0 && outcomes[0] != nil {
+			*outcomes[0] = permissionOutcome{origin, why}
+		}
+		return allowed
+	}
 	// Work another companion asked for is approved one call at a time, by a person, or not at all.
 	//
 	// The approval mode is a statement about what THIS operator wants done on their behalf without
@@ -122,9 +133,9 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	if !forcePrompt && !handed {
 		switch a.Permission() {
 		case "allow":
-			return true
+			return finish(true, "policy", "")
 		case "deny":
-			return false
+			return finish(false, "policy", "blocked by the current permission policy")
 		case "auto":
 			// Accept-edits: file modifications are auto-approved, but commands and
 			// network access (bash/webfetch) still prompt — the convenient default
@@ -137,12 +148,12 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			// change tracking, the diagnostics — and must never subtract a question, or the first
 			// thing a tool learns is that saying "I edit files" is how you stop being asked.
 			if confinedEdit(tc.Name) {
-				return true
+				return finish(true, "policy", "")
 			}
 			// Non-edit tools fall through to the interactive "ask" path below.
 		}
 	} else if a.Permission() == "deny" {
-		return false
+		return finish(false, "policy", "blocked by the current permission policy")
 	}
 	// The diff a yes would apply, for the prompts whose arguments already say (edit-class calls).
 	// Computed ONCE, here, and carried everywhere the prompt travels — a viewer that computed its
@@ -161,7 +172,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	a.mu.Lock()
 	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] && !handed {
 		a.mu.Unlock()
-		return true
+		return finish(true, "policy", "")
 	}
 	// No human to ask (headless/automation): never block on an interactive prompt —
 	// resolve by policy. "allow" grants (allow = allow-all, the headless default);
@@ -171,9 +182,9 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	if !a.cfg.Interactive {
 		a.mu.Unlock()
 		if handed {
-			return false
+			return finish(false, "headless", "approval is required for delegated work, but this run has no interactive approval channel; this was not a user rejection")
 		}
-		return a.Permission() == "allow"
+		return finish(a.Permission() == "allow", "headless", a.denyReason(tc.Name))
 	}
 	ch := make(chan string, 1)
 	if a.stateLocked(sid).perms == nil {
@@ -210,7 +221,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			// it as "just this once" would be the console doing something other than what the
 			// button said — the next call asking again would look like a bug.
 			a.noteOneCallOnly(ctx, sid, tc)
-			return true
+			return finish(true, "user", "")
 		}
 		if dec == "always" || dec == "persist" {
 			a.mu.Lock()
@@ -228,18 +239,18 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			if dec == "persist" {
 				a.notePersistOutcome(ctx, sid, tc)
 			}
-			return true
+			return finish(true, "user", "")
 		}
-		return dec == "allow"
+		return finish(dec == "allow", "user", "denied by user")
 	case <-expired:
 		// Nobody answered. Resolve the way a run with no human resolves — by policy — and record
 		// that this is what happened: a decision taken by default reads identically to one somebody
 		// made unless the log says otherwise.
 		byPolicy := !handed && a.Permission() == "allow"
 		a.noteUnanswered(ctx, sid, tc, byPolicy)
-		return byPolicy
+		return finish(byPolicy, "timeout", fmt.Sprintf("approval timed out after %s; nobody answered. This was not a user rejection. Do not retry the same call without a new approval.", a.answerBound(sid)))
 	case <-ctx.Done():
-		return false
+		return finish(false, "cancelled", "approval request cancelled; no user rejection was received")
 	}
 }
 
@@ -265,6 +276,11 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 //     It resolves the way the mode says — allow — and is written down as a default rather than a
 //     decision.
 func (a *App) answerBound(sid session.SessionID) time.Duration {
+	// Delegated work waits for an explicit human response, regardless of the
+	// ordinary daemon prompt timeout. Cancellation remains available.
+	if a.cfg.Interactive && a.handedFrom(sid) != "" {
+		return 0
+	}
 	// **An unattended turn is bounded whatever the mode says.** "ask" means a person decides, and
 	// a job firing at three in the morning has no person — the wait would not end. It is not only
 	// that one turn: the overlap gate is about the WORKSPACE, so every later firing is skipped

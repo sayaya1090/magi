@@ -97,6 +97,8 @@ type PartAppendedData struct {
 
 // PermissionDecidedData — TypePermissionDecided (audit trail).
 type PermissionDecidedData struct {
+	Origin   string `json:"origin,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 	CallID   string `json:"callId"`
 	Decision string `json:"decision"` // allow|deny|always
 }

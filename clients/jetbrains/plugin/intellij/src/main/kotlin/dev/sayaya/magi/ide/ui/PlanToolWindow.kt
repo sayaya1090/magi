@@ -452,6 +452,12 @@ class PlanToolWindow : ToolWindowFactory {
                 val jr = p.jr; val j = jr.jobs; val r = p.r; val cr = p.cr; val past = p.past
                 stale.isVisible = false
                 work.removeAll()
+                j?.approvals.orEmpty().forEach { pending ->
+                    work.add(javax.swing.JButton(MagiBundle.msg("approval.pending", pending.requester, pending.prompt.what)).apply {
+                        icon = com.intellij.ui.AnimatedIcon.Default.INSTANCE
+                        addActionListener { project.getService(DelegatedApprovals::class.java).review(pending) }
+                    })
+                }
                 val queued = j?.queued.orEmpty()
                 val outgoing = j?.outgoing.orEmpty()
                 val bgRunning = j?.background.orEmpty().filter { it.running }
@@ -468,7 +474,7 @@ class PlanToolWindow : ToolWindowFactory {
                         foreground = Look.faint
                     })
                 } else if (queued.isEmpty() && bgRunning.isEmpty() && bgBad.isEmpty() &&
-                    kids.isEmpty() && past.isEmpty() && outgoing.isEmpty()) {
+                    kids.isEmpty() && past.isEmpty() && outgoing.isEmpty() && j.approvals.isNullOrEmpty()) {
                     work.add(none(MagiBundle.msg("plan.tasks.none")))
                 }
                 outgoing.forEach { h ->

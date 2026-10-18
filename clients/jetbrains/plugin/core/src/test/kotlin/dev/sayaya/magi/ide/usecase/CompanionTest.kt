@@ -24,6 +24,25 @@ import kotlin.concurrent.thread
  */
 class CompanionTest {
 
+    @Test
+    fun `delegated answers keep original session even with another chat selected`() {
+        val fake = FakeDaemon(listOf("""{"ok":true}""", """{"ok":true}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { client ->
+            val companion = Companion(client, "selected-chat")
+            companion.respondDelegated(dev.sayaya.magi.ide.model.PendingPrompt(
+                "delegated-chat", "handbook", dev.sayaya.magi.ide.model.Waiting("call", "permission", "bash")
+            ), "deny", null)
+            companion.respondDelegated(dev.sayaya.magi.ide.model.PendingPrompt(
+                "delegated-chat", "handbook", dev.sayaya.magi.ide.model.Waiting("question", "question", "Which?")
+            ), null, "answer")
+        }
+        fake.close()
+        assertTrue(fake.seen.all { it.contains("\"session\":\"delegated-chat\"") })
+        assertTrue(fake.seen[0].contains("\"decision\":\"deny\""))
+        assertTrue(fake.seen[1].contains("\"answer\":\"answer\""))
+    }
+
     /** 받은 요청 줄을 그대로 모으고, 미리 정한 답을 순서대로 돌려준다. */
     private class FakeDaemon(private val replies: List<String>) {
         val seen = mutableListOf<String>()

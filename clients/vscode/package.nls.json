@@ -27,5 +27,6 @@
   "magi.rewind.title": "Go back to an earlier point",
   "magi.children.title": "Show child chats",
   "magi.knowledge.title": "Project memory and skills",
-  "magi.profileMaintenance.title": "Internal description session"
+  "magi.profileMaintenance.title": "Internal description session",
+  "command.approvals": "Pending approvals and questions"
 }

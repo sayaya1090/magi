@@ -303,6 +303,7 @@ data class SessionRow(
  */
 @Serializable
 data class Jobs(
+    val approvals: List<PendingPrompt>? = null,
     val outgoing: List<OutgoingHandoff>? = null,
     val background: List<BackgroundJob>? = null,
     val children: List<ChildJob>? = null,
@@ -726,4 +727,11 @@ data class KnowledgeItem(
     @SerialName("application_count") val applicationCount: Int = 0,
     val since: String = "",
     @SerialName("last_applied") val lastApplied: String = "",
+)
+
+@Serializable
+data class PendingPrompt(
+    val session: String,
+    val requester: String,
+    val prompt: Waiting,
 )

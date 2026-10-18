@@ -69,6 +69,8 @@ export interface Event {
 }
 
 export interface Waiting {
+  args?: unknown;
+  report?: unknown;
   /**
    * The call id an answer must carry.
    *
@@ -257,6 +259,7 @@ export interface Response {
    * an empty string parses to an empty list.
    */
   jobs?: {
+    approvals?: { session: string; requester: string; prompt: Waiting }[];
     outgoing?: { receipt: string; to: string; request: string; started: string }[];
     background?: { id?: string; command?: string; running?: boolean; killed?: boolean;
       exit?: number; started?: string; tail?: string }[];

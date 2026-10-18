@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { approvalSupport } from './approvals';
 import * as fs from 'fs';
 import { Companion } from './workspace';
 import { Status } from './status';
@@ -48,6 +49,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   ctx.subscriptions.push(
     owner, companion, status, chat, plan, looking, hand, handoff,
+    approvalSupport(companion),
     companion.onChanged((a) => status.draw(activity.withTurn(a, chat.turnIsOpenHere()))),
     companion.onSetup((s) => status.show(s)),
 
