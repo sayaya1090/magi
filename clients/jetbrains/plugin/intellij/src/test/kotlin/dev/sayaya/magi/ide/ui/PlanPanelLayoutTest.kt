@@ -17,6 +17,55 @@ import javax.swing.JPanel
  */
 class PlanPanelLayoutTest : BasePlatformTestCase() {
 
+    fun testScheduleActionsFitNarrowPanelsAndSupportKeyboard() {
+        var added = 0
+        var reloaded = 0
+        val row = ScheduleActions.row(true, true, { added++ }, { reloaded++ })
+        val buttons = row.components.filterIsInstance<JButton>()
+        assertEquals(2, buttons.size)
+        for (width in listOf(240, 420, 900, 240)) {
+            row.setSize(width, row.preferredSize.height)
+            row.doLayout()
+            for (button in buttons) {
+                assertTrue("button extends beyond $width", button.x >= 0 && button.x + button.width <= width)
+                assertTrue("click target must be at least 48dp", button.height >= com.intellij.util.ui.JBUI.scale(48))
+                assertTrue("button needs an accessible name", !button.accessibleContext.accessibleName.isNullOrBlank())
+                assertNotNull(button.toolTipText)
+                assertNotNull(button.inputMap.get(javax.swing.KeyStroke.getKeyStroke("ENTER")))
+            }
+        }
+        buttons[0].doClick(0)
+        buttons[1].doClick(0)
+        assertEquals(1, added)
+        assertEquals(1, reloaded)
+        buttons[1].isEnabled = false
+        buttons[1].doClick(0)
+        assertEquals(1, reloaded)
+        assertTrue("icon action should stay compact", buttons[1].text.isEmpty())
+        assertEquals(0, ScheduleActions.row(false, false, {}, {}).componentCount)
+    }
+
+    fun testScheduleActionHoverAndPressHaveVisibleStateLayers() {
+        val row = ScheduleActions.row(true, true, {}, {})
+        for (button in row.components.filterIsInstance<JButton>()) {
+            button.size = button.preferredSize
+            fun sample(): Int {
+                val image = java.awt.image.BufferedImage(button.width, button.height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                val canvas = image.createGraphics()
+                try { button.paint(canvas) } finally { canvas.dispose() }
+                return image.getRGB(com.intellij.util.ui.JBUI.scale(24), com.intellij.util.ui.JBUI.scale(8))
+            }
+            val idle = sample()
+            button.model.isRollover = true
+            val hover = sample()
+            button.model.isArmed = true
+            button.model.isPressed = true
+            val pressed = sample()
+            assertTrue("hover must paint a state layer", idle != hover)
+            assertTrue("press must deepen the state layer", hover != pressed)
+        }
+    }
+
     fun `test settings shrink after expansion with long profiles`() {
         val config = MagiConfigurable(project)
         val scroll = com.intellij.openapi.options.ex.ConfigurableCardPanel

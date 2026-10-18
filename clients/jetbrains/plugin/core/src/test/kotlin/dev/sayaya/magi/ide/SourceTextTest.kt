@@ -724,8 +724,11 @@ class SourceTextTest {
         val after = panel.substringAfter("dlg.exitCode == REMOVE_EXIT").substringBefore("dlg.exitCode != ")
         assertTrue(after.indexOf("removeAsked(") in 0 until after.indexOf("removeCron("),
             "지우기 전에 묻지 않는다: $after")
-        val reload = panel.substringAfter("plan.schedule.reload\")").let { panel.substringBefore("MagiBundle.msg(\"plan.schedule.reload\")").takeLast(400) }
-        assertTrue("if (crons != null)" in reload, "「다시 읽기」가 목록 문이 없는 데몬에도 선다")
+        assertTrue("ScheduleActions.row(st.canEditCron, crons != null" in panel,
+            "「다시 읽기」가 목록 문 응답 여부에 연결되지 않았다")
+        val actions = code(sources.first { it.name == "ScheduleActions.kt" })
+        assertTrue("if (canReload) add(Action(" in actions,
+            "「다시 읽기」가 목록 문이 없는 데몬에도 선다")
         assertTrue("c.removeCron(name)" in panel && "c.reloadCron()" in panel, "감싸개를 부르는 화면이 없다")
     }
 
