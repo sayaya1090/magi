@@ -5,9 +5,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.util.concurrency.AppExecutorUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import com.intellij.util.ui.JBUI
-import dev.sayaya.magi.ide.usecase.Companion
 import kotlinx.serialization.json.*
 import java.awt.BorderLayout
 import java.awt.FlowLayout
@@ -16,11 +19,12 @@ import javax.swing.JComponent
 import javax.swing.JTextArea
 
 /** A read-only view of the bounded internal session; no transcript selection. */
-internal class ProfileMaintenanceDialog(project: Project, private val companion: Companion) : DialogWrapper(project) {
+internal class ProfileMaintenanceDialog(project: Project, private val workspace: Workspace) : DialogWrapper(project) {
     private val text = JTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true; border = JBUI.Borders.empty(8) }
     private val refresh = JButton(MagiBundle.msg("maintenance.refresh"))
     private val reload = JButton(MagiBundle.msg("knowledge.reload"))
     private var alive = true
+    private val requests = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     init {
         title = MagiBundle.msg("maintenance.title")
         init()
@@ -30,8 +34,8 @@ internal class ProfileMaintenanceDialog(project: Project, private val companion:
     }
     private fun load(request: Boolean = false) {
         refresh.isEnabled = false; reload.isEnabled = false
-        AppExecutorUtil.getAppExecutorService().execute {
-            val result = runCatching { companion.profileMaintenance(request) }
+        requests.launch {
+            val result = runCatching { workspace.askWithoutChat { it.profileMaintenance(request) } }
             ApplicationManager.getApplication().invokeLater {
                 if (!alive) return@invokeLater
                 refresh.isEnabled = true; reload.isEnabled = true
@@ -71,5 +75,5 @@ internal class ProfileMaintenanceDialog(project: Project, private val companion:
         add(JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT)).apply { add(refresh); add(reload) }, BorderLayout.SOUTH)
     }
     override fun createActions() = arrayOf(cancelAction)
-    override fun dispose() { alive = false; super.dispose() }
+    override fun dispose() { alive = false; requests.cancel(); super.dispose() }
 }
