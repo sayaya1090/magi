@@ -302,9 +302,18 @@ data class SessionRow(
  */
 @Serializable
 data class Jobs(
+    val outgoing: List<OutgoingHandoff>? = null,
     val background: List<BackgroundJob>? = null,
     val children: List<ChildJob>? = null,
     val queued: List<QueuedWork>? = null,
+)
+
+@Serializable
+data class OutgoingHandoff(
+    val receipt: String = "",
+    val to: String = "",
+    val request: String = "",
+    val started: String = "",
 )
 
 @Serializable

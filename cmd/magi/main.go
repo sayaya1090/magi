@@ -3431,3 +3431,14 @@ func latestConversation(metas []session.SessionMeta) session.SessionID {
 	}
 	return best.ID
 }
+
+func (d daemonEngine) OutgoingHandoffs(sid session.SessionID) []daemon.OutgoingHandoff {
+	if sid == "" {
+		sid = d.handover.at.now()
+	}
+	var out []daemon.OutgoingHandoff
+	for _, h := range d.App.PendingHandoffs(sid) {
+		out = append(out, daemon.OutgoingHandoff{Receipt: h.Receipt, To: h.Who, Request: h.Request, Started: h.Since.UTC().Format(time.RFC3339)})
+	}
+	return out
+}

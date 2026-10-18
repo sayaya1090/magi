@@ -122,3 +122,9 @@ In JetBrains settings, **Automatic workspace description** is a checkbox. **Work
 The daemon exposes these through `config-get` and `config-set`: `companion_auto_describe` accepts `on` or `off`; `companion.profile` accepts a JSON object containing only `purpose`, `responsibilities` and `tasks`. Profile edits use the same cross-process lock and atomic validation as the CLI. Invalid edits leave the stored policy unchanged.
 
 For terminal inspection or manual submission, use `magi --companion-policy-show` and send profile JSON to `magi --companion-profile-write` on stdin from the original workspace. That CLI fills empty sections only. The full-policy CLI remains available for intentional authority changes. Automatic extraction persists a description; it does not guarantee that the model understood the workspace correctly, so review the offered tasks before relying on them.
+
+## Concurrent questions and pending responses
+
+Questions from one requester reuse a side conversation in the receiving companion. A later question waits until the previous question in that conversation ends. Its receipt records the log position when it actually starts. Read-only questions also run in order within one conversation. Reads in other conversations and the user's main work can continue concurrently.
+
+The `outgoing` field in a `jobs` response lists requests sent by the selected session that are awaiting peer responses. Each row provides `receipt`, `to`, `request` and `started`. JetBrains shows the destination and question in its tasks area; VS Code shows them under delegated work. A spinner indicates a pending response, and the tooltip contains the full question and receipt. The row disappears after the response is saved in the chat log. Repeated identical questions to one peer remain distinct by receipt, so one response cannot clear another request. Pending rows belong to the running daemon; response text remains in the chat log.

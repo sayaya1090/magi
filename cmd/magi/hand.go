@@ -225,6 +225,12 @@ func (h handover) startNext(ctx context.Context) (soon bool) {
 	if !ok {
 		return false
 	}
+	started := false
+	defer func() {
+		if !started {
+			h.queued.releaseSession(p.session)
+		}
+	}()
 	// Where the log stands NOW, as this piece begins — not where it stood when the piece was
 	// taken. Anything that finished while it waited belongs to whoever was in front of it.
 	since, _, nerr := h.work.NewSince(ctx, p.session, 0)
@@ -251,6 +257,7 @@ func (h handover) startNext(ctx context.Context) (soon bool) {
 	// is otherwise indistinguishable from an idle one: what a dashboard calls its state is read
 	// from the conversation a person attaches to, and this is not that conversation.
 	h.queued.began()
+	started = true
 	// The next piece waits for it to end. Watching the session it went into
 	// is how that is noticed without polling — the tick in run() is only for the turn this did not
 	// start, which is the person's own.
@@ -264,27 +271,36 @@ func (h handover) startNext(ctx context.Context) (soon bool) {
 // while this second piece is still running, which advertised a busy companion as free and drew more
 // team work onto it. Watch already threads its receipt's start position for the same reason.
 func (h handover) wakeWhenDone(ctx context.Context, sid session.SessionID, since int64) {
-	// Every way out of here, including the ones that mean this daemon has lost sight of the piece
-	// rather than seen it finish. A flag left set would say "busy" forever with nothing to clear
-	// it; a flag cleared early costs an asker one wait, and the workspace is still protected by
-	// the check that refuses to start two turns at once.
+	// Keep the conversation reservation until a persisted finish, even if the
+	// subscription fails. Otherwise the next read-only question can share this turn.
 	defer h.queued.ended()
+	defer h.queued.releaseSession(sid)
 	events, stop, err := h.work.Subscribe(ctx, sid, since)
 	if err != nil {
-		return // the tick will find it
+		events = nil
 	}
-	defer stop()
+	if stop != nil {
+		defer stop()
+	}
+	fallback := time.NewTicker(drainEvery)
+	defer fallback.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case e, open := <-events:
 			if !open {
-				return
+				events = nil
+				continue
 			}
 			if e.Type == event.TypeTurnFinished {
-				h.queued.wake()
 				return
+			}
+		case <-fallback.C:
+			if events == nil {
+				if done, _ := h.work.AnswerSince(ctx, sid, since); done {
+					return
+				}
 			}
 		}
 	}

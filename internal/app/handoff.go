@@ -71,6 +71,7 @@ var handoffProbe = 30 * time.Second
 
 // pendingHandoff is one piece of work out with somebody else.
 type pendingHandoff struct {
+	Receipt string
 	Who     string
 	Request string
 	Since   time.Time
@@ -128,7 +129,7 @@ func (a *App) Expect(sid session.SessionID, actor event.Actor, e port.Elsewhere)
 		return fmt.Errorf("cannot wait for %s's answer: shutting down", e.Who)
 	}
 	st := a.stateLocked(sid)
-	st.handoffs = append(st.handoffs, pendingHandoff{Who: e.Who, Request: e.Request, Since: time.Now()})
+	st.handoffs = append(st.handoffs, pendingHandoff{Receipt: e.Session, Who: e.Who, Request: e.Request, Since: time.Now()})
 	// Counted like every other background goroutine here. It was not, so Close returned while this
 	// was still running: a watch that writes the peer's answer INTO a conversation outliving the
 	// thing that owns the store it writes to. CI saw it as a data race — the watch reading a pacing
@@ -375,7 +376,7 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 		st.delivered++
 		kept := st.handoffs[:0]
 		for _, h := range st.handoffs {
-			if h.Who != e.Who || h.Request != e.Request {
+			if h.Receipt != e.Session {
 				kept = append(kept, h)
 			}
 		}

@@ -592,6 +592,9 @@ func answerTools(ctx context.Context, eng Engine, req Request) Response {
 func answerJobs(ctx context.Context, eng Engine, req Request) Response {
 	var resp Response
 	resp = Response{OK: true, Jobs: &Jobs{}}
+	if h, ok := eng.(OutgoingHandoffLister); ok {
+		resp.Jobs.Outgoing = h.OutgoingHandoffs(session.SessionID(req.Session))
+	}
 	if j, ok := eng.(JobRunner); ok {
 		for _, b := range j.BackgroundJobs() {
 			resp.Jobs.Background = append(resp.Jobs.Background, BackgroundJob{

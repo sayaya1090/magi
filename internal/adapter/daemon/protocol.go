@@ -56,8 +56,9 @@ type Engine interface {
 // something already shared. What crosses is the fact of it — which children exist, and which just
 // ended.
 type Jobs struct {
-	Background []BackgroundJob `json:"background,omitempty"`
-	Children   []ChildJob      `json:"children,omitempty"`
+	Outgoing   []OutgoingHandoff `json:"outgoing,omitempty"`
+	Background []BackgroundJob   `json:"background,omitempty"`
+	Children   []ChildJob        `json:"children,omitempty"`
 	// Queued is what will run NEXT, in the order it will run: the person's own parked words first,
 	// then work handed over by somebody else.
 	//
@@ -66,6 +67,19 @@ type Jobs struct {
 	// agent and it does one thing at a time. A screen that showed only the handovers said a
 	// companion had nothing waiting while the correction you typed sat in the other queue.
 	Queued []QueuedWork `json:"queued,omitempty"`
+}
+
+// OutgoingHandoff is a request awaiting a response, scoped to the selected session.
+type OutgoingHandoff struct {
+	Receipt string `json:"receipt"`
+	To      string `json:"to"`
+	Request string `json:"request"`
+	Started string `json:"started"`
+}
+
+// Optional; older engines can still serve the rest of the jobs register.
+type OutgoingHandoffLister interface {
+	OutgoingHandoffs(session.SessionID) []OutgoingHandoff
 }
 
 // QueuedWork is one thing waiting for the workspace.
