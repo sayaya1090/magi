@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 	"strings"
@@ -104,5 +105,35 @@ func TestLargeSummaryChunksCoverUTF8SourceAndFailAtomically(t *testing.T) {
 		if out == "" || chunks.String() != source {
 			t.Fatal("chunking lost or reordered source")
 		}
+	}
+}
+
+type hardSummaryErrorLLM struct{}
+
+func (hardSummaryErrorLLM) StreamChat(context.Context, port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent, 2)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "a misleading error explanation"}
+	ch <- port.ProviderEvent{Type: port.ProviderError, Err: fmt.Errorf("backend request rejected")}
+	close(ch)
+	return ch, nil
+}
+func TestHardSummaryErrorNeverBecomesIncompleteMemory(t *testing.T) {
+	a, sid, wd := newWorkflowApp(t, hardSummaryErrorLLM{}, nil, Config{Permission: "allow"})
+	if got := a.askForBrief(context.Background(), a.agentFor(session.Session{ID: sid}), session.Session{ID: sid, Workdir: wd}, "summarize", summaryMessage("history")); got != "" {
+		t.Fatalf("hard failure accepted: %q", got)
+	}
+}
+func TestCompactionAfterCountIncludesHeadersAndRecallHints(t *testing.T) {
+	raw, _ := json.Marshal(event.PromptSubmittedData{MessageID: "m", Parts: []session.Part{{Kind: session.PartText, Text: strings.Repeat("original", 100)}}})
+	evs := []event.Event{{Seq: 1, Type: event.TypePromptSubmitted, Data: raw}}
+	d := event.CompactionData{Summary: "brief", ReplacesUpToSeq: 1, Shards: []event.ContextShard{{Topic: "source/file.go", Brief: "recover the original", MessageIDs: []string{"m"}}}}
+	got := compactedHistoryTokens(evs, d)
+	if got <= estimateTokens(d.Summary, nil) {
+		t.Fatalf("headers/hints omitted: %d", got)
+	}
+	encoded, _ := json.Marshal(d)
+	evs = append(evs, event.Event{Seq: 2, Type: event.TypeCompaction, Data: encoded})
+	if want := estimateTokens("", reconstruct(evs)); got != want {
+		t.Fatalf("reported %d != next reconstructed history %d", got, want)
 	}
 }
