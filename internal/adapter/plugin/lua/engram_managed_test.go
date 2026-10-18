@@ -56,6 +56,9 @@ func TestEngramManagedSkillUndoReachesExperienceStore(t *testing.T) {
 	h.mu.Lock()
 	p := h.plugins["engram"]
 	h.mu.Unlock()
+	if err := p.writeStoreValue("prune_days", "7", nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := p.writeStoreValue("skill_lastused", "compiler_port\t2000-01-01", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +270,7 @@ func TestEngramSkillLoadsDoNotExtendRetention(t *testing.T) {
 			if err := os.WriteFile(path, []byte("stale\n<!-- engram: 작업 이력에서 자동 추출된 스킬 -->"), 0644); err != nil {
 				t.Fatal(err)
 			}
-			for key, value := range map[string]string{"skill_index": "stale\tstale procedure", "skill_lastused": "stale\t2000-01-01"} {
+			for key, value := range map[string]string{"prune_days": "7", "skill_index": "stale\tstale procedure", "skill_lastused": "stale\t2000-01-01"} {
 				if err := p.writeStoreValue(key, value, nil); err != nil {
 					t.Fatal(err)
 				}
@@ -306,5 +309,35 @@ func TestEngramSkillLoadStatisticsDoNotClaimApplication(t *testing.T) {
 	}
 	if values["skill_usage"] != "observed\t3\t1\t1" {
 		t.Fatalf("load/outcome statistics lost: %v", values["skill_usage"])
+	}
+}
+
+func TestEngramDefaultRetentionDoesNotMoveLegacySkillFiles(t *testing.T) {
+	wd := t.TempDir()
+	h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: wd}})
+	if _, err := h.Load(context.Background(), filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	p := h.plugins["engram"]
+	h.mu.Unlock()
+	path := filepath.Join(wd, ".claude", "skills", "stale", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	body := "stale\n<!-- engram: 작업 이력에서 자동 추출된 스킬 -->"
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range map[string]string{"skill_index": "stale\tstale procedure", "skill_lastused": "stale\t2000-01-01"} {
+		if err := p.writeStoreValue(k, v, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.FireEventWith("turn_finished", map[string]string{"session": "s", "text": "done", "outcome": "done"})
+	h.DrainEvents(5 * time.Second)
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != body {
+		t.Fatalf("default policy moved legacy file: %s %v", got, err)
 	}
 }

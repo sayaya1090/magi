@@ -261,6 +261,9 @@ func learnedIn(ctx context.Context, workdir string) string {
 	sort.SliceStable(inv, func(i, j int) bool { return inv[i].Observed > inv[j].Observed })
 	shown := make([]string, 0, 3)
 	for _, e := range inv {
+		if e.Retention != nil && e.Retention.Archived {
+			continue
+		}
 		if len(shown) == 3 {
 			break
 		}

@@ -289,3 +289,34 @@ func (s *server) storeDirFor(r *http.Request, scope string) (string, error) {
 	}
 	return filepath.Join(in.Workdir, ".magi", "experience"), nil
 }
+
+// experienceRetention changes only this device's retrieval preferences. Curate
+// authorization and published-workspace selection match the existing governance API.
+func (s *server) experienceRetention(w http.ResponseWriter, r *http.Request) {
+	if postOnly(w, r) {
+		return
+	}
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	if r.FormValue("tier") != "project" {
+		http.Error(w, "local managed retention supports project scope only", http.StatusBadRequest)
+		return
+	}
+	dir, err := s.storeDirFor(r, "project")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := r.FormValue("name")
+	if !strings.HasPrefix(name, "managed:") {
+		http.Error(w, "a managed object is required", http.StatusBadRequest)
+		return
+	}
+	state, err := expgit.New(dir).LocalExperienceRetention(r.Context(), strings.TrimPrefix(name, "managed:"), r.FormValue("revision"), r.FormValue("action"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, "experience-retention", state)
+}

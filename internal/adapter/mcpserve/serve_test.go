@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -505,5 +506,29 @@ func TestPublishedContractIsSeparateFromCompleteSkillDescriptions(t *testing.T) 
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %s", want, got)
 		}
+	}
+}
+
+func TestLocallyArchivedKnowledgeRequiresExplicitDetail(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st := expgit.New(dir)
+	c := port.ExperienceChange{ObjectID: "archived-fact", OperationID: "create", ObservationID: "observation", Owner: "plugin:engram", Kind: "memory", State: "active", Memory: &port.Memory{Text: "uniquecompiler recall evidence"}}
+	r, err := st.ApplyExperience(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{Name: "compiler", Dir: dir}
+	if out := server.knows(ctx, "uniquecompiler", 3); !strings.Contains(out, c.Memory.Text) {
+		t.Fatalf("active unavailable: %s", out)
+	}
+	if _, err := st.LocalExperienceRetention(ctx, c.ObjectID, r.ContentRevision, "archive"); err != nil {
+		t.Fatal(err)
+	}
+	if out := server.knows(ctx, "uniquecompiler", 3); strings.Contains(out, c.Memory.Text) {
+		t.Fatalf("archive auto-recalled: %s", out)
+	}
+	if out := server.detail(ctx, "managed:"+c.ObjectID); !strings.Contains(out, c.Memory.Text) {
+		t.Fatalf("explicit archive detail lost: %s", out)
 	}
 }

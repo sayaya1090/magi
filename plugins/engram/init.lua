@@ -972,7 +972,12 @@ local function to_days(ymd)
 end
 
 -- PRUNE_DAYS default; overridable per-user with /engram-prune-days (stored).
-local PRUNE_DAYS_DEFAULT = 7
+local PRUNE_DAYS_DEFAULT = 7 -- legacy explicit opt-in only; default retention is host-local 30/90 days
+
+local function legacy_prune_enabled()
+  local n = tonumber(magi.store_get("prune_days") or "")
+  return n and n > 0
+end
 
 local function prune_days()
   local v = tonumber(magi.store_get("prune_days") or "")
@@ -988,6 +993,9 @@ end
 local ENGRAM_MARKER = "engram: 작업 이력에서 자동 추출된 스킬"
 
 local function prune_stale()
+  -- Do not move files by default: host-local cold/archive-candidate policy
+  -- preserves shared objects. Keep an explicitly configured legacy cutoff.
+  if not legacy_prune_enabled() then return end
   local today = to_days(string.sub(magi.time(), 1, 10))
   if not today then return end
   local cutoff = prune_days()
@@ -1093,12 +1101,22 @@ end)
 -- edited skills are never archived regardless of the cutoff.
 magi.register_command{
   name = "engram-prune-days",
-  description = "미사용 스킬 아카이브 기준 일수 조회/설정 (예: /engram-prune-days 14)",
+  description = "구형 스킬 파일 자동 보관 설정 (0: 끄기, 예: /engram-prune-days 90)",
   execute = function(args)
-    local n = tonumber((args or ""):match("%d+"))
+    local n = tonumber((args or ""):match("^%s*(%d+)%s*$"))
+    if not n and (args or ""):match("%S") then
+      return "engram: 일수는 양의 정수로, 자동 이동을 끄려면 0으로 입력해 주세요."
+    end
+    if n == 0 then
+      magi.store_set("prune_days", "")
+      return "engram: 스킬 파일 자동 이동을 껐습니다. 관리 객체는 30일 후 cold, 90일 후 보관 후보로 표시하며 원문은 유지합니다."
+    end
     if n and n > 0 then
       magi.store_set("prune_days", tostring(math.floor(n)))
       return "engram: 미사용 스킬 아카이브 기준을 " .. math.floor(n) .. "일로 설정했습니다."
+    end
+    if not legacy_prune_enabled() then
+      return "engram: 스킬 파일 자동 이동은 꺼져 있습니다. 관리 객체는 30일 후 cold, 90일 후 보관 후보로 표시합니다. 기존 자동 이동을 켜려면 `/engram-prune-days <일수>`, 끄려면 `0`을 지정하세요."
     end
     return "engram: 현재 아카이브 기준 " .. prune_days() .. "일. 변경하려면 `/engram-prune-days <일수>`."
   end,
