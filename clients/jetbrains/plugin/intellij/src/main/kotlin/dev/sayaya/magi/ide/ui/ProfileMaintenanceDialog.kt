@@ -44,7 +44,7 @@ internal class ProfileMaintenancePanel(private val workspace: Workspace) : JBPan
         val scroll = JBScrollPane(text).apply {
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
-        add(Look.sectionHeading(MagiBundle.msg("maintenance.title")), BorderLayout.NORTH)
+        add(Look.sectionHeading(MagiBundle.msg("maintenance.title"), inset = false), BorderLayout.NORTH)
         add(scroll, BorderLayout.CENTER)
         add(JBPanel<JBPanel<*>>(java.awt.GridLayout(2, 1, 0, JBUI.scale(8))).apply {
             isOpaque = false

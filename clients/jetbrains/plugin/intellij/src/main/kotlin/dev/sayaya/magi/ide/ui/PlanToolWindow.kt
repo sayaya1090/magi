@@ -78,7 +78,17 @@ class PlanToolWindow : ToolWindowFactory {
         val work = stack(0, 12)
         val changes = stack(0, 12)
         val fleet = stack(0, 12)
-        val cronPane = stack(0, 12)
+        val cronPane = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(8, 12, 12, 12)
+            preferredSize = JBUI.size(280, 220)
+            minimumSize = java.awt.Dimension(0, JBUI.scale(160))
+            maximumSize = java.awt.Dimension(Int.MAX_VALUE, JBUI.scale(260))
+        }
+        val cronList = stack(0, 0)
+        val cronScroll = JBScrollPane(cronList).apply {
+            horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        }
         val askedPane = stack(0, 12)
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         /**
@@ -589,16 +599,18 @@ class PlanToolWindow : ToolWindowFactory {
                 }
                 work.revalidate(); work.repaint(); fleet.revalidate(); fleet.repaint()
                 cronPane.removeAll()
+                cronList.removeAll()
+                cronPane.add(cronScroll, BorderLayout.CENTER)
                 // 모름≠없음의 갈림은 cron 필드가 아니라 ok 다(리뷰 실측): 빈 목록은 omitempty 로
                 // 통째 생략돼 null 로 오므로, null 을 「문 없음」으로 읽으면 예약 없는 보통 데몬이
                 // 영영 버전 스큐 문구를 뒤집어쓴다. 문이 없으면 ok=false + error 가 온다.
                 val crons = if (cr.ok) cr.cron.orEmpty() else null
                 when {
-                    crons == null -> cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.nodoor") +
+                    crons == null -> cronList.add(JBLabel(MagiBundle.msg("plan.schedule.nodoor") +
                         (cr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
-                    crons.isEmpty() -> cronPane.add(none(MagiBundle.msg("plan.schedule.none")))
+                    crons.isEmpty() -> cronList.add(none(MagiBundle.msg("plan.schedule.none")))
                     else -> crons.forEach { j ->
                         // 고장 행이 이 판이 표시해야 하는 행이다 — 다른 어떤 화면도 다시 언급 안 한다.
                         val line = when {
@@ -606,7 +618,7 @@ class PlanToolWindow : ToolWindowFactory {
                             !j.enabled -> MagiBundle.msg("plan.schedule.off", j.name)
                             else -> "◷ ${j.name}  ${j.next?.replace("T", " ")?.take(16) ?: ""}"
                         }
-                        cronPane.add(JBLabel(line).apply {
+                        cronList.add(JBLabel(line).apply {
                             foreground = if (!j.problem.isNullOrBlank()) Look.error else Look.faint
                             border = JBUI.Borders.empty(1, 0)
                             // 잡이 **무엇을 묻는지**는 툴팁에 — 한 줄에 다 적으면 이 좁은 판에서
@@ -629,7 +641,7 @@ class PlanToolWindow : ToolWindowFactory {
                     cronPane.add(ScheduleActions.row(st.canEditCron, crons != null,
                         add = { editCron(project, null, workspace, { tell(it) }, { poll() }) },
                         reload = { reloadCron(workspace, { tell(it) }, { poll() }) }
-                    ))
+                    ), BorderLayout.SOUTH)
                 }
                 cronPane.revalidate(); cronPane.repaint()
         }
