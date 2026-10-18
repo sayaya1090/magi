@@ -126,7 +126,6 @@ func (s *Store) ConfirmExperienceApplication(ctx context.Context, ref port.Exper
 		st.Applications[observation] = evidence
 		st.LastApplied = now
 		st.Since = now
-		st.Archived = false
 		return nil
 	})
 }

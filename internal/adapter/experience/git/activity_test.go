@@ -68,7 +68,7 @@ func TestActivityProtectionExpiresAndReferencesAreIndependent(t *testing.T) {
 		t.Fatal("unbounded lease accepted")
 	}
 }
-func TestVerifiedApplicationRenewsOnceAndRestoresLocalArchive(t *testing.T) {
+func TestVerifiedApplicationRenewsOnceAndPreservesExplicitArchive(t *testing.T) {
 	s, ref, now := activityStore(t)
 	ctx := context.Background()
 	*now = now.Add(100 * 24 * time.Hour)
@@ -85,7 +85,7 @@ func TestVerifiedApplicationRenewsOnceAndRestoresLocalArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.LastApplied.IsZero() || first.Cold || first.Archived || len(first.Applications) != 1 {
+	if first.LastApplied.IsZero() || first.Cold || !first.Archived || len(first.Applications) != 1 {
 		t.Fatal(first)
 	}
 	*now = now.Add(10 * 24 * time.Hour)
