@@ -35,7 +35,29 @@ public class FakeKnowledgeSource implements KnowledgeSource {
               "\"command\":\"rg-mcp\",\"args\":[\"--root\",\".\"],\"envNames\":[\"RG_TOKEN\"],\"file\":\".magi/config.toml\"}]"));
 
     @Inject
-    public FakeKnowledgeSource() {}
+    public FakeKnowledgeSource() {
+        JsPropertyMap<Object> first = Js.asPropertyMap(skills.getAt(0));
+        first.set("tier", "project");
+        first.set("socket", "/tmp/retention.sock");
+        first.set("retention", Global.JSON.parse("{\"content_revision\":\"rev-1\",\"since\":\"2026-08-01T00:00:00Z\",\"cold\":true,\"archive_candidate\":true}"));
+    }
+
+    @Override
+    public void retention(String name, String revision, String action, String socket, String peer, Consumer<String> why) {
+        if (Js.isTruthy(Js.asPropertyMap(DomGlobal.window).get("__magi_test_retention_fail"))) {
+            why.accept("managed experience content revision conflict");
+            return;
+        }
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_retention", name + ":" + revision + ":" + action);
+        for (int i = 0; i < skills.length; i++) {
+            JsPropertyMap<Object> sk = Js.asPropertyMap(skills.getAt(i));
+            if (!name.equals(sk.get("name"))) continue;
+            JsPropertyMap<Object> state = Js.asPropertyMap(sk.get("retention"));
+            if ("pin".equals(action) || "unpin".equals(action)) state.set("pinned", "pin".equals(action));
+            if ("archive".equals(action) || "restore".equals(action)) state.set("archived", "archive".equals(action));
+        }
+        why.accept("");
+    }
 
     @Override
     public void skills(Consumer<Object> cb) { cb.accept(unreachable() ? null : skills); }

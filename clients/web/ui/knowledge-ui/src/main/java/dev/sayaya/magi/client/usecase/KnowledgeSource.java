@@ -7,6 +7,8 @@ import java.util.function.Consumer;
  * 목록 셋은 파싱된 배열(JsArray) 또는 null("못 읽었다" — 화면이 말해야 한다).
  */
 public interface KnowledgeSource {
+    void retention(String name, String revision, String action, String socket, String peer, Consumer<String> why);
+
     void skills(Consumer<Object> listOrNull);
 
     void wiki(Consumer<Object> listOrNull);

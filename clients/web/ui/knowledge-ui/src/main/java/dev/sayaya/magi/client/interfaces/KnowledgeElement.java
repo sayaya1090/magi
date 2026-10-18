@@ -393,6 +393,37 @@ public class KnowledgeElement {
         String src = sourceOf(str(sk, "body"));
         if (!src.isEmpty()) bits.add(tr("skill.learned_from", "src", src));
         row.append(cell("meta", String.join(" · ", bits)));
+        Object retention = sk.get("retention");
+        if (retention != null && "project".equals(str(sk, "tier"))) {
+            JsPropertyMap<Object> state = Js.asPropertyMap(retention);
+            boolean pinned = Js.isTruthy(state.get("pinned"));
+            boolean archived = Js.isTruthy(state.get("archived"));
+            String status = archived ? "archived" : pinned ? "pinned" :
+                    Js.isTruthy(state.get("archive_candidate")) ? "candidate" :
+                    Js.isTruthy(state.get("cold")) ? "cold" : "active";
+            row.append(cell("meta retention-state", tr("retention." + status) + " · " +
+                    tr("retention.since", "date", str(state, "since").split("T")[0])));
+            HTMLElement actions = cell("retention-actions");
+            actions.style.display = "flex";
+            actions.style.flexWrap = "wrap";
+            actions.style.gap = "8px";
+            String[] ops = archived ? new String[]{"restore"} : new String[]{pinned ? "unpin" : "pin", "archive"};
+            for (String op : ops) {
+                HTMLElement action = el("md-text-button");
+                action.textContent = tr("retention." + op);
+                action.setAttribute("data-retention-action", op);
+                action.addEventListener("click", evt -> {
+                    if (Js.isTruthy(Js.asPropertyMap(action).get("disabled"))) return;
+                    elemental2.dom.NodeList<elemental2.dom.Element> controls = actions.querySelectorAll("md-text-button");
+                    for (int i = 0; i < controls.getLength(); i++)
+                        Js.asPropertyMap(controls.getAt(i)).set("disabled", true);
+                    actions.setAttribute("aria-busy", "true");
+                    store.retention(name, str(state, "content_revision"), op, str(sk, "socket"), nul(str(sk, "peer")));
+                });
+                actions.append(action);
+            }
+            row.append(actions);
+        }
         // 규칙 그 자체는 메타 뒤에 온다(운영의 순서) — 읽는 차례가 곧 문서의 차례다.
         if (folded != null) row.append(folded);
         return row;
