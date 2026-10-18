@@ -601,36 +601,12 @@ class PlanToolWindow : ToolWindowFactory {
                         })
                     }
                 }
-                // 두 링크는 한 줄에 선다 — 같은 층의 동작이 두 줄로 흩어져 있었다.
-                val links = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0)).apply { isOpaque = false }
-                // 「추가」는 **문이 있을 때만** 선다. 없는 문을 부르고 거부를 읽는 방식으로는 낡은
-                // 빌드와 거부하는 엔진을 못 가르고, 화면은 그 둘에 다른 말을 해야 한다.
-                if (st.canEditCron) {
-                    links.add(JBLabel(MagiBundle.msg("plan.schedule.add")).apply {
-                        foreground = Look.accent
-                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                        border = JBUI.Borders.empty(2, 0)
-                        addMouseListener(object : java.awt.event.MouseAdapter() {
-                            override fun mouseClicked(e: java.awt.event.MouseEvent) =
-                                editCron(project, null, workspace, { tell(it) }, { poll() })
-                        })
-                    })
+                if (st.canEditCron || crons != null) {
+                    cronPane.add(ScheduleActions.row(st.canEditCron, crons != null,
+                        add = { editCron(project, null, workspace, { tell(it) }, { poll() }) },
+                        reload = { reloadCron(workspace, { tell(it) }, { poll() }) }
+                    ))
                 }
-                // 손으로 고친 예약 파일을 다시 읽는다. 목록 문이 있는 데몬에만 선다 — 이 문은
-                // 능력 광고 없이 답하므로(VS Code 의 같은 명령과 같은 판단) 목록이 읽혔다는 것이 근거다.
-                if (crons != null) {
-                    links.add(JBLabel(MagiBundle.msg("plan.schedule.reload")).apply {
-                        foreground = Look.accent
-                        toolTipText = MagiBundle.msg("plan.schedule.reload.tip")
-                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                        border = JBUI.Borders.empty(2, if (links.componentCount > 0) 16 else 0, 2, 0)
-                        addMouseListener(object : java.awt.event.MouseAdapter() {
-                            override fun mouseClicked(e: java.awt.event.MouseEvent) =
-                                reloadCron(workspace, { tell(it) }, { poll() })
-                        })
-                    })
-                }
-                if (links.componentCount > 0) cronPane.add(links)
                 cronPane.revalidate(); cronPane.repaint()
         }
 
