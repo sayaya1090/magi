@@ -89,7 +89,15 @@ export interface Waiting {
   diff?: string;
 }
 
+export interface KnowledgeItem {
+  importable?: boolean;
+  name: string; kind: string; description: string; revision: string; managed: boolean;
+  pinned: boolean; archived: boolean; cold: boolean; archive_candidate: boolean;
+  protected: boolean; application_count: number; since: string; last_applied: string;
+}
+
 export interface Response {
+  knowledge?: KnowledgeItem[];
   ok: boolean;
   error?: string;
   out?: string;

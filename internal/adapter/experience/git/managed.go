@@ -58,7 +58,7 @@ func (s *Store) ApplyExperience(ctx context.Context, c port.ExperienceChange) (p
 	if c.State == "active" && ((c.Kind == "memory" && (c.Memory == nil || c.Memory.Text == "" || c.Skill != nil)) || (c.Kind == "skill" && (c.Skill == nil || c.Skill.Name == "" || c.Skill.Body == "" || c.Memory != nil))) {
 		return empty, fmt.Errorf("managed experience payload does not match its kind")
 	}
-	if c.Kind == "skill" && c.State == "active" && c.HostOutcome != "verified" {
+	if c.Kind == "skill" && c.State == "active" && c.HostOutcome != "verified" && !(c.Owner == "user:legacy-import" && c.Source == "local-skill-import" && c.HostOutcome == "user-imported") {
 		return empty, fmt.Errorf("automatic skill requires host verified")
 	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
@@ -212,7 +212,7 @@ func (s *Store) managedInventory(ctx context.Context) ([]SkillInfo, error) {
 			return nil, err
 		}
 		info := SkillInfo{Name: "managed:" + r.Change.ObjectID, Kind: r.Change.Kind, Observed: 1}
-		if r.Change.Owner == "plugin:engram" {
+		if retentionOwner(r.Change.Owner) {
 			public := retention.Public()
 			info.Retention = &public
 		}

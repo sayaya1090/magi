@@ -28,6 +28,7 @@ const OURS = path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts');
  * carries the ground an answer cites.
  */
 const WIRE_GO = [
+  path.join(REPO, 'internal', 'port', 'knowledge.go'),
   path.join(REPO, 'internal', 'adapter', 'daemon'), //       the door: requests, responses, records
   path.join(REPO, 'internal', 'core', 'event'), //           the transcript: events and payloads
   path.join(REPO, 'internal', 'core', 'command'), //         what a submit carries (WireRef, …)

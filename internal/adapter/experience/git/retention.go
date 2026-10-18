@@ -57,7 +57,7 @@ func (s *Store) retention(ctx context.Context, r managedRecord, action string) (
 }
 func (s *Store) retentionUpdate(ctx context.Context, r managedRecord, action string, update func(*LocalRetention, time.Time) error) (LocalRetention, error) {
 	var state LocalRetention
-	if r.Change.Owner != "plugin:engram" {
+	if !retentionOwner(r.Change.Owner) {
 		return state, nil
 	}
 	path, err := s.retentionPath(r.Change.ObjectID)
@@ -91,6 +91,9 @@ func (s *Store) retentionUpdate(ctx context.Context, r managedRecord, action str
 	}
 	if revision == "" {
 		return state, fmt.Errorf("managed content revision is missing")
+	}
+	if !exists && r.Change.Owner == "user:legacy-import" {
+		state.Pinned = true
 	}
 	changed := !exists || state.ContentRevision != revision
 	if changed {
@@ -169,8 +172,8 @@ func (s *Store) LocalExperienceRetention(ctx context.Context, id, revision, acti
 	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.Change.ObjectID != id {
 		return state, fmt.Errorf("invalid managed record")
 	}
-	if r.Change.State != "active" || r.Change.Owner != "plugin:engram" {
-		return state, fmt.Errorf("local retention requires an active automatic object")
+	if r.Change.State != "active" || !retentionOwner(r.Change.Owner) {
+		return state, fmt.Errorf("local retention requires an active managed object")
 	}
 	current := r.ContentRevision
 	if current == "" {
@@ -188,4 +191,8 @@ func (s LocalRetention) Public() LocalRetention {
 	s.Applications = nil
 	s.References = nil
 	return s
+}
+
+func retentionOwner(owner string) bool {
+	return owner == "plugin:engram" || owner == "user:legacy-import"
 }

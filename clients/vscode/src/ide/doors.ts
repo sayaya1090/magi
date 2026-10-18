@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { manageKnowledge } from './knowledge';
 import { editCompanionProfile } from './companionProfile';
 import { Companion } from './workspace';
 import { Chat } from './chat';
@@ -58,6 +59,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
   };
 
   return [
+    reg('magi.knowledge', () => manageKnowledge(companion)),
     /**
      * One place that SHOWS what is running and lets it be changed.
      *
@@ -76,6 +78,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       const say = (v: string | undefined) => v ?? 'not said';
       const pick = await vscode.window.showQuickPick([
         { label: 'Open the chat', id: 'magi.focusChat' },
+        { label: vscode.l10n.t('Project memory and skills'), id: 'magi.knowledge' },
         { label: `Model: ${say(now.model)}`, id: 'magi.chooseModel', description: 'change' },
         { label: `Backend: ${say(now.backend)}`, id: 'magi.chooseBackend', description: 'change' },
         { label: `Approval: ${say(now.permission)}`, id: 'magi.choosePermission', description: 'change' },

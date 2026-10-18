@@ -31,7 +31,7 @@ func (s *Store) ExperienceReferences(ctx context.Context, name string) ([]port.E
 		if json.Unmarshal(b, &r) != nil || r.Version != 1 || filepath.Base(path) != r.Change.ObjectID+".json" {
 			return nil, fmt.Errorf("invalid managed record")
 		}
-		if r.Change.Owner != "plugin:engram" || r.Change.State != "active" || r.Change.Skill == nil || r.Change.Skill.Name != name {
+		if !retentionOwner(r.Change.Owner) || r.Change.State != "active" || r.Change.Skill == nil || r.Change.Skill.Name != name {
 			continue
 		}
 		sk := r.Change.Skill
@@ -72,7 +72,7 @@ func (s *Store) updateActivity(ctx context.Context, ref port.ExperienceReference
 		return fmt.Errorf("managed activity kind mismatch")
 	}
 
-	if revision != ref.ContentRevision || r.Change.State != "active" || r.Change.Owner != "plugin:engram" {
+	if revision != ref.ContentRevision || r.Change.State != "active" || !retentionOwner(r.Change.Owner) {
 		return fmt.Errorf("managed activity revision/state conflict")
 	}
 	_, err = s.retentionUpdate(ctx, r, "", update)

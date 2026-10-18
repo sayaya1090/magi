@@ -344,3 +344,17 @@ func (s *Store) ManagedMemoryReferences(ctx context.Context, ids []string) ([]po
 	}
 	return s.project.ManagedMemoryReferences(ctx, project)
 }
+
+func (s *Store) ManageKnowledge(ctx context.Context, action port.KnowledgeAction) ([]port.KnowledgeItem, error) {
+	if s.project == nil {
+		return nil, fmt.Errorf("project experience unavailable")
+	}
+	return s.project.ManageKnowledge(ctx, action)
+}
+
+func (s *Store) ImportLegacySkill(ctx context.Context, skill port.Skill) error {
+	if s.project == nil {
+		return fmt.Errorf("project experience unavailable")
+	}
+	return s.project.ImportLegacySkill(ctx, skill)
+}
