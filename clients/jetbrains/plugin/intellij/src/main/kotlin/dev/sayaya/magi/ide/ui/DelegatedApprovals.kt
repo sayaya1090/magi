@@ -14,6 +14,7 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.model.PendingPrompt
+import dev.sayaya.magi.ide.model.Ask
 import dev.sayaya.magi.ide.usecase.Markup
 import kotlinx.coroutines.*
 import java.awt.BorderLayout
@@ -91,22 +92,25 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
 
     private inner class Review : JBPanel<Review>(BorderLayout()) {
         private val pick = JComboBox<String>()
-        private val text = JEditorPane("text/html", "").apply { isEditable = false; isOpaque = false }
-        private val actions = JPanel(java.awt.GridLayout(0, 1, 0, JBUI.scale(6))).apply { isOpaque = false }
-        private val answer = JTextField()
+        private val text = Look.selectableHtml().apply { border = Look.pending() }
+        private val actions = ReviewSurface.actions()
+        private val answer = JTextArea(3, 20).apply { lineWrap = true; wrapStyleWord = true }
+        private val direct = JPanel(BorderLayout()).apply { isOpaque = false; isVisible = false }
         private val error = JBLabel().apply { foreground = Look.error }
         private var painting = false
         private var busy = false
         private var drawn: PendingPrompt? = null
         init {
             isOpaque = false
-            border = JBUI.Borders.empty(8, 12)
-            preferredSize = JBUI.size(280, 260)
-            maximumSize = java.awt.Dimension(Int.MAX_VALUE, JBUI.scale(320))
-            minimumSize = java.awt.Dimension(0, JBUI.scale(180))
+            maximumSize = java.awt.Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
             add(pick, BorderLayout.NORTH)
-            add(JBScrollPane(text).apply { horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER }, BorderLayout.CENTER)
-            add(JPanel(BorderLayout()).apply { isOpaque = false; border = JBUI.Borders.emptyTop(8); add(actions, BorderLayout.CENTER); add(error, BorderLayout.SOUTH) }, BorderLayout.SOUTH)
+            add(ReviewSurface.frame(text, JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(actions, BorderLayout.NORTH)
+                add(direct, BorderLayout.CENTER)
+                add(error, BorderLayout.SOUTH)
+            }), BorderLayout.CENTER)
+            direct.add(JBScrollPane(answer), BorderLayout.CENTER)
             pick.addActionListener { if (!painting) { pending.getOrNull(pick.selectedIndex)?.let { selected = key(it); drawn = null; draw() } } }
         }
         fun draw() {
@@ -126,10 +130,12 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
             text.text = delegatedReviewHtml(p)
             text.caretPosition = 0
             actions.removeAll()
+            direct.isVisible = false
             error.text = ""
             fun button(label: String, decision: String? = null, value: (() -> String)? = null) {
                 actions.add(JButton(label).apply {
                     isEnabled = !busy
+                    if (decision == "task_allow") toolTipText = MagiBundle.msg("approval.autoTask.tip")
                     addActionListener {
                         if (busy) return@addActionListener
                         busy = true; actions.components.forEach { it.isEnabled = false }; pick.isEnabled = false
@@ -143,14 +149,39 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
                     }
                 })
             }
-            when (p.prompt.kind) {
-                "permission" -> { button(MagiBundle.msg("approval.allow"), "allow"); button(MagiBundle.msg("approval.reject"), "deny") }
-                "question" -> {
-                    p.prompt.options.orEmpty().forEach { option -> button(option, value = { option }) }
-                    if (!sameRequest) answer.text = ""; answer.toolTipText = p.prompt.what
-                    actions.add(answer)
-                    button(MagiBundle.msg("approval.answer"), value = { answer.text })
+            when (val ask = p.prompt.ask) {
+                is Ask.Permission -> {
+                    button(MagiBundle.msg("chat.perm.allow"), "allow")
+                    button(MagiBundle.msg("chat.perm.deny"), "deny")
+                    button(MagiBundle.msg("approval.autoTask"), "task_allow")
                 }
+                is Ask.Choose -> {
+                    ask.options.forEach { option -> button(option, value = { option }) }
+                    if (!sameRequest) answer.text = ""
+                    answer.toolTipText = p.prompt.what
+                    actions.add(JButton(MagiBundle.msg("chat.answer.direct")).apply {
+                        addActionListener { direct.isVisible = true; answer.requestFocusInWindow(); revalidate() }
+                    })
+                    direct.add(JButton(MagiBundle.msg("approval.answer")).apply {
+                        addActionListener {
+                            if (busy || answer.text.isBlank()) return@addActionListener
+                            busy = true; isEnabled = false; pick.isEnabled = false
+                            respond(p, null, answer.text) { why ->
+                                busy = false; isEnabled = true; pick.isEnabled = true
+                                if (why != null) error.text = why else { drawn = null; draw() }
+                            }
+                        }
+                    }, BorderLayout.SOUTH)
+                }
+                is Ask.Undrawable -> Unit
+            }
+            if (!p.prompt.diff.isNullOrBlank()) {
+                actions.add(JButton(MagiBundle.msg("chat.change.view")).apply {
+                    addActionListener {
+                        runCatching { EditorOpener(project).openApprovalDiff(p.session, p.prompt) }
+                            .onFailure { error.text = it.message }
+                    }
+                })
             }
             revalidate(); repaint()
         }
@@ -160,13 +191,5 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
 }
 
 /** Preserve the originating companion's ordered decision-report sections verbatim. */
-internal fun delegatedReviewHtml(p: PendingPrompt): String = buildString {
-    fun escape(s: String) = Markup.text(s).replace("\n", "<br/>")
-    append("<html><b>" + escape(p.requester) + "</b><br/>" + escape(p.session))
-    append("<h3>" + escape(p.prompt.what) + "</h3>")
-    p.prompt.reason?.let { append("<p>" + escape(it) + "</p>") }
-    p.prompt.args?.let { append("<p><tt>" + escape(it.toString()) + "</tt></p>") }
-    p.prompt.report.orEmpty().forEach { ground -> append("<p><b>" + escape(ground.key) + ":</b><br/>" + escape(ground.text) + "</p>") }
-    p.prompt.diff?.let { append("<pre>" + escape(it) + "</pre>") }
-    append("</html>")
-}
+internal fun delegatedReviewHtml(p: PendingPrompt): String = ReviewSurface.html(p.prompt)
+    .replaceFirst("<html>", "<html><small>" + Markup.text(p.requester) + " · " + Markup.text(p.session) + "</small><br/>")

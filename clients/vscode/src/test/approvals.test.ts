@@ -56,3 +56,12 @@ test('failed verification is not reported as an expired or rejected request', as
   assert.ok(notices.includes('Response was not sent: {0}'));
   assert.ok(!notices.includes('This request is no longer pending.'));
 });
+
+test('automatic approval is explicitly scoped to the originating delegated task', async () => {
+ const { calls } = await fixture('Auto-approve this task');
+ const responses = calls.filter(c => c.method === 'permission');
+ assert.equal(responses.length, 1);
+ assert.equal(responses[0].extra.session, 'delegated');
+ assert.equal(responses[0].extra.callId, 'call');
+ assert.equal(responses[0].extra.decision, 'task_allow');
+});

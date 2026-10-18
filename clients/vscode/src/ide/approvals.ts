@@ -44,9 +44,9 @@ export function approvalSupport(companion: Companion): vscode.Disposable {
       p.args ? JSON.stringify(p.args, null, 2) : '', p.diff,
       p.report ? JSON.stringify(p.report, null, 2) : ''].filter(Boolean).join('\n\n');
     if (p.kind === 'permission') {
-      const action = await vscode.window.showWarningMessage(t('Review delegated tool request'), { modal: true, detail }, t('Allow once'), t('Reject'));
+      const action = await vscode.window.showWarningMessage(t('Review delegated tool request'), { modal: true, detail }, t('Allow once'), t('Reject'), t('Auto-approve this task'));
       if (!action) return; // Closing the review leaves the request pending.
-      decision = action === t('Allow once') ? 'allow' : 'deny';
+      decision = action === t('Allow once') ? 'allow' : action === t('Auto-approve this task') ? 'task_allow' : 'deny';
     } else if (p.kind === 'question') {
       const action = await vscode.window.showInformationMessage(p.what ?? '', { modal: true, detail }, t('Answer'));
       if (!action) return;

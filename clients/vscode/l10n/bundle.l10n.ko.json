@@ -65,6 +65,7 @@
   "Review": "검토",
   "Review delegated tool request": "위임 작업의 도구 실행 요청 검토",
   "Allow once": "이번만 허용",
+  "Auto-approve this task": "이 작업 자동승인",
   "Reject": "거부",
   "Answer": "답변",
   "This request is no longer pending.": "더 이상 응답을 기다리는 요청이 아닙니다.",

@@ -1405,22 +1405,22 @@ class SourceTextTest {
             "수다 — 글자가 아니라 마크업을 실을 수가 없다",
             listOf("val out = workspace.rootsOutsideWorkspace()"),
         ),
-        "MagiToolWindow.kt:at" to Safe(
+        "ReviewSurface.kt:at" to Safe(
             "이 파일이 지은 `(2/3)` 꼴, 안이 다 수다",
             listOf("val at = if (w.total > 1)"),
         ),
-        "MagiToolWindow.kt:subject" to Safe(
+        "ReviewSurface.kt:subject" to Safe(
             "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
             listOf(
                 "sub.args?.let { \"<tt>\${Markup.text(it)}</tt>\" }",
                 "sub.reason?.let { Markup.text(it) }",
             ),
         ),
-        "MagiToolWindow.kt:grounds" to Safe(
+        "ReviewSurface.kt:grounds" to Safe(
             "바로 위에서 조각마다 Markup.text 로 지어 붙인 것이다 — 물음의 근거(키·본문 둘 다)",
             listOf("Markup.text(it.key)", "Markup.text(it.text)"),
         ),
-        "MagiToolWindow.kt:why" to Safe(
+        "ReviewSurface.kt:why" to Safe(
             "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
             listOf("?.why?.let { \"<br/><i>\${Markup.text(it)}</i>\" }"),
         ),
@@ -1640,7 +1640,8 @@ class SourceTextTest {
         assertTrue(from > 0, "물음을 그리는 자리를 못 찾았다")
         val end = win.indexOf("\n        /**", from)
         assertTrue(end > from, "그리는 자리의 끝을 못 찾았다 — 범위가 파일 끝까지 번졌다")
-        val draw = win.substring(from, end)
+        val draw = win.substring(from, end) + sources.first { it.name == "ReviewSurface.kt" }.readText()
+        assertTrue(win.substring(from, end).contains("ReviewSurface.html(w)"))
 
         for (f in fields) {
             if (f in notDrawn) continue

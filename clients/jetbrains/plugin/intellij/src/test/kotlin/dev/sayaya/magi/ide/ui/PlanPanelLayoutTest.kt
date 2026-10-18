@@ -49,6 +49,26 @@ class PlanPanelLayoutTest : BasePlatformTestCase() {
         assertFalse(html.contains("tried:"))
     }
 
+    fun testDelegatedReviewUsesNativeBodyAndSurface() {
+        val w = dev.sayaya.magi.ide.model.Waiting("call", "permission", "bash",
+            reason = "why", diff = "diff-only-in-editor")
+        val native = ReviewSurface.html(w)
+        val delegated = delegatedReviewHtml(dev.sayaya.magi.ide.model.PendingPrompt("session", "requester", w))
+        assertEquals(native.substring(native.indexOf('>') + 1), delegated.substringAfter("</small><br/>"))
+        assertFalse(delegated.contains("diff-only-in-editor"))
+        assertFalse(delegated.contains("<h3>"))
+        val prompt = Look.selectableHtml()
+        val frame = ReviewSurface.frame(prompt, ReviewSurface.actions())
+        for (width in listOf(240, 420, 900, 240)) {
+            frame.setSize(width, frame.preferredSize.height)
+            frame.doLayout()
+            val top = frame.components.single() as java.awt.Container
+            top.doLayout()
+            assertTrue(prompt.x >= com.intellij.util.ui.JBUI.scale(8))
+            assertTrue(prompt.x + prompt.width <= width - com.intellij.util.ui.JBUI.scale(8))
+        }
+    }
+
     fun testInlineMaintenanceFitsNarrowPanelAndKeepsStatusHeightBounded() {
         val panel = ProfileMaintenancePanel(Workspace(project))
         try {

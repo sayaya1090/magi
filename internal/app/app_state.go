@@ -187,8 +187,9 @@ type sessionState struct {
 	// It changes what approval means here — see requestPermission — and it is set once at creation
 	// and never cleared: where a conversation came from does not change. The NAME and not just a
 	// flag, because the person being asked to approve a command needs to know whose errand it is.
-	handedFrom string
-	userLabel  string // display name for the user in the transcript (plugin set_user_label); "" = "you"
+	handedFrom           string
+	delegatedAutoApprove bool   // explicit user grant, current top-level task only
+	userLabel            string // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the
 	// first run after load (deferredHydrated). Unlike pendingInterject (in-memory, lost on a
@@ -442,6 +443,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
 	st := a.stateLocked(sid)
+	st.delegatedAutoApprove = false
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
 	// queue: a queued interjection's original PromptSubmitted must stay hidden
 	// until it runs as its own turn — dropping its mask here would leak it into
