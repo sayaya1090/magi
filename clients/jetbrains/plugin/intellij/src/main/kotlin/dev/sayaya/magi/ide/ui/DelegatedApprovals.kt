@@ -114,12 +114,13 @@ internal class DelegatedApprovals(private val project: Project) : Disposable {
             if (pending.isEmpty()) { drawn = null; return }
             val index = pending.indexOfFirst { key(it) == selected }.takeIf { it >= 0 } ?: 0
             val p = pending[index]
-            if (drawn == p) return // Preserve scroll, typed answer, and active controls across polls.
+            val unchanged = drawn == p
             painting = true
             pick.removeAllItems()
             pending.forEach { pick.addItem(it.requester + " · " + it.prompt.what) }
             pick.selectedIndex = index
             painting = false
+            if (unchanged) return // Update the queue selector, preserving the current form.
             val sameRequest = drawn?.let { key(it) == key(p) } == true
             drawn = p
             text.text = delegatedReviewHtml(p)
