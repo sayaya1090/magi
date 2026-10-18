@@ -77,6 +77,9 @@ func (s *Store) retention(ctx context.Context, r managedRecord, action string) (
 	if revision == "" {
 		revision = r.Revision
 	}
+	if revision == "" {
+		return state, fmt.Errorf("managed content revision is missing")
+	}
 	changed := !exists || state.ContentRevision != revision
 	if changed {
 		state.ContentRevision = revision
