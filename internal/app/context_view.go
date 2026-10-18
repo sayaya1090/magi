@@ -39,7 +39,7 @@ func (a *App) ContextView(ctx context.Context, sid session.SessionID) (string, e
 	for _, e := range evs {
 		if e.Type == event.TypeCompaction {
 			var d event.CompactionData
-			if json.Unmarshal(e.Data, &d) == nil {
+			if json.Unmarshal(e.Data, &d) == nil && !event.CompactionSummaryError(d.Summary) {
 				lastReplaces = d.ReplacesUpToSeq
 			}
 		}

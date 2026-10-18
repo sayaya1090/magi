@@ -653,6 +653,12 @@ export function rows(events: Event[]): Row[] {
         break;
       }
       case 'compaction': {
+        const summary = String(d.summary ?? '').trim().toLowerCase();
+        if ((summary.startsWith('prompt is too long') && summary.includes('single-exchange conversation cannot be compacted')) || summary.startsWith('[claude: ') || summary === '[claude exited before answering]') {
+          out.push({ seq: e.seq, who: 'system', text: 'Context compaction failed: the provider returned an error instead of a summary. Original chat history is preserved.' });
+          break;
+        }
+
         const before = Number(d.tokensBefore ?? 0);
         const after = Number(d.tokensAfter ?? 0);
         out.push({ seq: e.seq, who: 'system', text: `↯ folded the chat: ~${before}→${after} tok (${sizeNote(before, after)})` });

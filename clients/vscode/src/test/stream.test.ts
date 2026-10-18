@@ -1332,3 +1332,12 @@ test('final review is distinct from three approving members, including legacy re
   assert.match(render(data), /final review: held\nverify 72dp/);
   assert.match(render({...data, closingDecision: undefined}), /members approved; final outcome held/);
 });
+
+test('legacy failed compaction reports failure without claiming token savings', () => {
+  const got = rows([{seq: 1,type: 'compaction',data: {
+    summary: 'Prompt is too long · A single-exchange conversation cannot be compacted; reduce attached files/tools.',
+    tokensBefore: 616869,tokensAfter: 73,
+  }}]);
+  assert.match(got[0].text,/compaction failed/);
+  assert.doesNotMatch(got[0].text,/616869|100%/);
+});

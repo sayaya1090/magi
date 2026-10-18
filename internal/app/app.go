@@ -1113,12 +1113,12 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 	// Manual compaction replaces everything up to upTo, so the post-state is just the
 	// summary; the compacted region is indexed by file path so detail stays recallable.
 	shards := shardByPath(msgs, s.Workdir)
-	data, _ := json.Marshal(event.CompactionData{
+	compaction := event.CompactionData{
 		Summary: summary, ReplacesUpToSeq: upTo,
-		TokensBefore: estimateTokens("", msgs),
-		TokensAfter:  estimateTokens(summary, nil),
-		Shards:       shards,
-	})
+		TokensBefore: estimateTokens("", msgs), Shards: shards,
+	}
+	compaction.TokensAfter = compactedHistoryTokens(evs, compaction)
+	data, _ := json.Marshal(compaction)
 	if err := a.appendFact(ctx, c.SessionID, event.TypeCompaction, c.Actor, data); err != nil {
 		return err
 	}

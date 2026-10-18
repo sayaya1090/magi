@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -25,7 +25,7 @@ func (p summarizerLLM) StreamChat(ctx context.Context, req port.ChatRequest) (<-
 	}
 	if p.cut {
 		ch <- port.ProviderEvent{Type: port.ProviderError,
-			Err: errors.New("the model stream ended without finishing: no finish_reason and no [DONE] arrived")}
+			Err: fmt.Errorf("%w: no finish_reason and no [DONE] arrived", port.ErrStreamCut)}
 	}
 	close(ch)
 	return ch, nil

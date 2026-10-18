@@ -34,7 +34,7 @@ func (a *App) recallContext(ctx context.Context, sid session.SessionID, query st
 			continue
 		}
 		var d event.CompactionData
-		if json.Unmarshal(e.Data, &d) == nil {
+		if json.Unmarshal(e.Data, &d) == nil && !event.CompactionSummaryError(d.Summary) {
 			shards = append(shards, d.Shards...)
 		}
 	}
@@ -259,7 +259,7 @@ func shardHints(evs []event.Event, query string) string {
 			continue
 		}
 		var d event.CompactionData
-		if json.Unmarshal(e.Data, &d) == nil {
+		if json.Unmarshal(e.Data, &d) == nil && !event.CompactionSummaryError(d.Summary) {
 			shards = append(shards, d.Shards...)
 		}
 	}

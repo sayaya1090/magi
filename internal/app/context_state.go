@@ -187,7 +187,7 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 		switch e.Type {
 		case event.TypeCompaction:
 			var d event.CompactionData
-			if json.Unmarshal(e.Data, &d) != nil {
+			if json.Unmarshal(e.Data, &d) != nil || event.CompactionSummaryError(d.Summary) {
 				continue
 			}
 			out.Compactions++

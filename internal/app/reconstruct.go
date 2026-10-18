@@ -82,7 +82,9 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 		switch ev.Type {
 		case event.TypeCompaction:
 			var d event.CompactionData
-			_ = json.Unmarshal(ev.Data, &d)
+			if json.Unmarshal(ev.Data, &d) != nil || event.CompactionSummaryError(d.Summary) {
+				continue
+			}
 			for _, sh := range d.Shards {
 				if !topicSeen[sh.Topic] {
 					topicSeen[sh.Topic] = true

@@ -549,6 +549,12 @@ class Rows {
         // 지우지 않는다. 컴팩션이 접는 것은 모델에게 보낼 창이지 사람의 기록이 아니다 — 사람
         // 뷰를 모델 뷰에서 읽으면 읽던 스크롤백이 제 요약으로 바뀐다(`reconstructWhole` 의 교훈).
         val d = e.data?.jsonObject ?: return false
+        val summary = d["summary"]?.jsonPrimitive?.content.orEmpty().trim().lowercase()
+        if ((summary.startsWith("prompt is too long") && summary.contains("single-exchange conversation cannot be compacted")) ||
+            summary.startsWith("[claude: ") || summary == "[claude exited before answering]") {
+            rows += Row(Who.System, "컨텍스트 압축 실패: 요약 대신 제공자 오류를 받았습니다. 원래 대화 기록은 보존되어 있습니다.", at = e.ts)
+            return true
+        }
         val before = d["tokensBefore"]?.jsonPrimitive?.content?.toIntOrNull()
         val after = d["tokensAfter"]?.jsonPrimitive?.content?.toIntOrNull()
         // **줄어든 양을 적는다 — 사람이 빼게 두지 않는다.** 코어가 이 문장의 정본을 들고 있고

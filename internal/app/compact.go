@@ -3,10 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -310,22 +312,16 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 		}
 	}
 
-	// Post-compaction context = the summary + the kept recent events.
-	var keptEvs []event.Event
-	for _, e := range evs {
-		if e.Seq > boundary {
-			keptEvs = append(keptEvs, e)
-		}
+	compaction := event.CompactionData{
+		Summary: summary, ReplacesUpToSeq: boundary, Shards: shards,
+		TokensBefore: estimateTokens("", reconstruct(evs)),
 	}
-	tokensBefore, tokensAfter := estimateTokens("", reconstruct(evs)), estimateTokens(summary, reconstruct(keptEvs))
-	d, _ := json.Marshal(event.CompactionData{
-		Summary:         summary,
-		ReplacesUpToSeq: boundary,
-		TokensBefore:    tokensBefore,
-		TokensAfter:     tokensAfter,
-		Shards:          shards,
-	})
-	a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d)
+	compaction.TokensAfter = compactedHistoryTokens(evs, compaction)
+	d, _ := json.Marshal(compaction)
+	if err := a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d); err != nil {
+		return false
+	}
+	tokensBefore, tokensAfter := compaction.TokensBefore, compaction.TokensAfter
 	// And say what it cost. The numbers are the ones the fact carries, so the line and the record
 	// cannot disagree — and "what did I just lose" is the question somebody has when they see the
 	// transcript fold underneath them.
@@ -340,6 +336,21 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	// it. Cleared here so the next step measures the folded context.
 	a.setPromptTokens(s.ID, 0)
 	return true
+}
+
+// Measure the same reconstructed history on both sides, including the brief
+// header, recall-topic hints and retained message parts. Fixed system/tools are
+// excluded from both; these numbers describe chat history, not total request size.
+func compactedHistoryTokens(evs []event.Event, data event.CompactionData) int {
+	seq := int64(1)
+	for _, e := range evs {
+		if e.Seq >= seq {
+			seq = e.Seq + 1
+		}
+	}
+	raw, _ := json.Marshal(data)
+	after := append(append([]event.Event(nil), evs...), event.Event{Seq: seq, Type: event.TypeCompaction, Data: raw})
+	return estimateTokens("", reconstruct(after))
 }
 
 // shardByPath groups the compacted messages into recallable topics by the file each
@@ -579,7 +590,7 @@ func lastCompactionBoundary(evs []event.Event) int64 {
 			continue
 		}
 		var d event.CompactionData
-		if json.Unmarshal(e.Data, &d) == nil && d.ReplacesUpToSeq > last {
+		if json.Unmarshal(e.Data, &d) == nil && !event.CompactionSummaryError(d.Summary) && d.ReplacesUpToSeq > last {
 			last = d.ReplacesUpToSeq
 		}
 	}
@@ -722,7 +733,10 @@ func lastCompactionSeq(evs []event.Event) int64 {
 	var out int64
 	for _, e := range evs {
 		if e.Type == event.TypeCompaction && e.Seq > out {
-			out = e.Seq
+			var d event.CompactionData
+			if json.Unmarshal(e.Data, &d) == nil && !event.CompactionSummaryError(d.Summary) {
+				out = e.Seq
+			}
 		}
 	}
 	return out
@@ -737,7 +751,7 @@ func priorSummary(evs []event.Event, boundary int64) string {
 			continue
 		}
 		var d event.CompactionData
-		if json.Unmarshal(e.Data, &d) == nil {
+		if json.Unmarshal(e.Data, &d) == nil && !event.CompactionSummaryError(d.Summary) {
 			out = d.Summary
 		}
 	}
@@ -786,7 +800,49 @@ func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Se
 	if d := langDirective(personsWords(msgs)); d != "" {
 		system += "\n\n" + d
 	}
-	return a.askForBrief(ctx, agent, s, system, asMaterial(flattenForSummary(msgs)))
+	material := asMaterial(flattenForSummary(msgs))[0].Parts[0].Text
+	return a.summarizeMaterial(ctx, agent, s, system, material)
+}
+
+// Bound individual summary requests. CLI backends can expand quoted material
+// before sending it; a single giant request may overflow even when the original
+// conversation fit. Every chunk must succeed before any compaction is committed.
+const summaryMaterialBytes = 128 << 10
+
+func (a *App) summarizeMaterial(ctx context.Context, agent AgentSpec, s session.Session, system, material string) string {
+	for depth := 0; depth < 8; depth++ {
+		if len(material) <= summaryMaterialBytes {
+			return a.askForBrief(ctx, agent, s, system, summaryMessage(material))
+		}
+		var briefs []string
+		remainder := material
+		for len(remainder) > 0 {
+			if ctx.Err() != nil {
+				return ""
+			}
+			n := min(len(remainder), summaryMaterialBytes)
+			for n < len(remainder) && !utf8.RuneStart(remainder[n]) {
+				n--
+			}
+			block := remainder[:n]
+			remainder = remainder[n:]
+			brief := a.askForBrief(ctx, agent, s, system+"\nThis is one consecutive chunk of the source. Preserve its facts; do not invent missing context.", summaryMessage(block))
+			if brief == "" {
+				return ""
+			}
+			briefs = append(briefs, brief)
+		}
+		combined := strings.Join(briefs, "\n\n")
+		if len(combined) >= len(material) {
+			return ""
+		} // bounded work on a non-condensing backend
+		material = combined
+	}
+	return ""
+}
+
+func summaryMessage(text string) []session.Message {
+	return []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: text}}}}
 }
 
 // asMaterial hands the conversation to the summariser as ONE user message quoting it, role by
@@ -878,6 +934,14 @@ func (a *App) askForBrief(ctx context.Context, agent AgentSpec, s session.Sessio
 		return ""
 	}
 	text, cut := drainStream(stream)
+	if event.CompactionSummaryError(text) {
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact", "compact: provider returned an error instead of a summary — history kept, not folded")
+		return ""
+	}
+	if cut != nil && !errors.Is(cut, port.ErrStreamCut) {
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact", "compact: summarizer failed — history kept, not folded")
+		return ""
+	}
 	if cut != nil {
 		// This summary BECOMES the session's memory of everything it replaces, so a half-written
 		// one silently discards conversation. Report it; the caller still uses what arrived rather
