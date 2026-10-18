@@ -207,8 +207,14 @@ class PlanToolWindow : ToolWindowFactory {
                 if (comp.facts().session == id) return@onDaemonWithoutChat
                 val r = comp.resume(id)
                 // 갈아타기의 나머지 절반은 대화 창이 한다 — session.moved 를 보고 새 대화에 붙는다.
-                tell(if (r.ok) MagiBundle.msg("plan.session.moved", id.takeLast(6)) else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
-                if (r.ok) refreshModels()
+                if (r.ok) {
+                    tell(MagiBundle.msg("plan.session.moved", id.takeLast(6)))
+                    refreshModels()
+                } else {
+                    // Viewing history must remain available while a delegated turn waits.
+                    SwingUtilities.invokeLater { MagiTabs.open(project, id, "·" + id.takeLast(6)) }
+                    tell(MagiBundle.msg("plan.session.viewOnly", r.error ?: MagiBundle.msg("common.noreason")))
+                }
             }
         }
         val fresh = JButton(MagiBundle.msg("plan.new")).apply {
