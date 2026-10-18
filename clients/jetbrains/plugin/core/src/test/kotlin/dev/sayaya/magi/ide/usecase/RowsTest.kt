@@ -891,4 +891,12 @@ class RowsTest {
         assertTrue("final review: held" in r.list().last().text)
         assertTrue("verify 72dp" in r.list().last().text)
     }
+
+    @Test fun `잘못 저장된 제공자 오류는 압축 성공으로 표시하지 않는다`() {
+        val r = Rows()
+        r.feed(ev("compaction", """{"summary":"Prompt is too long · A single-exchange conversation cannot be compacted; reduce attached files/tools.","tokensBefore":616869,"tokensAfter":73}"""))
+        val text = r.list().last().text
+        assertTrue("압축 실패" in text)
+        assertFalse("616869" in text || "100%" in text)
+    }
 }

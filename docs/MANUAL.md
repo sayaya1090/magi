@@ -1536,6 +1536,11 @@ says so.
 
 ## 7. Memory & Context
 
+Compaction's before/after token values estimate conversation history, excluding the system prompt and tool definitions. The after value includes the brief header, recall-topic hints, and retained messages. Provider errors are not saved as summaries. Large summary inputs are split into UTF-8 chunks of at most 128 KiB; a failed intermediate request leaves the original history intact. Combining summaries stops with failure if the material does not shrink.
+
+Older Claude connections could save `Prompt is too long … A single-exchange conversation cannot be compacted` as an ordinary summary. Model-context reconstruction ignores these failed folds and reads the original events, allowing compaction to be retried. IDE clients label the old record as a failed compaction. The original log is neither deleted nor rewritten to claim success.
+
+
 The live context gauge uses the current provider/model window, including metadata learned after the previous turn. A reader without a provider uses the window recorded in that turn instead. For example, 369k tokens in a 1M-token window is about 37%, even if the previous request recorded a 200k-token window. Automatic compaction defaults to 80%; its message budget reserves space for the system prompt and tool catalog. Bulky-result elision can happen before a summary fold and is recorded separately.
 
 A turn's context is assembled, not accumulated. Some of it is written by you and never leaves;
