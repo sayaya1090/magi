@@ -1536,6 +1536,8 @@ says so.
 
 ## 7. Memory & Context
 
+Manual compaction also elides eligible tool outputs before asking for a summary: large outputs already narrated by the assistant and older read-only results that can be fetched again. The newest result is retained. Original outputs remain in the event log and transcript. Results already hidden by an earlier compaction do not count as newly reclaimed context.
+
 Compaction's before/after token values estimate conversation history, excluding the system prompt and tool definitions. The after value includes the brief header, recall-topic hints, and retained messages. Provider errors are not saved as summaries. Large summary inputs are split into UTF-8 chunks of at most 128 KiB; a failed intermediate request leaves the original history intact. Combining summaries stops with failure if the material does not shrink.
 
 Older Claude connections could save `Prompt is too long … A single-exchange conversation cannot be compacted` as an ordinary summary. Model-context reconstruction ignores these failed folds and reads the original events, allowing compaction to be retried. IDE clients label the old record as a failed compaction. The original log is neither deleted nor rewritten to claim success.
