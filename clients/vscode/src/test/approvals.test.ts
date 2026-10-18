@@ -4,13 +4,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
 
-async function fixture(action?: string, stale = false, unavailable = false) {
+async function fixture(action?: string, stale = false, unavailable = false, supportsAuto = true) {
   const exports: any = {}; let command: any; let tick: any;
   const calls: any[] = []; const notices: string[] = [];
   const prompt = { session: 'delegated', requester: 'handbook', prompt: { id: 'call', kind: 'permission', what: 'bash', args: { command: 'git status' } } };
   const api = { l10n: { t: (s: string) => s }, StatusBarAlignment: { Left: 1 }, window: {
     createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {} }),
-    showWarningMessage: async (s: string, options: any) => { notices.push(s); return options?.modal ? action : undefined; },
+    showWarningMessage: async (s: string, options: any, ...choices: string[]) => { notices.push(s); return options?.modal && choices.includes(action!) ? action : undefined; },
     showErrorMessage: async (s: string) => { notices.push(s); },
     showQuickPick: async (rows: any[]) => rows[0],
   }, commands: { registerCommand: (_: string, handler: any) => { command = handler; return { dispose() {} }; } } };
@@ -23,7 +23,7 @@ async function fixture(action?: string, stale = false, unavailable = false) {
     if (method !== 'jobs') return { ok: true };
     reads++;
     if (unavailable && reads >= 4) return { ok: false, error: 'connection failed' };
-    return { ok: true, jobs: { approvals: stale && reads >= 4 ? [] : [prompt] } };
+    return { ok: true, jobs: { taskAutoApproval: supportsAuto, approvals: stale && reads >= 4 ? [] : [prompt] } };
   } });
   await new Promise(resolve => setImmediate(resolve));
   tick();
@@ -55,4 +55,18 @@ test('failed verification is not reported as an expired or rejected request', as
   assert.ok(calls.every(c => c.method === 'jobs'));
   assert.ok(notices.includes('Response was not sent: {0}'));
   assert.ok(!notices.includes('This request is no longer pending.'));
+});
+
+test('automatic approval is explicitly scoped to the originating delegated task', async () => {
+ const { calls } = await fixture('Auto-approve this task');
+ const responses = calls.filter(c => c.method === 'permission');
+ assert.equal(responses.length, 1);
+ assert.equal(responses[0].extra.session, 'delegated');
+ assert.equal(responses[0].extra.callId, 'call');
+ assert.equal(responses[0].extra.decision, 'task_allow');
+});
+
+test('old daemons never receive unsupported automatic approval decisions', async () => {
+ const { calls } = await fixture('Auto-approve this task', false, false, false);
+ assert.ok(calls.every(c => c.method === 'jobs'));
 });

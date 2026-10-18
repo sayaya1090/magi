@@ -593,7 +593,7 @@ func answerTools(ctx context.Context, eng Engine, req Request) Response {
 // jobs is answered here for the same reason status is: it carries a payload.
 func answerJobs(ctx context.Context, eng Engine, req Request) Response {
 	var resp Response
-	resp = Response{OK: true, Jobs: &Jobs{}}
+	resp = Response{OK: true, Jobs: &Jobs{TaskAutoApproval: true}}
 	if pending, ok := eng.(PendingPromptLister); ok {
 		for _, p := range pending.PendingPrompts() {
 			ask := p.Ask

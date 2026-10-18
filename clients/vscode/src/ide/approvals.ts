@@ -9,6 +9,7 @@ export function approvalSupport(companion: Companion): vscode.Disposable {
   const t = vscode.l10n.t;
   let disposed = false;
   let reading = false;
+  let taskAutoApproval = false;
   let pending: Pending[] = [];
   let seen = new Set<string>();
   const key = (p: Pending) => JSON.stringify([p.session, p.prompt.id]);
@@ -22,6 +23,7 @@ export function approvalSupport(companion: Companion): vscode.Disposable {
       const r = await companion.ask('jobs');
       if (disposed || !r?.ok) return;
       pending = r.jobs?.approvals ?? [];
+      taskAutoApproval = r.jobs?.taskAutoApproval === true;
       const current = new Set(pending.map(key));
       seen = new Set([...seen].filter(k => current.has(k)));
       badge.text = `$(bell) Magi: ${pending.length}`;
@@ -44,9 +46,9 @@ export function approvalSupport(companion: Companion): vscode.Disposable {
       p.args ? JSON.stringify(p.args, null, 2) : '', p.diff,
       p.report ? JSON.stringify(p.report, null, 2) : ''].filter(Boolean).join('\n\n');
     if (p.kind === 'permission') {
-      const action = await vscode.window.showWarningMessage(t('Review delegated tool request'), { modal: true, detail }, t('Allow once'), t('Reject'));
+      const action = await vscode.window.showWarningMessage(t('Review delegated tool request'), { modal: true, detail }, t('Allow once'), t('Reject'), ...(taskAutoApproval ? [t('Auto-approve this task')] : []));
       if (!action) return; // Closing the review leaves the request pending.
-      decision = action === t('Allow once') ? 'allow' : 'deny';
+      decision = action === t('Allow once') ? 'allow' : action === t('Auto-approve this task') ? 'task_allow' : 'deny';
     } else if (p.kind === 'question') {
       const action = await vscode.window.showInformationMessage(p.what ?? '', { modal: true, detail }, t('Answer'));
       if (!action) return;
@@ -62,6 +64,10 @@ export function approvalSupport(companion: Companion): vscode.Disposable {
     }
     if (!fresh.jobs?.approvals?.some(x => key(x) === key(item))) {
       void vscode.window.showWarningMessage(t('This request is no longer pending.'));
+      return;
+    }
+    if (decision === 'task_allow' && fresh.jobs?.taskAutoApproval !== true) {
+      void vscode.window.showErrorMessage(t('Response was not sent: {0}', t('Companion unavailable')));
       return;
     }
     const result = await companion.ask(p.kind === 'permission' ? 'permission' : 'answer', {

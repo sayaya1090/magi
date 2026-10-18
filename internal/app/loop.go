@@ -18,6 +18,13 @@ import (
 // and drives the loop, returning any terminal error (e.g. a provider failure) so
 // the caller can avoid re-running a failed turn into a retry storm.
 func (a *App) run(ctx context.Context, sid session.SessionID) error {
+	defer func() {
+		a.mu.Lock()
+		if st, ok := a.stateIf(sid); ok {
+			st.delegatedAutoApprove = false
+		}
+		a.mu.Unlock()
+	}()
 	a.snapshotCouncil(sid)
 	s := a.sessionInfo(ctx, sid)
 	if a.cfg.Workflow {

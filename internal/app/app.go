@@ -1073,8 +1073,18 @@ func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission
 	// opposite of what they chose with no reason to doubt their own screen.
 	a.mu.Lock()
 	var ch chan string
+	if c.Decision == "task_allow" {
+		st, ok := a.stateIf(c.SessionID)
+		if !ok || st.handedFrom == "" || !a.cfg.Interactive {
+			a.mu.Unlock()
+			return fmt.Errorf("task approval requires an interactive delegated task")
+		}
+	}
 	if st, ok := a.stateIf(c.SessionID); ok {
 		if ch = st.perms[c.CallID]; ch != nil {
+			if c.Decision == "task_allow" {
+				st.delegatedAutoApprove = true
+			}
 			delete(st.perms, c.CallID)
 			delete(st.asking, c.CallID)
 		}

@@ -102,23 +102,18 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		}
 		return allowed
 	}
-	// Work another companion asked for is approved one call at a time, by a person, or not at all.
-	//
-	// The approval mode is a statement about what THIS operator wants done on their behalf without
-	// being asked. A handed-over turn is not on their behalf: another agent decided what to ask
-	// for, its wording arrives verbatim, and the mode was set with a person's own work in mind. So
-	// the floor for these conversations is the strict one, whatever the mode says:
-	//
-	//   - allow and auto do not short-circuit; the prompt happens.
-	//   - an earlier "always" in this conversation does not carry to the next call, because the
-	//     conversation is one asker's and the grant would outlive the request that earned it.
-	//   - with nobody to ask, it is refused rather than resolved by policy. Unattended is exactly
-	//     the case this exists for: a machine asking a machine at four in the morning.
-	//
-	// `deny` still denies, and a person answering can still say yes. What is gone is the path
-	// where nobody says anything and the tool runs.
+	// Delegation does not inherit global grants. A person may explicitly approve
+	// routine calls for this task; scanner-forced prompts still ask.
 	asker := a.handedFrom(sid)
 	handed := asker != ""
+	if handed && !forcePrompt && a.cfg.Interactive && a.Permission() != "deny" {
+		a.mu.Lock()
+		auto := a.stateLocked(sid).delegatedAutoApprove
+		a.mu.Unlock()
+		if auto {
+			return finish(true, "policy", "")
+		}
+	}
 	// Whose errand it is goes into the reason, which is the line both surfaces already show. A
 	// person looking at "bash: curl … | sh" answers it as their own request unless something says
 	// otherwise — and the whole point of the floor above is that a person DOES answer these, so
@@ -216,6 +211,9 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	select {
 	case dec := <-ch:
+		if dec == "task_allow" && handed {
+			return finish(true, "user", "")
+		}
 		if (dec == "always" || dec == "persist") && handed {
 			// Said, not swallowed. Somebody pressing "always" here means it, and quietly treating
 			// it as "just this once" would be the console doing something other than what the

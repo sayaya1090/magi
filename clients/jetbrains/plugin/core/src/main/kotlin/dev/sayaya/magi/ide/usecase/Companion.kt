@@ -107,7 +107,7 @@ class Companion(
         require(pending.session.isNotBlank() && pending.prompt.id.isNotBlank())
         return when (pending.prompt.kind) {
             "permission" -> {
-                require(decision == "allow" || decision == "deny")
+                require(decision == "allow" || decision == "deny" || decision == "task_allow")
                 send(Request(method = "permission", session = pending.session, callId = pending.prompt.id, decision = decision))
             }
             "question" -> {

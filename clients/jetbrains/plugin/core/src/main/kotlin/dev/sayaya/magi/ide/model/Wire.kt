@@ -303,6 +303,7 @@ data class SessionRow(
  */
 @Serializable
 data class Jobs(
+    val taskAutoApproval: Boolean = false,
     val approvals: List<PendingPrompt>? = null,
     val outgoing: List<OutgoingHandoff>? = null,
     val background: List<BackgroundJob>? = null,

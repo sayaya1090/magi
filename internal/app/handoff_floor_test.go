@@ -126,3 +126,63 @@ func TestThePromptSaysWhichCompanionAskedForIt(t *testing.T) {
 		t.Errorf("the operator's own turn says %q", got)
 	}
 }
+
+func TestDelegatedTaskApprovalIsExplicitScopedAndKeepsForcedPrompts(t *testing.T) {
+	a, mine, theirs := handedSession(t, Config{Permission: "ask", Interactive: true})
+	ctx := context.Background()
+	decide := func(sid session.SessionID, id, decision string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if a.RespondPermission(ctx, command.RespondPermission{SessionID: sid, CallID: id, Decision: decision}) == nil {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Error("approval never appeared: " + id)
+	}
+	call := func(sid session.SessionID, id string, force bool) bool {
+		return a.requestPermission(ctx, sid, event.Actor{}, &session.ToolCall{CallID: id, Name: "bash"}, force, "")
+	}
+	go decide(theirs, "first", "task_allow")
+	if !call(theirs, "first", false) {
+		t.Fatal("explicit task approval refused")
+	}
+	bounded, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if !a.requestPermission(bounded, theirs, event.Actor{}, &session.ToolCall{CallID: "next", Name: "write"}, false, "") {
+		t.Error("task grant did not cover another routine tool")
+	}
+	go decide(theirs, "danger", "deny")
+	if call(theirs, "danger", true) {
+		t.Error("task grant bypassed forced approval")
+	}
+	go decide(mine, "own", "deny")
+	if call(mine, "own", false) {
+		t.Error("task grant leaked into another session")
+	}
+	a.SetPermission("deny")
+	if call(theirs, "denied", false) {
+		t.Error("task grant bypassed deny mode")
+	}
+	a.SetPermission("ask")
+	a.resetForNewTopLevel(theirs)
+	go decide(theirs, "new-task", "deny")
+	if call(theirs, "new-task", false) {
+		t.Error("grant survived into next task")
+	}
+}
+
+func TestStaleTaskApprovalCannotCreateGrant(t *testing.T) {
+	a, _, theirs := handedSession(t, Config{Permission: "ask", Interactive: true})
+	err := a.RespondPermission(context.Background(), command.RespondPermission{SessionID: theirs, CallID: "missing", Decision: "task_allow"})
+	if err == nil {
+		t.Fatal("stale approval accepted")
+	}
+	a.mu.Lock()
+	granted := a.stateLocked(theirs).delegatedAutoApprove
+	a.mu.Unlock()
+	if granted {
+		t.Fatal("stale response created task grant")
+	}
+}

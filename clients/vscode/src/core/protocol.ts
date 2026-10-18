@@ -259,6 +259,7 @@ export interface Response {
    * an empty string parses to an empty list.
    */
   jobs?: {
+    taskAutoApproval?: boolean;
     approvals?: { session: string; requester: string; prompt: Waiting }[];
     outgoing?: { receipt: string; to: string; request: string; started: string }[];
     background?: { id?: string; command?: string; running?: boolean; killed?: boolean;
