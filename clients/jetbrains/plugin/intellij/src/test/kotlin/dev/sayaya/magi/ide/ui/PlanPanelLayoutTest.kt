@@ -17,6 +17,19 @@ import javax.swing.JPanel
  */
 class PlanPanelLayoutTest : BasePlatformTestCase() {
 
+    fun testManagementStatusRendersWhileDialogIsModal() {
+        val modal = Any()
+        var rendered = false
+        com.intellij.openapi.application.impl.LaterInvocator.enterModal(modal)
+        try {
+            com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                managementUiLater { rendered = true }
+            }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+            assertTrue("management rendering was deferred until modal dialog closes", rendered)
+        } finally { com.intellij.openapi.application.impl.LaterInvocator.leaveModal(modal) }
+    }
+
     fun testDelegatedReviewPreservesCustomReportOrderAndEscapesUntrustedText() {
         val waiting = dev.sayaya.magi.ide.model.Waiting(
             id = "call", kind = "question", what = "<script>question</script>",
