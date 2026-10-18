@@ -45,7 +45,7 @@ type settingKey struct {
 // able to change from a screen, and adding one is a deliberate act rather than a consequence of a
 // struct field appearing in internal/config.
 var settingKeys = []settingKey{
-	{key: "companion_auto_describe", name: "companion_auto_describe", applies: "now", stranger: true, doc: "Automatically describe this workspace after successful turns (on/off). Uses an additional model request; preserves existing descriptions and access policy.", get: func(c config.Config) string { return c.CompanionAutoDescribe }},
+	{key: "companion_auto_describe", name: "companion_auto_describe", applies: "now", stranger: true, doc: "Maintain automatic workspace descriptions from new evidence in an internal session (on/off). Uses additional model requests; preserves human edits and access policy.", get: func(c config.Config) string { return c.CompanionAutoDescribe }},
 	{
 		key: "embed_model", name: "embed_model", env: "MAGI_EMBED_MODEL", applies: "next start",
 		doc: "the model that embeds for recall; empty means recall stays at the string level",

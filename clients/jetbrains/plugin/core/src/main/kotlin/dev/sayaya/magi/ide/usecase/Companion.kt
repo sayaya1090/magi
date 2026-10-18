@@ -210,6 +210,9 @@ class Companion(
         send(Request(method = "git-msg", paths = paths?.takeIf { it.isNotEmpty() }))
 
     /** 예약들. 고장 먼저 그다음 임박순 — 차례는 데몬이 정했다. */
+    fun profileMaintenance(refresh: Boolean = false): Response =
+        send(Request(method = "profile-maintenance", session = if (refresh) session else null, name = if (refresh) "refresh" else null))
+
     fun knowledge(item: dev.sayaya.magi.ide.model.KnowledgeItem? = null, action: String = ""): Response =
         send(Request(method = "knowledge", args = kotlinx.serialization.json.buildJsonObject {
             if (item != null) {

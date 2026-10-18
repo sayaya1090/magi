@@ -201,6 +201,11 @@
         "command": "magi.knowledge",
         "title": "%magi.knowledge.title%",
         "category": "Magi"
+      },
+      {
+        "command": "magi.profileMaintenance",
+        "title": "%magi.profileMaintenance.title%",
+        "category": "Magi"
       }
     ],
     "submenus": [
@@ -303,6 +308,10 @@
         },
         {
           "command": "magi.knowledge",
+          "when": "view == magi.plan"
+        },
+        {
+          "command": "magi.profileMaintenance",
           "when": "view == magi.plan"
         }
       ],

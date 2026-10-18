@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { manageKnowledge } from './knowledge';
+import { profileMaintenance } from './profileMaintenance';
 import { editCompanionProfile } from './companionProfile';
 import { Companion } from './workspace';
 import { Chat } from './chat';
@@ -60,6 +61,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
 
   return [
     reg('magi.knowledge', () => manageKnowledge(companion)),
+    reg('magi.profileMaintenance', () => profileMaintenance(companion, chat.session)),
     /**
      * One place that SHOWS what is running and lets it be changed.
      *
@@ -79,6 +81,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       const pick = await vscode.window.showQuickPick([
         { label: 'Open the chat', id: 'magi.focusChat' },
         { label: vscode.l10n.t('Project memory and skills'), id: 'magi.knowledge' },
+        { label: vscode.l10n.t('Internal description session'), id: 'magi.profileMaintenance' },
         { label: `Model: ${say(now.model)}`, id: 'magi.chooseModel', description: 'change' },
         { label: `Backend: ${say(now.backend)}`, id: 'magi.chooseBackend', description: 'change' },
         { label: `Approval: ${say(now.permission)}`, id: 'magi.choosePermission', description: 'change' },
@@ -155,7 +158,7 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
           // `unreadable` warning above exists to break. This screen showed neither, so the two cases
           // were one line. The JetBrains settings screen has drawn the source since the field landed.
           description: c.value ? `= ${c.value}${c.source ? ` (from ${c.source})` : ''}` : '(unset)',
-          detail: [c.key === 'companion_auto_describe' ? vscode.l10n.t('Automatically fill missing workspace descriptions after successful turns. Uses an additional model request. Existing descriptions and permissions are preserved.') : c.key === 'companion.profile' ? vscode.l10n.t('Edit the purpose, responsibilities and offered tasks. Access permissions and callable operations are preserved.') : c.doc, c.applies && `applies ${c.applies}`, c.tier].filter(Boolean).join(' · '),
+          detail: [c.key === 'companion_auto_describe' ? vscode.l10n.t('Maintain automatic workspace descriptions from new project evidence in a separate internal session. Uses additional model requests. Human edits and permissions are preserved.') : c.key === 'companion.profile' ? vscode.l10n.t('Edit the purpose, responsibilities and offered tasks. Access permissions and callable operations are preserved.') : c.doc, c.applies && `applies ${c.applies}`, c.tier].filter(Boolean).join(' · '),
           key: c.key!, value: c.value ?? '', tier: c.tier ?? '',
           source: c.source ?? '', profile: c.profile === true,
         })),

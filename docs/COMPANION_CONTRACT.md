@@ -1,5 +1,7 @@
 # Companion purpose, access scope, and published operations
 
+The current automatic path follows “Internal description maintenance session” below. The earlier empty-description extractor and CLI remain compatibility paths, not the current automatic update behavior.
+
 Status: implementation design. A live `about` query to the gwt daemon on 2026-10-17 returned two skill descriptions. It supplied no argument contract or direct invocation route. This design separates procedures an agent knows from operations the user permits others to invoke.
 
 ## 1. Declaration and authority
@@ -71,7 +73,6 @@ Test missing policy, malformed TOML, unknown version, duplicate IDs, and unsuppo
 
 The initial implementation includes policy loading, own instructions, public introductions, `companion_call` discovery and reads, and daemon/SSH routing. A settings editor, command and mutation executors, per-peer ACLs, and enforcement across all ordinary agent tools remain unimplemented. The actual gwt workspace has not been granted publication rights. Tests use temporary workspaces.
 
-
 ## 7. User-declared advertising
 
 Save a declaration with `magi --companion-policy-write < declaration.toml`; inspect it using `magi --companion-policy-show`. Writes validate before atomic replacement and preserve an existing declaration on invalid input. Only an explicit local CLI action exposes writing, never a model tool or remote fleet method.
@@ -128,3 +129,17 @@ For terminal inspection or manual submission, use `magi --companion-policy-show`
 Questions from one requester reuse a side conversation in the receiving companion. A later question waits until the previous question in that conversation ends. Its receipt records the log position when it actually starts. Read-only questions also run in order within one conversation. Reads in other conversations and the user's main work can continue concurrently.
 
 The `outgoing` field in a `jobs` response lists requests sent by the selected session that are awaiting peer responses. Each row provides `receipt`, `to`, `request` and `started`. JetBrains shows the destination and question in its tasks area; VS Code shows them under delegated work. A spinner indicates a pending response, and the tooltip contains the full question and receipt. The row disappears after the response is saved in the chat log. Repeated identical questions to one peer remain distinct by receipt, so one response cannot clear another request. Pending rows belong to the running daemon; response text remains in the chat log.
+
+## Internal description maintenance session
+
+New project evidence can improve offered work after initial publication. Each companion uses `maintenance.json` beside its user policy as a durable internal session outside the chat list. It does not create or select user chats or run the coding agent’s turn, council or tool loop. It stores an ID, source-chat checkpoints (up to 256), last attempt/success/error, the latest 32 history entries, automatic-field baselines and an execution lease. Evidence bodies are not copied into a separate log.
+
+Interactive companions schedule maintenance after successful turns with new reading evidence. Coding companions use successful `read` results; other client kinds use successful results of registered read-only tools permitted for their own role. The client kind accompanies the evidence so a native document workspace is not described as a codebase. After foreground work becomes idle and the ten-minute cooldown expires, a tool-free model request receives at most 24 KiB of descriptive metadata (no access, instructions or operations) and at most 24 KiB of new evidence. The request deadline is 90 seconds; the publication lease is two minutes. Source chats share one worker, while file locking and the lease reject duplicate starts in other local processes. Identical evidence hashes ignore tool-call IDs and read order and do not cause another model request. Prepared coding tasks and headless execution are excluded. New foreground work or disabling automatic description cancels the request.
+
+Existing human purpose, responsibilities and tasks remain unchanged. Pre-maintenance authorship is unknown and is conservatively treated as human-owned. New tasks use nonconflicting IDs. An automatic field can be updated only while its current value still exactly matches the previous automatic baseline. Human edits and deleted automatic tasks are not restored. Absence from new evidence never removes an existing offer; automatic retirement is outside this stage.
+
+The host snapshots the policy revision before extraction and checks it before publishing. Concurrent user edits reject the proposal. Proposals may contain only purpose, responsibilities and offered tasks; access, instructions and callable operations cannot change. The existing policy validator checks content and identifier limits. If policy publication succeeds but saving the internal session fails, later runs may conservatively treat the new content as human-owned. The policy and session files are not one atomic transaction.
+
+JetBrains exposes **Internal description session** in the status panel. VS Code exposes the same command (`magi.profileMaintenance`) and status-panel menu. Both show last attempt/success/error and added/updated task IDs. **Request refresh** uses the selected chat’s new evidence and the same idle/cooldown gates; it is not a forced model call. The `profile-maintenance` door reads status; `name=refresh` with the source `session` requests maintenance. Its `out` contains status JSON. The existing `companion_auto_describe` setting enables/disables maintenance. Published changes are summarized as a system message in the source chat.
+
+The worker currently requires successful file reads or role-permitted native read-only results. Shell-only investigation, build-only work, external changes and automatic retirement of stale descriptions are unsupported. Checkpoints are durable, but the unprocessed queue is in memory: after a crash, another successful turn or manual refresh is required. Reaching 256 source chats rejects new sources instead of silently deleting history. Only the latest 256 evidence hashes are retained.

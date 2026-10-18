@@ -8,10 +8,13 @@ import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.util.concurrency.AppExecutorUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.model.KnowledgeItem
-import dev.sayaya.magi.ide.usecase.Companion
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.DefaultListModel
@@ -20,7 +23,7 @@ import javax.swing.JComponent
 import javax.swing.ListSelectionModel
 
 /** Native project-only controls. Requests use the displayed revision and reload on conflict. */
-internal class KnowledgeDialog(project: Project, private val companion: Companion) : DialogWrapper(project) {
+internal class KnowledgeDialog(project: Project, private val workspace: Workspace) : DialogWrapper(project) {
     private val entries = DefaultListModel<String>()
     private val list = JBList(entries).apply { selectionMode = ListSelectionModel.SINGLE_SELECTION }
     private val details = JBLabel(" ")
@@ -32,6 +35,7 @@ internal class KnowledgeDialog(project: Project, private val companion: Companio
     private var items = emptyList<KnowledgeItem>()
     private var busy = false
     private var alive = true
+    private val requests = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
         title = MagiBundle.msg("knowledge.title")
@@ -73,10 +77,10 @@ internal class KnowledgeDialog(project: Project, private val companion: Companio
         busy = true
         notice.text = MagiBundle.msg("knowledge.loading")
         updateSelection()
-        AppExecutorUtil.getAppExecutorService().execute {
-            val result = runCatching { companion.knowledge(item, action) }
+        requests.launch {
+            val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action) } }
             // Always reload after mutation, including stale revision or lost acknowledgement.
-            val inventory = if (item != null) runCatching { companion.knowledge() } else result
+            val inventory = if (item != null) runCatching { workspace.askWithoutChat { it.knowledge() } } else result
             ApplicationManager.getApplication().invokeLater {
                 if (!alive) return@invokeLater
                 busy = false
@@ -114,5 +118,5 @@ internal class KnowledgeDialog(project: Project, private val companion: Companio
         }, BorderLayout.SOUTH)
     }
     override fun createActions() = arrayOf(cancelAction)
-    override fun dispose() { alive = false; super.dispose() }
+    override fun dispose() { alive = false; requests.cancel(); super.dispose() }
 }

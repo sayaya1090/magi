@@ -26,5 +26,6 @@
   "magi.compact.title": "컨텍스트 압축",
   "magi.rewind.title": "이전 시점으로 되돌리기",
   "magi.children.title": "하위 대화 보기",
-  "magi.knowledge.title": "프로젝트 메모리·스킬 관리"
+  "magi.knowledge.title": "프로젝트 메모리·스킬 관리",
+  "magi.profileMaintenance.title": "컴패니언 설명 관리 세션"
 }

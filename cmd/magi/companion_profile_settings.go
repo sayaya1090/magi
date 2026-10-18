@@ -105,3 +105,14 @@ func companionProfileUnpublished(configDir, wd string) bool {
 	c, err := companionpolicy.Load(configDir, wd)
 	return err == nil && len(c.Tasks) == 0 && len(c.Operations) == 0
 }
+
+func companionMaintenanceEnabled(configDir, wd string) bool {
+	d := daemonEngine{configDir: configDir, workdir: wd}
+	key, _ := settingKeyOf("companion_auto_describe")
+	mode := d.resolve(key)
+	if mode.Unreadable != "" || mode.Value != "on" {
+		return false
+	}
+	_, err := companionpolicy.Load(configDir, wd)
+	return err == nil
+}

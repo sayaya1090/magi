@@ -897,11 +897,12 @@ func runWithContext(runCtx context.Context) int {
 			}
 			return companionProfileUnpublished(plat.ConfigDir(), workdir)
 		},
+		ProfileMaintainer: &companionpolicy.Maintainer{ConfigDir: plat.ConfigDir()},
 		CompanionProfileNeeded: func(workdir string) bool {
-			if app.NormalizeClientKind(*clientRole) != app.ClientCoding || runCtx.Value(codingTaskRunKey{}) == true {
+			if runCtx.Value(codingTaskRunKey{}) == true {
 				return false
 			}
-			return companionProfileNeeded(plat.ConfigDir(), workdir)
+			return companionMaintenanceEnabled(plat.ConfigDir(), workdir)
 		},
 		CompanionProfileRead: func(workdir string) (corecompanion.Contract, error) {
 			return companionpolicy.Load(plat.ConfigDir(), workdir)

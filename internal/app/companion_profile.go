@@ -19,6 +19,10 @@ import (
 // deliberately outside the conversation: no council, completion declaration or
 // recursive turn. The policy writer, not this model, owns publication authority.
 func (a *App) scheduleCompanionProfile(sid session.SessionID) {
+	if a.cfg.ProfileMaintainer != nil {
+		a.scheduleProfileMaintenance(sid)
+		return
+	}
 	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || a.cfg.CompanionProfileNeeded == nil || a.cfg.CompanionProfileSave == nil {
 		return
 	}
@@ -142,11 +146,14 @@ func (a *App) scheduleCompanionProfile(sid session.SessionID) {
 // Reserve evidence before conversational context: a long resumed conversation
 // must not crowd all successful project reads out of the bounded extraction.
 func companionProfileEvidence(evs []event.Event) string {
+	return companionProfileEvidenceFor(evs, func(name string) bool { return name == "read" })
+}
+func companionProfileEvidenceFor(evs []event.Event, isRead func(string) bool) string {
 	msgs := reconstructWhole(evs)
 	reads := map[string]session.Part{}
 	for _, m := range msgs {
 		for _, p := range m.Parts {
-			if p.ToolCall != nil && p.ToolCall.Name == "read" {
+			if p.ToolCall != nil && isRead(p.ToolCall.Name) {
 				reads[p.ToolCall.CallID] = p
 			}
 		}
