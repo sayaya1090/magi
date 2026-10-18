@@ -59,6 +59,10 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
     public void wikiQuery(String q) { wikiQuery = q == null ? "" : q; told(); }
     public void mcpQuery(String q) { mcpQuery = q == null ? "" : q; told(); }
 
+    public void retention(String name, String revision, String action, String socket, String peer) {
+        source.retention(name, revision, action, socket, peer, this::skillsSaid);
+    }
+
     public void forget(String name, String tier, String team, String socket, String peer) {
         source.forget(name, tier, team, socket, peer, this::skillsSaid);
     }

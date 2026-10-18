@@ -629,5 +629,15 @@
   "council.applying": "적용 중…",
   "council.state_unavailable": "카운슬 상태를 확인할 수 없습니다",
   "council.change_failed": "카운슬을 변경하지 못했습니다: {why}",
-  "action.compacting": "압축 중…"
+  "action.compacting": "압축 중…",
+  "retention.active": "활성",
+  "retention.cold": "후순위 검색",
+  "retention.candidate": "보관 후보",
+  "retention.archived": "이 기기에 보관됨",
+  "retention.pinned": "고정됨",
+  "retention.pin": "고정",
+  "retention.unpin": "고정 해제",
+  "retention.archive": "이 기기에 보관",
+  "retention.restore": "복원",
+  "retention.since": "관찰 시작 {date}"
 }

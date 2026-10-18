@@ -24,13 +24,13 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.locator("#skills .sk.fact").count() shouldBe 1
             }
             Then("행의 메타가 정착도(seen)와 기간, 출처를 말한다") {
-                page.locator("#skills .sk").first().locator(".meta").textContent() shouldContain "seen 4×"
-                page.locator("#skills .sk").first().locator(".meta").textContent() shouldContain "2026-08-01 → 2026-08-25"
+                page.locator("#skills .sk").first().locator(".meta").first().textContent() shouldContain "seen 4×"
+                page.locator("#skills .sk").first().locator(".meta").first().textContent() shouldContain "2026-08-01 → 2026-08-25"
             }
             Then("위키의 낡은 페이지는 ⚠ 묘비로, 편집자·날짜가 메타에 선다") {
                 page.locator("#wiki .sk").count() shouldBe 2
                 page.locator("#wiki .sk.fact .what").textContent() shouldContain "⚠"
-                page.locator("#wiki .sk").first().locator(".meta").textContent() shouldContain "2026-08-20"
+                page.locator("#wiki .sk").first().locator(".meta").first().textContent() shouldContain "2026-08-20"
             }
             Then("서버 행은 무엇이 실제로 도는지(.how)와 어디 적혀 있는지(.where)를 말한다") {
                 page.locator("#mcp .srv").count() shouldBe 2
@@ -41,6 +41,26 @@ internal class KnowledgeScreenTest : GwtTestSpec({
             Then("서버 머리에 추가 액션이 살고(목록을 지나 스크롤하지 않는다), 적어두기 아래 임베딩 줄이 선다") {
                 page.locator("#mcp .sectionhead .mcpopen").count() shouldBe 1
                 page.locator(".skwrite .skmodel").count() shouldBe 1
+            }
+        }
+        When("보관 후보를 고정하고 로컬 보관 후 복원하면") {
+            Then("내용 revision과 동작을 전달하고 상태에 맞는 버튼을 그린다") {
+                page.evaluate("window.__magi_test_retention_fail = true")
+                page.locator("#skills [data-retention-action=pin]").click()
+                page.locator("#skills").textContent() shouldContain "content revision conflict"
+                page.locator("#skills [data-retention-action=pin]").isEnabled shouldBe true
+                page.evaluate("window.__magi_test_retention_fail = false")
+                page.locator("#skills [data-retention-action=pin]").focus()
+                page.keyboard().press("Enter")
+                page.evaluate("window.__magi_test_retention") shouldBe "rule-cache:rev-1:pin"
+                page.locator("#skills [data-retention-action=unpin]").count() shouldBe 1
+                page.locator("#skills [data-retention-action=archive]").click()
+                page.evaluate("window.__magi_test_retention") shouldBe "rule-cache:rev-1:archive"
+                page.locator("#skills [data-retention-action=restore]").count() shouldBe 1
+                page.locator("#skills [data-retention-action=pin]").count() shouldBe 0
+                page.locator("#skills [data-retention-action=restore]").click()
+                page.evaluate("window.__magi_test_retention") shouldBe "rule-cache:rev-1:restore"
+                page.locator("#skills [data-retention-action=archive]").count() shouldBe 1
             }
         }
         When("규칙의 본문을 읽으면") {
@@ -98,7 +118,7 @@ internal class KnowledgeScreenTest : GwtTestSpec({
             page.locator("#skills .sk .drop.armed").click()
             Then("그 규칙이 잊히고 목록이 다시 읽힌다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_forgot") != null }
-                page.evaluate("window.__magi_test_forgot") shouldBe "rule-cache@global"
+                page.evaluate("window.__magi_test_forgot") shouldBe "rule-cache@project"
                 page.locator("#skills .sk").count() shouldBe 2
             }
             // 이 화면은 보지 않는 사람에게 세 판이 아니라 한 문장이다 — 운영 sayShared의 자리.

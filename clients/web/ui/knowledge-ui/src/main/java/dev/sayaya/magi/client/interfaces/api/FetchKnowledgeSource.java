@@ -17,6 +17,16 @@ public class FetchKnowledgeSource implements KnowledgeSource {
     public FetchKnowledgeSource() {}
 
     @Override
+    public void retention(String name, String revision, String action, String socket, String peer, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("tier", "project");
+        body.set("name", name);
+        body.set("revision", revision);
+        body.set("action", action);
+        Console.post("/retention", body, socket, peer, (ok, w) -> why.accept(Console.why(ok, w)));
+    }
+
+    @Override
     public void skills(Consumer<Object> cb) { Console.fetchList("/skills", cb::accept); }
 
     @Override

@@ -629,5 +629,15 @@
   "council.applying": "Applying…",
   "council.state_unavailable": "Council state unavailable",
   "council.change_failed": "Could not change council: {why}",
-  "action.compacting": "Compacting…"
+  "action.compacting": "Compacting…",
+  "retention.active": "Active",
+  "retention.cold": "Cold · fallback search",
+  "retention.candidate": "Archive candidate",
+  "retention.archived": "Locally archived",
+  "retention.pinned": "Pinned",
+  "retention.pin": "Pin",
+  "retention.unpin": "Unpin",
+  "retention.archive": "Archive on this device",
+  "retention.restore": "Restore",
+  "retention.since": "Observed since {date}"
 }
