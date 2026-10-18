@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -295,5 +297,74 @@ func TestMaintenanceRestoresQueuedSourceWithoutStartingAUserTurn(t *testing.T) {
 	}
 	if len(llm.request().Tools) > 0 {
 		t.Fatal("resumed worker has executable tools")
+	}
+}
+
+func TestMaintenanceBootstrapsEmptyCodingDescriptionWithoutQuestionOrUserTurn(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "README.md"), []byte("Widget library. Run widget tests with npm test. Provides widget APIs."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	llm := &acCapLLM{text: `{"purpose":"Widget library","tasks":[{"id":"widget-tests","description":"Run widget tests and report results"}]}`}
+	maintainer := &companionpolicy.Maintainer{ConfigDir: t.TempDir()}
+	cfg := Config{Interactive: true, ProfileMaintainer: maintainer, CompanionProfileNeeded: func(string) bool { return true }, CompanionProfileUnpublished: func(string) bool { return true }}
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, cfg))
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.InteractiveOpened(context.Background(), sid, "ko")
+	deadline := time.Now().Add(3 * time.Second)
+	for a.ProfileMaintenancePending() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	state, err := maintainer.ProfileMaintenanceState(context.Background(), wd)
+	if err != nil || len(state.Current.Tasks) != 1 || state.LastError != "" {
+		t.Fatal(state, err)
+	}
+	if len(llm.request().Tools) != 0 {
+		t.Fatal("bootstrap model received tools")
+	}
+	evs, err := store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if ev.Type == event.TypeQuestionRequested || ev.Type == event.TypePermissionRequested || (ev.Type == event.TypePromptSubmitted && ev.Actor.Kind == event.ActorUser) {
+			t.Fatalf("bootstrap leaked into user turn: %s", ev.Type)
+		}
+	}
+	if got := a.initialProfileEvidence(context.Background(), wd); !strings.Contains(got, "Widget library") {
+		t.Fatal("missing bounded project evidence", got)
+	}
+}
+
+func TestMaintenanceBootstrapSkipsLinksOversizedAndDeniedReads(t *testing.T) {
+	wd := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "private")
+	if err := os.WriteFile(outside, []byte("outside secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wd, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "README.ko.md"), []byte(strings.Repeat("large", 20000)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "AGENTS.md"), []byte("project description"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := closeAfter(t, New(nil, &acCapLLM{}, builtin.Default(), bus.New(), nil, Config{Interactive: true, CompanionProfileNeeded: func(string) bool { return true }}))
+	got := a.initialProfileEvidence(context.Background(), wd)
+	if strings.Contains(got, "outside secret") || strings.Contains(got, "large") || !strings.Contains(got, "project description") {
+		t.Fatal("unsafe bootstrap evidence", got)
+	}
+	denied := closeAfter(t, New(nil, &acCapLLM{}, builtin.Default(), bus.New(), nil, Config{Interactive: true, Deny: []string{"read(**)"}, CompanionProfileNeeded: func(string) bool { return true }}))
+	if got := denied.initialProfileEvidence(context.Background(), wd); got != "" {
+		t.Fatal("bootstrap bypassed deny", got)
 	}
 }

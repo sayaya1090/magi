@@ -610,7 +610,9 @@ class PlanToolWindow : ToolWindowFactory {
                         (cr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
-                    crons.isEmpty() -> cronList.add(none(MagiBundle.msg("plan.schedule.none")))
+                    crons.isEmpty() -> cronList.add(none(MagiBundle.msg("plan.schedule.none")).apply {
+                        border = JBUI.Borders.empty(8, 0)
+                    })
                     else -> crons.forEach { j ->
                         // 고장 행이 이 판이 표시해야 하는 행이다 — 다른 어떤 화면도 다시 언급 안 한다.
                         val line = when {

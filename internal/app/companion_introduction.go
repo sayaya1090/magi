@@ -37,6 +37,10 @@ func (a *App) InteractiveOpened(ctx context.Context, sid session.SessionID, loca
 			}
 		}
 	}
+	if a.cfg.ProfileMaintainer != nil {
+		a.startInitialProfileMaintenance(sid, s.Workdir)
+		return
+	}
 	korean := strings.HasPrefix(strings.ToLower(locale), "ko") || (locale == "" && lang.Detect(lastUserPromptText(evs)) == "Korean (한국어)")
 	q, prompt := companionIntroductionQuestion(korean)
 	a.mu.Lock()
