@@ -36,21 +36,16 @@ func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
 	if closed || wd == "" || !a.cfg.CompanionProfileNeeded(wd) {
 		return
 	}
-	state, err := a.cfg.ProfileMaintainer.ProfileMaintenanceState(a.bgContext(), wd)
-	if err != nil {
-		log.Printf("companion maintenance: cannot read session: %v", err)
-		return
-	}
-	evs, err := a.store.Read(a.bgContext(), sid, state.Checkpoints[string(sid)])
-	if err != nil || companionProfileEvidenceFor(maintenanceEvents(evs), a.maintenanceReadTool) == "" {
-		return
-	}
 	if !a.profileBusy.CompareAndSwap(false, true) {
 		a.mu.Lock()
 		if a.profilePending == nil {
 			a.profilePending = map[session.SessionID]bool{}
 		}
-		a.profilePending[sid] = true
+		if len(a.profilePending) < 256 {
+			a.profilePending[sid] = true
+		} else {
+			log.Printf("companion maintenance: pending source limit reached")
+		}
 		a.mu.Unlock()
 		return
 	}
@@ -77,6 +72,15 @@ func (a *App) scheduleProfileMaintenance(sid session.SessionID) {
 			}
 		}()
 		defer cancel()
+		state, err := a.cfg.ProfileMaintainer.ProfileMaintenanceState(ctx, wd)
+		if err != nil {
+			log.Printf("companion maintenance: cannot read session: %v", err)
+			return
+		}
+		evs, err := a.store.Read(ctx, sid, state.Checkpoints[string(sid)])
+		if err != nil || companionProfileEvidenceFor(maintenanceEvents(evs), a.maintenanceReadTool) == "" {
+			return
+		}
 		// Coalesce while the foreground is busy or the persisted cooldown is active.
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()

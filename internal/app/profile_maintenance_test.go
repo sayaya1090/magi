@@ -68,8 +68,13 @@ func TestMaintenanceUsesToolFreeWorkerAndPersistsOutsideChatList(t *testing.T) {
 		t.Fatalf("expected one host publication summary, got %d", notices)
 	}
 	a.scheduleCompanionProfile(sid)
-	if a.profileBusy.Load() {
-		t.Fatal("host publication notice recursively started maintenance")
+	deadline = time.Now().Add(time.Second)
+	for a.profileBusy.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	again, err := maintainer.ProfileMaintenanceState(ctx, wd)
+	if err != nil || len(again.History) != 1 {
+		t.Fatal("host notice recursively produced another maintenance run", again, err)
 	}
 }
 func TestMaintenanceEvidenceHashIgnoresCallIdentityAndRejectsFailure(t *testing.T) {
@@ -184,5 +189,54 @@ func TestNativeMaintenanceUsesOnlyOwnReadOnlyTools(t *testing.T) {
 				t.Fatal("native identity or observed operation lost", req)
 			}
 		})
+	}
+}
+
+type blockedMaintenanceState struct {
+	port.ProfileMaintenance
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockedMaintenanceState) ProfileMaintenanceState(ctx context.Context, wd string) (port.ProfileMaintenanceState, error) {
+	close(b.entered)
+	select {
+	case <-ctx.Done():
+		return port.ProfileMaintenanceState{}, ctx.Err()
+	case <-b.release:
+		return b.ProfileMaintenance.ProfileMaintenanceState(ctx, wd)
+	}
+}
+func TestMaintenanceStateLockDoesNotBlockForegroundScheduling(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := &blockedMaintenanceState{ProfileMaintenance: &companionpolicy.Maintainer{ConfigDir: t.TempDir()}, entered: make(chan struct{}), release: make(chan struct{})}
+	llm := &acCapLLM{text: "null"}
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Interactive: true, ProfileMaintainer: blocked, CompanionProfileNeeded: func(string) bool { return true }}))
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	returned := make(chan struct{})
+	go func() { a.scheduleCompanionProfile(sid); close(returned) }()
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("foreground waited for the metadata store")
+	}
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		t.Fatal("background worker did not reach store")
+	}
+	close(blocked.release)
+	deadline := time.Now().Add(time.Second)
+	for a.profileBusy.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if llm.called() {
+		t.Fatal("empty evidence called the model")
 	}
 }
