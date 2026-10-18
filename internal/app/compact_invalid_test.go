@@ -137,3 +137,48 @@ func TestCompactionAfterCountIncludesHeadersAndRecallHints(t *testing.T) {
 		t.Fatalf("reported %d != next reconstructed history %d", got, want)
 	}
 }
+
+func TestManualCompactionElidesDigestedOutputBeforeSummarizing(t *testing.T) {
+	llm := &chunkRecordingLLM{}
+	a, sid, _ := newWorkflowApp(t, llm, nil, Config{Permission: "allow"})
+	marker := strings.Repeat("OLD-BULKY-OUTPUT", 400)
+	fresh := strings.Repeat("LATEST-OUTPUT", 400)
+	for _, e := range []event.Event{elideCall(t, "old", "read"), elidePart(t, "old", marker, session.RoleTool), elideText(t, "digest", "The file uses the stable API."), elideCall(t, "fresh", "read"), elidePart(t, "fresh", fresh, session.RoleTool)} {
+		if _, err := a.store.Append(context.Background(), sid, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.Compact(context.Background(), command.Compact{SessionID: sid}); err != nil {
+		t.Fatal(err)
+	}
+	if len(llm.calls) != 1 || strings.Contains(llm.calls[0], marker) || !strings.Contains(llm.calls[0], fresh) || !strings.Contains(llm.calls[0], "stable API") {
+		t.Fatal("manual summarizer did not receive safely reduced material")
+	}
+	evs, err := a.store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elidedAt, foldAt := int64(0), int64(0)
+	for _, e := range evs {
+		if e.Type == event.TypeResultElided {
+			elidedAt = e.Seq
+		}
+		if e.Type == event.TypeCompaction {
+			foldAt = e.Seq
+		}
+	}
+	if elidedAt == 0 || foldAt <= elidedAt {
+		t.Fatal("summary committed before tool-output elision")
+	}
+	foundRaw := false
+	for _, m := range reconstructWhole(evs) {
+		for _, p := range m.Parts {
+			if p.ToolResult != nil && strings.Contains(string(p.ToolResult.Content), marker) {
+				foundRaw = true
+			}
+		}
+	}
+	if !foundRaw {
+		t.Fatal("elision deleted original transcript output")
+	}
+}

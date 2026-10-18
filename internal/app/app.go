@@ -1106,6 +1106,18 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 		return nil // nothing to compact
 	}
 	s := a.sessionInfo(ctx, c.SessionID)
+	// Manual compression uses the same cheap first tier as automatic folding.
+	// Ask it to exhaust eligible results, retaining the newest/unsafe outputs.
+	if n, _ := a.elideRecentResults(ctx, s, c.Actor, evs, estimateTokens("", msgs)); n > 0 {
+		evs, err = a.store.Read(ctx, c.SessionID, 0)
+		if err != nil {
+			return err
+		}
+		msgs = reconstruct(evs)
+		if len(evs) > 0 {
+			upTo = evs[len(evs)-1].Seq
+		}
+	}
 	summary := a.summarizeViaLLM(ctx, a.agentFor(s), s, msgs)
 	if summary == "" {
 		return fmt.Errorf("compaction skipped: summary unavailable")

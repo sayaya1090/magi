@@ -122,6 +122,16 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 		return 0, true
 	}
 	already := map[string]bool{}
+	// A previous fold already hid old raw results. Do not count those bytes as
+	// reclaimed from the current model context or mark them elided for no gain.
+	activeResults := map[string]bool{}
+	for _, m := range reconstruct(evs) {
+		for _, p := range m.Parts {
+			if p.ToolResult != nil {
+				activeResults[p.ToolResult.CallID] = true
+			}
+		}
+	}
 	type cand struct {
 		callID string
 		bytes  int
@@ -146,7 +156,7 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 				if p.ToolCall != nil {
 					toolOf[p.ToolCall.CallID] = p.ToolCall.Name
 				}
-				if p.ToolResult != nil {
+				if p.ToolResult != nil && activeResults[p.ToolResult.CallID] {
 					results = append(results, cand{p.ToolResult.CallID, len(p.ToolResult.Content)})
 					lastResult = p.ToolResult.CallID
 				}

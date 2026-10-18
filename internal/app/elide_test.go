@@ -288,3 +288,22 @@ func TestFreshLooksAndRecordsAreKept(t *testing.T) {
 		t.Fatalf("three fresh looks (c2-c4 behind the exempt c5) and a bash record: nothing to give — n=%d covered=%v", n, covered)
 	}
 }
+
+func TestElideDoesNotCountAlreadyCompactedRawOutput(t *testing.T) {
+	a, sid := elideApp(t)
+	evs := seed(t, a, sid, elidePart(t, "old", strings.Repeat("x", 8000), session.RoleTool), elideText(t, "digest", "read and understood"))
+	data, _ := json.Marshal(event.CompactionData{Summary: "prior summary", ReplacesUpToSeq: evs[len(evs)-1].Seq})
+	if err := a.appendFact(context.Background(), sid, event.TypeCompaction, event.Actor{}, data); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []event.Event{elidePart(t, "fresh", strings.Repeat("y", 8000), session.RoleTool)} {
+		if err := a.appendFact(context.Background(), sid, e.Type, event.Actor{}, e.Data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	evs, _ = a.store.Read(context.Background(), sid, 0)
+	n, covered := a.elideRecentResults(context.Background(), session.Session{ID: sid}, event.Actor{}, evs, 100)
+	if n != 0 || covered {
+		t.Fatalf("counted invisible raw result: n=%d covered=%v", n, covered)
+	}
+}
