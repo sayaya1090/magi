@@ -248,7 +248,7 @@ func (a *App) CancelCompanionProfile() {
 // Claim one introduction per daemon, only on a genuine interactive user's turn.
 // Keep the result stable through all steps of that turn, including the approval.
 func (a *App) companionStartupNudge(sid session.SessionID, wd string, evs []event.Event, available map[string]bool) bool {
-	if !a.cfg.Interactive || a.cfg.CodingTaskExecution || !available["ask_user"] || a.cfg.CompanionProfileUnpublished == nil {
+	if a.cfg.ProfileMaintainer != nil || !a.cfg.Interactive || a.cfg.CodingTaskExecution || !available["ask_user"] || a.cfg.CompanionProfileUnpublished == nil {
 		return false
 	}
 	actor := event.Actor{}

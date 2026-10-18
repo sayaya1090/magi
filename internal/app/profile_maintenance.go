@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -179,7 +181,10 @@ func (a *App) startProfileMaintenance(sid session.SessionID) {
 			return
 		}
 		evs, err := a.store.Read(ctx, sid, state.Checkpoints[string(sid)])
-		if err != nil || companionProfileEvidenceFor(maintenanceEvents(evs), a.maintenanceReadTool) == "" {
+		if err != nil {
+			return
+		}
+		if companionProfileEvidenceFor(maintenanceEvents(evs), a.maintenanceReadTool) == "" && (a.cfg.CompanionProfileUnpublished == nil || !a.cfg.CompanionProfileUnpublished(wd)) {
 			return
 		}
 		// Coalesce while the foreground is busy or the persisted cooldown is active.
@@ -218,6 +223,9 @@ func (a *App) startProfileMaintenance(sid session.SessionID) {
 		}
 		evs = maintenanceEvents(evs)
 		evidence := companionProfileEvidenceFor(evs, a.maintenanceReadTool)
+		if evidence == "" && len(state.Current.Tasks) == 0 {
+			evidence = a.initialProfileEvidence(ctx, wd)
+		}
 		if evidence == "" {
 			return
 		}
@@ -227,7 +235,15 @@ func (a *App) startProfileMaintenance(sid session.SessionID) {
 				through = e.Seq
 			}
 		}
-		ticket, err := a.cfg.ProfileMaintainer.BeginProfileMaintenance(ctx, wd, state.Revision, string(sid), through, maintenanceEvidenceHashFor(evs, a.maintenanceReadTool))
+		if through == 0 {
+			through = 1
+		}
+		evidenceHash := maintenanceEvidenceHashFor(evs, a.maintenanceReadTool)
+		if companionProfileEvidenceFor(evs, a.maintenanceReadTool) == "" {
+			sum := sha256.Sum256([]byte(evidence))
+			evidenceHash = hex.EncodeToString(sum[:])
+		}
+		ticket, err := a.cfg.ProfileMaintainer.BeginProfileMaintenance(ctx, wd, state.Revision, string(sid), through, evidenceHash)
 		if err != nil {
 			if errors.Is(err, port.ErrProfileEvidenceProcessed) {
 				if queue, ok := a.cfg.ProfileMaintainer.(port.ProfileMaintenanceQueue); ok {
@@ -376,7 +392,8 @@ func (a *App) RequestProfileMaintenance(ctx context.Context, sid session.Session
 			delta = append(delta, e)
 		}
 	}
-	if companionProfileEvidenceFor(maintenanceEvents(delta), a.maintenanceReadTool) == "" {
+	bootstrap := companionProfileEvidenceFor(maintenanceEvents(delta), a.maintenanceReadTool) == ""
+	if bootstrap && (NormalizeClientKind(a.cfg.ClientRole) != ClientCoding || a.cfg.CompanionProfileUnpublished == nil || !a.cfg.CompanionProfileUnpublished(workdir)) {
 		return fmt.Errorf("no new successful project-file reads to use as evidence")
 	}
 	a.mu.Lock()
@@ -386,7 +403,11 @@ func (a *App) RequestProfileMaintenance(ctx context.Context, sid session.Session
 		st.meta.ID = sid
 	}
 	a.mu.Unlock()
-	a.scheduleProfileMaintenance(sid)
+	if bootstrap {
+		a.startInitialProfileMaintenance(sid, workdir)
+	} else {
+		a.scheduleProfileMaintenance(sid)
+	}
 	return nil
 }
 
@@ -432,4 +453,55 @@ func (a *App) maintenanceReadTool(name string) bool {
 	}
 	read, ok := tool.(port.ReadOnlyTool)
 	return ok && read.ReadOnly()
+}
+
+// Initial inspection is host-controlled and read-only. No model-selected tools,
+// user turn, approval question, shell or recursive project walk is involved.
+func (a *App) startInitialProfileMaintenance(sid session.SessionID, wd string) {
+	if NormalizeClientKind(a.cfg.ClientRole) != ClientCoding || a.cfg.CompanionProfileNeeded == nil || !a.cfg.CompanionProfileNeeded(wd) {
+		return
+	}
+	a.maintenanceBackground(func(ctx context.Context) {
+		if err := a.bear(ctx, sid); err != nil {
+			log.Printf("companion maintenance: cannot register source: %v", err)
+			return
+		}
+		queue, ok := a.cfg.ProfileMaintainer.(port.ProfileMaintenanceQueue)
+		if ok {
+			if err := queue.QueueProfileMaintenance(ctx, wd, string(sid), 1); err != nil {
+				log.Printf("companion maintenance: cannot queue initial survey: %v", err)
+				return
+			}
+		}
+		a.startProfileMaintenance(sid)
+	})
+}
+
+func (a *App) initialProfileEvidence(ctx context.Context, wd string) string {
+	if NormalizeClientKind(a.cfg.ClientRole) != ClientCoding {
+		return ""
+	}
+	var evidence strings.Builder
+	for _, path := range []string{"README.md", "README.ko.md", "AGENTS.md", "docs/README.md", "package.json", "go.mod", "settings.gradle.kts", "pom.xml"} {
+		if ctx.Err() != nil || !a.cfg.CompanionProfileNeeded(wd) {
+			break
+		}
+		info, err := os.Lstat(filepath.Join(wd, path))
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 {
+			continue
+		}
+		args, _ := json.Marshal(map[string]any{"path": path, "limit": 80})
+		result, err := a.ReadOnlyTool(ctx, wd, "read", args)
+		if err != nil {
+			continue
+		}
+		if len(result) > 4096 {
+			result = strings.ToValidUTF8(result[:4096], "")
+		}
+		if evidence.Len()+len(path)+len(result)+4 > 24<<10 {
+			break
+		}
+		evidence.WriteString(path + "\n" + result + "\n\n")
+	}
+	return evidence.String()
 }
