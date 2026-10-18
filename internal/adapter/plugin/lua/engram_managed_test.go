@@ -247,3 +247,64 @@ func TestEngramManagedLessonCorrectionRetainsOneObject(t *testing.T) {
 		t.Fatalf("correction created another identity: %v", files)
 	}
 }
+
+// A successful turn can load an irrelevant skill. Loading must not keep it alive.
+func TestEngramSkillLoadsDoNotExtendRetention(t *testing.T) {
+	for _, outcome := range []string{"verified", "unverified", "error", "done"} {
+		t.Run(outcome, func(t *testing.T) {
+			wd := t.TempDir()
+			h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: wd}})
+			if _, err := h.Load(context.Background(), filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+				t.Fatal(err)
+			}
+			h.mu.Lock()
+			p := h.plugins["engram"]
+			h.mu.Unlock()
+			path := filepath.Join(wd, ".claude", "skills", "stale", "SKILL.md")
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("stale\n<!-- engram: 작업 이력에서 자동 추출된 스킬 -->"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range map[string]string{"skill_index": "stale\tstale procedure", "skill_lastused": "stale\t2000-01-01"} {
+				if err := p.writeStoreValue(key, value, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			h.FireEventWith("turn_finished", map[string]string{"session": "s", "text": "finished", "outcome": outcome, "skills": "stale"})
+			h.DrainEvents(5 * time.Second)
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("%s load extended retention: %v", outcome, err)
+			}
+			if _, err := os.Stat(filepath.Join(filepath.Dir(filepath.Dir(path)), ".archive", "stale", "SKILL.md")); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestEngramSkillLoadStatisticsDoNotClaimApplication(t *testing.T) {
+	h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: t.TempDir()}})
+	if _, err := h.Load(context.Background(), filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	h.mu.Lock()
+	p := h.plugins["engram"]
+	h.mu.Unlock()
+	baseline := "observed\t2000-01-01"
+	if err := p.writeStoreValue("skill_lastused", baseline, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range []string{"verified", "error", "done"} {
+		h.FireEventWith("turn_finished", map[string]string{"session": "s", "text": "finished", "outcome": outcome, "skills": "observed"})
+		h.DrainEvents(5 * time.Second)
+	}
+	values := p.readStore()
+	if values["skill_lastused"] != baseline {
+		t.Fatalf("load changed application clock: %v", values["skill_lastused"])
+	}
+	if values["skill_usage"] != "observed\t3\t1\t1" {
+		t.Fatalf("load/outcome statistics lost: %v", values["skill_usage"])
+	}
+}
