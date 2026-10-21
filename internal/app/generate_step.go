@@ -36,6 +36,33 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 	var res streamStep
 	var msgID, textPartID, reasonPartID string
 	ctxCompactRetries := 0
+	// compactForRetry folds older history into a summary and rebuilds the request, for a backend
+	// that refused this one for size. Bounded + charged so a request that stays too large after
+	// every fold still surfaces the error.
+	compactForRetry := func() bool {
+		if !ctxCompactRetryEnabled() || ctxCompactRetries >= maxCtxCompactRetries {
+			return false
+		}
+		fresh, rerr := a.store.Read(ctx, sid, 0)
+		if rerr != nil || !a.compactNow(ctx, tc.s, agent, agentActor, fresh) {
+			return false
+		}
+		// The FOLDED log, and its error is not decoration. Read answers (nil, err) when the log
+		// cannot be read, and this dropped it — so an unreadable log rebuilt the request from no
+		// conversation at all and re-issued THAT. Measured end to end: the retry went out with zero
+		// messages, the backend answered it, and the turn recorded turn.finished with no error. The
+		// recovery for "the request was too big" was to ask the model nothing and call the reply an
+		// answer. Unreadable here means the recovery cannot happen, so the overflow that started it
+		// is still the news: the caller falls through to its error path.
+		folded, ferr := a.store.Read(ctx, sid, 0)
+		if ferr != nil {
+			return false
+		}
+		ctxCompactRetries++
+		a.emitToolProgress(sid, agentActor, "", agent.Name, "context too large for the model — compacting and retrying")
+		req, evs = a.buildStepRequest(ctx, tc, folded, step, cumOut)
+		return true
+	}
 	for sAttempt := 0; ; sAttempt++ {
 		// A cancelable child ctx so the reasoning-spin and stall guards can stop a response
 		// mid-stream (see consumeStream). Cancelling streamCtx (not ctx) leaves the turn's context
@@ -66,26 +93,8 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 			// turn. This is recovery (the run continues), not a cosmetic landing — the error is
 			// caused by size and compaction directly removes size. Bounded + charged so a
 			// request that stays too large after every fold still surfaces the error.
-			if ctxCompactRetryEnabled() && isContextOverflow(err) && ctxCompactRetries < maxCtxCompactRetries {
-				if fresh, rerr := a.store.Read(ctx, sid, 0); rerr == nil && a.compactNow(ctx, tc.s, agent, agentActor, fresh) {
-					// The FOLDED log, and its error is not decoration. Read answers (nil, err)
-					// when the log cannot be read, and this dropped it — so an unreadable log
-					// rebuilt the request from no conversation at all and re-issued THAT.
-					// Measured end to end: the retry went out with zero messages, the backend
-					// answered it, and the turn recorded turn.finished with no error. The
-					// recovery for "the request was too big" was to ask the model nothing and
-					// call the reply an answer.
-					//
-					// Unreadable here means the recovery cannot happen, so the overflow that
-					// started it is still the news: fall through to the error path below.
-					if folded, ferr := a.store.Read(ctx, sid, 0); ferr == nil {
-						ctxCompactRetries++
-						a.emitToolProgress(sid, agentActor, "", agent.Name, "context too large for the model — compacting and retrying")
-						evs = folded
-						req, evs = a.buildStepRequest(ctx, tc, evs, step, cumOut)
-						continue
-					}
-				}
+			if isContextOverflow(err) && compactForRetry() {
+				continue
 			}
 			a.emitError(ctx, sid, agentActor, err.Error())
 			return stepResponse{}, err
@@ -99,6 +108,15 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		streamCancel()
 		if serr != nil {
 			return stepResponse{}, serr
+		}
+		// The same size refusal, delivered inside a stream that had produced nothing yet (a CLI
+		// shim answers 200 first). Same recovery; recorded only if it cannot help.
+		if res.overflow != nil {
+			if compactForRetry() {
+				continue
+			}
+			a.emitError(ctx, sid, agentActor, res.overflow.Error())
+			return stepResponse{}, res.overflow
 		}
 		// Stall-retry: the stream produced NO output for firstTokenBound() (a hung/silent backend).
 		// Re-issue the SAME request rather than strand the turn until the wall clock — a transient

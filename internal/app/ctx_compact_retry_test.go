@@ -178,3 +178,51 @@ func TestCompactNowNoOpWhenTooFewFacts(t *testing.T) {
 		t.Errorf("no compaction event expected when there is nothing to fold")
 	}
 }
+
+// inStreamOverflowLLM answers the FIRST StreamChat with a stream whose only event is a size refusal
+// — the shape the claudecode shim produces (HTTP 200, then "Prompt is too long" as a stream error).
+type inStreamOverflowLLM struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *inStreamOverflowLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	f.mu.Lock()
+	f.calls++
+	n := f.calls
+	f.mu.Unlock()
+	ch := make(chan port.ProviderEvent, 4)
+	if n == 1 {
+		ch <- port.ProviderEvent{Type: port.ProviderError, Err: errors.New("provider stream: Prompt is too long · the request is ~1256993 tokens (limit 1000000)")}
+	} else {
+		ch <- port.ProviderEvent{Type: port.ProviderText, Text: "ok"}
+		ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	}
+	close(ch)
+	return ch, nil
+}
+
+// The same refusal inside the stream recovers the same way: compact, re-issue, finish — and the
+// refusal is not left behind as an error the person sees.
+func TestInStreamOverflowCompactsAndRetries(t *testing.T) {
+	ctx := context.Background()
+	store, _ := jsonl.New(t.TempDir())
+	llm := &inStreamOverflowLLM{}
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
+	big := strings.Repeat("x", 50)
+	for i := 0; i < 10; i++ {
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: "m", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: big}})
+		a.appendFact(ctx, sid, event.TypePartAppended, event.Actor{}, d)
+	}
+	got := runToTerminal(t, a, sid)
+	if n := countType(got, event.TypeError); n != 0 {
+		t.Fatalf("in-stream overflow should have recovered, got %d error(s); types=%v", n, typesOf(got))
+	}
+	if countType(got, event.TypeCompaction) == 0 {
+		t.Errorf("expected a forced compaction; types=%v", typesOf(got))
+	}
+	if !lastData(got, event.TypeTurnFinished, &event.TurnFinishedData{}) {
+		t.Error("turn did not finish after recovery")
+	}
+}

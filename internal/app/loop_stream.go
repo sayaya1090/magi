@@ -34,6 +34,11 @@ type streamStep struct {
 	// finishReason is the provider's finish_reason for this response, unread. "length" means the
 	// output-token cap ended it, not the model — see cutByOutputCapNote.
 	finishReason string
+	// overflow is a too-large rejection that arrived INSIDE the stream, before any output. A CLI
+	// shim (claudecode) answers 200 and then reports "Prompt is too long" as a stream error, so the
+	// request-time compact-and-retry never saw it and the turn ended on it. Not recorded here: the
+	// caller compacts and re-issues, and records it only if that cannot help.
+	overflow error
 }
 
 // cutByOutputCapNote is injected after a response the provider ended at the output-token cap
@@ -449,6 +454,10 @@ loop:
 			// — the flag is what stops a reader (the headless CLI) from quitting in the middle of
 			// a turn the loop is still working.
 			recovered := errors.Is(ev.Err, port.ErrStreamCut) || errors.Is(ev.Err, port.ErrStreamAborted)
+			if !recovered && isContextOverflow(ev.Err) && text.Len() == 0 && reasoning.Len() == 0 && len(res.toolCalls) == 0 {
+				res.overflow = ev.Err
+				break
+			}
 			a.emitErrorKind(ctx, sid, agentActor, ev.Err.Error(), recovered)
 			// A CUT stream is not a failed request. The reply arrived and then the connection
 			// ended without declaring an end, which makes what was recorded a prefix — the same
