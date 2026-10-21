@@ -114,3 +114,16 @@ func TestApplicationClientsCanCooperateWithoutForeignTools(t *testing.T) {
 		}
 	}
 }
+
+func TestOfficeRolesFetchButDoNotShell(t *testing.T) {
+	for _, role := range []string{"powerpoint", "word", "excel"} {
+		if !ClientRoleAllows(role, "webfetch") || ClientRoleAllows(role, "bash") {
+			t.Fatalf("%s: webfetch must be open and bash closed", role)
+		}
+	}
+	for _, role := range []string{"figma", "mail", "slack", "docker", "kubernetes", "browser"} {
+		if ClientRoleAllows(role, "webfetch") {
+			t.Fatalf("%s gained webfetch", role)
+		}
+	}
+}

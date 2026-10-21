@@ -60,5 +60,11 @@ func ClientRoleAllows(role, name string) bool {
 	case "ask_user", "council", "todowrite", "label", "skill", "recall_context", "recall_memory", "search_sessions", "browser", "companions", "companion_can", "hand_off", "rate_handoff":
 		return true
 	}
+	// Office decks and documents are built from sources the user points at — an issue, a paper, a
+	// page. webfetch reads one URL and writes nothing; without it the companion handed every such
+	// read to a coding companion and waited on it. The shell stays closed (2026-10-22 user decision).
+	if name == "webfetch" {
+		return kind == ClientPowerPoint || kind == ClientWord || kind == ClientExcel
+	}
 	return false
 }
