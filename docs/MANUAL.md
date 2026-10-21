@@ -1300,7 +1300,7 @@ reporting work it never did.
 ### Web
 | Tool | Description | Permission |
 |---|---|---|
-| `webfetch` | URL → text | ask |
+| `webfetch` | URL → text (long text paged with `offset`); a picture or other binary is saved to a file and the answer is its path; an SVG is also rendered to PNG when `rsvg-convert` is installed; github.com · api.github.com · raw.githubusercontent.com use this machine's GitHub login (`GH_TOKEN`, `GITHUB_TOKEN` or `gh`; an issue URL returns body + comments) | ask |
 | `websearch` | web search (DuckDuckGo, or Brave/Tavily key) | ask |
 
 ### The council

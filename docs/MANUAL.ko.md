@@ -1119,7 +1119,7 @@ flowchart TD
 ### 웹
 | 툴 | 설명 | 권한 |
 |---|---|---|
-| `webfetch` | URL → 텍스트 | ask |
+| `webfetch` | URL → 텍스트(긴 글은 `offset` 으로 이어 읽음). 그림·바이너리는 파일로 저장하고 그 경로를 답함. SVG 는 `rsvg-convert` 가 있으면 PNG 로도 그림. github.com · api.github.com · raw.githubusercontent.com 은 이 머신의 GitHub 로그인(`GH_TOKEN`·`GITHUB_TOKEN`·`gh`)을 씀(이슈 URL 은 본문+댓글) | ask |
 | `websearch` | 웹 검색(DuckDuckGo, 또는 Brave/Tavily 키) | ask |
 
 ### 카운슬
