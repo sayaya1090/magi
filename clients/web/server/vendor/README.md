@@ -6,7 +6,7 @@ Not fetched at runtime and not built by CI: a CDN would make this page's behavio
 somebody else's machine and tell that machine when you look at your agents, and an npm step in a Go
 repository is a second toolchain for a file that changes twice a year.
 
-## rxjs.js — RxJS 7.8.2, 28.3KB
+## rxjs.js — RxJS 7.8.2, 28.7KB
 
     npm pack rxjs@7                     # rxjs-7.8.2.tgz
     #   sha256 2312f8ffd9726ffd7bd53ea12c5f13663d09a3dc3326f448c70b88f5ef6fac82
@@ -16,10 +16,13 @@ repository is a second toolchain for a file that changes twice a year.
     cat > entry.mjs <<'ENTRY'
     export { BehaviorSubject, Subject, of, from, timer, fromEvent, EMPTY, firstValueFrom,
              map, switchMap, catchError, distinctUntilChanged, shareReplay, startWith,
-             filter, takeUntil, tap, retry } from 'rxjs';
+             filter, takeUntil, tap, retry, debounceTime } from 'rxjs';
     ENTRY
     npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=rxjs.js
-    #   sha256 45fd4c0873ad1ac17ff905ccd6876a62c3c422d2890bee8737f6783fed5ded49
+    #   sha256 0eb0ef7ed1d58650de6576f1401bea13366cd5e0619f1c8111123b953befe306
+    # Without debounceTime the same commands rebuild the previous file, 45fd4c08…, byte for byte.
+    # The console's typing pauses (composer suggestion, editor completion and look-over) use it
+    # through dev.sayaya.rx; a binding whose operator is missing here fails at mount, not at compile.
 
 Only the operators the console uses are exported, so the bundle carries what runs and nothing else.
 Re-running those commands on the same versions reproduces the file — which is the point of writing

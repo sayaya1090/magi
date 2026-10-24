@@ -26,6 +26,8 @@ import java.util.function.Consumer;
 public class BridgeCompanionSource implements CompanionSource {
     private Listener listener;
     private EventSource es;
+    /** 이 회선이 이어서 실패한 횟수 — 물러서는 시간을 정한다. 붙으면 0 으로 돌아간다(FetchRosterSource 와 같은 계약). */
+    private int attempt = 0;
     private String socket;
     private String peer;
 
@@ -203,6 +205,8 @@ public class BridgeCompanionSource implements CompanionSource {
         String query = "?d=" + Global.encodeURIComponent(socket)
                 + (peer != null ? "&p=" + Global.encodeURIComponent(peer) : "");
         es = dev.sayaya.magi.bridge.Console.stream("/events" + query);
+        // 붙었다 — 다음 끊김은 다시 1초부터다.
+        es.addEventListener("open", evt -> attempt = 0);
         es.addEventListener("message", evt -> {
             MessageEvent<String> me = Js.uncheckedCast(evt);
             try { listener.transcript(Global.JSON.parse(me.data)); }
@@ -220,7 +224,11 @@ public class BridgeCompanionSource implements CompanionSource {
             EventSource gone = es;
             if (gone != null) gone.close();
             es = null;
-            DomGlobal.setTimeout(a -> { if (es == null) openStream(); }, 1500);
+            // 고정 1.5초 무한 재시도는 서버가 한 번 재시작할 때 열린 탭을 모두 같은 순간에
+            // 몰리게 한다 — 셸 회선과 같은 물러섬을 쓴다(`clients/contract/lifecycle-policy.json`).
+            attempt++;
+            int wait = dev.sayaya.magi.bridge.Backoff.delayMs(attempt, Math.random());
+            DomGlobal.setTimeout(a -> { if (es == null) openStream(); }, wait);
         });
     }
 }

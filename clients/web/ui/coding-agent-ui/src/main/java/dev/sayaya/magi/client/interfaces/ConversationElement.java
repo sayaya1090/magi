@@ -290,7 +290,6 @@ public class ConversationElement {
     private final HTMLElement hint = el("div");   // 모델이 내민 다음 말(흐리게, Tab이 가져간다)
     private String suggested = "";
     private int suggestAt = 0;
-    private double suggestTick = -1;
     private String parked = "";                   // 다른 몫으로 쓰던 초고는 지우지 않고 맡아 둔다
     private boolean wasAnswering = false;
     private boolean dressed = false;      // 옷을 한 번은 입혀야 한다 — 첫 상태가 기본값과 같아도
@@ -692,11 +691,9 @@ public class ConversationElement {
      */
     private void wireSuggest() {
         HTMLElement inner = field;
-        inner.addEventListener("input", evt -> {
-            clearSuggest();                      // 방금 친 것이 달라졌다 — 서 있던 제안은 낡았다
-            if (suggestTick >= 0) DomGlobal.clearTimeout(suggestTick);
-            suggestTick = DomGlobal.setTimeout(a -> askSuggest(), 400);
-        });
+        inner.addEventListener("input", evt -> clearSuggest()); // 방금 친 것이 달라졌다 — 서 있던 제안은 낡았다
+        // 타이핑이 멎은 뒤(400ms)에 묻는다 — 멈출 때마다 타이머를 손으로 다시 거는 대신 rx가 센다.
+        dev.sayaya.rx.Observable.fromEvent(inner, "input").debounceTime(400).subscribe(e -> askSuggest());
         inner.addEventListener("keydown", evt -> {
             elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
             if ("Tab".equals(k.key) && !suggested.isEmpty() && !composing(k)) {

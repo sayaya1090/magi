@@ -1187,7 +1187,6 @@ public class WorkspaceElement {
         // 설정은 화면이라 그 둘은 같은 순간에 서지 않는다.
         final boolean lookOn = Prefs.on("lookover", false);
         final boolean acOn = Prefs.on("autocomplete", true);
-        final double[] tick = {-1}, lookTick = {-1};
         final int[] asked = {0};
         // 청하는 컨트롤 둘과, 각자 <b>몇 개가 떠 있는지</b>. 표는 이름이기도 하다.
         final HTMLElement[] lookGo = {null}, compGo = {null};
@@ -1242,18 +1241,17 @@ public class WorkspaceElement {
             notes.clear();
             if (!note.hasAttribute("hidden")) say.call("", false);
             repaint.run();
-            // 타이핑이 멎으면 묻는다 — 글자마다 물으면 백엔드를 타이핑 속도로 태운다.
-            if (tick[0] >= 0) DomGlobal.clearTimeout(tick[0]);
-            tick[0] = DomGlobal.setTimeout(a -> complete.accept(false), 350);
-            // 검토는 더 기다린다(2초): 쓰고 있는 한 문장을 다섯 번 보내지 않을 만큼. 이어쓰기가
-            // 덜 기다리는 이유는 반대다 — 지나간 뒤에 오는 제안은 값이 없다.
-            if (lookOn) {
-                if (lookTick[0] >= 0) DomGlobal.clearTimeout(lookTick[0]);
-                lookTick[0] = DomGlobal.setTimeout(a -> askLook(path, pad, false), 2000);
-            }
             // 컴패니언의 곁사본도 따라간다 — 아직 디스크에 없는 그 편집에 대해 답할 수 있게.
             store.openFileHint(path, now);
         });
+        // 타이핑이 멎으면 묻는다 — 글자마다 물으면 백엔드를 타이핑 속도로 태운다.
+        dev.sayaya.rx.Observable.fromEvent(area, "input").debounceTime(350)
+                .subscribe(e -> complete.accept(false));
+        // 검토는 더 기다린다(2초): 쓰고 있는 한 문장을 다섯 번 보내지 않을 만큼. 이어쓰기가
+        // 덜 기다리는 이유는 반대다 — 지나간 뒤에 오는 제안은 값이 없다. 검토가 꺼진 동안 친
+        // 글자는 타이머를 다시 걸지 않는다(filter가 debounce 앞에 서는 이유 — 예전 if와 같은 뜻).
+        dev.sayaya.rx.Observable.fromEvent(area, "input").filter(e -> lookOn).debounceTime(2000)
+                .subscribe(e -> askLook(path, pad, false));
         // 캐럿이 움직이면 그 자리의 이어쓰기는 낡은 것이다 — 마우스도 화살표도 마찬가지다.
         area.addEventListener("pointerdown", evt -> dismiss.run());
         area.addEventListener("blur", evt -> dismiss.run());
