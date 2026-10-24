@@ -103,3 +103,21 @@ containing an img tag with an onerror handler appears in the transcript as those
 is what somebody reading a transcript wants to see anyway.
 
 Licence: MIT.
+
+## sayaya-feedback.js — sayaya-ui 2.5.0.5 feedback bundle, 35.4KB
+
+The shell's tooltip (`md-tooltip`, plus `md-snackbar` and `md-toast`), from the same library the
+console's Java side already depends on (`dev.sayaya:ui`). Not built here: it is the release's own
+standalone ES module, which defines only those three names and skips any name that is already
+registered, so it sits after `material.js` without redefining an `md-*` from it.
+
+    gh release download v2.5.0.5 -R sayaya1090/sayaya-ui -p 'sayaya-ui-feedback-2.5.0.5.js*'
+    shasum -a 256 -c sayaya-ui-feedback-2.5.0.5.js.sha256
+    #   sha256 c9354aefaa0b6b378a32c4c10fbd24ceb74846457a3c013fb2d6c0d8c119d69d
+    mv sayaya-ui-feedback-2.5.0.5.js sayaya-feedback.js
+
+The name carries no version, like the bundles above; this section does. Bump it together with
+`sayaya-ui` in `clients/web/ui/gradle/libs.versions.toml`, so the Java wrapper and the element it
+wraps come from one release.
+
+Licence: Apache-2.0 (sayaya-ui, as its published POM declares), same as this repository.

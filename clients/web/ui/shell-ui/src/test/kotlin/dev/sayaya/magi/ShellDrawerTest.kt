@@ -477,31 +477,31 @@ internal class ShellDrawerTest : GwtTestSpec({
             page.waitForCondition { page.locator("body[nav=open]").count() == 0 }
             page.locator("#prefs").hover()
             Then("창에 하나뿐인 판이 그 컨트롤의 말로 선다") {
-                page.waitForCondition { page.locator("#tip").isVisible() }
+                page.waitForCondition { page.locator("md-tooltip.tip").isVisible() }
                 // 팩 없는 테스트 페이지라 키가 폴백이다 — 계약은 "그 컨트롤의 data-tip".
-                page.locator("#tip").textContent() shouldBe "nav.preferences"
-                page.locator("#tip").count() shouldBe 1
+                page.locator("md-tooltip.tip").textContent() shouldBe "nav.preferences"
+                page.locator("md-tooltip.tip").count() shouldBe 1
             }
             Then("포인터가 떠나도 곧바로는 아니다 — 1.5초는 그 말을 읽는 시간이다") {
                 page.mouse().move(600.0, 600.0)
-                page.locator("#tip").isVisible() shouldBe true
+                page.locator("md-tooltip.tip").isVisible() shouldBe true
             }
             Then("셈은 마우스가 움직일 때마다 되감기지 않는다 — 되감으면 판이 영영 안 걷힌다") {
                 // 주인 밖에서 2초 동안 계속 움직인다. 운영이 밟은 자리라 여기서 기다리지 않고
                 // 잰다: 되감기는 구현이면 이 순간 판은 아직 서 있다.
                 repeat(10) { page.mouse().move(600.0 + it, 600.0); page.waitForTimeout(200.0) }
-                page.locator("#tip").isVisible() shouldBe false
+                page.locator("md-tooltip.tip").isVisible() shouldBe false
             }
         }
         When("키보드로 탭해 오면") {
             page.locator("#prefs").focus()
             Then("포인터 없이도 뜬다 — title=이 한 번도 하지 않던 절반") {
-                page.waitForCondition { page.locator("#tip").isVisible() }
-                page.locator("#tip").textContent() shouldBe "nav.preferences"
+                page.waitForCondition { page.locator("md-tooltip.tip").isVisible() }
+                page.locator("md-tooltip.tip").textContent() shouldBe "nav.preferences"
             }
             Then("초점이 떠나면 걷힌다") {
                 page.evaluate("document.getElementById('prefs').blur()")
-                page.waitForCondition { !page.locator("#tip").isVisible() }
+                page.waitForCondition { !page.locator("md-tooltip.tip").isVisible() }
             }
         }
         When("툴팁의 주인이 다시 그려져 사라지면") {
@@ -513,11 +513,11 @@ internal class ShellDrawerTest : GwtTestSpec({
                 " b.style.cssText = 'position:fixed;top:300px;left:300px;z-index:99';" +
                 " document.body.append(b); })()")
             page.locator("#tipprobe").hover()
-            page.waitForCondition { page.locator("#tip").textContent() == "probe" }
+            page.waitForCondition { page.locator("md-tooltip.tip").textContent() == "probe" }
             Then("남은 판도 걷힌다 — 주인 없는 설명은 아무 말도 아니다") {
                 page.evaluate("document.getElementById('tipprobe').remove()")
                 page.mouse().move(700.0, 700.0)
-                page.waitForCondition { !page.locator("#tip").isVisible() }
+                page.waitForCondition { !page.locator("md-tooltip.tip").isVisible() }
             }
         }
     }

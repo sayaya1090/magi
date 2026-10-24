@@ -391,18 +391,6 @@
   h1, h2 { font:inherit; margin:0; }
   /* Read, not seen. A live region has to be in the accessibility tree, so it cannot be display:none
      or visibility:hidden — it is clipped to nothing instead. */
-  /* Plain tooltip, at the spec's numbers: 24dp tall, 8dp of padding, a 4dp corner, and the
-     inverse surface pair so it reads against whatever it covers. Body-small is the type. The one
-     number the spec does not give is a max width, so this picks one. */
-  #tip {
-    position:fixed; z-index:9; pointer-events:none;
-    min-height:24px; padding:4px 8px; box-sizing:border-box;
-    border-radius:var(--magi-sys-shape-xs); max-width:20rem;
-    background:var(--md-sys-color-inverse-surface, var(--magi-ref-fg));
-    color:var(--md-sys-color-inverse-on-surface, var(--magi-ref-bg));
-    font:var(--md-sys-typescale-body-small-size, .75rem)/var(--md-sys-typescale-body-small-line-height, 1rem) var(--magi-ref-mono);
-    letter-spacing:.4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
   .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden;
              clip-path:inset(50%); white-space:nowrap; border:0; }
 

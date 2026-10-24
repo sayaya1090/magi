@@ -37,6 +37,8 @@
          부트스트랩은 미뤄지지 않아, 나란히 적으면 스토어가 아직 없는 전역을 부른다. -->
     <script type="module">
       import '/vendor/material.js';
+      // md-tooltip(셸의 툴팁)·md-snackbar·md-toast만 정의한다 — 위 번들의 md-*와 겹치지 않는다.
+      import '/vendor/sayaya-feedback.js';
       import * as rxjs from '/vendor/rxjs.js';
       window.rxjs = rxjs;
       // 마크다운 <b>렉서</b>, 그리고 그것뿐. 전사는 모델과 도구가 뱉은 임의의 글이라 여기서

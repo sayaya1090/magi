@@ -24,7 +24,7 @@ public class ShellTestApplication implements EntryPoint {
                 component.rail().element(),
                 component.frame().element(),
                 component.palette().element(),
-                // 창의 것은 창에 세운다 — 프로덕션 Application과 같은 판(#tip).
+                // 창의 것은 창에 세운다 — 프로덕션 Application과 같은 판(md-tooltip.tip).
                 component.tip().element());
         component.masthead().paint();
         component.rail().paint();
