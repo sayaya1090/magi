@@ -637,20 +637,13 @@ public class ConversationElement {
         });
     }
 
-    /**
-     * 표를 한 줄로 — 결정어 · 렌즈 · 확신. 운영 detailHead의 그 칩과 같은 조립이다.
-     *
-     * <p>렌즈와 확신은 전선에 없어서 <b>매번</b> undefined였다(실측: 카운슬 행이 실어 온 것은
-     * decision·member·round·text 넷뿐). 55%의 찬성과 95%의 찬성은 다른 표다.
-     */
+    /** Qualitative decision and review lens. Legacy confidence numbers are not displayed. */
     private static String voteChip(JsPropertyMap<Object> v) {
         StringBuilder b = new StringBuilder();
         String decision = str(v, "decision");
         if (!decision.isEmpty()) b.append(councilWord(decision));
         String lens = str(v, "lens");
         if (!lens.isEmpty()) b.append(b.length() == 0 ? "" : " \u00b7 ").append(lens);
-        double conf = v.get("confidence") == null ? 0 : Js.coerceToDouble(v.get("confidence"));
-        if (conf > 0) b.append(b.length() == 0 ? "" : " \u00b7 ").append((int) Math.round(conf * 100)).append('%');
         return b.toString();
     }
 

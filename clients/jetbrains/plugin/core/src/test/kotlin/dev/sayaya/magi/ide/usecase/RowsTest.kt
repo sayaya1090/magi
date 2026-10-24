@@ -839,7 +839,7 @@ class RowsTest {
             """"decision":"done","confidence":0.62,"rationale":"괜찮다"}"""))
         val v = r.list().last()
         assertEquals(0.62, v.confidence)
-        assertTrue("62%" in RowText.plain(v), "옮겨 적는 글에 확신이 안 실린다: ${RowText.plain(v)}")
+        assertFalse("62%" in RowText.plain(v), "과거 자기평가를 확률로 표시하면 안 됩니다: ${RowText.plain(v)}")
 
         // 안 실려 오면 아무 말도 안 한다 — 0% 는 반대를 확신한 멤버로 읽힌다.
         val quiet = Rows()

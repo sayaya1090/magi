@@ -68,7 +68,9 @@ func (a *App) cloneWorkspace(ctx context.Context, parentDir string) (dir, base s
 	//
 	// Committing here is safe in a way committing in the parent would not be: this is a throwaway
 	// clone under the temp directory, not anybody's repository.
-	if out, err := gitRun(ctx, dir, "checkout", "-q", "-b", childBranch); err != nil {
+	// A trial source is itself a disposable checkout on childBranch. Reset the
+	// branch in this NEW clone; it may already have been copied from the source.
+	if out, err := gitRun(ctx, dir, "checkout", "-q", "-B", childBranch); err != nil {
 		os.RemoveAll(filepath.Dir(dir))
 		return "", "", fmt.Errorf("workspace: branch: %w: %s", err, out)
 	}

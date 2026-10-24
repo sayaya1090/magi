@@ -403,7 +403,6 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	}
 	fill := func(r memberReply) {
 		v.Decision = decisionOf(string(r.Decision))
-		v.Confidence = float64(r.Confidence)
 		v.Rationale = string(r.Rationale)
 		v.Feedback = string(r.Feedback)
 		v.Keep = string(r.Keep)
@@ -496,7 +495,6 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	}
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
 	v.Decision = decisionOf(string(r.Decision))
-	v.Confidence = float64(r.Confidence)
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
@@ -559,11 +557,10 @@ func councilRetryReminderFor(text, shapeAsk string) string {
 // VALUE further down (decisionOf), so widening the accepted SHAPE cannot let a bad value
 // through — it only stops a well-formed vote from vanishing.
 type memberReply struct {
-	Decision   jsonx.Text   `json:"decision"`
-	Confidence jsonx.Number `json:"confidence"`
-	Rationale  jsonx.Text   `json:"rationale"`
-	Feedback   jsonx.Text   `json:"feedback"`
-	Keep       jsonx.Text   `json:"keep"` // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
+	Decision  jsonx.Text `json:"decision"`
+	Rationale jsonx.Text `json:"rationale"`
+	Feedback  jsonx.Text `json:"feedback"`
+	Keep      jsonx.Text `json:"keep"` // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
 	// NeedsPerson names what only the person can supply, on a continue whose gap no work can close.
 	NeedsPerson jsonx.Text `json:"needs_person"`
 	Cite        jsonx.Text `json:"cite"` // verbatim fragment of the record the verdict rests on, or NO-EVIDENCE
@@ -796,7 +793,7 @@ const orientAssembled = "You are shown an assembled block below: the TASK, the P
 // requirement back to itself.
 func verdictSchemaFor(keep bool) string {
 	s := `{"checks":["<requirement> - SATISFIED|UNSATISFIED|BLOCKED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
-		`"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence",` +
+		`"decision":"done|continue|abstain","rationale":"qualitative assessment: evidence, limitations and uncertainty; no numeric confidence or score",` +
 		`"feedback":"the specific gap (only if continue)",` +
 		`"needs_person":"only if continue AND the gap is something only the person can supply; otherwise empty",` +
 		`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"`

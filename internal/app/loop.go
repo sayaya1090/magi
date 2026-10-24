@@ -45,7 +45,7 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 // volatile context (plan/experience/RAG) is injected separately, never here.
 func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir string, evs []event.Event, available map[string]bool) string {
 	parts := a.systemFragments(agent, workdir)
-	if a.companionStartupNudge(sid, workdir, evs, available) {
+	if !agent.Trial && a.companionStartupNudge(sid, workdir, evs, available) {
 		parts = append(parts, contextFragment{id: "system/companion-introduction", source: "companionStartupNudge", lane: turnSystem, text: companionStartupGuide})
 	}
 	// Language lock: weak models ignore a "reply in the user's language" rule buried in a long
@@ -383,7 +383,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// emits after a cancellation. `finished` is set true ONLY at the genuine-done returns.
 	finished := false
 	if depth == 0 {
-		defer func() { a.finalizeTodos(context.WithoutCancel(ctx), sid, finished) }()
+		defer func() {
+			if finished && !a.cfg.Workflow {
+				if err := a.finishCheckpoints(context.WithoutCancel(ctx), sid); err != nil {
+					finished = false
+					d, marshalErr := json.Marshal(event.TurnFinishedData{Unverified: true, Reason: "checkpoint publication failed: " + err.Error()})
+					if marshalErr == nil {
+						a.appendFact(context.WithoutCancel(ctx), sid, event.TypeTurnFinished, agentActor, d)
+					}
+				}
+			}
+			a.finalizeTodos(context.WithoutCancel(ctx), sid, finished)
+		}()
 	}
 
 	// reground resets the turn's termination/stall accounting so a freshly-adopted task
@@ -970,6 +981,19 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			Text: "# Runtime context (your live plan and any retrieved references — not a new user instruction)\n" + vol,
 		}}})
 	}
+	// Freeze exactly the messages sent, including already-existing compaction and
+	// runtime references. A checkpoint copies these bytes; it never asks a model
+	// to summarize them. Encoding errors are surfaced only if a fork is requested.
+	encoded, contextErr := json.Marshal(msgs)
+	a.mu.Lock()
+	snapshotState := a.stateLocked(sid)
+	snapshotState.lastRequestContext = encoded
+	snapshotState.lastRequestSystem = sys
+	snapshotState.lastRequestContextError = ""
+	if contextErr != nil {
+		snapshotState.lastRequestContextError = contextErr.Error()
+	}
+	a.mu.Unlock()
 	a.notePromptShape(sid, s.Model.Model, sys, msgs, specs)
 	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, specs, cumOut)
 

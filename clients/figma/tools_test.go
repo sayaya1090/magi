@@ -87,7 +87,7 @@ func TestBridgeRegistersDesignToolsAndBoundChat(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Result.Tools) != 4 {
+	if len(result.Result.Tools) != 5 {
 		t.Fatalf("catalog: %s", w.Body.String())
 	}
 	for _, tool := range result.Result.Tools {

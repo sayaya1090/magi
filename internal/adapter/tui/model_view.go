@@ -423,9 +423,6 @@ func (m *Model) renderCouncilDetail(width int) string {
 	if v.Lens != "" {
 		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
 	}
-	if v.Confidence > 0 {
-		b.WriteString(styleFooter.Render(fmt.Sprintf("  · confidence %.0f%%", v.Confidence*100)))
-	}
 	b.WriteString("\n")
 	// 기승전결: what the member SAW (evidence) first, then the verdict's reasoning.
 	if ev := strings.TrimSpace(m.councilDetailEvidence); ev != "" {

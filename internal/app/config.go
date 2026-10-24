@@ -15,11 +15,15 @@ import (
 // AgentSpec defines a named agent: its system prompt, optional tool allowlist
 // (empty = all tools), and optional model override. (F-AGENT-MULTI)
 type AgentSpec struct {
-	Name     string
-	System   string
-	Tools    []string
-	Model    session.ModelRef
-	Provider string // named LLM profile (different endpoint/key); empty = default backend
+	preserveContext bool // checkpoint histories cannot be independently summarized
+
+	Trial       bool    // local experiment: no live retrieval or companion introductions
+	trialMemory *string // host-captured durable instructions for this experiment
+	Name        string
+	System      string
+	Tools       []string
+	Model       session.ModelRef
+	Provider    string // named LLM profile (different endpoint/key); empty = default backend
 	// Groups are the AGENT GROUPS this agent belongs to, and they decide which shared skills it is
 	// offered: a skill declaring `agent-groups` reaches it only when the two sets intersect.
 	//
@@ -180,6 +184,8 @@ func DefaultDangerTools() map[string]bool {
 
 // Config holds run-time policy for the agent loop and orchestration (D7).
 type Config struct {
+	CheckpointDocuments port.CheckpointDocuments // optional application adapter; never guesses active document
+
 	// CompanionInstructions reads the user-owned workspace declaration; it grants no extra tools.
 	CompanionInstructions       func(workdir string) string
 	ProfileMaintainer           port.ProfileMaintenance

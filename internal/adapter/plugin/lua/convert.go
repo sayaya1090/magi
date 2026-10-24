@@ -1,8 +1,22 @@
 package lua
 
 import (
+	"encoding/json"
 	lua "github.com/yuin/gopher-lua"
 )
+
+// structuredToLua respects the wire field names of host-owned measurement structs.
+func structuredToLua(L *lua.LState, value any) lua.LValue {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return lua.LNil
+	}
+	var decoded any
+	if json.Unmarshal(b, &decoded) != nil {
+		return lua.LNil
+	}
+	return goToLua(L, decoded)
+}
 
 // goToLua converts a decoded JSON value (map/slice/string/float64/bool/nil) into
 // a Lua value.

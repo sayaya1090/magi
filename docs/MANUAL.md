@@ -1222,6 +1222,10 @@ A collection of interaction behaviors under verification — organized so screen
 
 ## 5. Tools (built-in)
 
+`browser` is the scoped browser access door. Use `connect` to obtain the currently available backend schemas, `call` to invoke one returned tool, and `release` to end the access. It does not expose a general browser catalog until connected.
+
+`companion_call` is the cross-companion door. Use `list` to see companions, `describe` to inspect one, and `call` to request an operation from that companion. The receiving companion remains responsible for its own permissions and workspace scope.
+
 One agent sees all of them. (The only exception is **workflow mode**, §2, where a phase may narrow the set to fit its goal.) The `Permission` column is the approval axis a tool trips (`ask` = confirmed under `ask`/`auto`; `—` = read-only, never prompts).
 
 Every call takes the same path before anything happens, and each gate can only refuse:
@@ -1265,6 +1269,8 @@ File/search paths stay inside the current session workdir. An absolute path must
 | `grep` | regex content search | — |
 | `glob` | filename glob (`**` supported) | — |
 | `list` | directory listing | — |
+| `browser` | scoped browser access: connect, call a returned backend tool, or release the session | ask |
+| `companion_call` | list, describe, or call another companion within its declared scope | ask |
 
 ### Execution
 | Tool | Description | Permission |

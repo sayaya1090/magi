@@ -72,7 +72,7 @@ func SandboxWrap(spec port.SandboxSpec, cmdArgv []string) ([]string, bool) {
 
 	if spec.Mode == "workspace-write" {
 		bindRW(spec.Workdir, false)
-		if home, _ := os.UserHomeDir(); home != "" {
+		if home, _ := os.UserHomeDir(); home != "" && !spec.StrictWrites {
 			// Build/package caches, so go/npm/cargo builds keep working. Create them
 			// so the bind succeeds even on a fresh environment.
 			for _, c := range []string{"/.cache", "/go", "/.cargo", "/.npm"} {

@@ -1539,8 +1539,8 @@ func spliceCouncil(rows []line, marks []app.CouncilMark, order []string) []line 
 	for _, m := range marks {
 		row := line{Who: "council", Text: councilText(m), Round: m.Round,
 			Decision: m.Decision, Member: m.Member,
-			Lens: m.Lens, Confidence: m.Confidence,
-			Why: m.Why, Feedback: m.Feedback, Keep: m.Keep, Cite: m.Cite}
+			Lens: m.Lens,
+			Why:  m.Why, Feedback: m.Feedback, Keep: m.Keep, Cite: m.Cite}
 		i, ok := after[m.After]
 		switch {
 		case !ok:
@@ -1648,9 +1648,7 @@ func councilText(m app.CouncilMark) string {
 	}
 	// How sure, where the terminal puts it: on the line with the vote. A vote at 55% and a vote at
 	// 95% are different votes and the number was on the wire the whole time.
-	if m.Confidence > 0 {
-		head += fmt.Sprintf(" · %d%%", int(m.Confidence*100+0.5))
-	}
+
 	var body []string
 	if m.Why != "" {
 		body = append(body, m.Why)

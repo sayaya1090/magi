@@ -25,6 +25,7 @@ const (
 	TypePartAppended      Type = "part.appended"
 	TypePermissionDecided Type = "permission.decided"
 	TypeCompaction        Type = "compaction"
+	TypeCheckpointContext Type = "checkpoint.context"
 	TypeResultElided      Type = "result.elided"
 	TypeTurnFinished      Type = "turn.finished"
 	TypeTodosChanged      Type = "todos.changed"

@@ -123,7 +123,7 @@ func TestAVerdictRowGivesUpDetailBeforeItIsCut(t *testing.T) {
 		wantLens bool
 		wantConf bool
 	}{
-		{100, true, true},  // everything fits
+		{100, true, false}, // everything fits
 		{44, true, false},  // the lens fits, the confidence does not
 		{30, false, false}, // neither does
 	} {

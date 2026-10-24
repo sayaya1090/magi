@@ -21,6 +21,7 @@
 | [UI](UI.ko.md) · [English](UI.md) | **UI 설계 규약**: 웹 콘솔(`clients/web/server`) 및 터미널 UI(`internal/adapter/tui`) 화면 구조 및 디자인 원칙. |
 | [CLIENTS](CLIENTS.ko.md) · [English](CLIENTS.md) | **클라이언트 플랫폼 연동**: 터미널, 웹 콘솔, JetBrains 플러그인, Visual Studio 확장, Office 애드인의 역할과 소켓 계약. |
 | [EXTENDING](EXTENDING.ko.md) · [English](EXTENDING.md) | **확장 개발 가이드**: 외부 도구(MCP) 및 팀 공유 지식/스킬 저장소 연동 절차. |
+| [S2_ENGINE](S2_ENGINE.ko.md) · [English](S2_ENGINE.md) | **로컬 실험**: 선택적 지침 비교 플러그인, 학습 근거와 기억 정정·재안내. |
 
 ## 구현 인계 및 평가
 

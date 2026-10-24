@@ -42,6 +42,11 @@ func (a *App) Subagents() []SubagentInfo {
 		// The user's own choice wins; absent, the tool's declaration decides. That is what lets a
 		// subagent ship switched off and still be turned on for good.
 		pref := prefs[t.Name()]
+		if pref == (SubagentPref{}) {
+			if legacy := legacySubagentName(t.Name()); legacy != "" {
+				pref = prefs[legacy]
+			}
+		}
 		enabled := !m.DefaultOff
 		if pref.Enabled != nil {
 			enabled = *pref.Enabled
@@ -92,6 +97,11 @@ func (a *App) editSubagent(name string, edit func(*SubagentPref)) error {
 		a.subagentPrefs = map[string]SubagentPref{}
 	}
 	pref := a.subagentPrefs[name]
+	if pref == (SubagentPref{}) {
+		if legacy := legacySubagentName(name); legacy != "" {
+			pref = a.subagentPrefs[legacy]
+		}
+	}
 	edit(&pref)
 	a.subagentPrefs[name] = pref
 	p := a.cfg.SubagentPersister
@@ -107,6 +117,11 @@ func (a *App) subagentOverride(name string) (model, provider string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	pref := a.subagentPrefs[name]
+	if pref == (SubagentPref{}) {
+		if legacy := legacySubagentName(name); legacy != "" {
+			pref = a.subagentPrefs[legacy]
+		}
+	}
 	return pref.Model, pref.Provider
 }
 
@@ -136,7 +151,28 @@ func (a *App) subagentDisabled(name string, meta port.ToolMetadata) bool {
 	if pref, ok := a.subagentPrefs[name]; ok && pref.Enabled != nil {
 		return !*pref.Enabled
 	}
+	if legacy := legacySubagentName(name); legacy != "" {
+		if pref, ok := a.subagentPrefs[legacy]; ok && pref.Enabled != nil {
+			return !*pref.Enabled
+		}
+	}
 	return meta.DefaultOff
+}
+
+func legacySubagentName(name string) string {
+	switch name {
+	case "s2_compare":
+		return "harness_lab_compare"
+	case "s2_report":
+		return "harness_lab_report"
+	case "s2_search":
+		return "harness_lab_search"
+	case "s2_validate":
+		return "harness_lab_validate"
+	case "s2_checkpoint":
+		return "harness_checkpoint"
+	}
+	return ""
 }
 
 // clonePrefs copies the settings map so the app never shares one with its caller or its reader.

@@ -80,6 +80,24 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 
 	for _, ev := range evs {
 		switch ev.Type {
+		case event.TypeCheckpointContext:
+			var d event.CheckpointContextData
+			if json.Unmarshal(ev.Data, &d) != nil {
+				continue
+			}
+			if whole && d.Replace {
+				entries = append(entries, &entry{seq: ev.Seq, msg: session.Message{ID: "checkpoint-" + strconv.FormatInt(ev.Seq, 10), Role: session.RoleSystem, Parts: []session.Part{{Kind: session.PartText, Text: "Subsequent model context continues from selected branch session " + d.SourceSession + ". Original conversation and comparison records remain in this log."}}}})
+				continue
+			}
+			if d.Replace {
+				entries = nil
+				index = map[string]*entry{}
+			}
+			for _, msg := range d.Messages {
+				e := &entry{seq: ev.Seq, msg: msg}
+				entries = append(entries, e)
+				index[msg.ID] = e
+			}
 		case event.TypeCompaction:
 			var d event.CompactionData
 			if json.Unmarshal(ev.Data, &d) != nil || event.CompactionSummaryError(d.Summary) {

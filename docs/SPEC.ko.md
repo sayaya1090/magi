@@ -186,7 +186,7 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
 
 규칙:
 - R1 영속 타입(`session.created` / `prompt.submitted` / `part.appended` / `permission.decided` /
-  `compaction` / `result.elided` / `turn.finished` / `todos.changed` / `labels.changed` / `error` /
+  `checkpoint.context` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` / `labels.changed` / `error` /
   `council.convened` / `council.verdict` / `council.decided` / `interjection.deferred` /
   `interjection.answered` / `prompt.abandoned` / `session.moved` / `model.changed` / `tool.background`)은 Store에 기록합니다.
 - R2 전이 타입(`part.delta` / `tool.progress` / `permission.requested` / `question.requested` /

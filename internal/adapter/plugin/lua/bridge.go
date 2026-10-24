@@ -35,6 +35,9 @@ func installBridge(p *plugin) {
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
+	L.SetField(t, "checkpoint", L.NewFunction(p.bridgeCheckpoint))
+	L.SetField(t, "checkpoint_available", L.NewFunction(func(L *lua.LState) int { L.Push(lua.LBool(p.env.Checkpoint != nil)); return 1 }))
+	L.SetField(t, "analyze_measured", L.NewFunction(p.bridgeAnalyzeMeasured))
 	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
 	L.SetField(t, "spawn_all", L.NewFunction(p.bridgeSpawnAll))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
@@ -178,12 +181,15 @@ func (p *plugin) spawnSpecFrom(L *lua.LState, spec *lua.LTable) port.SpawnSpec {
 		return 0
 	}
 	sp := port.SpawnSpec{
-		System:    str("system"),
-		Prompt:    str("prompt"),
-		Model:     str("model"),
-		Provider:  str("provider"),
-		MaxSteps:  num("max_steps"),
-		Workspace: str("workspace"), // "clone" = its own checkout; empty shares the parent's
+		CheckpointBranch: str("checkpoint_branch"),
+		VerifyPath:       str("verify_path"),
+		Trial:            lua.LVAsBool(spec.RawGetString("trial")),
+		System:           str("system"),
+		Prompt:           str("prompt"),
+		Model:            str("model"),
+		Provider:         str("provider"),
+		MaxSteps:         num("max_steps"),
+		Workspace:        str("workspace"), // "clone" = its own checkout; empty shares the parent's
 	}
 	if secs := num("timeout"); secs > 0 {
 		sp.Timeout = time.Duration(secs) * time.Second
@@ -248,6 +254,12 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	}
 	out := L.NewTable()
 	L.SetField(out, "text", lua.LString(res.Text))
+	L.SetField(out, "metrics", structuredToLua(L, res.Metrics))
+	L.SetField(out, "verification", structuredToLua(L, res.Verification))
+	L.SetField(out, "trial", lua.LBool(res.Trial))
+	L.SetField(out, "snapshot", lua.LString(res.Snapshot))
+	L.SetField(out, "model", lua.LString(res.Model))
+	L.SetField(out, "provider", lua.LString(res.Provider))
 	L.SetField(out, "session_id", lua.LString(res.SessionID))
 	// Where the child worked. Empty when it shared the parent's directory; otherwise its own
 	// checkout, which the caller takes what it wants from — magi does not merge it back.
@@ -308,6 +320,7 @@ func stepsTable(L *lua.LState, steps []port.ChildStep) *lua.LTable {
 			L.SetField(row, "args", lua.LString(string(st.Args)))
 		}
 		L.SetField(row, "failed", lua.LBool(st.Failed))
+		L.SetField(row, "pending", lua.LBool(st.Pending))
 		L.SetField(row, "output", lua.LString(st.Output))
 		L.SetField(row, "output_bytes", lua.LNumber(st.OutputBytes))
 		out.Append(row)
@@ -532,6 +545,12 @@ func (p *plugin) bridgeSpawnAll(L *lua.LState) int {
 	for i, r := range results {
 		row := L.NewTable()
 		L.SetField(row, "text", lua.LString(r.Text))
+		L.SetField(row, "metrics", structuredToLua(L, r.Metrics))
+		L.SetField(row, "verification", structuredToLua(L, r.Verification))
+		L.SetField(row, "trial", lua.LBool(r.Trial))
+		L.SetField(row, "snapshot", lua.LString(r.Snapshot))
+		L.SetField(row, "model", lua.LString(r.Model))
+		L.SetField(row, "provider", lua.LString(r.Provider))
 		L.SetField(row, "session_id", lua.LString(r.SessionID))
 		L.SetField(row, "steps", lua.LNumber(r.Steps))
 		L.SetField(row, "workspace", lua.LString(r.Workspace))
@@ -1159,6 +1178,14 @@ const analyzeTimeout = 2 * time.Minute
 // It cannot see the session, register tools, or mutate anything — it is a pure
 // text→text sidecar on the configured backend.
 func (p *plugin) bridgeAnalyze(L *lua.LState) int {
+	return p.analyze(L, false)
+}
+
+func (p *plugin) bridgeAnalyzeMeasured(L *lua.LState) int {
+	return p.analyze(L, true)
+}
+
+func (p *plugin) analyze(L *lua.LState, measured bool) int {
 	p.requireCap(L, "analyze") // it spends LLM tokens — must be declared in the manifest
 	if p.host == nil || p.host.analyzer == nil {
 		return fail(L, "analyze: no analyzer available")
@@ -1176,9 +1203,28 @@ func (p *plugin) bridgeAnalyze(L *lua.LState) int {
 	if strings.TrimSpace(text) == "" {
 		return fail(L, "analyze: text is required")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), analyzeTimeout)
+	ctx, cancel := context.WithTimeout(p.spawnCtx(), analyzeTimeout)
 	defer cancel()
-	out, err := p.host.analyzer.Analyze(ctx, system, text, model)
+	var out string
+	var err error
+	metrics := port.RunMetrics{Calls: 1}
+	started := time.Now()
+	if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); measured && ok {
+		out, metrics, err = analyzer.AnalyzeMeasured(ctx, system, text, model)
+	} else {
+		out, err = p.host.analyzer.Analyze(ctx, system, text, model)
+		metrics.ElapsedMS = time.Since(started).Milliseconds()
+	}
+	if measured {
+		result := L.NewTable()
+		L.SetField(result, "text", lua.LString(out))
+		L.SetField(result, "metrics", structuredToLua(L, metrics))
+		if err != nil {
+			L.SetField(result, "error", lua.LString(err.Error()))
+		}
+		L.Push(result)
+		return 1
+	}
 	if err != nil {
 		return fail(L, "analyze: "+err.Error())
 	}
@@ -1320,4 +1366,25 @@ func (p *plugin) bridgeJSONDecode(L *lua.LState) int {
 
 func failPath(L *lua.LState, rel string) int {
 	return fail(L, "invalid path (outside workdir): "+rel)
+}
+
+func (p *plugin) bridgeCheckpoint(L *lua.LState) int {
+	p.requireCap(L, "spawn")
+	if p.env.Checkpoint == nil {
+		return fail(L, "checkpoint: not available in this context")
+	}
+	t := L.CheckTable(1)
+	str := func(k string) string {
+		v := t.RawGetString(k)
+		if v == lua.LNil {
+			return ""
+		}
+		return v.String()
+	}
+	r, err := p.env.Checkpoint(p.spawnCtx(), port.CheckpointRequest{Action: str("action"), Kind: str("kind"), Branch: str("branch"), Path: str("path")})
+	if err != nil {
+		return fail(L, err.Error())
+	}
+	L.Push(structuredToLua(L, r))
+	return 1
 }

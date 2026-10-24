@@ -39,7 +39,7 @@ func TestAMemoryEnteringTheSetLaterIsAnnouncedOnce(t *testing.T) {
 		t.Fatalf("announced twice is the transcript growing for nothing: %v", again)
 	}
 	// Seen is seen, even across another retrieval.
-	a.noteMemoryArrivals("s1", []port.Memory{{ID: "m2", Text: "the port was held by a zombie server"}})
+	a.noteMemoryArrivals("s1", []port.Memory{{ID: "m2", Text: "the port was held by a zombie server\nsecond line"}})
 	if again := a.takeMemoryArrivals("s1", 3); again != nil {
 		t.Fatalf("re-matching an announced memory must not re-announce it: %v", again)
 	}
@@ -82,6 +82,48 @@ func TestArrivalsRideTheExistingRetrieval(t *testing.T) {
 }
 
 type growingExp struct{ grown bool }
+
+func TestMemoryCorrectionReplacesPendingHintAndIsAnnouncedOnce(t *testing.T) {
+	a := &App{states: map[session.SessionID]*sessionState{}}
+	a.noteMemoryArrivals("s", nil)
+	a.noteMemoryArrivals("s", []port.Memory{{ID: "stable", Text: "old claim"}})
+	a.noteMemoryArrivals("s", []port.Memory{{ID: "stable", Text: "corrected claim"}})
+	got := a.takeMemoryArrivals("s", 3)
+	if len(got) != 1 || !strings.Contains(got[0], "corrected claim") {
+		t.Fatalf("stale pending revision: %v", got)
+	}
+	a.noteMemoryArrivals("s", []port.Memory{{ID: "stable", Text: "corrected claim"}})
+	if got := a.takeMemoryArrivals("s", 3); len(got) != 0 {
+		t.Fatalf("duplicate revision: %v", got)
+	}
+	a.noteMemoryArrivals("s", []port.Memory{{ID: "stable", Text: "third revision"}})
+	if got := a.takeMemoryArrivals("s", 3); len(got) != 1 {
+		t.Fatalf("correction not delivered: %v", got)
+	}
+}
+
+func TestMemoryDeliveryWindowAndWithdrawnPendingHint(t *testing.T) {
+	a := &App{states: map[session.SessionID]*sessionState{}}
+	mems := []port.Memory{{ID: "stable", Text: "relevant fact"}}
+	a.noteMemoryArrivals("s", mems)
+	a.resetMemoryDelivery("s")
+	a.noteMemoryArrivals("s", mems)
+	if got := a.takeMemoryArrivals("s", 0); len(got) != 0 {
+		t.Fatal(got)
+	}
+	if got := a.takeMemoryArrivals("s", 3); len(got) != 1 {
+		t.Fatalf("compacted context did not get a fresh hint: %v", got)
+	}
+	a.noteMemoryArrivals("s", []port.Memory{{ID: "new", Text: "will be withdrawn"}})
+	a.noteMemoryArrivals("s", nil)
+	if got := a.takeMemoryArrivals("s", 3); len(got) != 0 {
+		t.Fatalf("withdrawn hint delivered: %v", got)
+	}
+	a.noteMemoryArrivals("s", []port.Memory{{ID: "new", Text: "will be withdrawn"}})
+	if got := a.takeMemoryArrivals("s", 3); len(got) != 1 {
+		t.Fatalf("undelivered hint treated as delivered: %v", got)
+	}
+}
 
 func (g *growingExp) Retrieve(_ context.Context, _ string, _ []string) ([]port.Memory, []port.Skill, error) {
 	mems := []port.Memory{{ID: "m-old", Text: "was always here"}}

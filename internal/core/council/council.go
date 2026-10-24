@@ -65,7 +65,7 @@ type Verdict struct {
 	Member     string   `json:"member"`               // the member's label
 	Lens       string   `json:"lens,omitempty"`       // the member's lens
 	Decision   Decision `json:"decision"`             // done | continue | abstain
-	Confidence float64  `json:"confidence,omitempty"` // 0..1, self-reported
+	Confidence float64  `json:"confidence,omitempty"` // legacy input only; new evaluations use rationale and evidence
 	Rationale  string   `json:"rationale,omitempty"`  // why
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
 	Keep       string   `json:"keep,omitempty"`       // what the report already gets right (advisory, MAGI_COUNCIL_KEEP)

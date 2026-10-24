@@ -42,7 +42,7 @@ import (
 const panelSchema = `{"verdicts":[` +
 	`{"member":"<name>","lens":"<lens>",` +
 	`"checks":["<requirement> - SATISFIED|UNSATISFIED|BLOCKED - <verbatim fragment, or NO-EVIDENCE>", "..."],` +
-	`"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence",` +
+	`"decision":"done|continue|abstain","rationale":"qualitative assessment: evidence, limitations and uncertainty; no numeric confidence or score",` +
 	`"feedback":"the specific gap (only if continue)",` +
 	`"needs_person":"only if continue AND the gap is something only the person can supply; otherwise empty",` +
 	`"cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"}` +
@@ -244,15 +244,14 @@ func closeOf(text string) panelClose {
 // panelVerdict is one entry of the reply. Every field is a tolerant type for the same reason the
 // single-member reply's are: a verdict that was cast must not be lost to the shape of a field.
 type panelVerdict struct {
-	Member     jsonx.Text   `json:"member"`
-	Lens       jsonx.Text   `json:"lens"`
-	Checks     jsonx.Text   `json:"checks"`
-	Decision   jsonx.Text   `json:"decision"`
-	Confidence jsonx.Number `json:"confidence"`
-	Rationale  jsonx.Text   `json:"rationale"`
-	Feedback   jsonx.Text   `json:"feedback"`
-	Keep       jsonx.Text   `json:"keep"`
-	Cite       jsonx.Text   `json:"cite"`
+	Member    jsonx.Text `json:"member"`
+	Lens      jsonx.Text `json:"lens"`
+	Checks    jsonx.Text `json:"checks"`
+	Decision  jsonx.Text `json:"decision"`
+	Rationale jsonx.Text `json:"rationale"`
+	Feedback  jsonx.Text `json:"feedback"`
+	Keep      jsonx.Text `json:"keep"`
+	Cite      jsonx.Text `json:"cite"`
 	// NeedsPerson: see memberReply.
 	NeedsPerson jsonx.Text `json:"needs_person"`
 }
@@ -490,7 +489,6 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		} else {
 			out[i].Decision = council.Abstain
 		}
-		out[i].Confidence = float64(v.Confidence)
 		out[i].Rationale = string(v.Rationale)
 		out[i].Feedback = string(v.Feedback)
 		out[i].Keep = string(v.Keep)

@@ -387,13 +387,14 @@ type ScheduleChange struct {
 // That split is the whole design. The raw stderr of a failed build is the thing a caller cannot
 // reconstruct and cannot afford to have summarised — it is why the loop is running another round.
 // Successful output is the bulk of a session's bytes and the caller already knows the shape of it
-// from Name and Args, so carrying it would turn "the footprint" back into "the whole log", which is
-// what this exists instead of. OutputBytes says how much was left behind either way.
+// from Name and Args. Ordinary child footprints omit successful output; trial and
+// current-turn readers include it within a byte limit. OutputBytes preserves its original size.
 type ChildStep struct {
 	Name        string          // the tool the child called
 	Args        json.RawMessage // its arguments, exactly as the child sent them
 	Failed      bool
-	Output      string // verbatim, and only when Failed
+	Pending     bool   // call has no persisted result yet
+	Output      string // failures verbatim; turn/trial readers also include bounded successful output
 	OutputBytes int    // size of the result, set whether or not Output is carried
 }
 
@@ -481,6 +482,8 @@ type BackgroundCompletion struct {
 
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
+	Checkpoint func(context.Context, CheckpointRequest) (CheckpointResult, error)
+
 	// ObserveBackground registers a completion signal synchronously before Execute returns.
 	// The signal outlives the turn context; closing it without an exit means unknown.
 	ObserveBackground func(<-chan BackgroundCompletion)
@@ -634,6 +637,8 @@ type ToolEnv struct {
 // limited to Workdir + temp), or "full"/"" (unconfined). AllowNet permits
 // outbound network; it is off by default outside "full".
 type SandboxSpec struct {
+	StrictWrites bool // no shared caches; refuse unconfined shell fallback
+
 	Mode     string
 	Workdir  string
 	AllowNet bool
@@ -943,6 +948,12 @@ type TermCaps struct {
 // model somebody chose on purpose. magi ships none; the seam is unreachable until a plugin
 // registers a tool that uses it.
 type SpawnSpec struct {
+	CheckpointBranch string // host-issued branch ID; executes only in that branch
+
+	VerifyPath string // optional trial verifier script, read from pinned source before model execution
+	// Trial pins one common source checkout per tool call, restricts tools to local
+	// coding operations and suppresses live memory/context providers. It never merges.
+	Trial bool
 	// ToolName is the tool the child is running on behalf of, for display. The host fills it in —
 	// a plugin naming its own tool could name any tool, and the strip would say the wrong thing.
 	ToolName string
@@ -998,6 +1009,12 @@ type SpawnSpec struct {
 // SpawnResult is what the child left behind. Failure is reported, never swallowed: a caller told
 // nothing would read silence as success.
 type SpawnResult struct {
+	Metrics      RunMetrics
+	Verification *TrialVerification
+	Trial        bool
+	Snapshot     string // Git tree of the common initial checkout; empty outside trials.
+	Model        string
+	Provider     string
 	// Workspace is where the child actually worked. Empty when it shared the parent's directory;
 	// otherwise the path of its own checkout, which the CALLER is responsible for taking what it
 	// wants out of — magi does not merge it back, because whether a failed attempt's changes are
@@ -1015,6 +1032,29 @@ type SpawnResult struct {
 	Text       string // the child's final message
 	Steps      int
 	Err        string // why the child stopped short, empty when it finished cleanly
+}
+
+// RunMetrics contains provider observations, never model-authored scores. Money
+// is intentionally absent: token counts do not establish the billed price.
+type RunMetrics struct {
+	Calls         int   `json:"calls"`
+	UsageReports  int   `json:"usage_reports"`
+	Input         int   `json:"input_tokens"`
+	Output        int   `json:"output_tokens"`
+	Cached        int   `json:"cached_tokens"`
+	CacheReported bool  `json:"cache_reported"`
+	TokensKnown   bool  `json:"tokens_known"`
+	ElapsedMS     int64 `json:"elapsed_ms"`
+}
+
+// TrialVerification is the host's observation of a pinned verifier, executed
+// after the model has stopped. A pass says only that this script exited zero.
+type TrialVerification struct {
+	Path      string `json:"path"`
+	Digest    string `json:"digest"`
+	Status    string `json:"status"` // passed, failed, not_run, error
+	Output    string `json:"output"`
+	ElapsedMS int64  `json:"elapsed_ms"`
 }
 
 // ToolMetadata is what a tool says about itself beyond its schema. Optional: a tool that has
@@ -1070,4 +1110,50 @@ func ToolMetaOf(t Tool) ToolMetadata {
 		return m.Meta()
 	}
 	return ToolMetadata{}
+}
+
+// CheckpointRequest addresses only resources owned by the calling session.
+// finish arms publication; the host publishes only after genuine completion.
+type CheckpointRequest struct {
+	Path   string `json:"path,omitempty"`
+	Action string `json:"action"`
+	Kind   string `json:"kind,omitempty"`
+	Branch string `json:"branch,omitempty"`
+}
+type CheckpointResult struct {
+	Resource   string                `json:"resource,omitempty"`
+	Kind       string                `json:"kind"`
+	Checkpoint string                `json:"checkpoint"`
+	Phase      string                `json:"phase"`
+	Ready      bool                  `json:"ready"`
+	Branch     string                `json:"branch,omitempty"`
+	Path       string                `json:"path,omitempty"`
+	Recovery   string                `json:"recovery"`
+	Branches   []CheckpointBranch    `json:"branches"`
+	History    []CheckpointSelection `json:"history"`
+}
+type CheckpointBranch struct {
+	Resource   string `json:"resource,omitempty"`
+	ID         string `json:"id"`
+	Path       string `json:"path"`
+	Checkpoint string `json:"checkpoint"`
+	Busy       bool   `json:"busy"`
+	Sealed     bool   `json:"sealed"`
+}
+
+type CheckpointSelection struct {
+	Branch string `json:"branch"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+}
+
+// CheckpointDocument owns an application's reference to one exact file copy.
+// SaveAndClose must not return success until the saved bytes are readable and
+// the application confirms this document is closed. Close failure retains it.
+type CheckpointDocument interface {
+	SaveAndClose(context.Context) error
+}
+type CheckpointDocuments interface {
+	OpenCopy(context.Context, string) (CheckpointDocument, error)
+	ConfirmClosed(context.Context, string) error
 }

@@ -2266,6 +2266,13 @@ type sidecarAnalyzer struct {
 }
 
 func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string) (string, error) {
+	text, _, err := s.AnalyzeMeasured(ctx, system, text, model)
+	return text, err
+}
+
+func (s sidecarAnalyzer) AnalyzeMeasured(ctx context.Context, system, text, model string) (string, port.RunMetrics, error) {
+	started := time.Now()
+	metrics := port.RunMetrics{Calls: 1}
 	if model == "" {
 		model = s.defaultModel
 	}
@@ -2277,7 +2284,8 @@ func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string
 		},
 	})
 	if err != nil {
-		return "", err
+		metrics.ElapsedMS = time.Since(started).Milliseconds()
+		return "", metrics, err
 	}
 	var b strings.Builder
 	var streamErr error
@@ -2289,12 +2297,21 @@ func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string
 			// Surface a mid-stream failure instead of returning a silent
 			// empty/partial reply the plugin would misread as bad JSON.
 			streamErr = fmt.Errorf("analyze stream: %v", ev.Err)
+		case port.ProviderUsage:
+			if ev.Usage != nil {
+				metrics.Input, metrics.Output, metrics.Cached = ev.Usage.In, ev.Usage.Out, ev.Usage.Cached
+				metrics.UsageReports, metrics.TokensKnown, metrics.CacheReported = 1, true, ev.Usage.CacheReported
+			}
 		}
 	}
-	if streamErr != nil && b.Len() == 0 {
-		return "", streamErr
+	metrics.ElapsedMS = time.Since(started).Milliseconds()
+	if streamErr != nil {
+		return b.String(), metrics, streamErr
 	}
-	return b.String(), nil
+	if ctx.Err() != nil {
+		return b.String(), metrics, ctx.Err()
+	}
+	return b.String(), metrics, nil
 }
 
 // stepNarrationClause decides what "keep the user informed" means on a loop that asks the model

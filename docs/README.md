@@ -21,6 +21,7 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 | [UI](UI.md) · [한국어](UI.ko.md) | **UI Design Specs**: Layout and design guidelines for web console (`clients/web/server`) and terminal UI (`internal/adapter/tui`). |
 | [CLIENTS](CLIENTS.md) · [한국어](CLIENTS.ko.md) | **Client Platform Integrations**: Architecture and socket contracts for terminal, web console, JetBrains, Visual Studio, and Office add-ins. |
 | [EXTENDING](EXTENDING.md) · [한국어](EXTENDING.ko.md) | **Extensibility Guide**: Practical integration steps for external tools (MCP) and shared team memory/skills. |
+| [S2_ENGINE](S2_ENGINE.md) · [한국어](S2_ENGINE.ko.md) | **Local experiments**: optional instruction-comparison plugin, learning evidence and revision-aware memory delivery. |
 
 ## Implementation Handoff & Reviews
 

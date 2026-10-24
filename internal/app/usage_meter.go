@@ -119,6 +119,10 @@ func (m *meteredProvider) BaseURL() string {
 // through unchanged and in order — this observes, it never withholds or reorders — so a consumer
 // that already reads usage (the main loop's context meter) is unaffected.
 func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	meter := trialMeter(ctx)
+	if meter != nil {
+		meter.start()
+	}
 	in, err := m.inner.StreamChat(ctx, r)
 	if err != nil {
 		return nil, err
@@ -127,8 +131,17 @@ func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<
 	out := make(chan port.ProviderEvent)
 	go func() {
 		defer close(out)
+		var observed event.Usage
+		reported := false
+		defer func() {
+			if meter != nil {
+				meter.finish(observed, reported)
+			}
+		}()
 		for ev := range in {
 			if ev.Type == port.ProviderUsage && ev.Usage != nil {
+				observed = *ev.Usage
+				reported = true
 				m.a.recordUsage(sid, model, *ev.Usage)
 			}
 			select {

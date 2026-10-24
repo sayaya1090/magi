@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,7 +94,13 @@ func (a *App) systemFor(agent AgentSpec, workdir string) string {
 
 func (a *App) systemFragments(agent AgentSpec, workdir string) []contextFragment {
 	var parts []contextFragment
-	if mem := a.projectMemory(workdir); mem != "" {
+	mem := ""
+	if agent.trialMemory != nil {
+		mem = *agent.trialMemory
+	} else {
+		mem = a.projectMemory(workdir)
+	}
+	if mem != "" {
 		parts = append(parts, contextFragment{id: "system/project-memory", source: "projectMemory", lane: turnSystem, text: "# Project memory\n" + mem + "\n\n"})
 	}
 	parts = append(parts,
@@ -101,7 +108,7 @@ func (a *App) systemFragments(agent AgentSpec, workdir string) []contextFragment
 		contextFragment{id: "system/environment", source: "envInfo", lane: turnSystem, text: "\n\n" + envInfo(workdir)},
 		contextFragment{id: "system/output", source: "outputFormatGuide", lane: turnSystem, text: outputFormatGuide},
 		contextFragment{id: "system/companion-ownership", source: "companionOwnershipGuide", lane: turnSystem, text: companionOwnershipGuide})
-	if a.cfg.CompanionInstructions != nil {
+	if !agent.Trial && a.cfg.CompanionInstructions != nil {
 		if guide := a.cfg.CompanionInstructions(workdir); guide != "" {
 			parts = append(parts, contextFragment{id: "system/companion-purpose", source: "userCompanionPolicy", lane: turnSystem, text: guide})
 		}
@@ -217,7 +224,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 		}
 	}
 	// Plugin-registered context providers (RAG).
-	if q := retrievalQ; q != "" {
+	if q := retrievalQ; q != "" && !agent.Trial {
 		if c := a.gatherContextCached(ctx, s, q); c != "" {
 			add("retrieved", "# Retrieved context\n"+c)
 		}
@@ -332,29 +339,74 @@ func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID
 // already advertises it, and naming each of those would be the pointer again, louder. What gets a
 // line of its own is the one that was not there and now is — which, the query being the task text,
 // means something relevant arrived mid-session by a side door (engram's sidecar, another
-// companion, a person's editor). One line, once per ID; the drain in buildStepRequest appends it,
+// companion, a person's editor). One line per content revision; the drain in buildStepRequest appends it,
 // so nothing already sent ever moves.
 func (a *App) noteMemoryArrivals(sid session.SessionID, mems []port.Memory) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
 	if st.memSeen == nil {
-		st.memSeen = map[string]bool{}
+		st.memSeen = map[string]string{}
 	}
 	if !st.memBaselined {
 		for _, m := range mems {
-			st.memSeen[m.ID] = true
+			st.memSeen[m.ID] = memoryFingerprint(m)
 		}
 		st.memBaselined = true
 		return
 	}
+	// Discard queued hints that no longer belong to the current retrieval. A
+	// withdrawn object must not be announced from an old undrained queue.
+	current := make(map[string]bool, len(mems))
 	for _, m := range mems {
-		if m.ID == "" || st.memSeen[m.ID] {
+		current[m.ID] = true
+	}
+	pending := st.memPending[:0]
+	for _, hint := range st.memPending {
+		if current[hint.id] {
+			pending = append(pending, hint)
+		} else {
+			delete(st.memSeen, hint.id) // queued is not delivered
+		}
+	}
+	st.memPending = pending
+	for _, m := range mems {
+		fingerprint := memoryFingerprint(m)
+		if m.ID == "" || st.memSeen[m.ID] == fingerprint {
 			continue
 		}
-		st.memSeen[m.ID] = true
-		st.memPending = append(st.memPending, "- "+m.ID+": "+oneLineHint(m.Text))
+		st.memSeen[m.ID] = fingerprint
+		arrival := memoryArrival{id: m.ID, text: "- " + m.ID + ": " + oneLineHint(m.Text)}
+		replaced := false
+		for i := range st.memPending {
+			if st.memPending[i].id == m.ID {
+				st.memPending[i], replaced = arrival, true
+				break
+			}
+		}
+		if !replaced {
+			st.memPending = append(st.memPending, arrival)
+		}
 	}
+}
+
+type memoryArrival struct{ id, text string }
+
+// Fingerprint the whole returned content, not its display hint or filesystem
+// path. Managed objects retain their ID when corrected; equal IDs are not equal revisions.
+func memoryFingerprint(m port.Memory) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q:%q", m.Text, m.Tags))))
+}
+
+// A compaction starts a new delivery window. Relevant matches are reannounced
+// on the next ordinary retrieval, without changing the frozen system prefix.
+func (a *App) resetMemoryDelivery(sid session.SessionID) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	st.memSeen = nil
+	st.memPending = nil
+	st.expPtrQ, st.expPtr = "", ""
 }
 
 // takeMemoryArrivals drains up to n queued arrival lines. Capped so a busy fleet feeding the
@@ -364,14 +416,20 @@ func (a *App) takeMemoryArrivals(sid session.SessionID, n int) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
+	if n <= 0 {
+		return nil
+	}
 	if len(st.memPending) == 0 {
 		return nil
 	}
 	if n > len(st.memPending) {
 		n = len(st.memPending)
 	}
-	out := st.memPending[:n]
-	st.memPending = append([]string(nil), st.memPending[n:]...)
+	out := make([]string, n)
+	for i := range out {
+		out[i] = st.memPending[i].text
+	}
+	st.memPending = append([]memoryArrival(nil), st.memPending[n:]...)
 	return out
 }
 

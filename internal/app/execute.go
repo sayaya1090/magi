@@ -28,6 +28,22 @@ import (
 // the loop guard kills the turn. The last sentence exists for the case the list cannot help
 // with: an agent that genuinely has no way to do the thing should SAY so, not keep asking.
 func (a *App) gateAllowlist(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
+	if agent.Trial && (tc.Name == "write" || tc.Name == "edit" || tc.Name == "multiedit") {
+		var args any
+		if json.Unmarshal(tc.Args, &args) == nil && checkpointMetadataPath(args, s.Workdir) {
+			a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID, "trial: Git metadata is host-owned and cannot be modified", true)
+			return true
+		}
+	}
+	if agent.Trial && tc.Name == "bash" {
+		var args struct {
+			Background bool `json:"background"`
+		}
+		if json.Unmarshal(tc.Args, &args) == nil && args.Background {
+			a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID, "trial: background execution is not supported; use foreground checks", true)
+			return true
+		}
+	}
 	roleAllowed := ClientRoleAllows(a.cfg.ClientRole, tc.Name)
 	if roleAllowed && agent.allows(tc.Name) {
 		return false
@@ -304,6 +320,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
 	hooks := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	if hooks.Close != nil {
+		defer hooks.Close()
+	}
 	var expectFn func(port.Elsewhere) error
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
@@ -556,8 +575,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// confined mode still confines the FILESYSTEM, but ssh/curl/apt/pip work. Without this a
 		// benchmark run silently loses network the moment a container has bwrap/sandbox-exec, and
 		// subagents (same execute path) inherit it too.
-		Sandbox: port.SandboxSpec{Mode: a.sandboxModeFor(sid), Workdir: workdir, AllowNet: a.cfg.Permission == "allow",
-			ReadOnly: readOnlyPaths(a.cfg), TempDir: isolatedTemp},
+		Checkpoint: a.checkpointFn(depth, s),
+		Sandbox: port.SandboxSpec{Mode: a.sandboxModeFor(sid), Workdir: workdir, AllowNet: !agent.Trial && a.cfg.Permission == "allow",
+			ReadOnly: trialReadOnlyPaths(a.cfg, workdir, agent.Trial), TempDir: isolatedTemp, StrictWrites: agent.Trial},
 	})
 	if err != nil {
 		resultEmitted = true
@@ -983,4 +1003,40 @@ func looseInt(v any) int {
 		}
 	}
 	return 0
+}
+
+func trialReadOnlyPaths(cfg Config, workdir string, trial bool) []string {
+	paths := readOnlyPaths(cfg)
+	if trial {
+		paths = append(paths, filepath.Join(workdir, ".git"))
+	}
+	return paths
+}
+func checkpointMetadataPath(v any, root string) bool {
+	switch x := v.(type) {
+	case []any:
+		for _, item := range x {
+			if checkpointMetadataPath(item, root) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range x {
+			if key == "path" || key == "file_path" {
+				if p, ok := item.(string); ok {
+					if !filepath.IsAbs(p) {
+						p = filepath.Join(root, p)
+					}
+					rel, err := filepath.Rel(root, filepath.Clean(p))
+					if err == nil && (rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator))) {
+						return true
+					}
+				}
+			}
+			if checkpointMetadataPath(item, root) {
+				return true
+			}
+		}
+	}
+	return false
 }

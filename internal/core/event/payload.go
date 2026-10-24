@@ -353,8 +353,8 @@ type CouncilVerdictData struct {
 	Round      int     `json:"round"`
 	Member     string  `json:"member"`
 	Lens       string  `json:"lens,omitempty"`
-	Decision   string  `json:"decision"` // done | continue | abstain
-	Confidence float64 `json:"confidence,omitempty"`
+	Decision   string  `json:"decision"`             // done | continue | abstain
+	Confidence float64 `json:"confidence,omitempty"` // legacy events only
 	Rationale  string  `json:"rationale,omitempty"`
 	Feedback   string  `json:"feedback,omitempty"`
 	// Cite is the fragment of the record this member said its verdict rests on, or NO-EVIDENCE
@@ -608,4 +608,13 @@ type WorkflowPhaseData struct {
 	Phase  string `json:"phase"`            // localize | implement | verify | review | summarize
 	Status string `json:"status"`           // start | done | pass | fail | retry
 	Detail string `json:"detail,omitempty"` // e.g. "exit 1", "attempt 2/3"
+}
+
+// CheckpointContextData preserves the model-visible history without generating
+// a new summary. Replace selects a branch history for subsequent parent turns.
+type CheckpointContextData struct {
+	Messages      []session.Message `json:"messages"`
+	SourceSession string            `json:"sourceSession"`
+	Digest        string            `json:"digest"`
+	Replace       bool              `json:"replace,omitempty"`
 }

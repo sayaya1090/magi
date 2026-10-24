@@ -26,6 +26,9 @@ const keepRecentEvents = 6
 // msgs is reconstruct(evs), built once per step by the caller and shared (reconstruct is
 // O(events); this sizing check runs every step).
 func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event, msgs []session.Message, sys string) bool {
+	if agent.preserveContext {
+		return false
+	}
 	window := a.contextWindow(s.Model.Model)
 	if window <= 0 {
 		return false // unknown/unlimited window → no ratio-based auto-compaction
@@ -331,6 +334,7 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	if err := a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d); err != nil {
 		return false
 	}
+	a.resetMemoryDelivery(s.ID)
 	tokensBefore, tokensAfter := compaction.TokensBefore, compaction.TokensAfter
 	// And say what it cost. The numbers are the ones the fact carries, so the line and the record
 	// cannot disagree — and "what did I just lose" is the question somebody has when they see the

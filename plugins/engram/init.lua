@@ -71,11 +71,13 @@ local SIDECAR_PROMPT = [[당신은 개발 대화 로그를 분석하는 전용 �
 - 대화에서 실제로 일어나고 확인된 사실에만 근거하라. 시도하지 않은 단계, 확인되지 않은 원인·해결책을 지어내지 마라.
 - 확정 안 된 건 outcome에 반영하거나 아예 기록하지 마라.
 - 특정 프로젝트·환경에만 해당하면 그 조건을 lesson에 명시하고 일반화하지 마라.
-- lesson에는 사용자 지시문의 재진술("~하면 된다"식 요구사항 되풀이)을 넣지 마라 — 검증된 인과(왜 그 결과가 났는가)와 재사용 가능한 결론만.
+- lesson에는 사용자 지시문의 재진술("~하면 된다"식 요구사항 되풀이)을 넣지 마라. 관측한 변경과 결과를 쓰고, 원인이 확정되지 않았으면 그 한계를 명시하라.
 - 입력 끝에 [기존 교훈] 목록이 주어지면: 실질적으로 같은 교훈이 이미 있을 때 lesson=null (표현만 바뀐 재기록 금지 — 특히 회상된 지식을 확인만 한 턴).
 
 형식:
 - lesson: {"task":"어떤 작업","approach":"어떻게 시도","outcome":"success|fail|partial","lesson":"왜 그 결과가 났고 다음에 뭘 해야/피해야 하나","category":"디버깅|설정|구현|리팩터링|분석|기타","replaces":<기존 교훈 행 번호 또는 null>}
+  · change에는 이번에 바꾼 것을, evidence에는 대화에 실제로 있는 근거를 쓴다. 근거가 없으면 빈 문자열이다.
+  · 성공한 턴은 특정 변경의 효과를 입증하지 않는다. 비교 실행이 없는 이 분석의 attribution은 confounded다. 인과가 확정됐다고 쓰지 마라.
   · replaces(정정/병합 — 중요): [기존 교훈] 목록의 행이 (n) 번호를 달고 온다. 이번 교훈이 그중 한 행과 **같은 주제의 정정·구체화·뒤집기**라면 새 행을 추가하지 말고 replaces에 그 번호를 넣어라 — 그 행이 이번 교훈으로 교체되고 옛 행은 아카이브로 내려간다. 특히 결과가 모순되게 뒤집혔으면(전에 ✅였는데 지금 ❌로 판명, 또는 반대) 반드시 replaces를 쓰고 lesson에 왜 뒤집혔는지를 담아라 — 낡은 주장과 새 주장이 나란히 남는 것이 이 원장의 최악의 상태다. 무관한 새 주제일 때만 replaces=null.
 - skill:  {"name":"영문 소문자+언더스코어","trigger":"이 스킬이 필요한 상황","technique":"구체적 해결 기법","description":"트리거 문장","verify":"(선택) 적용 후 성공을 확인하는 커맨드나 체크","avoid":"(선택) 이 스킬을 쓰면 안 되는 상황·알려진 함정(관련 ❌실패 교훈이 있으면 여기에 병합)"}
   · description은 무엇을+언제를 한 문장에 담은 3인칭 트리거 문장으로, 키워드·에러명을 앞쪽에 배치한다.
@@ -755,6 +757,25 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome)
 
   local lesson = result.lesson
   if lesson and lesson.task and lesson.lesson then
+    -- This analyzer sees conversation excerpts, not controlled comparisons.
+    -- Preserve its claims separately and never label a successful turn as
+    -- causal evidence for one technique. A model cannot upgrade this field.
+    local evidence_key = "learning_evidence_v1:" .. magi.workdir()
+    local previous_evidence = magi.store_get(evidence_key) or ""
+    local evidence = magi.json_decode(previous_evidence == "" and "[]" or previous_evidence)
+    if type(evidence) ~= "table" then
+      magi.log("engram: learning evidence is malformed; preserving stored data")
+    else
+      evidence[#evidence + 1] = {
+        session = sid, at = magi.time(), host_outcome = host_outcome,
+        task = tostring(lesson.task), change = tostring(lesson.change or lesson.approach or ""),
+        evidence = tostring(lesson.evidence or ""), attribution = "confounded",
+        source = "conversation_excerpt", verified_application = false,
+      }
+      while #evidence > 100 do table.remove(evidence, 1) end
+      local saved, why = magi.store_compare_exchange(evidence_key, previous_evidence, magi.json_encode(evidence))
+      if not saved then magi.log("engram: learning evidence not saved: " .. tostring(why)) end
+    end
     local outcome = tostring(lesson.outcome or "none")
     if outcome ~= "none" then
       local key = lesson_key(lesson.task, lesson.approach)
@@ -1098,6 +1119,19 @@ magi.on("turn_finished", function(ev)
   end
   prune_stale() -- archive engram-owned skills unused past the cutoff (count/date only)
 end)
+
+-- Evidence remains local to this workspace and separate from causal claims.
+magi.register_command{
+  name = "engram-evidence",
+  description = "최근 학습의 변경·대화 근거·불확실성을 조회합니다 (최대 10개).",
+  execute = function()
+    local rows = magi.json_decode(magi.store_get("learning_evidence_v1:" .. magi.workdir()) or "[]")
+    if type(rows) ~= "table" then return "engram: learning evidence is malformed; stored data was preserved" end
+    local out = {}
+    for i = math.max(1, #rows - 9), #rows do out[#out + 1] = rows[i] end
+    return magi.json_encode(out)
+  end,
+}
 
 -- /engram-prune-days [N] — show or set the unused-skill archive cutoff (days). Human-
 -- edited skills are never archived regardless of the cutoff.

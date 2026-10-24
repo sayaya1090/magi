@@ -2034,7 +2034,7 @@ class SourceTextTest {
         assertTrue(at > 0, "평결 카드의 표식 목록을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
         val block = src.substring(at, src.indexOf("Look.rowHead", at))
         assertTrue("chat.mark.noanswer" in block, "평결 카드가 아닌 블록을 보고 있다")
-        assertTrue("r.confidence" in block, "확신이 카드에 안 선다 — 표는 보이고 규칙이 그것으로 무엇을 했는지는 가려진다")
+        assertFalse("r.confidence" in block, "모델의 과거 자기평가를 측정된 확률로 표시하면 안 됩니다")
     }
 
     /**

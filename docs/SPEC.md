@@ -203,7 +203,7 @@ the type R4 names. The two questions look like one and are not.
 
 Rules:
 - R1 The persisted types (`session.created` / `prompt.submitted` / `part.appended` /
-  `permission.decided` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` /
+  `permission.decided` / `checkpoint.context` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` /
   `labels.changed` / `error` / `council.convened` / `council.verdict` / `council.decided` /
   `interjection.deferred` / `interjection.answered` / `prompt.abandoned` / `session.moved` /
   `model.changed` / `tool.background`) are written to the Store.

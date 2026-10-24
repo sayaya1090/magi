@@ -29,7 +29,7 @@ func (a *App) emitCouncilVerdicts(ctx context.Context, sid session.SessionID, ac
 	for _, v := range verdicts {
 		vd, _ := json.Marshal(event.CouncilVerdictData{
 			Round: round, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
-			Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
+			Rationale: v.Rationale, Feedback: v.Feedback,
 			Keep: v.Keep, Cite: v.Cite, NeedsPerson: v.NeedsPerson, Silent: v.Silent, Thought: v.Thought,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)

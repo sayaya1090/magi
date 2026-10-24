@@ -132,17 +132,7 @@ export interface Row {
    * there was nothing to count.
    */
   thought?: string;
-  /**
-   * How sure this member was, 0..1 as the core spells it — self-reported, and WEIGHED.
-   *
-   * Not decoration: the tally's `doneWeight`/`contWeight` are confidence-weighted sums, so a `done`
-   * at 0.2 and a `done` at 0.95 do not count the same. Drawing the word without the number shows
-   * the vote and hides what the rule did with it.
-   *
-   * Measured across this machine's logs 2026-09-10: carried on 2879 of 2938 verdicts, spread across
-   * 0.1…0.95. `omitempty`, so an absent one means the member said nothing about it — drawn as
-   * nothing rather than as 0%, which would read as a member who was sure of the opposite.
-   */
+  /** Legacy input only; model self-confidence is not a measured probability or vote weight. */
   confidence?: number;
   /**
    * A prompt the core PARKED: typed while a turn was running, and it will run as its own turn when

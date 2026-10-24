@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -73,6 +74,23 @@ var (
 // removed — a session with a parent, the parent's scratch, a bounded context registered for
 // interrupt and shutdown, and the seed.
 func (a *App) spawnChild(ctx context.Context, parent session.Session, actor event.Actor, spec port.SpawnSpec, onProgress func(string)) (port.SpawnResult, error) {
+	return a.spawnChildFrom(ctx, parent, actor, spec, onProgress, parent.Workdir, nil, nil)
+}
+
+func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor event.Actor, spec port.SpawnSpec, onProgress func(string), source string, trialMemory *string, checkpoint *checkpointWorkspace) (port.SpawnResult, error) {
+	meter := &trialMetrics{started: time.Now()}
+	ctx = context.WithValue(ctx, trialMetricsKey{}, meter)
+	var verifier *pinnedVerifier
+	if spec.VerifyPath != "" {
+		if !spec.Trial {
+			return port.SpawnResult{}, fmt.Errorf("verify_path requires trial mode")
+		}
+		var err error
+		verifier, err = readTrialVerifier(source, spec.VerifyPath)
+		if err != nil {
+			return port.SpawnResult{}, fmt.Errorf("trial verifier: %w", err)
+		}
+	}
 	prompt := strings.TrimSpace(spec.Prompt)
 	if prompt == "" {
 		return port.SpawnResult{}, fmt.Errorf("spawn: prompt is required")
@@ -100,8 +118,18 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// that cannot be made fails the spawn outright instead of leaving a child session behind with
 	// nowhere to work.
 	workdir, workspace, base := parent.Workdir, "", ""
+	if spec.Workspace == "checkpoint" {
+		workdir, workspace = source, source
+		if hasHEAD(ctx, source) {
+			out, err := gitRun(ctx, source, "rev-parse", "HEAD")
+			if err != nil {
+				return port.SpawnResult{}, err
+			}
+			base = strings.TrimSpace(out)
+		}
+	}
 	if strings.EqualFold(strings.TrimSpace(spec.Workspace), "clone") {
-		dir, b, err := a.cloneWorkspace(ctx, parent.Workdir)
+		dir, b, err := a.cloneWorkspace(ctx, source)
 		if err != nil {
 			return port.SpawnResult{}, fmt.Errorf("spawn: %w", err)
 		}
@@ -140,7 +168,16 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// pointer — so without this the child's tools are handed empty log/tmp paths. Sharing the
 	// parent's is what scratch.go's own comment describes: a child inherits the pointer and must
 	// not remove it.
-	a.setScratch(child, a.scratchFor(parent.ID))
+	if spec.Trial {
+		scratch := newTurnScratch()
+		if scratch == nil {
+			return port.SpawnResult{}, fmt.Errorf("trial: could not allocate private scratch")
+		}
+		defer scratch.remove()
+		a.setScratch(child, scratch)
+	} else {
+		a.setScratch(child, a.scratchFor(parent.ID))
+	}
 
 	// A child with its own checkout has its shell held to it too. The file tools' jail follows the
 	// child's workdir by construction; bash does not — its confinement is the OS sandbox, and the
@@ -152,6 +189,15 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		a.setSandboxMode(child, "workspace-write")
 	}
 
+	if checkpoint != nil {
+		spec.System += "\nInherited checkpoint messages are historical evidence. Their original file/document/node IDs do not grant access to the original or sibling resources. Re-read the current branch resource before relying on its state."
+		if checkpoint.contextSystem != "" {
+			spec.System = checkpoint.contextSystem + "\n\n# Checkpoint execution constraints (current branch binding and tool limits take precedence)\n" + spec.System
+		}
+		if err := a.seedCheckpointContext(ctx, child, checkpoint); err != nil {
+			return port.SpawnResult{SessionID: string(child)}, err
+		}
+	}
 	// Seed it VERBATIM. seedTurnTask at depth>0 takes the last user prompt from the child's log,
 	// so this one prompt is the whole task, unrewritten.
 	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: spawnAgentName}, prompt); err != nil {
@@ -193,7 +239,7 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	stop := a.forwardChildProgress(cctx, child, onProgress)
 	defer stop()
 
-	agent := AgentSpec{Name: spawnAgentName, System: spec.System, Tools: spec.Tools, Model: model,
+	agent := AgentSpec{Name: spawnAgentName, Trial: spec.Trial, preserveContext: checkpoint != nil, trialMemory: trialMemory, System: spec.System, Tools: spec.Tools, Model: model,
 		Provider: spec.Provider, Groups: spec.Groups}
 
 	// Round-trip with the caller's review, if it set one. Each round runs the SAME session, so the
@@ -278,15 +324,23 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// loose files. base..HEAD is then exactly the child's work — the parent's own uncommitted
 	// changes are below the baseline and do not travel home as though the child had written them.
 	head := base
-	if workspace != "" {
+	spentSteps := a.countTurns(ctx, child) // verifier records are host actions, not model steps
+	var verification *port.TrialVerification
+	if verifier != nil && rerr == nil && cctx.Err() == nil {
+		verification = a.verifyTrial(cctx, a.sessionInfo(cctx, child), verifier)
+	}
+	if workspace != "" && spec.Workspace != "checkpoint" {
 		if h, cerr := commitAll(ctx, workspace, "magi: "+spec.ToolName+" — what the child changed"); cerr == nil {
 			head = h
 		} else if rerr == nil {
 			rerr = cerr
 		}
 	}
-	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: a.countTurns(ctx, child),
-		Workspace: workspace, Branch: childBranch, BaseCommit: base, HeadCommit: head}
+	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: spentSteps,
+		Metrics:      meter.snapshot(),
+		Verification: verification,
+		Workspace:    workspace, Branch: childBranch, BaseCommit: base, HeadCommit: head,
+		Model: model.Model, Provider: model.Provider}
 	defer func() { a.subJobs.finish(child, res.Steps, res.Err) }()
 	switch {
 	case rerr != nil:
@@ -295,6 +349,11 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		// Say which bound was hit. A caller handed a truncated answer with no reason cannot tell it
 		// apart from a short one.
 		res.Err = fmt.Sprintf("child stopped: %v (bound %s)", cctx.Err(), timeout)
+	}
+	if checkpoint != nil {
+		if contextErr := a.recordCheckpointBranchContext(ctx, checkpoint, spec.CheckpointBranch, string(child)); contextErr != nil {
+			return res, contextErr
+		}
 	}
 	return res, nil
 }
@@ -349,6 +408,7 @@ func childCanWrite(names []string) bool {
 // `spawn, _, _, _, _ :=`. The zero value is every hook nil, which is what depth != 0 wants to say
 // and what every consumer already reads as "not offered here".
 type spawnHooks struct {
+	Close   func() // removes the common trial source after all of this call's children finish
 	Spawn   func(context.Context, port.SpawnSpec) (port.SpawnResult, error)
 	Steps   func(context.Context, string) ([]port.ChildStep, error)
 	Restore func(context.Context, string) ([]port.RestoredPath, error)
@@ -385,11 +445,13 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		mine      = map[string]bool{} // children THIS call spawned; childStepsFnFor answers for these only
 		// Where each child worked, so a later merge names a RANGE instead of a directory the
 		// caller had to remember. Per tool call, like the ownership set above it.
-		spaces = map[string][3]string{} // sid -> {workspace, base, head}
+		spaces        = map[string][3]string{} // sid -> {workspace, base, head}
+		trialChildren = map[string]bool{}
 		// How many children RUN at once. spawn_all starts a goroutine per child; this is the only
 		// thing between "ten children" and "ten agent loops at the same time".
 		slots = make(chan struct{}, spawnMaxParallel)
 	)
+	trials := &trialSource{}
 	spawn := func(sctx context.Context, spec port.SpawnSpec) (port.SpawnResult, error) {
 		// Check and reserve under the lock. Spawns from one plugin serialise on its own mutex
 		// today, but the budget must not depend on that staying true.
@@ -484,9 +546,69 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 			refund()
 			return port.SpawnResult{}, fmt.Errorf("spawn: %w", sctx.Err())
 		}
-		res, err := a.spawnChild(sctx, s, actor, spec, func(line string) {
+		source, snapshot := s.Workdir, ""
+		var capturedMemory *string
+		var checkpoint *checkpointWorkspace
+		if spec.CheckpointBranch != "" && !spec.Trial {
+			<-slots
+			refund()
+			return port.SpawnResult{}, fmt.Errorf("checkpoint branches require trial mode")
+		}
+		if spec.Trial {
+			if len(a.cfg.Hooks) > 0 {
+				<-slots
+				refund()
+				return port.SpawnResult{}, fmt.Errorf("trial: configured lifecycle hooks cannot yet be confined to checkpoint branches")
+			}
+			if err := validateTrial(spec); err != nil {
+				<-slots
+				refund()
+				return port.SpawnResult{}, err
+			}
+			var err error
+			var memory string
+			if spec.CheckpointBranch != "" {
+				a.mu.Lock()
+				w := a.stateLocked(s.ID).checkpoint
+				checkpoint = w
+				a.mu.Unlock()
+				if w == nil {
+					err = fmt.Errorf("checkpoint: no tree for this session")
+				} else {
+					var release func()
+					source, release, err = w.acquire(spec.CheckpointBranch)
+					if err == nil {
+						defer release()
+						if err = w.prepareFileVerifier(spec.CheckpointBranch, spec.VerifyPath); err != nil {
+							<-slots
+							refund()
+							return port.SpawnResult{}, err
+						}
+						w.mu.Lock()
+						snapshot = fmt.Sprintf("%x", sha256.Sum256([]byte(w.current)))
+						w.mu.Unlock()
+						memory = w.memory
+					}
+				}
+			} else {
+				source, snapshot, memory, err = trials.get(sctx, a, s.Workdir)
+			}
+			capturedMemory = &memory
+			if err != nil {
+				<-slots
+				refund()
+				return port.SpawnResult{}, err
+			}
+			if spec.CheckpointBranch != "" {
+				spec.Workspace = "checkpoint"
+			} else {
+				spec.Workspace = "clone"
+			}
+		}
+		res, err := a.spawnChildFrom(sctx, s, actor, spec, func(line string) {
 			a.emitToolProgress(s.ID, actor, callID, toolName, line)
-		})
+		}, source, capturedMemory, checkpoint)
+		res.Trial, res.Snapshot = spec.Trial, snapshot
 		<-slots
 		// Charge what the child actually spent, including when it failed — a child that burned
 		// twenty steps and then errored consumed the same model work as one that succeeded, and a
@@ -499,6 +621,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		accounts = append(accounts, childAccount(res, err))
 		if res.SessionID != "" {
 			mine[res.SessionID] = true
+			trialChildren[res.SessionID] = spec.Trial
 			spaces[res.SessionID] = [3]string{res.Workspace, res.BaseCommit, res.HeadCommit}
 		}
 		mu.Unlock()
@@ -524,7 +647,11 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 	merge := func(sctx context.Context, sid string) error {
 		mu.Lock()
 		ok, w := mine[sid], spaces[sid]
+		trial := trialChildren[sid]
 		mu.Unlock()
+		if trial {
+			return fmt.Errorf("merge: trial outputs are evidence only; inspect the checkout separately")
+		}
 		if !ok {
 			return fmt.Errorf("merge: %q was not spawned by this tool call", sid)
 		}
@@ -534,10 +661,18 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 	steps := func(sctx context.Context, sid string) ([]port.ChildStep, error) {
 		mu.Lock()
 		ok := mine[sid]
+		trial := trialChildren[sid]
 		mu.Unlock()
 		if !ok {
 			// Naming a session this call did not spawn is not a lookup failure to paper over.
 			return nil, fmt.Errorf("child steps: %q was not spawned by this tool call", sid)
+		}
+		if trial {
+			evs, err := a.store.Read(sctx, session.SessionID(sid), 0)
+			if err != nil {
+				return nil, fmt.Errorf("trial evidence: %w", err)
+			}
+			return stepsOfMode(evs, false, true), nil
 		}
 		return a.childSteps(sctx, session.SessionID(sid))
 	}
@@ -549,7 +684,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		}
 		return strings.Join(accounts, "\n\n")
 	}
-	return spawnHooks{Spawn: spawn, Steps: steps, Restore: restore, Merge: merge, Report: report}
+	return spawnHooks{Close: trials.close, Spawn: spawn, Steps: steps, Restore: restore, Merge: merge, Report: report}
 }
 
 // countTurns counts the child's model round trips: one per distinct assistant message in its log.

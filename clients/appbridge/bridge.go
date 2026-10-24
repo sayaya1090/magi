@@ -43,6 +43,7 @@ type Config struct {
 	ExternalSocketAllowed func(string) bool
 }
 type Binding struct {
+	checkpoint   *figmaCheckpointReservation
 	ID           string `json:"binding"`
 	Session      string `json:"session"`
 	Target       string `json:"target"`
@@ -570,6 +571,7 @@ func (s *Server) Events(ctx context.Context, id string, since int64, each func(e
 		if err != nil || current.Session != b.Session {
 			return false
 		}
+		s.observeFigmaCheckpoint(b, e)
 		return each(e)
 	}})
 }

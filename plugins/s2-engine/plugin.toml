@@ -1,0 +1,6 @@
+name = "s2-engine"
+version = "0.1.0"
+description = "Explicit local coding experiments: compare one instruction change against a pinned baseline."
+entry = "init.lua"
+capabilities = ["tool", "spawn", "analyze", "command"]
+permissions = []

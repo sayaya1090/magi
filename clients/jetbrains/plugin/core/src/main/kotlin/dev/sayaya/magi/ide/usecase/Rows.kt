@@ -93,14 +93,7 @@ data class Row(
      * 판단 불가 사유를 추적할 수 있는 핵심 진단 근거로 활용됩니다.
      */
     val thought: String? = null,
-    /**
-     * 멤버의 판단 확신도(Confidence, 0.0 ~ 1.0).
-     * 코어의 가중 투표 집계(`doneWeight`, `contWeight`)에 직접 반영되는 가중치 값입니다.
-     *
-     * 실측 데이터(2026-09-10 로그 실측): 전체 평결 2,938건 중 2,879건에 포함되었으며 값 범위는 0.1~0.95에 분포합니다.
-     * Go 직렬화의 `omitempty` 규칙상 필드 부재는 확신도 미보고를 의미하므로, 0%로 오인 표기되지 않도록
-     * null인 경우 화면에 확신도 레이블을 노출하지 않습니다.
-     */
+    /** Legacy input only. Self-reported confidence is not a measured probability or vote weight. */
     val confidence: Double? = null,
     /** 코어가 「아무도 안 준 평결」이라 표시한 것 — 본문(rationale)은 그래도 그린다. */
     val silent: Boolean = false,

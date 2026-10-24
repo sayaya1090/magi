@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sync"
 	"time"
 
 	"context"
@@ -31,6 +32,11 @@ type bornFact struct {
 // entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
 // the rest live for the whole session.
 type sessionState struct {
+	checkpoint                                 *checkpointWorkspace
+	checkpointInit                             sync.Mutex
+	lastRequestContext                         []byte
+	lastRequestSystem, lastRequestContextError string
+
 	councilWanted *bool
 	councilTurn   *bool
 	// Whole-session lifetime.
@@ -91,10 +97,11 @@ type sessionState struct {
 	// baseline (the count pointer already advertises it), and an ID that enters the match set
 	// later arrived by a side door: engram's sidecar landing a lesson, another companion feeding
 	// the shared store, a person dropping a file in. Those are queued here and appended to the
-	// transcript as one-line handles, once each — never folded into anything already sent.
-	memSeen      map[string]bool
+	// transcript as one-line handles per content fingerprint. Compaction opens a new delivery
+	// window; a corrected object keeps its ID but can be announced again.
+	memSeen      map[string]string // ID -> content fingerprint, so corrections can be announced
 	memBaselined bool
-	memPending   []string
+	memPending   []memoryArrival
 	// The frozen prefix pieces — see prompt_frozen.go for why these are the only doors.
 	profileIntroTurn bool
 	turnSys          string

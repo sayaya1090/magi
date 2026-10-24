@@ -68,7 +68,7 @@ func seatbeltProfile(spec port.SandboxSpec) string {
 	if spec.Mode == "workspace-write" && spec.Workdir != "" {
 		writePaths = append([]string{spec.Workdir, privateTwin(spec.Workdir)}, writePaths...)
 	}
-	if home != "" {
+	if home != "" && !spec.StrictWrites {
 		writePaths = append(writePaths,
 			home+"/Library/Caches",
 			home+"/go",

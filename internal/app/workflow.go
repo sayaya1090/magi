@@ -153,7 +153,13 @@ func (a *App) runWorkflow(ctx context.Context, s session.Session) error {
 	if err := a.runPhase(ctx, s, review, ""); err != nil {
 		return err
 	}
-	return a.runPhase(ctx, s, summarize, "")
+	if err := a.runPhase(ctx, s, summarize, ""); err != nil {
+		return err
+	}
+	if verified && ctx.Err() == nil {
+		return a.finishCheckpoints(context.WithoutCancel(ctx), s.ID)
+	}
+	return nil
 }
 
 // runPhase runs one phase as a constrained agent turn (restricted toolset +

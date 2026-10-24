@@ -109,6 +109,10 @@ func (s *Server) relay(ctx context.Context, b Binding, name string, args json.Ra
 	if err != nil {
 		return nil, err
 	}
+	armSeq, err := s.figmaCheckpointCursor(ctx, b, name, args)
+	if err != nil {
+		return nil, err
+	}
 	c := &toolCall{ID: id, Name: name, Args: args, binding: b.ID, Session: b.Session, reply: make(chan toolReply, 1)}
 	s.mu.Lock()
 	current := s.bindings[b.ID]
@@ -141,6 +145,9 @@ func (s *Server) relay(ctx context.Context, b Binding, name string, args json.Ra
 	case r := <-c.reply:
 		if r.Error != "" {
 			return nil, errors.New(r.Error)
+		}
+		if err := s.recordFigmaCheckpoint(b, name, args, id, armSeq, r.Result); err != nil {
+			return nil, err
 		}
 		return r.Result, nil
 	case <-ctx.Done():

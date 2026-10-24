@@ -145,6 +145,11 @@ type Analyzer interface {
 	Analyze(ctx context.Context, system, text, model string) (string, error)
 }
 
+// MeasuredAnalyzer optionally exposes provider usage for a tool-free request.
+type MeasuredAnalyzer interface {
+	AnalyzeMeasured(context.Context, string, string, string) (string, port.RunMetrics, error)
+}
+
 // HostConfig configures the plugin host.
 type HostConfig struct {
 	ToolSink   ToolSink

@@ -72,6 +72,9 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			return errResult("", reason), nil
 		}
 	}
+	if env.Sandbox.StrictWrites && bool(a.Background) {
+		return errResult("", "isolated execution does not allow background commands"), nil
+	}
 	if a.Background {
 		// background=true ALREADY persists the process as its own job, so a trailing `&` (or a
 		// `nohup` wrapper) is worse than redundant: it backgrounds the process INSIDE the job's
@@ -185,6 +188,8 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// permission prompt still apply either way.
 	if argv, wrapped := sandboxArgv(env.Sandbox, a.Command); wrapped {
 		name, args = argv[0], argv[1:]
+	} else if env.Sandbox.StrictWrites {
+		return errResult("", "isolated execution requires an enforcing OS sandbox; shell was not started"), nil
 	}
 	// The exit a pipeline reports is its LAST stage's, so `make … | tail` says 0 for a build that
 	// died. bash knows better — PIPESTATUS holds every stage — so ask for it out of band: written to
@@ -222,7 +227,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// ran), retry unconfined so confinement can never break the bash tool outright.
 	// Keyed on the sandbox token specifically — tty detachment is kept on the retry
 	// and never causes a start failure, so it must not trigger this fallback.
-	if err != nil && cmd.ProcessState == nil && sboxAttr != nil {
+	if err != nil && cmd.ProcessState == nil && sboxAttr != nil && !env.Sandbox.StrictWrites {
 		cmd = exec.CommandContext(cctx, name, args...)
 		cmd.Dir = env.Workdir
 		armCancel(cmd)

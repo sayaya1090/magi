@@ -36,6 +36,10 @@ func turnStepsOf(evs []event.Event) []port.ChildStep {
 // must show the tool it was in (childSteps). An OK result's text is clipped, a failure's
 // travels whole.
 func stepsOf(evs []event.Event, turnOnly bool) []port.ChildStep {
+	return stepsOfMode(evs, turnOnly, turnOnly)
+}
+
+func stepsOfMode(evs []event.Event, turnOnly, includeSuccess bool) []port.ChildStep {
 	var out []port.ChildStep
 	var answered []bool
 	at := map[string]int{}
@@ -67,18 +71,21 @@ func stepsOf(evs []event.Event, turnOnly bool) []port.ChildStep {
 			switch {
 			case d.Part.ToolResult.IsError:
 				out[i].Output = text // a failure travels whole, in both modes
-			case !turnOnly:
+			case !includeSuccess:
 				// childSteps' contract: an OK result carries its size, not its text (a parent
 				// reads what a child did, not everything it read).
 			case len(text) <= turnStepOutputCap:
 				out[i].Output = text
 			default:
-				out[i].Output = text[:turnStepOutputCap] + "…[clipped]"
+				out[i].Output = truncateContextBytes(text, turnStepOutputCap) + "…[clipped]"
 			}
 			answered[i] = true
 		}
 	}
 	if !turnOnly {
+		for i := range out {
+			out[i].Pending = !answered[i]
+		}
 		return out
 	}
 	kept := out[:0]

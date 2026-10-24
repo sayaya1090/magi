@@ -124,3 +124,27 @@ func TestOneMemberThatWillNotPersistDoesNotStopTheRest(t *testing.T) {
 			"never attempted", p.wrote)
 	}
 }
+
+func TestS2EngineSubagentSettingsMigrateLegacyNames(t *testing.T) {
+	on := true
+	reg := builtin.Default()
+	reg.Register(metaTool{name: "s2_compare", meta: port.ToolMetadata{Subagent: true, DefaultOff: true}})
+	a := &App{tools: reg, subagentPrefs: map[string]SubagentPref{"harness_lab_compare": {Enabled: &on, Model: "legacy-model"}}}
+	list := a.Subagents()
+	var found SubagentInfo
+	for _, item := range list {
+		if item.Name == "s2_compare" {
+			found = item
+		}
+	}
+	if !found.Enabled || found.Model != "legacy-model" {
+		t.Fatalf("legacy preference not migrated: %+v", found)
+	}
+	if a.subagentDisabled("s2_compare", port.ToolMetadata{DefaultOff: true}) {
+		t.Fatal("legacy enable ignored")
+	}
+	model, _ := a.subagentOverride("s2_compare")
+	if model != "legacy-model" {
+		t.Fatal("legacy model ignored")
+	}
+}

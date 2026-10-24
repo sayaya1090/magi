@@ -186,9 +186,6 @@ func councilMemberPlainAt(v event.CouncilVerdictData, level int) string {
 		s += "  [" + v.Lens + "]"
 	}
 	s += "  " + icon + " " + word
-	if v.Confidence > 0 && level < councilDetailNoConf {
-		s += fmt.Sprintf(" · %.0f%%", v.Confidence*100)
-	}
 	return s
 }
 
@@ -1352,9 +1349,6 @@ func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
 			seg += paint(styleToolResult, "  ["+v.Lens+"]")
 		}
 		seg += paint(councilVerdictStyle(v.Decision), "  "+icon+" "+word)
-		if v.Confidence > 0 && level < councilDetailNoConf {
-			seg += paint(styleToolResult, fmt.Sprintf(" · %.0f%%", v.Confidence*100))
-		}
 		segs[i] = seg
 	}
 	// Backstop for what the detail ladder cannot solve: a member whose name alone overruns the

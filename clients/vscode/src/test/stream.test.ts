@@ -1053,19 +1053,7 @@ test('a rebuttal round is named, including one that moved nobody', () => {
     'a round with no rebuttal says it was debated');
 });
 
-/**
- * ★ How sure a member was is a number, and the tally weighs by it.
- *
- * `doneWeight` and `contWeight` are confidence-weighted sums, so a `done` at 0.2 and a `done` at
- * 0.95 do not count the same. Drawing the word without the number shows the vote and hides what the
- * rule did with it.
- *
- * Measured across this machine's logs (2026-09-10): carried on 2879 of 2938 verdicts, spread across
- * 0.1…0.95. The terminal has drawn it all along; neither IDE client did.
- *
- * ⚠ `omitempty`, so an absent one means the member said nothing about it. Drawn as 0% it would read
- * as a member who was sure of the opposite, so it is drawn as nothing.
- */
+/** Legacy confidence remains readable but is never rendered as a measured probability. */
 test('a verdict carries how sure the member was', () => {
   const said = rows([{ seq: 1, type: 'council.verdict', data: {
     round: 1, member: 'Melchior', lens: 'correctness', decision: 'done',
@@ -1083,8 +1071,8 @@ test('a verdict carries how sure the member was', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const at = chat.indexOf('const vote =');
   assert.ok(at > 0, 'the council label was not found — this guard is reading nothing');
-  assert.match(chat.slice(at, chat.indexOf(';', chat.indexOf('r.round ? `', at))), /r\.confidence/,
-    'the label draws the word and drops the number the rule weighed by');
+  assert.doesNotMatch(chat.slice(at, chat.indexOf(';', chat.indexOf('r.round ? `', at))), /r\.confidence/,
+    'legacy model confidence must not be rendered as a measured probability');
 });
 
 /**

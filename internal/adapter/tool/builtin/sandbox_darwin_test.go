@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/port"
@@ -111,5 +112,37 @@ func TestSandboxNamedTempDirNarrowsTheTempAllowance(t *testing.T) {
 	}
 	if _, err := os.Stat(sibling + "/two.txt"); err == nil {
 		t.Errorf("the sibling escape file exists — the sandbox did not confine")
+	}
+}
+
+func TestStrictSandboxConfinesBranchAndGitMetadata(t *testing.T) {
+	work := t.TempDir()
+	sibling := t.TempDir()
+	scratch := t.TempDir()
+	metadata := filepath.Join(work, ".git")
+	if err := os.WriteFile(metadata, []byte("host metadata"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	spec := port.SandboxSpec{Mode: "workspace-write", Workdir: work, TempDir: scratch, StrictWrites: true, ReadOnly: []string{metadata}}
+	run := func(command string) bool {
+		t.Helper()
+		argv, ok := sandboxArgv(spec, command)
+		if !ok {
+			t.Skip("sandbox-exec unavailable")
+		}
+		_, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		return err == nil
+	}
+	if !run("echo allowed > '" + filepath.Join(work, "inside") + "'") {
+		t.Fatal("branch write denied")
+	}
+	for _, path := range []string{filepath.Join(sibling, "outside"), metadata} {
+		if run("echo forbidden > '" + path + "'") {
+			t.Fatalf("write escaped: %s", path)
+		}
+	}
+	profile := seatbeltProfile(spec)
+	if strings.Contains(profile, "/Library/Caches") || strings.Contains(profile, "/.npm") {
+		t.Fatal("shared caches remain writable")
 	}
 }
