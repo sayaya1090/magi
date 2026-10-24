@@ -43,7 +43,8 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// prompt_tokens (many local ones) the meter and this trigger ran that much light and compaction
 	// fired late. Cheap to add: summing lengths, no marshalling.
 	fixed := estimateTokens(sys, nil) + toolSpecTokens(a.sessionToolSpecs(s.ID, agent))
-	if est := fixed + estimateTokens("", msgs); est > tokens {
+	scale := a.estimateScaleOf(s.ID)
+	if est := scaleEstimate(fixed+estimateTokens("", msgs), scale); est > tokens {
 		tokens = est
 	}
 	if tokens <= budget {
@@ -58,7 +59,7 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	if messageBudget <= 0 {
 		messageBudget = budget
 	}
-	if estimateTokens("", msgs) <= messageBudget {
+	if scaleEstimate(estimateTokens("", msgs), scale) <= messageBudget {
 		return false
 	}
 	// Before the fold, the cheaper cut: give up recent bulky tool results instead of the oldest
@@ -69,7 +70,7 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// a result meant, eliding it deletes knowledge that exists nowhere else, and that is exactly
 	// what the fold's summary is for. When eliding reclaims enough, the fold does not run at all;
 	// when it cannot, the fold runs over what remains.
-	if n, covered := a.elideRecentResults(ctx, s, actor, evs, estimateTokens("", msgs)-messageBudget); n > 0 {
+	if n, covered := a.elideRecentResults(ctx, s, actor, evs, estimateTokens("", msgs)-scaleKeep(messageBudget, scale)); n > 0 {
 		if covered {
 			return true
 		}
@@ -690,7 +691,15 @@ func (a *App) keepTailTokens(s session.Session) int {
 	if window <= 0 {
 		return 0
 	}
-	return int(float64(window) * a.cfg.CompactRatio * a.cfg.CompactKeep)
+	return scaleKeep(int(float64(window)*a.cfg.CompactRatio*a.cfg.CompactKeep), a.estimateScaleOf(s.ID))
+}
+
+// scaleKeep turns a keep budget in REAL tokens into the estimate units tailBoundary counts in.
+func scaleKeep(keep int, scale float64) int {
+	if scale <= 1 {
+		return keep
+	}
+	return int(float64(keep) / scale)
 }
 
 // briefCapTokens is how large the running brief may grow before it is condensed: a tenth of the

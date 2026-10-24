@@ -39,12 +39,22 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 	// compactForRetry folds older history into a summary and rebuilds the request, for a backend
 	// that refused this one for size. Bounded + charged so a request that stays too large after
 	// every fold still surfaces the error.
-	compactForRetry := func() bool {
+	compactForRetry := func(cause error) bool {
 		if !ctxCompactRetryEnabled() || ctxCompactRetries >= maxCtxCompactRetries {
 			return false
 		}
 		fresh, rerr := a.store.Read(ctx, sid, 0)
-		if rerr != nil || !a.compactNow(ctx, tc.s, agent, agentActor, fresh) {
+		if rerr != nil {
+			return false
+		}
+		// The refusal often names the real request size; the fold below sizes its kept tail by the
+		// bytes/4 estimate, which on Korean/JSON-heavy history ran at about half the truth (measured:
+		// ~487k estimated against a ~1,035k request). Learn the ratio first so the fold keeps what the
+		// wire can carry; without it every retry folded too little and the ladder ran out.
+		if real := overflowRequestTokens(cause); real > 0 {
+			a.learnEstimateScale(sid, real, estimateTokens("", reconstruct(fresh)))
+		}
+		if !a.compactNow(ctx, tc.s, agent, agentActor, fresh) {
 			return false
 		}
 		// The FOLDED log, and its error is not decoration. Read answers (nil, err) when the log
@@ -93,7 +103,7 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 			// turn. This is recovery (the run continues), not a cosmetic landing — the error is
 			// caused by size and compaction directly removes size. Bounded + charged so a
 			// request that stays too large after every fold still surfaces the error.
-			if isContextOverflow(err) && compactForRetry() {
+			if isContextOverflow(err) && compactForRetry(err) {
 				continue
 			}
 			a.emitError(ctx, sid, agentActor, err.Error())
@@ -109,10 +119,16 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		if serr != nil {
 			return stepResponse{}, serr
 		}
+		// Every answered request is a measurement: the backend counted what we sent. Compare it with
+		// our own count of the SAME request, so the next trigger and fold size in real tokens before
+		// the context overflows — not only after a refusal.
+		if res.usage != nil && res.usage.In > 0 {
+			a.observeEstimateScale(sid, res.usage.In, estimateChatRequest(req))
+		}
 		// The same size refusal, delivered inside a stream that had produced nothing yet (a CLI
 		// shim answers 200 first). Same recovery; recorded only if it cannot help.
 		if res.overflow != nil {
-			if compactForRetry() {
+			if compactForRetry(res.overflow) {
 				continue
 			}
 			a.emitError(ctx, sid, agentActor, res.overflow.Error())

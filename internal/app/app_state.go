@@ -123,8 +123,13 @@ type sessionState struct {
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request
 	// is new work, and last turn's reminders would be answering a question nobody asked.
 	turnNotes        []string
-	lastPromptTokens int       // real prompt_tokens from the last turn
-	turnStart        time.Time // when the current turn began (check_untouched.go: "did this predate the run")
+	lastPromptTokens int // real prompt_tokens from the last turn
+	// estimateScale is real/estimated tokens (calibratedScale): set from every answered request
+	// (observeEstimateScale) and raised by a size refusal that states the real request size
+	// (learnEstimateScale). 0 means unlearned. The compaction trigger multiplies by it and
+	// keepTailTokens divides by it, so both size in what the WIRE carries, not the bytes/4 guess.
+	estimateScale float64
+	turnStart     time.Time // when the current turn began (check_untouched.go: "did this predate the run")
 	// worldBase is the workspace index taken when this turn started: path → size, for the files
 	// the snapshot's own walk would look at. The finish snapshot is the difference against it,
 	// which is the only way a DELETED file — or a write that preserved its mtime — shows up at
