@@ -94,18 +94,18 @@ internal class MapScreenTest : GwtTestSpec({
             )
             Then("딴 머신 노드의 나이가 자란다") {
                 val age = page.locator("#map .node.faroff .nodeage")
-                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent()) }
-                val first = Regex("\\d+").find(age.textContent())!!.value.toInt()
+                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent().orEmpty()) }
+                val first = Regex("\\d+").find(age.textContent().orEmpty())!!.value.toInt()
                 page.waitForCondition {
-                    Regex("\\d+").find(age.textContent())!!.value.toInt() >= first + 2
+                    Regex("\\d+").find(age.textContent().orEmpty())!!.value.toInt() >= first + 2
                 }
             }
             Then("침묵한 상자 위의 문장도 자란다 — 「3분 전」은 4분째에 거짓말이므로") {
                 val seen = page.locator("#map .machine .placeseen.down")
-                page.waitForCondition { Regex("^\\[\\d+[smhd]]$").matches(seen.textContent()) }
-                val first = Regex("\\d+").find(seen.textContent())!!.value.toInt()
+                page.waitForCondition { Regex("^\\[\\d+[smhd]]$").matches(seen.textContent().orEmpty()) }
+                val first = Regex("\\d+").find(seen.textContent().orEmpty())!!.value.toInt()
                 page.waitForCondition {
-                    Regex("\\d+").find(seen.textContent())!!.value.toInt() >= first + 2
+                    Regex("\\d+").find(seen.textContent().orEmpty())!!.value.toInt() >= first + 2
                 }
             }
         }

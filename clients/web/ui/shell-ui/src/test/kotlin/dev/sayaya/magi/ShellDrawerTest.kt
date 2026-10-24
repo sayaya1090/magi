@@ -184,7 +184,7 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#state").getAttribute("aria-label") shouldBe "state.live"
             }
             Then("그 말은 걷힌다 — 빈 줄은 자리도 차지하지 않는다(#note:empty)") {
-                page.waitForCondition { page.locator("#note").textContent().isEmpty() }
+                page.waitForCondition { page.locator("#note").textContent().orEmpty().isEmpty() }
                 page.locator("#note[data-tip]").count() shouldBe 0
                 page.evaluate("getComputedStyle(document.querySelector('#note')).display") shouldBe "none"
             }

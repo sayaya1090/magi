@@ -45,7 +45,8 @@
 #files .gitline .treerow { flex:1 1 auto; min-width:0; }
 #files .gitline:hover .gitacts,
 #files .gitacts:focus-within,
-#files .gitline:focus-within .gitacts { visibility:visible; }
+#files .gitline:focus-within .gitacts,
+#files .gitacts.showing { visibility:visible; }
 #files .treeline:hover .rowacts,
 #files .rowacts:focus-within,
 #files .treeline:focus-within .rowacts { visibility:visible; }

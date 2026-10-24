@@ -71,7 +71,7 @@ internal class MeetingScreenTest : GwtTestSpec({
                 // 표를 찍었는데(`data-fixed`) 지우는 곳이 없어, 「아직 열 수 없다」가 영영
                 // 돌아오지 못했다 — 사유의 수명이 남의 사정으로 정해졌다.
                 page.locator("#meet .meettopicfield textarea").fill("")
-                page.waitForCondition { page.locator("#meet .meetnote").textContent().isNotEmpty() }
+                page.waitForCondition { page.locator("#meet .meetnote").textContent().orEmpty().isNotEmpty() }
                 page.locator("#meet .meetnote").textContent() shouldContain "meet.need_"
                 page.locator("#meet .refused").textContent() shouldBe "beta is already in a meeting"
             }

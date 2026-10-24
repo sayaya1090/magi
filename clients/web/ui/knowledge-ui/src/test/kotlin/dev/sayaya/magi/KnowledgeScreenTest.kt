@@ -83,7 +83,7 @@ internal class KnowledgeScreenTest : GwtTestSpec({
             Then("본문이 펼쳐지고 출처 줄은 제 자리(메타)에만 있다") {
                 page.locator("#skills .sk .body:not([hidden])").count() shouldBe 1
                 page.locator("#skills .sk .body").first().textContent() shouldContain "byte-identical"
-                page.locator("#skills .sk .body").first().textContent().contains("source:") shouldBe false
+                page.locator("#skills .sk .body").first().textContent().orEmpty().contains("source:") shouldBe false
             }
         }
         When("찾기에 cache를 치면") {

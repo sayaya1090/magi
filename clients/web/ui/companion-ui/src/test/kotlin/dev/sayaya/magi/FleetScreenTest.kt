@@ -35,8 +35,8 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.locator("#fleet .card").count() shouldBe 5
             }
             Then("골칫거리 먼저 — 첫 행은 waiting이고 딴 데 것은 맨 뒤다") {
-                page.locator("#fleet .card").first().getAttribute("class").contains("waiting") shouldBe true
-                page.locator("#fleet .card").last().getAttribute("class").contains("remote") shouldBe true
+                page.locator("#fleet .card").first().getAttribute("class").orEmpty().contains("waiting") shouldBe true
+                page.locator("#fleet .card").last().getAttribute("class").orEmpty().contains("remote") shouldBe true
             }
             Then("팀 헤더 둘: alpha(막힌 팀이라 먼저) 그리고 무명") {
                 page.locator("#fleet .teamhead").count() shouldBe 2
@@ -63,7 +63,7 @@ internal class FleetScreenTest : GwtTestSpec({
             page.locator("#summary md-filter-chip.working").click()
             Then("표는 working 하나로 줄고, 다시 누르면 전부로 돌아온다") {
                 page.waitForCondition { page.locator("#fleet .card").count() == 1 }
-                page.locator("#fleet .card").first().getAttribute("class").contains("working") shouldBe true
+                page.locator("#fleet .card").first().getAttribute("class").orEmpty().contains("working") shouldBe true
                 page.locator("#summary md-filter-chip.working").click()
                 page.waitForCondition { page.locator("#fleet .card").count() == 5 }
             }
@@ -126,8 +126,8 @@ internal class FleetScreenTest : GwtTestSpec({
             Then("쉰 행의 나이 칸은 늙는다 — 그 행은 한 번도 다시 서지 않았는데도") {
                 // 나이 칸: 이 행의 숫자 칸 둘 중 뒤엣것(앞은 스텝 수).
                 val age = page.locator("#fleet .card.idle .num.r").nth(1)
-                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent()) }
-                val first = Regex("\\d+").find(age.textContent())!!.value.toInt()
+                page.waitForCondition { Regex("^\\d+[smhd]$").matches(age.textContent().orEmpty()) }
+                val first = Regex("\\d+").find(age.textContent().orEmpty())!!.value.toInt()
 
                 // 이 행이 그대로 서 있다는 것을 노드에 표를 해서 잰다: 「늙었다」가 「행을
                 // 매초 새로 세운다」로 이루어지면 그것은 고친 것이 아니라 이 화면이 일부러
@@ -135,7 +135,7 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.evaluate("document.querySelector('#fleet .card.idle').__magi_mark = 1")
 
                 page.waitForCondition {
-                    Regex("\\d+").find(age.textContent())!!.value.toInt() >= first + 2
+                    Regex("\\d+").find(age.textContent().orEmpty())!!.value.toInt() >= first + 2
                 }
                 page.evaluate("document.querySelector('#fleet .card.idle').__magi_mark") shouldBe 1
             }

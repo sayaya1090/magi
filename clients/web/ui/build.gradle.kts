@@ -1,7 +1,7 @@
 plugins {
     id("java")
-    kotlin("jvm") version "2.3.0" apply false
-    id("dev.sayaya.gwt") version "2.2.9.5" apply false
+    kotlin("jvm") version "2.4.21" apply false
+    id("dev.sayaya.gwt") version "2.3.0" apply false
 }
 
 // 이 콘솔은 안쪽도 모듈로 나뉜다 — 그래서 모듈마다 같은 빌드 스크립트를 베껴 두지 않고,
