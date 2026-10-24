@@ -8,7 +8,7 @@ Status: implementation with pinned verification, repeated trials and controlled 
 
 `plugins/s2-engine` is an optional Lua plugin. It is not embedded or installed automatically. Build the updated core with `go build -o /tmp/magi-s2-engine ./cmd/magi`. Copy the plugin directory into your user plugin directory, or supply a parent directory containing just this plugin with `--plugins <directory>`. Avoid passing the repository's entire `plugins` directory: that loads other plugins too.
 
-Open `/subagents`, enable `s2_compare`, and start a new conversation so its frozen tool catalog includes the tool. Explicitly request a local coding comparison. Example arguments:
+Open `/subagents`, enable `s2_compare`, and start a new conversation so its frozen tool catalog includes the tool. You can also explicitly request a local coding comparison. Example arguments:
 
 ```json
 {"task":"Fix the parser's empty-field handling and run its tests","guidance":"Read the existing parser tests before changing the parser","max_steps":20,"timeout":300}
@@ -109,3 +109,6 @@ Checkpoint branches inherit the same model-visible message history and system te
 The application adapter contract owns the exact copy handle: `OpenCopy`, `SaveAndClose`, and `ConfirmClosed`. Adoption, completion and cleanup refuse unconfirmed close operations and retain the copies. After restart, an application-managed tree requires its adapter again; file deletion success is never treated as proof that Office closed a document. These lifecycle contracts and failure scenarios are tested with an injected adapter. Production Office COM/Office.js opening, binding and closing are not yet wired, so current Office support is file-based execution, not live app automation.
 
 Figma now has its own `figma_checkpoint` page-copy tool. See the client [checkpoint workflow](../clients/figma/README.md#checkpoint-pages). It supports isolated text/frame edits and host-confirmed publication, but does not yet run the generic harness comparison's child sessions over Figma tools. Its Plugin API tests use a simulated Figma document; live account acceptance remains outstanding.
+
+
+When `s2_compare` is enabled, the host schedules one comparison per turn after an edit followed by a completed shell check, or a repeated failed command with an intervening edit. The model does not have to request S². The host also retrieves recent workspace reports once after tool work and supplies them as advisory evidence for the next procedure. Each automatic comparison uses disposable coding clones, one proposal, at most 12 steps and 120 seconds per execution. It does not require a verifier script; without one, the qualitative comparison cannot establish verified improvement. The parent model composes its next procedure from the recorded contrasts and applies task fixes through ordinary tools. Artifacts and reusable instructions are not automatically adopted. Disabled tools, child agents and trials do not enter this host loop. This is bounded task-level orchestration, not the full eight-component optimizer in upstream Harness².

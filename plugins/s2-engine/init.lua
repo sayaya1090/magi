@@ -129,7 +129,7 @@ magi.register_tool{
   name = "s2_compare", subagent = true, enabled = false, group = "s2-engine",
   -- No parallel-safe declaration: this call's common snapshot must be captured
   -- before another ordinary writer in the same model step can change the parent.
-  description = "Run an explicitly requested local coding experiment in separate checkouts. Compare a baseline with one instruction change; retain evidence, never merge or publish skills. Costs two executions per training/holdout pair plus analysis. Not for live apps or external side effects.",
+  description = "Run a local coding experiment in separate checkouts. The host schedules a bounded comparison after observed edit/check execution when this tool is enabled. Explicit comparisons are also supported. Do not duplicate a host-scheduled comparison in the same turn. Compare a baseline with one instruction change; retain evidence, never merge or publish skills. Costs two executions per training/holdout pair plus analysis. Not for live apps or external side effects.",
   schema = { type = "object", additionalProperties = false, properties = {
     checkpoint = { type = "boolean", description = "Use the session checkpoint tree (default on supported hosts); false requests legacy disposable clones." },
     execution_mode = { type = "string", enum = { "sequential", "parallel" }, description = "Parallel candidate execution for disposable coding clones; Office/Figma and checkpoint branches stay sequential." },
@@ -430,9 +430,11 @@ magi.register_tool{
 
 magi.register_tool{
   name = "s2_search", description = "Browse recent local experiment evidence by task, guidance or applicability text. Results are recent-first, not scored or probability estimates.",
-  schema = { type = "object", properties = { query = { type = "string" } } },
+  schema = { type = "object", properties = { query = { type = "string" }, limit = { type = "integer", minimum = 1, maximum = 10 } } },
   execute = function(args)
     local q = args and args.query or ""
+    local limit = args and args.limit or 10
+    if type(limit) ~= "number" or limit % 1 ~= 0 or limit < 1 or limit > 10 then return "s2-engine: invalid search limit", true end
     if type(q) ~= "string" or #q > 2000 then return "s2-engine: invalid query", true end
     local ids = magi.json_decode(magi.store_get("library:" .. magi.workdir()) or "[]")
     if type(ids) ~= "table" then return "s2-engine: malformed library index", true end
@@ -443,9 +445,9 @@ magi.register_tool{
         local haystack = table.concat({ r.task or "", r.guidance or "", r.applies_when or "" }, "\n"):lower()
         if q == "" or haystack:find(q:lower(), 1, true) then
           out[#out + 1] = { id = r.id, task = r.task, guidance = r.guidance,
-            applies_when = r.applies_when, assessment = r.assessment, adoption = r.adoption,
+            applies_when = r.applies_when, assessment = r.assessment, adoption = r.adoption, judgment = r.judgment,
             cost = r.cost, limitations = "Limited observed executions; no inferred success probability or automatic skill promotion." }
-          if #out >= 10 then break end
+          if #out >= limit then break end
         end
       end
     end

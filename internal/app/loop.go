@@ -317,6 +317,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard(a.touchesFile)
 	guard.experience = a.newTurnExperience(ctx, s.Workdir)
 	defer guard.experience.close()
+	s2Attempted, s2Recalled := false, false
 	ts := turnState{} // per-turn mutable bookkeeping (finish guards, council accounting); lives for the whole turn — reground resets only the guard's stall arm (see reground)
 	// Answers delivered BEFORE this turn began are already in its opening context — only ones that
 	// land while it runs are news to it.
@@ -657,6 +658,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				a.executeTool(ctx, s, agent, depth, agentActor, tc, guard, turnTask)
 			}
 		}
+
+		a.maybeRunS2(ctx, tc, turnTask, &s2Attempted, &s2Recalled)
 
 		// **A tool ended the turn.** The landing plugin's `land` says so through magi.finish; when
 		// the model has already written its answer (the text before the call), the turn finishes
