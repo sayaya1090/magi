@@ -129,7 +129,7 @@ flowchart TB
 | 자산명 | 단일 원천 경로 | 배포 대상 경로 |
 |---|---|---|
 | `console.css` | `clients/web/server/page.css` | `assembleConsole` → `build/console/`, 각 테스트 webapp `css/` |
-| `material.js` | `clients/web/server/vendor/material.js` | 테스트 webapp `js/` (운영 환경은 BFF `/vendor/` 서빙) |
+| `sayaya-ui.js` | `clients/web/server/vendor/sayaya-ui.js` | 테스트 webapp `js/` (운영 환경은 BFF `/vendor/` 서빙) |
 | `rxjs.js` | `clients/web/server/vendor/rxjs.js` | 테스트 webapp `js/`, 데모 `vendor/` |
 | `shell.css` | `shell-ui/src/main/webapp/shell.css` | `assembleConsole`, 테스트 webapp `css/` |
 | `companion.css` | `companion-ui/src/main/webapp/companion.css` | `assembleConsole`, 테스트 webapp `css/` |

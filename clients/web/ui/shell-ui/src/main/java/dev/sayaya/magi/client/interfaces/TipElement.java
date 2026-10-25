@@ -12,7 +12,7 @@ import javax.inject.Singleton;
 
 /**
  * 창에 하나뿐인 툴팁 — 화면들은 말만 적고(<code>data-tip</code>), 그리는 것은 sayaya-ui의
- * <code>md-tooltip</code>이다(단독 feedback 번들, <code>/vendor/sayaya-feedback.js</code>).
+ * <code>md-tooltip</code>이다(sayaya-ui 단일 번들, <code>/vendor/sayaya-ui.js</code>).
  *
  * <p>열고 닫는 규칙은 이제 그 컴포넌트의 것이다: 포인터·포커스로 열고(500ms), 떠나고 1.5초 뒤
  * 걷고, 손가락은 길게 누르기(500ms)로 열고, 창 안에 하나만 서고, top layer(popover)에 떠서

@@ -35,10 +35,10 @@
          보고 컴파일되므로(dev.sayaya.rx: @JsType namespace="rxjs"), 번들의 이름들을 그 자리에
          올려 둔다. 셸 부트스트랩은 그 <b>다음에</b> 넣는다 — 모듈 스크립트는 미뤄지고 GWT
          부트스트랩은 미뤄지지 않아, 나란히 적으면 스토어가 아직 없는 전역을 부른다. -->
+    <!-- Material Web(2.5.0 all.js)와 sayaya-ui labs(md-tooltip·md-navigation-rail…)를 한 벌로 —
+         IIFE classic script라 모듈 import가 아니라 여기서 먼저 싣는다(최상위 this가 창이어야 한다). -->
+    <script src="/vendor/sayaya-ui.js"></script>
     <script type="module">
-      import '/vendor/material.js';
-      // md-tooltip(셸의 툴팁)·md-snackbar·md-toast만 정의한다 — 위 번들의 md-*와 겹치지 않는다.
-      import '/vendor/sayaya-feedback.js';
       import * as rxjs from '/vendor/rxjs.js';
       window.rxjs = rxjs;
       // 마크다운 <b>렉서</b>, 그리고 그것뿐. 전사는 모델과 도구가 뱉은 임의의 글이라 여기서

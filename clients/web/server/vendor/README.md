@@ -30,54 +30,30 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## material.js — Material Web 2.5.0, 330KB
+## sayaya-ui.js — sayaya-ui 2.5.0.5 standalone bundle, 669KB
 
-The M3 components themselves, so the design comes from the system rather than from CSS written here
-a second time. Only the ones the page uses are imported: `all.js` would register every component
-the library ships.
+The M3 components the console draws with: Material Web 2.5.0's `all.js` and sayaya-ui's own labs
+(`md-tooltip`, `md-navigation-rail`, …) in one IIFE classic script. Not built here — it is the
+release's own attachment, from the same library the console's Java side already depends on
+(`dev.sayaya:ui` in `clients/web/ui/gradle/libs.versions.toml`), so the Java wrapper and the element
+it wraps come from one release.
 
-    npm pack @material/web@2            # material-web-2.5.0.tgz
-    #   sha256 d2974cfab7e8249774c39d9cab22cd24cae9204a74c62b7cb40106c7bac798ed
-    npm pack lit@3 @lit/context@1 @lit/reactive-element@2 lit-html@3 lit-element@4 tslib@2
-    # unpack each into node_modules/<name> (scoped ones under node_modules/@lit/…)
-    cat > entry.mjs <<'ENTRY'
-    import '@material/web/button/filled-button.js';
-    import '@material/web/button/filled-tonal-button.js';
-    import '@material/web/button/outlined-button.js';
-    import '@material/web/button/text-button.js';
-    import '@material/web/textfield/outlined-text-field.js';
-    import '@material/web/select/outlined-select.js';
-    import '@material/web/select/select-option.js';
-    import '@material/web/labs/card/outlined-card.js';
-    import '@material/web/labs/badge/badge.js';
-    import '@material/web/dialog/dialog.js';
-    import '@material/web/iconbutton/icon-button.js';
-    import '@material/web/list/list.js';
-    import '@material/web/list/list-item.js';
-    import '@material/web/menu/menu.js';
-    import '@material/web/menu/menu-item.js';
-    import '@material/web/chips/chip-set.js';
-    import '@material/web/chips/filter-chip.js';
-    import '@material/web/chips/input-chip.js';
-    import '@material/web/switch/switch.js';
-    import '@material/web/tabs/tabs.js';
-    import '@material/web/tabs/primary-tab.js';
-    import '@material/web/tabs/secondary-tab.js';
-    import '@material/web/progress/linear-progress.js';
-    ENTRY
-    npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
-    #   sha256 d19b5d7dddf57b52da0e68efbe5d5af7da74ddd47b82dab7dfa8c4baf81ad469
-    # Verified reproducible at every step: removing the imports added in a change rebuilds the
-    # bundle this repository carried before it, byte for byte. secondary-tab and input-chip put it
-    # back to e3fa47ae…; the two menu imports put it back to bba391a2…. So the size each time grew
-    # by exactly the components named and nothing else.
+    gh release download v2.5.0.5 -R sayaya1090/sayaya-ui -p 'sayaya-ui-2.5.0.5.js*'
+    shasum -a 256 -c sayaya-ui-2.5.0.5.js.sha256
+    #   sha256 001cdb94d6079d8705fc6bb65ff20a9353be46e60adf9ea481b23b68d2e98b62
+    mv sayaya-ui-2.5.0.5.js sayaya-ui.js
 
-`labs/card` and `labs/badge` are the two imports from the library's unstable half, taken for the
-same reason: a badge is a number in a shape and a card there is a container and nothing more — elevation, a background, a slot and an outline, with no ripple, no
-focus ring and no role — so an unstable API here can only change how a box is drawn. The interactive
-rows are NOT cards for the same reason: they are links, and this component would take the link away.
+It replaced a `material.js` that was built here from only the components the page imported
+(310KB, 60KB gzip — with the tooltip bundle beside it, 71KB gzip in all). This one is 122KB gzip:
+`all.js` registers every Material Web component. The price buys one bundle instead of two, and the
+sayaya-ui navigation rail, which shipped only in this form. Both cannot be loaded together: this
+bundle defines the same `md-*` names, and a second `customElements.define` of a name throws.
 
-Licence: Apache-2.0, same as this repository.
+It is a classic script, not a module: it writes to the top-level `this`, which a module does not
+have. Pages load it with `<script src>` ahead of their module script, which then still runs before
+the GWT bootstrap it appends.
+
+Licence: Apache-2.0 (sayaya-ui, Material Web), BSD-3-Clause (Lit), as the bundle's header states.
 
 ## marked.js — marked 18.1.1, 45.4KB, **lexer only**
 
@@ -103,21 +79,3 @@ containing an img tag with an onerror handler appears in the transcript as those
 is what somebody reading a transcript wants to see anyway.
 
 Licence: MIT.
-
-## sayaya-feedback.js — sayaya-ui 2.5.0.5 feedback bundle, 35.4KB
-
-The shell's tooltip (`md-tooltip`, plus `md-snackbar` and `md-toast`), from the same library the
-console's Java side already depends on (`dev.sayaya:ui`). Not built here: it is the release's own
-standalone ES module, which defines only those three names and skips any name that is already
-registered, so it sits after `material.js` without redefining an `md-*` from it.
-
-    gh release download v2.5.0.5 -R sayaya1090/sayaya-ui -p 'sayaya-ui-feedback-2.5.0.5.js*'
-    shasum -a 256 -c sayaya-ui-feedback-2.5.0.5.js.sha256
-    #   sha256 c9354aefaa0b6b378a32c4c10fbd24ceb74846457a3c013fb2d6c0d8c119d69d
-    mv sayaya-ui-feedback-2.5.0.5.js sayaya-feedback.js
-
-The name carries no version, like the bundles above; this section does. Bump it together with
-`sayaya-ui` in `clients/web/ui/gradle/libs.versions.toml`, so the Java wrapper and the element it
-wraps come from one release.
-
-Licence: Apache-2.0 (sayaya-ui, as its published POM declares), same as this repository.

@@ -191,7 +191,7 @@ func TestAnUnclassifiedRouteIsRefused(t *testing.T) {
 // wrong — which is also where a login page will have to live.
 func TestThePageItselfIsServedToAnybody(t *testing.T) {
 	s := withPolicy(t, twoPeople)
-	for _, p := range []string{"/", "/vendor/material.js", "/i18n/language.en.json"} {
+	for _, p := range []string{"/", "/vendor/sayaya-ui.js", "/i18n/language.en.json"} {
 		var reached bool
 		key := p
 		if !public[key] {

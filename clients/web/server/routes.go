@@ -41,7 +41,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/icon.svg":             s.icon,
 		"/icon-maskable.svg":    s.iconMaskable,
 		"/font/":                s.font,
-		// The page's own two subtrees. Missing, `import '/vendor/material.js'` answered 404, which
+		// The page's own two subtrees. Missing, `<script src="/vendor/sayaya-ui.js">` answered 404, which
 		// fails the whole ES module — so on a real console NOTHING ran: no components, no script, no
 		// language beyond the seed inlined above. The demo hid it for as long as it existed, because
 		// a static export writes these files to disk beside the page.
