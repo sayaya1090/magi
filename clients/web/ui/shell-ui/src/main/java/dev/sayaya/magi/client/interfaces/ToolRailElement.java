@@ -80,7 +80,7 @@ public class ToolRailElement {
         for (Tool t : sorted) box.append(item(t));
     }
 
-    /** 도구 하나 — 메뉴 문과 같은 마크업 계약(.raili/.icwrap/.words)이라 스타일이 공짜다. */
+    /** 도구 하나 — 옛 메뉴 문의 마크업 계약(.raili/.icwrap/.words)을 그대로 써서 console.css의 그 스타일을 입는다. */
     private HTMLElement item(Tool t) {
         HTMLElement b = el("button");
         b.className = "raili tooli";

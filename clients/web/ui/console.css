@@ -867,6 +867,23 @@
      the button is 40px, so it needs that inset plus half the difference to land on the same line. */
 
   #rail .ic { flex:none; display:block; }
+  /* The menu column is sayaya-ui's md-navigation-rail. Its own numbers are M3's (96dp collapsed,
+     220-360 expanded, 44 above); here it fills the #rail frame instead, which already owns the
+     width, the drawer's 20rem and the tonal edge. Collapsed, 96dp is also what this console
+     reserved for the rail (--magi-comp-rail-w: 6rem), so nothing on the page moves. */
+  #railNav {
+    flex:1 1 auto; min-height:0; width:100%; height:auto; padding:0; background:transparent;
+    --md-navigation-rail-collapsed-width:100%; --md-navigation-rail-expanded-min-width:100%;
+    --md-navigation-rail-expanded-max-width:100%; --md-navigation-rail-expanded-padding-inline:0;
+    --md-navigation-rail-top-space:0; --md-navigation-rail-bottom-space:0;
+  }
+  /* A component host draws itself display:block from its shadow, which outranks the UA's [hidden]. */
+  .dest[hidden] { display:none !important; }
+  .dest .ic { display:block; }
+  /* Where you are, said by the stroke too: an icon with no filled twin gets a heavier one (the guide). */
+  .dest[selected] .ic path { stroke-width:2.4; }
+  /* The phone's bar — the same doors as md-navigation-bar, shown only where the rail is not. */
+  #railBar { display:none; background:transparent; }
   #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }
   /* The foot of the rail, which is where the guide puts the items about the tool rather than about
      the work. margin-top:auto is what makes it the foot: the rail is a column with a fixed height,
@@ -880,7 +897,7 @@
   /* A foot with nothing in it is a line across the bottom of the rail with nothing under it, which
      is what a reader who is not an admin would see. :empty cannot see it — the anchor is still
      there, hidden — so the hairline goes when everything inside is. */
-  #railFoot:not(:has(.raili:not([hidden]))) { border-top:0; padding-top:0; }
+  #railFoot:not(:has(.dest:not([hidden]))) { border-top:0; padding-top:0; }
   /* A destination. Expanded it is a row — icon, then the word — and collapsed it is the word UNDER
      the icon, which is the shape the spec draws and the shape md-list-item could not make.
      The active indicator is a pill behind the ICON at 56x32, not behind the whole item: that is
@@ -5235,10 +5252,10 @@
        FOOT is not furniture — it holds a destination — so it joins the row instead of going with
        the button. Hidden with the menu, the console had three doors on a phone and the fourth
        (people and permissions) could not be reached at all. */
-    #railMenu { display:none; }
-    #railNav, #railFoot { display:flex; flex-direction:row; flex:1 1 auto; gap:0;
-      border-top:0; padding-top:0; margin-top:0; }
-    #railFoot { flex:1 1 0; }
+    /* A rail is a rail's and a bar is a bar's: M3 puts md-navigation-bar at this width, and the
+       rail's columns live in its shadow where no row can reach them. Same doors, other component. */
+    #railMenu, #railNav { display:none; }
+    #railBar { display:flex; flex:1 1 auto; }
     .raili {
       flex:1 1 0; min-width:0; flex-direction:column; gap:2px;
       align-items:center; justify-content:center; padding:var(--magi-sys-space-50) 0;

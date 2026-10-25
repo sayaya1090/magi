@@ -13,7 +13,6 @@ import dev.sayaya.magi.client.usecase.RosterStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.Element;
 import elemental2.dom.HTMLElement;
-import elemental2.dom.KeyboardEvent;
 import elemental2.dom.MouseEvent;
 import jsinterop.base.Js;
 
@@ -25,16 +24,16 @@ import java.util.Map;
 import static dev.sayaya.magi.bridge.Labels.tr;
 
 /**
- * 드로어 — 메뉴 레일(목적지 전부, 컴패니언 포함)이 기본 기둥이고, 열리면 라벨과 문장
- * (console.css의 열림 규칙)도 여기가 말한다. 옛 nav-wide(모양 전환) 기계는 은퇴 —
- * 남은 상태는 body[nav="open"](폭) 하나다.
+ * 드로어 — 메뉴 레일(목적지 전부, 컴패니언 포함)이 기본 기둥이고, 열리면 라벨과 문장도 여기가
+ * 말한다. 기둥은 sayaya-ui의 <code>md-navigation-rail</code>이 그리고(넓은 폭), 폰 폭에서는
+ * 같은 문들이 <code>md-navigation-bar</code>로 선다 — M3가 폭에 따라 나눠 쓰라는 두 컴포넌트.
+ * 셸이 쥔 것은 문의 목록과 상태다: 무엇이 선택됐나, 누가 기다리나, 어느 문이 숨나.
  *
- * 툴 레일(ToolRailElement)은 도구가 2개 이상인 문에서만 선다 — 접히면 기둥을 대신하고
- * (메뉴는 HIDE, ← 로 복귀), 열리면 둘째 기둥이다. 두 기둥의 상태는 RailMode가 계산해
- * #rail의 menu/tool 속성으로 적힌다 — CSS가 그 속성을 읽는다. 아직 도구를 등록한 문이
- * 없어(용례 대기) 화면은 메뉴 기둥뿐이다.
+ * 남은 상태는 body[nav="open"](폭)과 nav-wide(모양) 둘 — 레일의 expanded는 모양을 따른다.
+ * 툴 레일(ToolRailElement)과 두 기둥의 상태(#rail[menu][tool], RailMode)는 그대로다.
  *
- * 대기 배지는 컴패니언 문의 아이콘 위에 산다.
+ * 목적지는 컴포넌트가 버튼(role=tab)으로 그린다. 그래서 링크가 하던 일 중 새 탭 열기는 여기서
+ * 이벤트로 대신한다(수식 키·가운데 클릭) — 우클릭의 링크 메뉴와 주소 미리보기는 없다.
  */
 @Singleton
 public class RailElement implements RailView {
@@ -44,9 +43,13 @@ public class RailElement implements RailView {
     private final HTMLElement rail = el("nav");
     private final HTMLElement scrim = el("div");
     private final HTMLElement menu = el("md-icon-button");
-    private final HTMLElement badge = el("md-badge");
+    private final HTMLElement column = el("md-navigation-rail");
+    private final HTMLElement foot = el("div");
+    private final HTMLElement bar = el("md-navigation-bar");
     private final Map<String, HTMLElement> items = new LinkedHashMap<>();
+    private final Map<String, HTMLElement> tabs = new LinkedHashMap<>();
     private int waiting = 0;
+    private Destination current = null;
 
     @Inject
     public RailElement(Navigation nav, RosterStore roster, MenuHover hover, RailMode mode,
@@ -62,8 +65,10 @@ public class RailElement implements RailView {
         // 능력이 늦게 도착해도 문은 따라 접힌다 — 취하는 쪽만: 숨긴 것을 되살리진 않는다(운영 applyMay).
         may.subscribe(n -> {
             for (Destination d : Destination.doors()) {
-                HTMLElement item = items.get(d.id);
-                if (item != null && !may.may(d.may)) item.setAttribute("hidden", "");
+                if (may.may(d.may)) continue;
+                HTMLElement item = items.get(d.id), tab = tabs.get(d.id);
+                if (item != null) item.setAttribute("hidden", "");
+                if (tab != null) tab.setAttribute("hidden", "");
             }
         });
     }
@@ -83,36 +88,57 @@ public class RailElement implements RailView {
     }
 
     public HTMLElement element() { return rail; }
+
     public HTMLElement scrim() { return scrim; }
 
-    /** 문의 말들 — 라벨·짧은 라벨·aria-label 전부 팩에서. 언어가 바뀌면 다시 부른다. */
+    /** 문의 말들 — 짧은 라벨·한 줄 설명 전부 팩에서. 언어가 바뀌면 다시 부른다. */
     public void paint() {
         menu.setAttribute("aria-label", tr("nav.menu"));
         for (Destination d : Destination.doors()) {
-            HTMLElement item = items.get(d.id);
-            // 보이는 낱말은 짧은 이름이다 — 접힌 기둥에서도 열린 서랍에서도(운영은 문 넷 모두
-            // .lbl과 .lblshort에 같은 짧은 말을 넣는다). 긴 이름은 읽어 주는 이름으로만 남고,
-            // 크럼과 제목에서 제 자리를 지킨다.
-            text(item, ".lbl", tr(d.shortKey));
-            text(item, ".lblshort", tr(d.shortKey));
-            item.setAttribute("aria-label", tr(d.labelKey));
-            text(item, ".sub", tr(d.subKey));
+            // 보이는 낱말은 짧은 이름이다 — 접힌 기둥에서도 열린 서랍에서도 폰 바에서도.
+            // 긴 이름은 크럼과 제목이 지킨다(컴포넌트의 버튼은 라벨을 제 이름으로 읽힌다).
+            HTMLElement item = items.get(d.id), tab = tabs.get(d.id);
+            if (item != null) {
+                Js.asPropertyMap(item).set("label", tr(d.shortKey));
+                Element sub = item.querySelector("[slot=supporting-text]");
+                if (sub != null) sub.textContent = tr(d.subKey);
+            }
+            if (tab != null) Js.asPropertyMap(tab).set("label", tr(d.shortKey));
         }
-        relabelFleet();
     }
 
     @Override
     public void select(Destination d) {
-        for (Map.Entry<String, HTMLElement> e : items.entrySet()) {
-            boolean on = e.getKey().equals(d.id);
-            // 두 이름 다: CSS는 [selected]를 읽고, 보조기술은 aria-current="page"를 듣는다.
-            if (on) {
-                e.getValue().setAttribute("selected", "");
-                e.getValue().setAttribute("aria-current", "page");
+        current = d;
+        int railIndex = -1, barIndex = -1, i = 0, j = 0;
+        for (Destination one : Destination.doors()) {
+            boolean on = one.id.equals(d.id);
+            HTMLElement item = items.get(one.id), tab = tabs.get(one.id);
+            mark(item, on);
+            mark(tab, on);
+            if (one.atFoot) {
+                // 발치의 문은 레일의 목적지 목록(activeIndex) 밖이라 제 손으로 켠다.
+                Js.asPropertyMap(item).set("active", on);
             } else {
-                e.getValue().removeAttribute("selected");
-                e.getValue().removeAttribute("aria-current");
+                if (on) railIndex = i;
+                i++;
             }
+            if (on) barIndex = j;
+            j++;
+        }
+        Js.asPropertyMap(column).set("activeIndex", railIndex);
+        Js.asPropertyMap(bar).set("activeIndex", barIndex);
+    }
+
+    /** 두 이름 다: CSS·시험은 [selected]를 읽고, aria-current="page"는 그 문이 여기라고 말한다. */
+    private static void mark(HTMLElement e, boolean on) {
+        if (e == null) return;
+        if (on) {
+            e.setAttribute("selected", "");
+            e.setAttribute("aria-current", "page");
+        } else {
+            e.removeAttribute("selected");
+            e.removeAttribute("aria-current");
         }
     }
 
@@ -124,19 +150,12 @@ public class RailElement implements RailView {
         int n = 0;
         for (FleetAgent a : list) if ("waiting".equals(a.state)) n++;
         waiting = n;
-        Js.asPropertyMap(badge).set("value", n > 999 ? "999+" : String.valueOf(n));
-        if (n > 0) badge.removeAttribute("hidden");
-        else badge.setAttribute("hidden", "");
-        relabelFleet();
-    }
-
-    /** 배지의 뜻은 위치에 있고 위치는 낭독되지 않는다 — 수는 문의 이름에 실린다. */
-    private void relabelFleet() {
-        HTMLElement fleet = items.get(Destination.FLEET.id);
-        if (fleet == null) return;
-        String label = tr(Destination.FLEET.labelKey)
-                + (waiting > 0 ? ", " + tr("state.waiting_on_you", "n", String.valueOf(waiting)) : "");
-        fleet.setAttribute("aria-label", label);
+        String value = n > 999 ? "999+" : String.valueOf(n);
+        for (HTMLElement e : new HTMLElement[]{items.get(Destination.FLEET.id), tabs.get(Destination.FLEET.id)}) {
+            if (e == null) continue;
+            Js.asPropertyMap(e).set("badgeValue", value);
+            Js.asPropertyMap(e).set("showBadge", n > 0);
+        }
     }
 
     // ── 마크업 ───────────────────────────────────────────────────────────────
@@ -144,10 +163,12 @@ public class RailElement implements RailView {
     private void build(ToolRailElement panel) {
         scrim.id = "scrim";
         scrim.addEventListener("click", evt -> close());
-
         rail.id = "rail";
         // 버거는 다섯 획: 위·아래 막대가 반씩이라, 열리면 네 반쪽이 X의 팔이 되고
         // 가운데 획만 제 중심으로 걷혀 사라진다 — 아이콘 교체가 아니라 같은 획의 이동.
+        // 레일 내장 메뉴 버튼은 아이콘 폰트(Material Symbols)를 부르므로 쓰지 않는다. 그리고 기둥
+        // 안(header 슬롯)이 아니라 #rail의 직계다: 도구 있는 문에서 메뉴 기둥이 숨어도(menu=hide)
+        // 서랍을 여는 손잡이는 남아야 한다.
         menu.id = "railMenu";
         menu.setAttribute("aria-expanded", "false");
         menu.innerHTML = "<svg class=\"burger\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
@@ -157,85 +178,83 @@ public class RailElement implements RailView {
                 + "<line class=\"bb bl\" x1=\"3\" y1=\"18\" x2=\"12\" y2=\"18\"/>"
                 + "<line class=\"bb br\" x1=\"12\" y1=\"18\" x2=\"21\" y2=\"18\"/></svg>";
         menu.addEventListener("click", evt -> toggle());
-        rail.append(menu);
-
-        HTMLElement navBox = el("div");
-        navBox.id = "railNav";
+        column.id = "railNav";
         // 발치는 운영이 접근 제어 문에게 준 자리다 — 매일 다니는 문들과 한 줄에 서지 않는다.
-        // 빈 발의 헤어라인은 CSS가 스스로 걷는다(:has 규칙).
-        HTMLElement foot = el("div");
         foot.id = "railFoot";
+        foot.setAttribute("slot", "footer");
+        bar.id = "railBar";
         for (Destination d : Destination.doors()) {
-            HTMLElement item = item(d);
+            HTMLElement item = item(d, "md-navigation-rail-item");
+            item.append(supporting());
             items.put(d.id, item);
-            (d.atFoot ? foot : navBox).append(item);
+            (d.atFoot ? foot : column).append(item);
+            HTMLElement tab = item(d, "md-navigation-tab");
+            tabs.put(d.id, tab);
+            bar.append(tab);
         }
-        rail.append(navBox);
-        rail.append(foot);
-
+        column.append(foot);
+        rail.append(menu, column, bar);
         // 툴 레일 — 언제 어떤 모습인지는 RailMode(#rail의 menu/tool 속성)가 말한다.
         rail.append(panel.element());
         // 호버 터널: 레일 전체를 벗어날 때만 피크를 접는다. 접힌 툴 기둥의 라벨 피크는
         // 레일 위에 손끝이 있다는 사실 자체가 켠다(RailMode.hover).
         rail.addEventListener("mouseenter", evt -> mode.hover(true));
         rail.addEventListener("mouseleave", evt -> { mode.hover(false); hover.next(null); });
-
-        // 배지: 컴패니언 문의 아이콘 위 — 1단이 늘 기둥이라 여기가 늘 제자리다.
-        badge.id = "railBadge";
-        badge.setAttribute("hidden", "");
-        badge.setAttribute("aria-hidden", "true");
-        HTMLElement fleet = items.get(Destination.FLEET.id);
-        Element icwrap = fleet == null ? null : fleet.querySelector(".icwrap");
-        if (icwrap != null) icwrap.append(badge);
-
-        // 레일은 목적지의 집합이다 — 화살표로 다니고, 끝에서 감기지 않는다(가이드).
-        rail.addEventListener("keydown", evt -> {
-            KeyboardEvent ke = Js.uncheckedCast(evt);
-            if (!"ArrowDown".equals(ke.key) && !"ArrowUp".equals(ke.key)) return;
-            HTMLElement[] list = items.values().toArray(new HTMLElement[0]);
-            int at = -1;
-            for (int i = 0; i < list.length; i++) if (list[i] == DomGlobal.document.activeElement) at = i;
-            if (at < 0) return;
-            evt.preventDefault();
-            int to = "ArrowDown".equals(ke.key) ? Math.min(at + 1, list.length - 1) : Math.max(at - 1, 0);
-            if (to != at) list[to].focus();
-        });
     }
 
-    /** 목적지 하나 — 진짜 앵커: 가운데 클릭과 복사한 주소가 살아 있어야 항해다. */
-    private HTMLElement item(Destination d) {
-        HTMLElement a = el("a");
-        a.className = "raili";
-        a.setAttribute("href", d == Destination.FLEET ? Windows.here() : Windows.here() + "?v=" + d.id);
-        HTMLElement icwrap = el("span");
-        icwrap.className = "icwrap";
+    private static HTMLElement supporting() {
+        HTMLElement sub = el("span");
+        sub.setAttribute("slot", "supporting-text");
+        return sub;
+    }
+
+    /**
+     * 목적지 하나 — 레일 항목이든 폰 바의 탭이든 같은 문이다. 일반 클릭은 셸의 항해로, 수식 키와
+     * 가운데 클릭은 새 탭으로(앵커가 하던 일 중 이벤트로 옮길 수 있는 몫).
+     */
+    private HTMLElement item(Destination d, String tag) {
+        HTMLElement e = el(tag);
+        // .dest, not .raili: .raili is the tool rail's hand-drawn item, and console.css still draws it.
+        e.className = "dest";
+        String href = d == Destination.FLEET ? Windows.here() : Windows.here() + "?v=" + d.id;
+        e.setAttribute("data-href", href);
         // data-i: 스프라이트가 있으면 Icons.dress가 이 도형을 그 그림으로 갈아입힌다(운영 규칙).
-        icwrap.innerHTML = "<svg data-i=\"" + d.iconRef + "\" class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
+        HTMLElement icon = el("span");
+        icon.setAttribute("slot", "inactive-icon");
+        icon.className = "icwrap";
+        icon.innerHTML = "<svg data-i=\"" + d.iconRef + "\" class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
                 + "<path d=\"" + d.iconPath + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
                 + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
-        HTMLElement words = el("span");
-        words.className = "words";
-        words.innerHTML = "<span class=\"lbl\"></span><span class=\"lblshort\"></span><span class=\"sub\"></span>";
-        a.append(icwrap, words);
-        a.addEventListener("click", evt -> {
+        e.append(icon);
+        e.addEventListener("click", evt -> {
             MouseEvent me = Js.uncheckedCast(evt);
-            // 수식 키는 브라우저의 것 — 새 탭·새 창은 앵커가 원래 하던 일이다.
-            if (me.metaKey || me.ctrlKey || me.shiftKey || me.button != 0) return;
-            evt.preventDefault();
+            if (me.metaKey || me.ctrlKey || me.shiftKey) {
+                evt.stopPropagation();
+                DomGlobal.window.open(href, "_blank");
+                // 컴포넌트는 안쪽 클릭으로 제 선택을 이미 옮겼다 — 새 탭으로 간 문은 여기가 아니다.
+                if (current != null) select(current);
+                return;
+            }
             nav.go(d);
         });
+        // 가운데 클릭은 click이 아니라 auxclick으로 온다 — 버튼에는 브라우저가 해 주던 일이 없다.
+        e.addEventListener("auxclick", evt -> {
+            MouseEvent me = Js.uncheckedCast(evt);
+            if (me.button != 1) return;
+            evt.preventDefault();
+            DomGlobal.window.open(href, "_blank");
+        });
         // 피크는 열린 드로어의 것 — 접힌 레일에서 2단은 없고, 호버는 아무 말도 아니다.
-        a.addEventListener("mouseenter", evt -> {
+        e.addEventListener("mouseenter", evt -> {
             if ("open".equals(DomGlobal.document.body.getAttribute("nav"))) hover.next(d);
         });
-        return a;
+        return e;
     }
 
     // ── 열고 닫기 ────────────────────────────────────────────────────────────
-    // 운영 콘솔의 2속성 기계 그대로: nav=open은 폭이고 nav-wide는 모양이다. console.css의
-    // 펼친 배치(words 그리드·선택 필·아이템 형태)가 nav-wide에 키가 걸려 있으므로, 하나만
-    // 세팅하면 폭은 열리는데 모양이 안 따라온다 — 실측으로 되밟은 결함. 닫을 때 모양은
-    // 250ms 늦게 걷는다: 폭 트랜지션 중에 낱말이 먼저 무너지지 않게(원본의 그 지연).
+    // 운영 콘솔의 2속성 기계 그대로: nav=open은 폭이고 nav-wide는 모양이다. 레일의 expanded는
+    // 모양이라 nav-wide와 함께 움직인다 — 닫을 때 250ms 늦게 걷는다: 폭 트랜지션 중에 낱말이
+    // 먼저 무너지지 않게(원본의 그 지연).
 
     private double widePending = -1;
 
@@ -244,23 +263,9 @@ public class RailElement implements RailView {
         if (widePending >= 0) { DomGlobal.clearTimeout(widePending); widePending = -1; }
         DomGlobal.document.body.setAttribute("nav", "open");
         DomGlobal.document.body.setAttribute("nav-wide", "");
+        expand(true);
         menu.setAttribute("aria-expanded", "true");
         mode.drawer(true);
-        placeBadge();
-    }
-
-    /**
-     * 배지의 자리는 모양(nav-wide)이 정한다 — 운영 placeRailBadge: 접히면 아이콘 위,
-     * 열려 행이 되면 라벨 뒤(기본 슬롯의 흐름). 어느 언어에서도 낱말 끝을 따라가라고
-     * 측정 대신 흐름에 맡긴다(운영에서 실측된 그 언어 의존을 피한다).
-     */
-    private void placeBadge() {
-        HTMLElement fleet = items.get(Destination.FLEET.id);
-        if (fleet == null) return;
-        boolean wide = DomGlobal.document.body.hasAttribute("nav-wide");
-        Element home = wide ? fleet : fleet.querySelector(".icwrap");
-        badge.removeAttribute("slot");
-        if (home != null && badge.parentNode != home) home.append(badge);
     }
 
     private void close() {
@@ -268,19 +273,22 @@ public class RailElement implements RailView {
         menu.setAttribute("aria-expanded", "false");
         widePending = DomGlobal.setTimeout(a -> {
             DomGlobal.document.body.removeAttribute("nav-wide");
+            expand(false);
             widePending = -1;
-            placeBadge();   // 모양이 돌아온 뒤에 — 폭보다 늦게 걷히는 그 250ms의 몫
         }, 250);
         hover.next(null);
         mode.drawer(false);
     }
 
-    // ── 잔손 ─────────────────────────────────────────────────────────────────
-
-    private static void text(HTMLElement host, String selector, String value) {
-        Element found = host.querySelector(selector);
-        if (found != null) found.textContent = value;
+    /** 레일과 발치의 항목 — 발치는 레일 직계가 아니라 레일이 전파하지 않는다. */
+    private void expand(boolean on) {
+        Js.asPropertyMap(column).set("expanded", on);
+        for (Destination d : Destination.doors()) {
+            if (d.atFoot) Js.asPropertyMap(items.get(d.id)).set("expanded", on);
+        }
     }
+
+    // ── 잔손 ─────────────────────────────────────────────────────────────────
 
     private static HTMLElement el(String tag) { return Js.uncheckedCast(DomGlobal.document.createElement(tag)); }
 }

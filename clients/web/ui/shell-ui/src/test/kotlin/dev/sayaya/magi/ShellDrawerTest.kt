@@ -18,12 +18,12 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#rail #railMenu").count() shouldBe 1
                 page.locator("#scrim").count() shouldBe 1
                 // 매일 다니는 문은 위(컴패니언·지식·회의), 접근 제어는 발치 — 운영의 그 자리.
-                page.locator("#railNav .raili").count() shouldBe 3
-                page.locator("#railFoot .raili").count() shouldBe 1
+                page.locator("#railNav > .dest").count() shouldBe 3
+                page.locator("#railFoot .dest").count() shouldBe 1
             }
             Then("주소의 목적지(fleet)가 선택돼 있고, 그 모듈이 옷을 입은 채 한 번 로드된다") {
-                page.locator("#railNav .raili[selected]").count() shouldBe 1
-                page.locator("#railNav .raili[aria-current=page]").count() shouldBe 1
+                page.locator("#railNav .dest[selected]").count() shouldBe 1
+                page.locator("#railNav .dest[aria-current=page]").count() shouldBe 1
                 // 주소는 fleet이고 그 화면을 그리는 모듈은 companion이다 — 목록과 상세가
                 // 한 모듈의 두 얼굴이라서(카탈로그가 그 둘을 가른다).
                 page.evaluate("window.__magi_test_loads") shouldBe "[companion+css]"
@@ -36,8 +36,8 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("body[nav-wide]")
                 // 라벨은 폭 트랜지션을 따라온다(원본의 지연) — 보일 때까지 기다려 잰다.
                 // 언어 팩이 없는 테스트 페이지라 키가 폴백이다 — 구조가 계약이고 문구는 팩의 몫.
-                page.locator("#railNav .raili .lbl").first().waitFor()
-                page.locator("#railNav .raili .lbl").first().textContent() shouldBe "nav.companions"
+                page.waitForSelector("#railNav[expanded]")
+                page.evaluate("document.querySelector('#railNav > .dest').label") shouldBe "nav.companions"
             }
             Then("툴 레일(2단)은 속이 비어 펼쳐지지 않는다 — handbook 규칙, 아직 용례가 없다") {
                 page.locator("#railPanel").isVisible() shouldBe false
@@ -60,12 +60,12 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#state.live").count() shouldBe 1
             }
             Then("컴패니언 문의 배지가 기다림 수를 단다") {
-                page.locator("#railBadge:not([hidden])").count() shouldBe 1
-                page.evaluate("document.getElementById('railBadge').value") shouldBe "1"
+                page.evaluate("document.querySelector('#railNav > .dest').showBadge") shouldBe true
+                page.evaluate("document.querySelector('#railNav > .dest').badgeValue") shouldBe "1"
             }
         }
         When("선 목적지를 다시 눌러도") {
-            page.locator("#railNav .raili").first().click()
+            page.locator("#railNav > .dest").first().click()
             Then("로드는 여전히 한 번이다") {
                 // 주소는 fleet이고 그 화면을 그리는 모듈은 companion이다 — 목록과 상세가
                 // 한 모듈의 두 얼굴이라서(카탈로그가 그 둘을 가른다).
@@ -82,7 +82,7 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_loads") shouldBe "[companion+css]"
             }
             Then("레일의 선택은 여전히 컴패니언 문이다 — 컴패니언은 그 문의 안이다") {
-                page.locator("#railNav .raili[selected]").count() shouldBe 1
+                page.locator("#railNav .dest[selected]").count() shouldBe 1
             }
         }
         When("가짜 회선이 턴이 열렸다고 말하면") {
@@ -249,7 +249,7 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#rail[menu=collapse]")
                 page.locator("#rail[tool=hide]").count() shouldBe 1
                 page.locator("#railNav").isVisible() shouldBe true
-                page.locator("#railNav .raili[selected]").count() shouldBe 1
+                page.locator("#railNav .dest[selected]").count() shouldBe 1
             }
         }
         When("⌘K를 누르면") {
@@ -449,7 +449,8 @@ internal class ShellDrawerTest : GwtTestSpec({
             page.setViewportSize(390, 844)
             Then("레일은 하단 바가 된다 — 버거는 사라지고, 문들이 가로로 선다(운영 css)") {
                 page.waitForCondition { !(page.locator("#railMenu").isVisible()) }
-                (page.evaluate("getComputedStyle(document.getElementById('railNav')).flexDirection")) shouldBe "row"
+                page.locator("#railBar").isVisible() shouldBe true
+                page.locator("#railNav").isVisible() shouldBe false
                 (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true
             }
             Then("컴패니언 화면에선 하단 바가 물러난다(body[at=agent])") {
