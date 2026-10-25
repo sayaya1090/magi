@@ -890,6 +890,16 @@
      and the state layer eases rather than blinking. The sentence is the .sub rule above. */
   #railNav .dest::part(label) { animation:noticedWord 150ms var(--magi-sys-ease-standard); }
   #railNav .dest::part(button) { transition:min-height 250ms var(--magi-sys-ease-emphasized); }
+  /* The drawer's width belongs to the frame, not to the longest sentence. The component sizes an
+     expanded item's indicator to its content (flex:none, no cap), so one long supporting line grew
+     a pill to 422px inside a 303px rail and the drawer scrolled sideways (measured: scrollWidth 430
+     in a 320px frame; the hand-built rail was 319). The old rail kept the word and the sentence in
+     one line each with an ellipsis (.lbl, .sub, .words) — the same rule, carried onto the parts. */
+  #railNav .dest[expanded]::part(indicator) { flex:0 1 auto; max-width:100%; min-width:0; box-sizing:border-box; }
+  #railNav .dest[expanded]::part(label),
+  #railNav .dest[expanded]::part(supporting-text) {
+    display:block; min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
   body[nav-wide] #railNav .dest::part(button) { min-height:56px; }
   /* The rail's items and the phone bar's tabs both: the old bar was the same .raili and eased too. */
   #rail .dest::part(indicator)::before {

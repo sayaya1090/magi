@@ -43,6 +43,15 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#railNav[expanded]")
                 page.evaluate("document.querySelector('#railNav > .dest').label") shouldBe "nav.companions"
             }
+            Then("서랍의 폭은 틀이 정한다 — 긴 설명 한 줄이 항목을 레일 밖으로 밀지 않는다") {
+                // 팩이 없는 페이지라 설명이 짧다 — 실제 언어 팩의 긴 문장을 대신 세운다.
+                page.evaluate("(() => { const s = document.querySelector('#railNav > .dest .sub');" +
+                    " s.textContent = 'a very long supporting sentence that is much wider than the drawer could ever hold on one line'; })()")
+                page.waitForTimeout(300.0)
+                page.evaluate("(() => { const r = document.getElementById('rail'); return r.scrollWidth <= r.clientWidth + 1; })()") shouldBe true
+                page.evaluate("[...document.querySelectorAll('#railNav .dest')].filter(e => {" +
+                    " const i = e.shadowRoot.querySelector('[part=indicator]'); return i.getBoundingClientRect().right > e.getBoundingClientRect().right + 1; }).length") shouldBe 0
+            }
             Then("열리는 것은 움직임이다 — 설명은 폭 뒤에, 라벨은 페이드로, 높이는 건너가며(옛 레일의 그 전환)") {
                 // 컴포넌트의 섀도에는 두 모양만 있다 — 그 사이의 움직임은 콘솔이 part로 입힌 것이다.
                 page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest .sub')).animationName") shouldBe "railSubIn"
