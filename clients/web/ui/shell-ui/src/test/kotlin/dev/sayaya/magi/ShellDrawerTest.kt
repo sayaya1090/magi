@@ -3,6 +3,7 @@ package dev.sayaya.magi
 import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
 import io.kotest.assertions.withClue
+import io.kotest.matchers.doubles.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 
 /**
@@ -52,13 +53,26 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("[...document.querySelectorAll('#railNav .dest')].filter(e => {" +
                     " const i = e.shadowRoot.querySelector('[part=indicator]'); return i.getBoundingClientRect().right > e.getBoundingClientRect().right + 1; }).length") shouldBe 0
             }
-            Then("열리는 것은 움직임이다 — 설명은 폭 뒤에, 라벨은 페이드로, 높이는 건너가며(옛 레일의 그 전환)") {
-                // 컴포넌트의 섀도에는 두 모양만 있다 — 그 사이의 움직임은 콘솔이 part로 입힌 것이다.
-                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest .sub')).animationName") shouldBe "railSubIn"
-                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest .sub')).animationDelay") shouldBe "0.25s"
-                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=label]')).animationName") shouldBe "noticedWord"
-                (page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=button]')).transitionProperty") as String).contains("min-height") shouldBe true
-                page.waitForCondition { page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=button]')).minHeight") == "56px" }
+            Then("열리는 것은 움직임이다 — 폭이 먼저, 모양은 그 뒤에 컴포넌트의 펼침 모션으로") {
+                // 두 모양 사이의 움직임은 sayaya-ui 레일의 것이다(2.5.0.8) — 콘솔이 part에 입히던 페이드·높이
+                // 전환은 그 모션이 매 프레임 쓰는 inline 값과 다퉈서 걷었다.
+                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=label]')).animationName") shouldBe "none"
+                // 그 모션은 expanded가 바뀌는 순간 도착 자리를 잰다. 틀이 아직 96px일 때 재면 그 폭을 inline으로
+                // 붙든 채 서랍이 넓어지고, 모션이 끝나는 프레임에 303px로 튄다(측정: 한 프레임에 +224px).
+                // 닫고 다시 열며 매 프레임 레일 폭을 잰다 — 폭은 틀의 전환을 따라 흘러야 한다.
+                val sample = "() => { const n = document.getElementById('railNav'); let last = null, max = 0; const t0 = performance.now();" +
+                    " window.__magi_rail_jump = new Promise(res => { const f = () => { const w = n.getBoundingClientRect().width;" +
+                    " if (last !== null) max = Math.max(max, Math.abs(w - last)); last = w;" +
+                    " if (performance.now() - t0 < 900) requestAnimationFrame(f); else res(max); }; requestAnimationFrame(f); }); }"
+                page.evaluate(sample)
+                page.locator("#railMenu").click()
+                (page.evaluate("window.__magi_rail_jump") as Number).toDouble() shouldBeLessThan 120.0
+                page.locator("body[nav=open]").count() shouldBe 0
+                page.evaluate(sample)
+                page.locator("#railMenu").click()
+                (page.evaluate("window.__magi_rail_jump") as Number).toDouble() shouldBeLessThan 120.0
+                page.waitForSelector("#railNav[expanded]")
+                page.evaluate("document.getElementById('railNav').style.width") shouldBe ""
             }
             Then("툴 레일(2단)은 속이 비어 펼쳐지지 않는다 — handbook 규칙, 아직 용례가 없다") {
                 page.locator("#railPanel").isVisible() shouldBe false
@@ -266,9 +280,10 @@ internal class ShellDrawerTest : GwtTestSpec({
                 // 도구는 가는 곳이 아니다 — 누른 뒤에도 "선택된 도구"는 없다(컴포넌트가 옮긴 선택을 셸이 걷는다).
                 page.evaluate("document.getElementById('railToolNav').activeIndex") shouldBe -1
                 page.evaluate("[...document.querySelectorAll('#railToolNav > .tooli')].filter(e => e.active).length") shouldBe 0
-                // 옛 도구 항목(.raili)이 받던 움직임 — 상태 레이어는 번지고, 라벨은 페이드로 선다.
+                // 옛 도구 항목(.raili)이 받던 움직임 — 상태 레이어는 번진다. 라벨의 등장은 컴포넌트의 펼침 모션이
+                // 그리므로(2.5.0.8) 콘솔은 라벨에 애니메이션을 얹지 않는다(inline opacity를 덮어 깜박였다).
                 (page.evaluate("getComputedStyle(document.querySelector('#railToolNav > .tooli').shadowRoot.querySelector('[part=indicator]'), '::before').transitionProperty") as String).contains("opacity") shouldBe true
-                page.evaluate("getComputedStyle(document.querySelector('#railToolNav > .tooli').shadowRoot.querySelector('[part=label]')).animationName") shouldBe "noticedWord"
+                page.evaluate("getComputedStyle(document.querySelector('#railToolNav > .tooli').shadowRoot.querySelector('[part=label]')).animationName") shouldBe "none"
                 page.url().contains("v=") shouldBe false
             }
         }

@@ -809,19 +809,9 @@
     display:block; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     font:400 var(--md-sys-typescale-label-small-size)/1.35 var(--magi-ref-mono);
     letter-spacing:0; color:var(--magi-ref-muted);
-    /* In after the lane exists, not while it is being made. The 250ms is the rail's own width
-       transition — the sentence arrives once there is room for it, which reads as the drawer
-       opening and then filling rather than as text being dragged out of the edge of the screen.
-       An animation and not a transition: the element goes from display:none, and a transition
-       from a box that was not being rendered does not run. `both` keeps it at zero through the
-       delay. Out is not animated at all — see above, it goes the moment the width starts back. */
-    animation:railSubIn var(--magi-sys-dur-short4) var(--magi-sys-ease-standard) 250ms both;
-  }
-  @keyframes railSubIn { from { opacity:0; } to { opacity:1; } }
-  /* With motion turned down the rail does not travel — the width transition is not in the list
-     that block keeps — so there is no arrival to wait for, and a delay would only be a gap. */
-  @media (prefers-reduced-motion:reduce) {
-    body[nav="open"] #rail .sub { animation-delay:0s !important; }
+    /* No fade of its own: the rail's expand motion fades every text it draws in once the shape
+       changes, and the shape changes after the width (RailElement), so the sentence already
+       arrives once there is room for it. A second fade here only made it later and fainter. */
   }
   /* The words box is never wider than the item it is in. Collapsed, the rail is 96px and "People
      and permissions" is 172 — without this the label ran out of the item on both sides and the
@@ -876,38 +866,36 @@
     --md-navigation-rail-collapsed-width:100%; --md-navigation-rail-expanded-min-width:100%;
     --md-navigation-rail-expanded-max-width:100%; --md-navigation-rail-expanded-padding-inline:0;
     --md-navigation-rail-top-space:0; --md-navigation-rail-bottom-space:0;
+    /* 12px between expanded items, the hand-built rail's gap (2.5.0.8 made the default 0). It also
+       keeps the rows where they were: collapsed is 64 + 4 and expanded 56 + 12, both 68 apart, so
+       opening the drawer moves the items sideways and never up or down. */
+    --md-navigation-rail-expanded-item-space:var(--magi-sys-space-150);
   }
   /* A component host draws itself display:block from its shadow, which outranks the UA's [hidden]. */
   .dest[hidden] { display:none !important; }
   .dest .ic { display:block; }
   /* Where you are, said by the stroke too: an icon with no filled twin gets a heavier one (the guide). */
   .dest[selected] .ic path { stroke-width:2.4; }
-  /* The motion the hand-built rail had, carried onto the component through the parts it opens.
-     Its own styles draw the two shapes and nothing between them, so without these the drawer
-     snapped where it used to move. Same numbers as the rules on .raili above:
-     the label fades in as its row is drawn (Lit draws a new label when expanded flips, so the
-     animation runs on every open and close), the item's height travels 64↔56 under the width,
-     and the state layer eases rather than blinking. The sentence is the .sub rule above. */
-  #railNav .dest::part(label) { animation:noticedWord 150ms var(--magi-sys-ease-standard); }
-  #railNav .dest::part(button) { transition:min-height 250ms var(--magi-sys-ease-emphasized); }
-  /* The drawer's width belongs to the frame, not to the longest sentence. The component sizes an
-     expanded item's indicator to its content (flex:none, no cap), so one long supporting line grew
-     a pill to 422px inside a 303px rail and the drawer scrolled sideways (measured: scrollWidth 430
-     in a 320px frame; the hand-built rail was 319). The old rail kept the word and the sentence in
-     one line each with an ellipsis (.lbl, .sub, .words) — the same rule, carried onto the parts. */
-  #railNav .dest[expanded]::part(indicator) { flex:0 1 auto; max-width:100%; min-width:0; box-sizing:border-box; }
+  /* The motion between the two shapes is the component's own since sayaya-ui 2.5.0.8: one spring
+     carries the item height (64↔56), the indicator, the icon and the labels (out at the midpoint,
+     in at the new place), with prefers-reduced-motion honoured inside. The fade, the min-height
+     transition and the 56px floor this sheet used to put on the parts are gone: the motion writes
+     those properties inline every frame, and a CSS animation outranks inline style, so the old
+     fade flashed the label back over the spring's own.
+     What stays is the sentence and the label kept to one line with an ellipsis (.lbl, .sub, .words
+     did that on the hand-built rail), and the selection filling the row, which is the component's
+     fullWidthIndicator (RailElement). The pill used to size itself to its content and one long
+     sentence pushed it to 422px inside a 303px rail. */
   #railNav .dest[expanded]::part(label),
   #railNav .dest[expanded]::part(supporting-text) {
     display:block; min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  body[nav-wide] #railNav .dest::part(button) { min-height:56px; }
   /* The rail's items and the phone bar's tabs both: the old bar was the same .raili and eased too. */
   #rail .dest::part(indicator)::before {
     transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
   }
   @media (prefers-reduced-motion:reduce) {
-    #railNav .dest::part(label) { animation:none; }
-    #railNav .dest::part(button), #rail .dest::part(indicator)::before { transition:none; }
+    #rail .dest::part(indicator)::before { transition:none; }
   }
   /* The phone's bar — the same doors as md-navigation-bar, shown only where the rail is not. */
   #railBar { display:none; background:transparent; }

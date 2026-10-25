@@ -191,6 +191,9 @@ public class RailElement implements RailView {
                 + "<line class=\"bb br\" x1=\"12\" y1=\"18\" x2=\"21\" y2=\"18\"/></svg>";
         menu.addEventListener("click", evt -> toggle());
         column.id = "railNav";
+        // 펼친 레일의 선택 표시는 항목 폭을 채운다 — 옛 레일의 행 전체 하이라이트. 레일은 직계 항목에만
+        // 전파하므로 발치 항목은 아래에서 따로 켠다.
+        Js.asPropertyMap(column).set("fullWidthIndicator", true);
         // 발치는 운영이 접근 제어 문에게 준 자리다 — 매일 다니는 문들과 한 줄에 서지 않는다.
         foot.id = "railFoot";
         foot.setAttribute("slot", "footer");
@@ -199,6 +202,7 @@ public class RailElement implements RailView {
             HTMLElement item = item(d, "md-navigation-rail-item");
             item.append(supporting());
             items.put(d.id, item);
+            if (d.atFoot) Js.asPropertyMap(item).set("fullWidthIndicator", true);
             (d.atFoot ? foot : column).append(item);
             HTMLElement tab = item(d, "md-navigation-tab");
             tabs.put(d.id, tab);
@@ -292,31 +296,37 @@ public class RailElement implements RailView {
 
     // ── 열고 닫기 ────────────────────────────────────────────────────────────
     // 운영 콘솔의 2속성 기계 그대로: nav=open은 폭이고 nav-wide는 모양이다. 레일의 expanded는
-    // 모양이라 nav-wide와 함께 움직인다 — 닫을 때 250ms 늦게 걷는다: 폭 트랜지션 중에 낱말이
-    // 먼저 무너지지 않게(원본의 그 지연).
+    // 모양이라 nav-wide와 함께 움직인다 — 열 때도 닫을 때도 폭 트랜지션(250ms)이 끝난 뒤에 바뀐다.
+    // 닫을 때는 폭 트랜지션 중에 낱말이 먼저 무너지지 않게(원본의 그 지연). 열 때는 sayaya-ui 레일의
+    // 펼침 모션이 expanded가 바뀌는 순간 도착 자리를 재기 때문이다: 틀이 아직 96px일 때 재면 그 폭을
+    // inline으로 붙든 채 서랍이 넓어지고, 모션이 끝나는 순간 303px로 튄다(측정: 79px로 450ms, 한 프레임에 +224px).
 
     private double widePending = -1;
 
     private void toggle() {
         if ("open".equals(DomGlobal.document.body.getAttribute("nav"))) { close(); return; }
-        if (widePending >= 0) { DomGlobal.clearTimeout(widePending); widePending = -1; }
         DomGlobal.document.body.setAttribute("nav", "open");
-        DomGlobal.document.body.setAttribute("nav-wide", "");
-        expand(true);
         menu.setAttribute("aria-expanded", "true");
+        shapeAfterWidth(true);
         mode.drawer(true);
     }
 
     private void close() {
         DomGlobal.document.body.removeAttribute("nav");
         menu.setAttribute("aria-expanded", "false");
-        widePending = DomGlobal.setTimeout(a -> {
-            DomGlobal.document.body.removeAttribute("nav-wide");
-            expand(false);
-            widePending = -1;
-        }, 250);
+        shapeAfterWidth(false);
         hover.next(null);
         mode.drawer(false);
+    }
+
+    private void shapeAfterWidth(boolean wide) {
+        if (widePending >= 0) DomGlobal.clearTimeout(widePending);
+        widePending = DomGlobal.setTimeout(a -> {
+            if (wide) DomGlobal.document.body.setAttribute("nav-wide", "");
+            else DomGlobal.document.body.removeAttribute("nav-wide");
+            expand(wide);
+            widePending = -1;
+        }, 250);
     }
 
     /** 레일과 발치의 항목 — 발치는 레일 직계가 아니라 레일이 전파하지 않는다. */
