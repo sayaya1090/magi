@@ -7,7 +7,8 @@ import { test, expect, openDetail, harness } from './fixtures.mjs';
  * 한동안 앞의 것만 했다(고르개는 움직였고, 명단은 옛 값을 계속 답했다). 그래서 이 시험은 누른
  * 뒤에 <b>문에 다시 물어</b> 확인한다 — 화면을 다시 읽으면 제 낙관을 제가 채점하게 된다.
  */
-const perm = (page) => page.locator('#detail md-outlined-select[data-aria-label="Approvals"]');
+// 승인·모델·세션은 사실판(#detail)이 아니라 제어 카드(#dcontrols)에 산다 — IntelliJ 「MAGI 현황」과 같은 배치.
+const perm = (page) => page.locator('#dcontrols md-outlined-select[data-aria-label="Approvals"]');
 
 /** 상세를 새로 열고 고르개에서 하나를 고른다. 새로 여는 이유는 아래 시험이 적어 둔다. */
 async function choose(page, socket, want) {
@@ -53,7 +54,7 @@ test('승인 모드를 바꾸면 데몬이 그 모드로 답한다', async ({ pa
 
 test('모델 고르개가 데몬이 답한 이름들로 선다', async ({ page }) => {
   await openDetail(page);
-  const model = page.locator('#detail md-outlined-select[data-aria-label="Model"]');
+  const model = page.locator('#dcontrols md-outlined-select[data-aria-label="Model"]');
   const names = await model.locator('md-select-option').evaluateAll(o => o.map(x => x.getAttribute('value')));
   expect(names.filter(Boolean).length, 'models offered').toBeGreaterThan(0);
   // 지금 켜져 있는 것도 그 목록 안에 있다 — 목록과 현재값이 다른 데서 오면 고를 수 없는 값이 켜진다.

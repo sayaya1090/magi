@@ -22,12 +22,13 @@ test('명단 행이 승인 모드·백엔드·모델을 싣는다', async ({ pag
 
 test('상세가 승인 모드와 모델을 채워 그린다', async ({ page }) => {
   await openDetail(page);
-  const approval = page.locator('#detail .f', { hasText: /Approval|승인/ }).first();
+  // 승인·모델은 제어 카드(#dcontrols)에 선다 — 사실판에서 떼어 IntelliJ 「MAGI 현황」의 「제어」와 같은 자리로 옮겼다.
+  const approval = page.locator('#dcontrols .f', { hasText: /Approval|승인/ }).first();
   await expect(approval).toBeVisible();
   await expect(approval).not.toHaveText(/^\s*(Approval|승인[^\s]*)\s*$/);
   // 이름으로 집는다 — `.first()`는 세션 고르개였고, 그것은 언제나 값이 있어 이 줄이 무엇을
   // 재든 초록이었다(맞는 답이 틀린 근거로 맞고 있던 자리).
-  const model = page.locator('#detail md-outlined-select[data-aria-label="Model"]');
+  const model = page.locator('#dcontrols md-outlined-select[data-aria-label="Model"]');
   await expect(model).toBeVisible();
   expect(await model.evaluate(el => el.value), 'the model select shows what it is on').not.toBe('');
 });
@@ -39,6 +40,6 @@ test('상세의 사실들이 데몬의 것과 같다', async ({ page }) => {
   expect(text, 'workspace').toContain(row.workdir);
   expect(text, 'pid').toContain(String(row.pid));
   // 세션은 글이 아니라 고르개다 — 이 대화 위에 서 있고, 같은 작업공간의 다른 대화로 건너뛴다.
-  const sess = page.locator('#detail md-outlined-select[data-aria-label="Session"]');
+  const sess = page.locator('#dcontrols md-outlined-select[data-aria-label="Session"]');
   await expect(sess).toHaveJSProperty('value', row.session);
 });
