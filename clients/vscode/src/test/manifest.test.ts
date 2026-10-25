@@ -612,6 +612,9 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
 
     'session.created': 'the chat\'s opening facts. The model on it is answered LIVE by `status` (Setup.model), and a transcript that began at a replayed session.created would name the model it started on rather than the one answering now',
     'model.changed': 'same source, same reason: `status.model` is read on every poll, so a window attaching mid-chat gets the current model instead of replaying its history',
+    // Added with the S² checkpoint lifecycle (b873949d): reconstruct.go reads it to rebuild what the
+    // MODEL is sent after an adopted branch. The log keeps the original conversation and its rows.
+    'checkpoint.context': 'model context, not a chat row — it replaces what the model is sent after a checkpoint branch is adopted; the conversation and its rows stay in the log as they were',
   };
   // ★ The exemptions that claim a fact arrives LIVE are checked against the code that reads it.
   // A reason is prose and prose does not fail — but THIS reason is a checkable claim: three keys are
