@@ -137,9 +137,11 @@ public class RailElement implements RailView {
     /** 두 이름 다: CSS·시험은 [selected]를 읽고, aria-current="page"는 그 문이 여기라고 말한다. */
     private static void mark(HTMLElement e, boolean on) {
         if (e == null) return;
+        // 레일 항목은 링크라 컴포넌트가 제 <a>에 aria-current를 단다(2.5.0.6) — 호스트에 또 달면 두 번 읽힌다.
+        boolean link = e.hasAttribute("href");
         if (on) {
             e.setAttribute("selected", "");
-            e.setAttribute("aria-current", "page");
+            if (!link) e.setAttribute("aria-current", "page");
         } else {
             e.removeAttribute("selected");
             e.removeAttribute("aria-current");
@@ -242,6 +244,27 @@ public class RailElement implements RailView {
                 + "<path d=\"" + d.iconPath + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
                 + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
         e.append(icon);
+        if ("md-navigation-rail-item".equals(tag)) {
+            // 진짜 링크다(2.5.0.6: href → <a href>) — 가운데 클릭·수식 키·우클릭의 "링크 주소 복사"·
+            // 주소 미리보기는 브라우저가 한다. 셸은 평범한 클릭만 가로채 제 항해로 돌린다. 발치의 문은
+            // 레일의 목적지 목록 밖이라 activated가 오지 않으므로 클릭에서 직접 막는다.
+            e.setAttribute("href", href);
+            e.addEventListener("click", evt -> {
+                MouseEvent me = Js.uncheckedCast(evt);
+                if (me.metaKey || me.ctrlKey || me.shiftKey || me.altKey || me.button != 0) {
+                    // 새 탭으로 간 문은 여기가 아니다 — 컴포넌트가 옮겼을지 모를 선택을 되돌린다.
+                    if (current != null) select(current);
+                    return;
+                }
+                evt.preventDefault();
+                nav.go(d);
+            });
+            e.addEventListener("mouseenter", evt -> {
+                if ("open".equals(DomGlobal.document.body.getAttribute("nav"))) hover.next(d);
+            });
+            return e;
+        }
+        // 폰 바의 탭은 아직 버튼이다 — 링크가 하던 새 탭 열기를 이벤트로 대신한다.
         e.addEventListener("click", evt -> {
             MouseEvent me = Js.uncheckedCast(evt);
             if (me.metaKey || me.ctrlKey || me.shiftKey) {

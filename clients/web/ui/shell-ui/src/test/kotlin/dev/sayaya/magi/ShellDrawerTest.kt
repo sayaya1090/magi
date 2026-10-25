@@ -23,7 +23,11 @@ internal class ShellDrawerTest : GwtTestSpec({
             }
             Then("주소의 목적지(fleet)가 선택돼 있고, 그 모듈이 옷을 입은 채 한 번 로드된다") {
                 page.locator("#railNav .dest[selected]").count() shouldBe 1
-                page.locator("#railNav .dest[aria-current=page]").count() shouldBe 1
+                // 목적지는 링크다 — 컴포넌트의 <a href>가 aria-current를 들고, 탭(role=tab)이 아니다.
+                page.evaluate("[...document.querySelectorAll('#railNav .dest')].filter(e => e.shadowRoot.querySelector('a[aria-current=page]')).length") shouldBe 1
+                page.evaluate("document.querySelector('#railNav > .dest').shadowRoot.querySelector('a[href]') !== null") shouldBe true
+                page.evaluate("document.querySelector('#railNav > .dest').shadowRoot.querySelector('[role=tab]') === null") shouldBe true
+                page.locator("#railNav > .dest[aria-current]").count() shouldBe 0
                 // 주소는 fleet이고 그 화면을 그리는 모듈은 companion이다 — 목록과 상세가
                 // 한 모듈의 두 얼굴이라서(카탈로그가 그 둘을 가른다).
                 page.evaluate("window.__magi_test_loads") shouldBe "[companion+css]"
