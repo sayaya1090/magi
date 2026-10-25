@@ -27,6 +27,11 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 그 자리라 부르는 side sheet 가 이 콘솔에서는 이 기둥이다.
                 page.locator("#sidecol > #detail").count() shouldBe 1
                 page.locator("#stream > #detail").count() shouldBe 0
+                // IntelliJ 「MAGI 현황」과 같은 순서: 계획 → 작업 → 보낸 요청(+대기열) → 사용량 → 제어 → 예약,
+                // 이 컴패니언이 무엇인가(사실판)는 맨 아래.
+                page.evaluate("Array.from(document.querySelectorAll('#sidecol > *')).map(e => e.id).join(',')") shouldBe "side,detail"
+                page.evaluate("Array.from(document.querySelectorAll('#side > [id]')).map(e => e.id).join(',')") shouldBe
+                        "plan,strip,handoffs,queued,dusage,dcontrols,cron"
                 // 여는 것은 상단의 그 토글이다 — 기둥은 닫힌 채로 오고, 전사가 창을 다 갖는다.
                 page.locator("#sideToggle").count() shouldBe 1
             }
@@ -77,22 +82,22 @@ internal class CompanionPanelTest : GwtTestSpec({
             // 돌고 있는지 모른 채 그것을 바꾸라는 말을 듣는다(실측: 클라우드 모델 위의 데몬).
             Then("압축은 재렌더 중에도 잠기며 중복 요청을 막고 실패 후 다시 사용할 수 있다") {
                 page.evaluate("window.__magi_test_hold_compact = true")
-                val compact = page.locator("#detail .context-compact")
+                val compact = page.locator("#dusage .context-compact")
                 page.waitForCondition { compact.count() == 1 }
                 compact.evaluate("b => b.click()")
                 compact.getAttribute("data-aria-busy") shouldBe "true"
                 page.evaluate("window.__magi_test_redraw()")
-                page.locator("#detail .context-compact").getAttribute("disabled") shouldBe ""
-                page.locator("#detail .context-compact").evaluate("b => b.dispatchEvent(new MouseEvent('click', {bubbles:true}))")
+                page.locator("#dusage .context-compact").getAttribute("disabled") shouldBe ""
+                page.locator("#dusage .context-compact").evaluate("b => b.dispatchEvent(new MouseEvent('click', {bubbles:true}))")
                 page.evaluate("window.__magi_test_compact_calls") shouldBe 1
                 page.evaluate("window.__magi_test_compact_session") shouldBe "s_demo1"
                 page.evaluate("window.__magi_test_compact_release('model timeout')")
-                page.locator("#detail .f[data-k=\"field.context\"] .setting-feedback").textContent() shouldContain "model timeout"
-                page.locator("#detail .context-compact").getAttribute("data-aria-busy") shouldBe "false"
+                page.locator("#dusage .f[data-k=\"field.context\"] .setting-feedback").textContent() shouldContain "model timeout"
+                page.locator("#dusage .context-compact").getAttribute("data-aria-busy") shouldBe "false"
                 page.evaluate("window.__magi_test_hold_compact = false")
             }
             Then("카운슬은 캐시 안내 확인 후에만 현재 대화에 적용된다") {
-                val toggle = page.locator("#detail .f[data-k=\"field.council\"] md-switch")
+                val toggle = page.locator("#dcontrols .f[data-k=\"field.council\"] md-switch")
                 page.waitForCondition { toggle.count() == 1 }
                 toggle.evaluate("b => { b.selected = true; b.dispatchEvent(new Event('change', {bubbles:true})); }")
                 val dialog = page.locator("md-dialog.askconfirm")
@@ -106,15 +111,15 @@ internal class CompanionPanelTest : GwtTestSpec({
                 (toggle.evaluate("b => b.selected") as Boolean) shouldBe true
             }
             Then("모델 변경 거절은 기존 값과 읽을 수 있는 오류로 돌아온다") {
-                val model = page.locator("#detail .f[data-k=\"field.provider_model\"] md-outlined-select[data-aria-label=\"field.model\"]")
+                val model = page.locator("#dcontrols .f[data-k=\"field.provider_model\"] md-outlined-select[data-aria-label=\"field.model\"]")
                 page.waitForCondition { model.count() == 1 }
                 page.evaluate("window.__magi_test_model_why = 'authentication failed'")
                 model.evaluate("b => { b.value = 'deep-model'; b.dispatchEvent(new Event('change', {bubbles:true})); }")
                 page.waitForCondition { model.evaluate("b => b.value") == "gpt-oss:120b" }
-                page.locator("#detail .f[data-k=\"field.provider_model\"] .setting-feedback").textContent() shouldContain "authentication failed"
+                page.locator("#dcontrols .f[data-k=\"field.provider_model\"] .setting-feedback").textContent() shouldContain "authentication failed"
             }
             Then("모델 칸은 돌고 있는 것을 보여 준다 — 그 이름이 백엔드의 목록에 없어도") {
-                val pick = "#detail .f[data-k=\"field.provider_model\"] " +
+                val pick = "#dcontrols .f[data-k=\"field.provider_model\"] " +
                     "md-outlined-select[data-aria-label=\"field.model\"]"
                 val model = page.locator(pick)
                 page.waitForCondition { model.count() == 1 }
@@ -130,7 +135,7 @@ internal class CompanionPanelTest : GwtTestSpec({
             Then("고르개는 칸을 다 쓴다 — 제 글자만큼이 아니라") {
                 openSide(page)
                 val same = page.evaluate(
-                    "(() => { const d = document.querySelector('#sidecol > #detail');" +
+                    "(() => { const d = document.querySelector('#sidecol #dcontrols');" +
                         " const row = d.querySelector('.f .v > md-outlined-select');" +
                         " if (!row) return 'no select in the panel';" +
                         " const box = row.parentElement.getBoundingClientRect().width;" +
@@ -436,7 +441,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 }
                 // 다시 물은 값이 실제로 그려진다 — 묻기만 하고 안 그리면 사람 눈엔 같다.
                 page.waitForCondition {
-                    page.locator("#detail .f[data-k=\"field.context\"] .v").textContent().orEmpty().contains("91,500")
+                    page.locator("#dusage .f[data-k=\"field.context\"] .v").textContent().orEmpty().contains("91,500")
                 }
             }
             Then("도는 동안에는 묻지 않는다 — 그 답은 로그를 통째로 다시 재생하는 값이다") {
@@ -557,7 +562,7 @@ internal class CompanionPanelTest : GwtTestSpec({
         }
         When("세션 고르개를 읽으면") {
             Then("줄마다 아이디와 제목을 함께 적는다 — 아이디만이면 해시 목록이다") {
-                val opts = page.locator("#detail .f[data-k=\"field.session\"] md-select-option")
+                val opts = page.locator("#dcontrols .f[data-k=\"field.session\"] md-select-option")
                 page.waitForCondition { opts.count() == 4 }
                 // 첫 줄은 명단이 아직 못 따라잡은 지금 이 세션(픽스처의 history엔 없다).
                 // 팩이 없는 페이지에서 tr은 키를 돌려주므로 키 계약으로 잰다.

@@ -50,6 +50,18 @@ public class DetailElement {
     private final HTMLElement sum = el("div");
     private final HTMLElement wrap = el("div");
     private final HTMLElement grid = el("div");
+    // IntelliJ 「MAGI 현황」과 같은 배치: 사용량과 제어는 사실판 밖의 제 카드다(#side 안, 예약 앞).
+    // 줄을 짓는 규칙(put/sweep의 제자리 갱신)은 하나이고, 어느 격자에 서는지만 키가 정한다.
+    private final HTMLElement usage = el("md-outlined-card");
+    private final HTMLElement usageGrid = el("div");
+    private final HTMLElement usageHead = el("h3");
+    private final HTMLElement controls = el("md-outlined-card");
+    private final HTMLElement ctrlGrid = el("div");
+    private final HTMLElement ctrlHead = el("h3");
+    private static final java.util.Set<String> USAGE_KEYS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "field.context", "field.cache", "field.summarised_away"));
+    private static final java.util.Set<String> CONTROL_KEYS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "field.session", "field.provider_model", "field.permission", "field.council"));
     private FleetAgent a = null;
     private CompanionContext ctx = null;
     private Object info = null;
@@ -74,6 +86,16 @@ public class DetailElement {
         grid.className = "grid";
         wrap.append(grid);
         card.append(bar, wrap);
+        usage.id = "dusage";
+        controls.id = "dcontrols";
+        usageGrid.className = "grid";
+        ctrlGrid.className = "grid";
+        usageHead.className = "sidehead";
+        ctrlHead.className = "sidehead";
+        usage.append(usageHead, usageGrid);
+        controls.append(ctrlHead, ctrlGrid);
+        usage.setAttribute("hidden", "");
+        controls.setAttribute("hidden", "");
         store.onContext(c -> { ctx = c; render(); });
         DomGlobal.setInterval(ignored -> {
             if (ctx == null || a == null || ctx.past != null || ctx.sub != null || councilBusy || councilReading || councilSession.isEmpty() || !councilSession.equals(a.session) || DomGlobal.document.hidden) return;
@@ -106,6 +128,23 @@ public class DetailElement {
     }
 
     public HTMLElement element() { return card; }
+
+    /** 사용량 카드(#dusage) — 부모가 #side의 예약 앞에 세운다. */
+    public HTMLElement usage() { return usage; }
+
+    /** 제어 카드(#dcontrols) — 대화(세션)·모델·권한·카운슬. */
+    public HTMLElement controls() { return controls; }
+
+    private HTMLElement gridFor(String k) {
+        if (k != null && USAGE_KEYS.contains(k)) return usageGrid;
+        if (k != null && CONTROL_KEYS.contains(k)) return ctrlGrid;
+        return grid;
+    }
+
+    /** 줄이 하나도 없는 카드는 서지 않는다 — 빈 머리만 남은 카드는 "아직 안 왔다"로 읽힌다. */
+    private void shownIfAny(HTMLElement cardEl, HTMLElement g) {
+        if (full && g.childElementCount > 0) cardEl.removeAttribute("hidden"); else cardEl.setAttribute("hidden", "");
+    }
 
     private void fold(boolean want, boolean chosen) {
         if (want) card.setAttribute("folded", ""); else card.removeAttribute("folded");
@@ -152,12 +191,13 @@ public class DetailElement {
         String k = row.getAttribute("data-k");
         if (k == null || k.isEmpty()) { grid.append(row); return; }
         seen.add(k);
+        HTMLElement target = gridFor(k);
         HTMLElement had = null;
-        for (int i = 0; i < grid.childNodes.getLength(); i++) {
-            elemental2.dom.Element c = Js.uncheckedCast(grid.childNodes.getAt(i));
+        for (int i = 0; i < target.childNodes.getLength(); i++) {
+            elemental2.dom.Element c = Js.uncheckedCast(target.childNodes.getAt(i));
             if (k.equals(c.getAttribute("data-k"))) { had = Js.uncheckedCast(c); break; }
         }
-        if (had == null) { grid.append(row); return; }
+        if (had == null) { target.append(row); return; }
         if (had == row) return;   // 계속 쓰는 줄(컨트롤을 인 줄) — 이미 제자리다
         // 말이 같으면 서 있던 줄이 남는다. 컨트롤을 이고 있는 줄은 방금 그 컨트롤을 새 줄로
         // 데려갔으므로 말이 달라지고, 그때는 새 줄이 들어선다 — 어느 쪽이든 고르개는 문서 안이다.
@@ -167,11 +207,15 @@ public class DetailElement {
 
     /** 이번에 아무도 대지 않은 줄은 이제 없는 사실이다. */
     private void sweep() {
-        for (int i = grid.childNodes.getLength() - 1; i >= 0; i--) {
-            elemental2.dom.Element c = Js.uncheckedCast(grid.childNodes.getAt(i));
-            String k = c.getAttribute("data-k");
-            if (k != null && !k.isEmpty() && !seen.contains(k)) c.remove();
+        for (HTMLElement g : new HTMLElement[]{grid, usageGrid, ctrlGrid}) {
+            for (int i = g.childNodes.getLength() - 1; i >= 0; i--) {
+                elemental2.dom.Element c = Js.uncheckedCast(g.childNodes.getAt(i));
+                String k = c.getAttribute("data-k");
+                if (k != null && !k.isEmpty() && !seen.contains(k)) c.remove();
+            }
         }
+        shownIfAny(usage, usageGrid);
+        shownIfAny(controls, ctrlGrid);
     }
 
     private static String words(elemental2.dom.Element n) {
@@ -183,7 +227,7 @@ public class DetailElement {
     private String settingsIdentity() { return ctx == null || a == null ? "" : ctx.socket + "|" + ctx.peer + "|" + a.session; }
     private void feedback(String field, String message) {
         HTMLElement row = kept.get(field);
-        if (row == null) row = Js.uncheckedCast(grid.querySelector(".f[data-k=\"" + field + "\"]"));
+        if (row == null) row = Js.uncheckedCast(gridFor(field).querySelector(".f[data-k=\"" + field + "\"]"));
         if (row == null) return;
         HTMLElement note = Js.uncheckedCast(row.querySelector(".setting-feedback"));
         if (note == null) { note = cell("dnote setting-feedback", ""); note.setAttribute("role", "status"); row.append(note); }
@@ -206,7 +250,9 @@ public class DetailElement {
         // 뒤집힌다(실측: 폰의 대화 탭 위에 사실판이 다시 섰다). 여기서는 "속이 있는가"만 말한다.
         boolean has = ctx != null && a != null;
         if (has != full) { full = has; changed.call(); }
-        if (!has) { grid.replaceChildren(); kept.clear(); return; }
+        if (!has) { grid.replaceChildren(); usageGrid.replaceChildren(); ctrlGrid.replaceChildren(); kept.clear(); shownIfAny(usage, usageGrid); shownIfAny(controls, ctrlGrid); return; }
+        usageHead.textContent = tr("side.usage");
+        ctrlHead.textContent = tr("side.controls");
         say(sum, stateWord(a.state) + " · " + (a.workdir == null ? "" : a.workdir));
         Tips.on(sum, sum.textContent);
         // 명단은 몇 초마다 흐른다. 그때마다 이 격자를 다시 지으면 그 안의 고르개가 <b>다시
@@ -216,6 +262,8 @@ public class DetailElement {
         if (!who.equals(shownFor)) {
             shownFor = who;
             grid.replaceChildren();
+            usageGrid.replaceChildren();
+            ctrlGrid.replaceChildren();
             kept.clear();
             // 떠나며 끝난 말을 잊는다 — 받는 중인 것은 남긴다(Updates가 그 둘을 가른다).
             updates.forgetFinished();

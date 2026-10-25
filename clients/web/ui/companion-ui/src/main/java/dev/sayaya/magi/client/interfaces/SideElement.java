@@ -76,6 +76,11 @@ public class SideElement {
 
     public HTMLElement element() { return side; }
 
+    /** 남의 카드를 이 기둥의 예약 앞에 세운다 — IntelliJ 「MAGI 현황」 순서: 계획·작업·보낸 요청 다음, 예약 전. */
+    public void place(HTMLElement... cards) {
+        for (HTMLElement c : cards) side.insertBefore(c, cron);
+    }
+
     /** 로그 밖의 사실들을 다시 읽는다 — 답이 같으면 다시 그리지 않는다(열린 메뉴·스크롤 보호). */
     private Object rosterList = null;
     // 명단이 이 판에 주는 유일한 입력의 지난 값 — 이것이 그대로면 다시 물을 이유가 없다.

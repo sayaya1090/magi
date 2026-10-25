@@ -88,7 +88,10 @@ public class CompanionElement {
         // 그 자리라고 부르는 side sheet 가 이 콘솔에서는 이 기둥이다. 가운데에 있던 동안 그 판은
         // auto-fit 격자라 남는 폭을 전부 열로 썼고, 카드가 하나도 없는 화면(대부분의 화면)에서는
         // 전사 위에 통째로 누웠다. 폰에서는 이 기둥이 곧 탭이라 자리가 하나로 정해진다.
-        sidecol.append(detail.element(), side.element());
+        // IntelliJ 「MAGI 현황」과 같은 순서: 계획 → 작업 → 보낸 요청(+대기열) → 사용량 → 제어 → 예약,
+        // 그리고 이 컴패니언이 무엇인가(상태·호스트·작업공간)는 맨 아래의 접히는 사실판이다.
+        side.place(detail.usage(), detail.controls());
+        sidecol.append(side.element(), detail.element());
         stage.append(filecol, stream, sidecol);
         tabs.id = "ptabs";
         tabs.setAttribute("hidden", "");
