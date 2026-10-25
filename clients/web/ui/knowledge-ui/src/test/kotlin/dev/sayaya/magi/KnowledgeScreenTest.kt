@@ -342,8 +342,9 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.locator("#skills:not([hidden])").count() shouldBe 1
                 page.locator("#wiki[hidden]").count() shouldBe 1
                 page.locator("#mcp[hidden]").count() shouldBe 1
-                // 탭 하나가 아니라 한 벌이라고 말한다 — 화살표에 답하는 쪽이 그렇게 말한다.
-                (page.locator("#sharedTabs").getAttribute("role")) shouldBe "tablist"
+                // 탭 하나가 아니라 한 벌이라고 말한다 — md-tabs가 그 역할을 ElementInternals(internals.role="tablist")로
+                // 답한다. 속성에도 없고 Playwright의 역할 계산도 internals를 읽지 않아, 그 컴포넌트인지를 잰다.
+                (page.evaluate("document.getElementById('sharedTabs').tagName")) shouldBe "MD-TABS"
             }
             Then("고르개를 누르면 그 판으로 바뀐다") {
                 page.locator("#sharedTabs md-secondary-tab").nth(1).click()

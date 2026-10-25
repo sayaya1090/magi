@@ -39,7 +39,7 @@ public class KnowledgeElement {
     private final Pane wiki;
     private final Pane mcp;
     private final HTMLElement write = el("div");
-    private final HTMLElement tabs = el("div");   // 좁은 창의 판 고르개(#sharedTabs)
+    private final HTMLElement tabs = el("md-tabs");   // 좁은 창의 판 고르개(#sharedTabs)
     private String shows = "skills";              // 좁을 때 보이는 판 하나
     private final McpDialog dialog;
     private Object roster = null;   // 서버 다이얼로그의 "누구에게" 옵션 — 셸의 스트림에서
@@ -62,22 +62,7 @@ public class KnowledgeElement {
         tabs.id = "sharedTabs";
         tabs.className = "onetabs";
         tabs.setAttribute("hidden", "");
-        // 탭 하나가 아니라 탭 한 벌이다: 역할을 말했으면 화살표에도 답해야 한다(md-tabs가 아니라
-        // 평범한 div라 이 손잡이는 여기서 단다 — 운영의 그 규칙과 같은 이유).
-        tabs.setAttribute("role", "tablist");
-        tabs.addEventListener("keydown", evt -> {
-            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
-            boolean right = "ArrowRight".equals(k.key), left = "ArrowLeft".equals(k.key);
-            if (!right && !left) return;
-            elemental2.dom.NodeList<elemental2.dom.Element> all = tabList();
-            elemental2.dom.Element now = DomGlobal.document.activeElement;
-            int at = -1;
-            for (int i = 0; i < all.getLength(); i++) if (all.getAt(i) == now) at = i;
-            if (at < 0) return;
-            k.preventDefault();
-            int to = right ? Math.min(at + 1, all.getLength() - 1) : Math.max(at - 1, 0);
-            if (to != at) Js.<HTMLElement>uncheckedCast(all.getAt(to)).focus();
-        });
+        // 탭 한 벌은 md-tabs가 말한다 — 역할(tablist)도, 화살표로 옮겨 다니는 것도 컴포넌트의 몫이다.
     }
 
     public void mount(HTMLElement frame) {

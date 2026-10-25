@@ -2952,6 +2952,8 @@
     border-bottom:1px solid var(--magi-ref-outlineVariant);
   }
   .onetabs > * { flex:1 1 0; min-width:0; }
+  /* md-tabs draws its own display from the shadow; the UA [hidden] loses to it. */
+  .onetabs[hidden] { display:none !important; }
 
   /* Above the breakpoint there is room for both cards and nothing to switch between. */
 
