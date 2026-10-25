@@ -34,6 +34,21 @@ local function excerpt(s, limit)
   return s:sub(1, limit), true
 end
 
+-- A model told "JSON only" still wraps the object now and then: a ```json fence, a line of
+-- preamble. The object inside is the answer. Measured: an aitoon comparison ended `incomplete`
+-- with "invalid comparison judgment" after both arms had already run and been paid for.
+local function decode_object(raw)
+  local v = magi.json_decode(raw)
+  if type(v) == "table" then return v end
+  local s = tostring(raw or "")
+  local first, last = s:find("{", 1, true), s:match(".*()}")
+  if first and last and last > first then
+    v = magi.json_decode(s:sub(first, last))
+    if type(v) == "table" then return v end
+  end
+  return nil
+end
+
 local function evidence(r)
   local steps, err = magi.child_steps(r.session_id)
   if not steps then return nil, err end
@@ -264,7 +279,7 @@ magi.register_tool{
             return ok and record or err, not ok
           end
         else
-          local parsed = magi.json_decode(raw)
+          local parsed = decode_object(raw)
           if type(parsed) == "table" and text(parsed.guidance, 4000) and text(parsed.hypothesis, 2000) then
             local duplicate = false
             for _, old in ipairs(record.proposals) do if old.guidance == parsed.guidance then duplicate = true end end
@@ -387,11 +402,17 @@ magi.register_tool{
     local raw, jerr = analyze("comparison", COMPARE, { task = args.task, hypothesis = record.hypothesis,
       guidance = guidance, baseline = baseline, candidate = candidate, verifier_assessment = assessment, adopted_experience = record.consulted_experience })
     if not raw then return fail(jerr) end
-    local judgment = magi.json_decode(raw)
+    local judgment = decode_object(raw)
     local preferences = { baseline = true, candidate = true, inconclusive = true }
     local effects = { helped = true, hurt = true, ["no observed effect"] = true, confounded = true }
+    -- A long reason is still a reason: cut it on a character boundary rather than lose the run.
+    if type(judgment) == "table" and type(judgment.reason) == "string" and #judgment.reason > 6000 then
+      judgment.reason = excerpt(judgment.reason, 6000)
+    end
     if type(judgment) ~= "table" or not preferences[judgment.preferred] or not effects[judgment.observed_effect] or not text(judgment.reason, 6000) then
-      return fail("invalid comparison judgment")
+      -- Keep what was rejected. Without it the report could only say THAT the judgment was
+      -- unusable, never how, and the next failure would be just as opaque.
+      return fail("invalid comparison judgment; reply began: " .. excerpt(raw, 500))
     end
     -- Keep only the qualitative schema; discard unsolicited model scores.
     judgment = { preferred = judgment.preferred, observed_effect = judgment.observed_effect, reason = judgment.reason }

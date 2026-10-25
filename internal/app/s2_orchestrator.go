@@ -30,7 +30,10 @@ func s2Trigger(steps []port.ChildStep) bool {
 			continue
 		}
 		out := strings.ToLower(st.Output)
-		if strings.Contains(out, "blocked by policy") || strings.Contains(out, "permission") || strings.Contains(out, "denied") {
+		// "not permitted" is how macOS words EPERM (`Operation not permitted`): a sandbox refusing
+		// a lock file, which is no more a failed check than a policy refusal is.
+		if strings.Contains(out, "blocked by policy") || strings.Contains(out, "permission") || strings.Contains(out, "denied") ||
+			strings.Contains(out, "not permitted") {
 			continue
 		}
 		var args struct {

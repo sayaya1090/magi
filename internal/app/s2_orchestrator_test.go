@@ -26,6 +26,10 @@ func TestS2HostTriggerUsesObservedEditAndExecution(t *testing.T) {
 		{"successful edit and check", []port.ChildStep{edit, {Name: "bash", Args: check.Args}}, true},
 		{"already compared", []port.ChildStep{check, edit, check, {Name: "s2_compare"}}, false},
 		{"permission refusal", []port.ChildStep{{Name: "bash", Args: check.Args, Failed: true, Output: "blocked by policy"}, edit, check}, false},
+		// macOS says EPERM as "Operation not permitted" — a sandbox refusing a lock file, not a check
+		// that failed. Measured: aitoon's `git add` hit `.git/index.lock: Operation not permitted`.
+		{"sandbox EPERM", []port.ChildStep{edit, {Name: "bash", Args: check.Args, Failed: true, Output: "fatal: Unable to create '.git/index.lock': Operation not permitted"}}, false},
+		{"sandbox EPERM retried", []port.ChildStep{{Name: "bash", Args: check.Args, Failed: true, Output: "Operation not permitted"}, edit, {Name: "bash", Args: check.Args, Failed: true, Output: "Operation not permitted"}}, false},
 		{"different command", []port.ChildStep{check, edit, {Name: "bash", Args: json.RawMessage(`{"command":"go vet ./..."}`), Failed: true}}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
