@@ -39,6 +39,14 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#railNav[expanded]")
                 page.evaluate("document.querySelector('#railNav > .dest').label") shouldBe "nav.companions"
             }
+            Then("열리는 것은 움직임이다 — 설명은 폭 뒤에, 라벨은 페이드로, 높이는 건너가며(옛 레일의 그 전환)") {
+                // 컴포넌트의 섀도에는 두 모양만 있다 — 그 사이의 움직임은 콘솔이 part로 입힌 것이다.
+                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest .sub')).animationName") shouldBe "railSubIn"
+                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest .sub')).animationDelay") shouldBe "0.25s"
+                page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=label]')).animationName") shouldBe "noticedWord"
+                (page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=button]')).transitionProperty") as String).contains("min-height") shouldBe true
+                page.waitForCondition { page.evaluate("getComputedStyle(document.querySelector('#railNav > .dest').shadowRoot.querySelector('[part=button]')).minHeight") == "56px" }
+            }
             Then("툴 레일(2단)은 속이 비어 펼쳐지지 않는다 — handbook 규칙, 아직 용례가 없다") {
                 page.locator("#railPanel").isVisible() shouldBe false
                 page.locator("#railPanel *").count() shouldBe 0
@@ -452,6 +460,8 @@ internal class ShellDrawerTest : GwtTestSpec({
             Then("레일은 하단 바가 된다 — 버거는 사라지고, 문들이 가로로 선다(운영 css)") {
                 page.waitForCondition { !(page.locator("#railMenu").isVisible()) }
                 page.locator("#railBar").isVisible() shouldBe true
+                // 바의 탭도 옛 하단 바처럼 상태 레이어가 깜빡이지 않고 번진다.
+                (page.evaluate("getComputedStyle(document.querySelector('#railBar > .dest').shadowRoot.querySelector('[part=indicator]'), '::before').transitionProperty") as String).contains("opacity") shouldBe true
                 page.locator("#railNav").isVisible() shouldBe false
                 (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true
             }

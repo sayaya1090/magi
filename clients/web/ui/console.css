@@ -882,6 +882,23 @@
   .dest .ic { display:block; }
   /* Where you are, said by the stroke too: an icon with no filled twin gets a heavier one (the guide). */
   .dest[selected] .ic path { stroke-width:2.4; }
+  /* The motion the hand-built rail had, carried onto the component through the parts it opens.
+     Its own styles draw the two shapes and nothing between them, so without these the drawer
+     snapped where it used to move. Same numbers as the rules on .raili above:
+     the label fades in as its row is drawn (Lit draws a new label when expanded flips, so the
+     animation runs on every open and close), the item's height travels 64↔56 under the width,
+     and the state layer eases rather than blinking. The sentence is the .sub rule above. */
+  #railNav .dest::part(label) { animation:noticedWord 150ms var(--magi-sys-ease-standard); }
+  #railNav .dest::part(button) { transition:min-height 250ms var(--magi-sys-ease-emphasized); }
+  body[nav-wide] #railNav .dest::part(button) { min-height:56px; }
+  /* The rail's items and the phone bar's tabs both: the old bar was the same .raili and eased too. */
+  #rail .dest::part(indicator)::before {
+    transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard);
+  }
+  @media (prefers-reduced-motion:reduce) {
+    #railNav .dest::part(label) { animation:none; }
+    #railNav .dest::part(button), #rail .dest::part(indicator)::before { transition:none; }
+  }
   /* The phone's bar — the same doors as md-navigation-bar, shown only where the rail is not. */
   #railBar { display:none; background:transparent; }
   #railNav { display:flex; flex-direction:column; gap:var(--magi-sys-space-150); }

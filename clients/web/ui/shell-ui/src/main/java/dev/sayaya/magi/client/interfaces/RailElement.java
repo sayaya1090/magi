@@ -218,6 +218,9 @@ public class RailElement implements RailView {
     private static HTMLElement supporting() {
         HTMLElement sub = el("span");
         sub.setAttribute("slot", "supporting-text");
+        // .sub: console.css가 이 줄을 "폭이 다 벌어진 뒤(250ms) 페이드인"으로 들인다(railSubIn) —
+        // 옛 레일의 그 규칙을 이 항목에도 걸리게 하는 이름이다.
+        sub.className = "sub";
         return sub;
     }
 
