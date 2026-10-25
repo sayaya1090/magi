@@ -3373,51 +3373,14 @@
      the slotted content does not resolve against a scroller bounded by max-height (tried: the list
      grew to 584 and the overflow got worse), and md-dialog exposes no ::part to reach the scroller
      with. If either constant changes, this is where it shows. */
-  #palList {
-    display:grid; gap:var(--magi-sys-space-50); margin-top:var(--magi-sys-space-200);
-    max-height:min(20rem, calc(100dvh - 18rem)); overflow-y:auto;
-  }
-  .palrow {
-    display:grid; grid-template-columns:5.5rem 1fr; align-items:baseline;
-    gap:var(--magi-sys-space-150) var(--magi-sys-space-200);
-    /* 48dp: this is a list of things one press away, which is the size the guide gives a list item
-       and a touch target both. */
-    min-height:48px; padding:var(--magi-sys-space-100) var(--magi-sys-space-200);
-    border:0; border-radius:var(--magi-sys-shape-s); background:transparent; cursor:pointer;
-    text-align:start; font:inherit; color:var(--magi-ref-fg); width:100%;
-  }
-  /* The row the keyboard is on, and the row the pointer is on, are the same state drawn one way. */
-  /* Hover is a layer and selection is a fill, so the two can be told apart AND stack.
-     They were one rule — the same tonal swap for both — which read wrong twice: in dark the fill
-     was a step DOWN the elevation scale, so hovering made a row darker than the sheet it sits on,
-     and with the pointer anywhere on the list there was no telling which row Enter would run,
-     because hover and selection were the same pixel value. A state layer over its own surface is
-     what the guide gives hover; selected keeps its fill and takes the layer on top like anything
-     else ("상태는 겹칠 수 있다 — 선택 + 호버"). */
-  .palrow:hover { background:color-mix(in srgb, var(--magi-ref-fg) 8%, var(--magi-ref-surface-container-high)); }
-  .palrow:active { background:color-mix(in srgb, var(--magi-ref-fg) 12%, var(--magi-ref-surface-container-high)); }
-  /* A tint of the role whose outline already marks it — not a lower tonal surface, which in dark
-     inverted the elevation order. */
-  .palrow.at {
-    background:color-mix(in srgb, var(--magi-ref-primary) 12%, var(--magi-ref-surface-container-high));
-    outline:2px solid var(--magi-ref-primary); outline-offset:-2px;
-  }
-  .palrow.at:hover {
-    background:color-mix(in srgb, var(--magi-ref-fg) 8%,
-               color-mix(in srgb, var(--magi-ref-primary) 12%, var(--magi-ref-surface-container-high)));
-  }
-  .palrow.at:active {
-    background:color-mix(in srgb, var(--magi-ref-fg) 12%,
-               color-mix(in srgb, var(--magi-ref-primary) 12%, var(--magi-ref-surface-container-high)));
-  }
-  .palrow .palkind {
+  /* The list is sayaya-ui's search view (plain DOM, so it is reachable). It keeps the cap the old
+     #palList had: the dialog scrolls the list, not itself. The rows are the component's own
+     (option, headline, supporting text, selected/hover layers); the kind word is ours. */
+  #palField { width:100%; }
+  #palField .view { max-height:min(20rem, calc(100dvh - 18rem)); overflow-y:auto; }
+  #palField .palkind {
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono); letter-spacing:0.06em;
-    color:var(--magi-ref-muted); text-transform:lowercase;
-  }
-  .palrow .palname { font-size:var(--md-sys-typescale-body-medium-size); overflow-wrap:anywhere; }
-  .palrow .palhint {
-    grid-column:2; font:var(--md-sys-typescale-label-small-size)/1.4 var(--magi-ref-mono);
-    color:var(--magi-ref-muted); overflow-wrap:anywhere;
+    color:var(--magi-ref-muted); text-transform:lowercase; min-width:5.5rem;
   }
   #palNone { margin-top:var(--magi-sys-space-200); color:var(--magi-ref-muted); }
 
@@ -5441,7 +5404,7 @@
     /* The list is the dialog now, so it does not keep a scroller of its own inside one. Capped at
        half the window it scrolled 766px through 332 in a 664px box with 100px of empty dialog
        under it — the very shape the full-screen change was made to end. */
-    #palList { max-height:none; overflow-y:visible; }
+    #palField .view { max-height:none; overflow-y:visible; }
     /* And the strip fills with the bar it is stuck to. `body[scrolled] #ptabs`, written at the top
        of this file, is an exact specificity tie with the compact rule above — one id, one
        attribute and one type each — so source order decided it and the later one won. The strip is

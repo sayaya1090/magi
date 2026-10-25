@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module rename-to="shell">
     <inherits name="dagger.Dagger"/>
+    <!-- ⌘K 팔레트가 sayaya-ui의 search(SearchElementBuilder)로 선다. -->
+    <inherits name="dev.sayaya.Ui"/>
     <inherits name="dev.sayaya.magi.ConsoleBridge"/>
     <inherits name="dev.sayaya.magi.UiComponents"/>
     <entry-point class="dev.sayaya.magi.client.Application"/>

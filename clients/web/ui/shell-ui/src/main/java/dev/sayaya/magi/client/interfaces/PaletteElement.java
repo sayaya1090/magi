@@ -7,6 +7,8 @@ import dev.sayaya.magi.client.domain.Match;
 import dev.sayaya.magi.client.usecase.Navigation;
 import dev.sayaya.magi.client.usecase.RosterStore;
 import dev.sayaya.magi.component.Dialogs;
+import dev.sayaya.ui.elements.SearchElementBuilder;
+import dev.sayaya.ui.elements.SearchElementBuilder.Suggestion;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import elemental2.dom.KeyboardEvent;
@@ -30,22 +32,25 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * 온다: 미리 등록해 둔 것(current)과 지금 친 글자로 물어야 아는 것(ask — 워크스페이스의 파일
  * 이름 같은, 왕복이 드는 것).
  *
- * 마크업은 운영의 것이다(#palDialog/#palField/#palList/.palrow): console.css가 그 이름으로
- * 입히고, 목록은 role=listbox와 option으로 스크린리더에게도 목록이다.
+ * 상자는 md-dialog(#palDialog)이고, 그 안의 찾기 칸과 목록은 sayaya-ui의 M3 search(#palField)다:
+ * 입력은 combobox, 목록은 listbox/option, ↑/↓·Enter·IME 조합 처리와 늦은 답 버리기는 컴포넌트가
+ * 한다. 셸이 쥔 것은 무엇을 어떤 순서로 보이느냐(점수·스무 줄)와 고르면 무엇이 도느냐뿐이다.
  */
 @Singleton
 public class PaletteElement {
     private final Navigation nav;
     private final RosterStore roster;
     private final HTMLElement dialog = el("md-dialog");
-    private final HTMLElement field = el("md-outlined-text-field");
-    private final HTMLElement list = el("div");
+    // 앱이 목록을 정한다(filter=false) — 점수로 줄 세우고 스물로 자르는 것은 이 판의 규칙이다.
+    // inline: 다이얼로그 안이라 목록이 겹쳐 뜨거나 스크림이 한 겹 더 덮지 않는다.
+    private final SearchElementBuilder search = SearchElementBuilder.search().docked().inline(true).filter(false);
+    private final HTMLElement field = Js.uncheckedCast(search.element());
     private final HTMLElement none = el("div");
     private final HTMLElement headline = el("div");
     private final HTMLElement cancel = el("md-text-button");
     private final List<Row> rows = new ArrayList<>();
-    private int at = 0;
-    // 몇 번째 물음인가 — 늦게 오는 답이 방금 친 글자를 덮지 않게(운영 palAsked).
+    // 몇 번째 물음인가 — 늦게 오는 답이 방금 친 글자를 덮지 않게(운영 palAsked). 컴포넌트도
+    // 입력이 바뀐 답을 버리지만(setSuggestions(forQuery,…)), 같은 글자를 두 번 물은 경우는 이 수가 가른다.
     private int asked = 0;
     private FleetAgent[] fleet = null;
 
@@ -82,16 +87,16 @@ public class PaletteElement {
     public void show() {
         if (open()) return;
         headline.textContent = tr("pal.head");
-        field.setAttribute("label", tr("pal.label"));
-        list.setAttribute("aria-label", tr("pal.results"));
+        search.placeholder(tr("pal.label")).ariaLabel(tr("pal.label"));
+        elemental2.dom.Element listbox = field.querySelector("[role=listbox]");
+        if (listbox != null) listbox.setAttribute("aria-label", tr("pal.results"));
         cancel.textContent = tr("action.cancel");
-        Js.asPropertyMap(field).set("value", "");
-        at = 0;
+        search.reset();
         gather();
         // md-dialog는 속성이 아니라 제 메서드로 연다 — open을 적어 두면 컴포넌트가 그것을
         // 제 상태로 삼지 않아 아무 일도 일어나지 않는다(실측: 상자가 서지 않음).
         openIt(dialog);
-        DomGlobal.setTimeout(args -> Js.<HTMLElement>uncheckedCast(field).focus(), 30);
+        DomGlobal.setTimeout(args -> { search.focus(); search.open(true); }, 30);
     }
 
     private boolean open() { return Js.isTruthy(Js.asPropertyMap(dialog).get("open")); }
@@ -113,13 +118,9 @@ public class PaletteElement {
         HTMLElement body = el("div");
         body.setAttribute("slot", "content");
         field.id = "palField";
-        field.setAttribute("autofocus", "");
-        list.id = "palList";
-        list.setAttribute("role", "listbox");
-        list.setAttribute("tabindex", "-1");
         none.id = "palNone";
         none.setAttribute("hidden", "");
-        body.append(field, list, none);
+        body.append(field, none);
         HTMLElement actions = el("div");
         actions.setAttribute("slot", "actions");
         cancel.id = "palCancel";
@@ -127,31 +128,25 @@ public class PaletteElement {
         actions.append(cancel);
         dialog.append(headline, body, actions);
         Dialogs.closeX(dialog, this::close);
-        field.addEventListener("input", evt -> gather());
-        field.addEventListener("keydown", evt -> {
-            KeyboardEvent k = Js.uncheckedCast(evt);
-            if ("ArrowDown".equals(k.key) || "ArrowUp".equals(k.key)) {
-                evt.preventDefault();
-                if (rows.isEmpty()) return;
-                at = (at + ("ArrowDown".equals(k.key) ? 1 : rows.size() - 1)) % rows.size();
-                draw();
-                return;
-            }
-            // 조합 중의 Enter는 글자를 확정하는 것이지 고르는 것이 아니다(한국어·일본어 입력).
-            if ("Enter".equals(k.key) && !Js.isTruthy(Js.asPropertyMap(k).get("isComposing"))) {
-                evt.preventDefault();
-                run(at);
-            }
-            if ("Escape".equals(k.key)) close();
+        search.onInput(q -> gather());
+        // 아무것도 고르지 않고 Enter면 맨 위의 것 — 적어서 좁힌 사람은 대개 맨 위를 원한다(옛 판의
+        // 첫 줄 기본 선택과 같은 약속). 컴포넌트는 처음엔 아무것도 하이라이트하지 않는다.
+        search.onSearch(q -> run(0));
+        // Esc는 상자를 닫는다. 컴포넌트는 열린 목록에서 Esc를 소비해 다이얼로그까지 가지 않게
+        // 하는데, 이 판에서 목록과 상자는 하나다. 같은 입력의 리스너라 그 소비와 상관없이 불린다.
+        search.input().addEventListener("keydown", evt -> {
+            JsPropertyMap<Object> k = Js.asPropertyMap(evt);
+            if (Js.isTruthy(k.get("isComposing")) || Js.coerceToDouble(k.get("keyCode")) == 229) return;
+            if ("Escape".equals(String.valueOf(k.get("key")))) close();
         });
     }
 
     /** 후보를 모은다 — 화면, 컴패니언, 그리고 지금 화면이 더한 것들. */
     private void gather() {
-        String q = value(field).trim();
+        final String typed = search.value() == null ? "" : search.value();
+        String q = typed.trim();
         rows.clear();
         for (Destination d : Destination.all()) {
-            if (d == Destination.FLEET && !q.isEmpty()) { /* 이름으로도 찾히게 아래에서 함께 */ }
             String name = tr(d.labelKey);
             int score = q.isEmpty() ? Match.HEAD : Match.score(name, q);
             if (score > 0) rows.add(new Row(tr("pal.kind_verb"), name, tr(d.subKey), score,
@@ -179,8 +174,7 @@ public class PaletteElement {
         }
         rows.sort((x, y) -> y.score - x.score);
         trim();
-        at = 0;
-        draw();
+        draw(null);
         // 그리고 화면에 <b>묻는다</b> — 지금 친 글자로만 알 수 있는 것들(그 화면의 파일 이름
         // 같은)은 등록된 목록에 없다. 목록은 먼저 서고 답은 뒤에 얹힌다: 왕복이 끝날 때까지
         // 아무것도 안 그리면, 아는 것(화면·컴패니언)까지 남의 디스크를 기다리게 된다.
@@ -197,8 +191,7 @@ public class PaletteElement {
             }
             rows.sort((x, y) -> y.score - x.score);
             trim();
-            if (at >= rows.size()) at = 0;
-            draw();
+            draw(typed);
         });
     }
 
@@ -220,33 +213,21 @@ public class PaletteElement {
                 () -> { if (run != null) Js.<PaletteSharing.Runner>cast(run).call(); });
     }
 
-    private void draw() {
-        list.replaceChildren();
+    /**
+     * 줄들을 컴포넌트의 제안으로 — 종류는 앞 요소(.palkind), 설명은 보조 문구. key가 같으면 목록을
+     * 갈아도 하이라이트가 그 줄을 따라간다. forQuery가 있으면 그 글자일 때만 갈아 끼운다(늦은 답).
+     */
+    private void draw(String forQuery) {
+        List<Suggestion> items = new ArrayList<>();
         for (int i = 0; i < rows.size(); i++) {
-            Row r = rows.get(i);
-            HTMLElement row = el("button");
-            row.setAttribute("type", "button");
-            row.className = "palrow" + (i == at ? " at" : "");
-            row.id = "palrow-" + i;
-            row.setAttribute("role", "option");
-            row.setAttribute("aria-selected", String.valueOf(i == at));
+            final Row r = rows.get(i);
             HTMLElement kind = el("span");
             kind.className = "palkind";
             kind.textContent = r.kind;
-            HTMLElement name = el("span");
-            name.className = "palname";
-            name.textContent = r.name;
-            row.append(kind, name);
-            if (r.hint != null && !r.hint.isEmpty()) {
-                HTMLElement hint = el("span");
-                hint.className = "palhint";
-                hint.textContent = r.hint;
-                row.append(hint);
-            }
-            final int idx = i;
-            row.addEventListener("click", evt -> run(idx));
-            list.append(row);
+            items.add(SearchElementBuilder.suggestion(r.name, r.hint == null || r.hint.isEmpty() ? null : r.hint,
+                    kind, () -> go(r)).key(r.kind + "\u0000" + r.name + "\u0000" + r.hint));
         }
+        if (forQuery == null) search.setSuggestions(items); else search.setSuggestions(forQuery, items);
         // 아무것도 없으면 그렇게 말한다 — 빈 목록은 고장과 구별되지 않는다.
         if (rows.isEmpty()) {
             none.removeAttribute("hidden");
@@ -254,23 +235,20 @@ public class PaletteElement {
         } else {
             none.setAttribute("hidden", "");
         }
-        list.setAttribute("aria-activedescendant", rows.isEmpty() ? "" : "palrow-" + at);
     }
 
     private void run(int i) {
         if (i < 0 || i >= rows.size()) return;
-        Runnable go = rows.get(i).go;
+        go(rows.get(i));
+    }
+
+    private void go(Row r) {
         close();
-        go.run();
+        r.go.run();
     }
 
     private static String str(JsPropertyMap<Object> m, String k) {
         Object v = m.get(k);
-        return v == null ? "" : String.valueOf(v);
-    }
-
-    private static String value(HTMLElement f) {
-        Object v = Js.asPropertyMap(f).get("value");
         return v == null ? "" : String.valueOf(v);
     }
 

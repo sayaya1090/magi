@@ -3,7 +3,7 @@
 
 [versions]
 elemento = "2.5.10"
-sayaya-ui = "2.5.0.6"
+sayaya-ui = "2.5.0.7"
 sayaya-rx = "2.4.0"
 dagger = "2.60.1"
 lombok = "1.18.48"

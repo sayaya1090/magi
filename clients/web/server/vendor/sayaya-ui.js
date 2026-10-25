@@ -1,4 +1,4 @@
-/*! sayaya-ui 2.5.0.6 (4e6ff1de2e8f4ea0680754bc3d13c0ff933b70cb) standalone bundle: @material/web 2.5.0 all.js + sayaya-ui labs. IIFE classic script, load once before the GWT app. Licenses: @material/web, lit (Apache-2.0 / BSD-3-Clause). */
+/*! sayaya-ui 2.5.0.7 (8976a7def3f0ac3b1031eccaf35ff3e3af672cdf) standalone bundle: @material/web 2.5.0 all.js + sayaya-ui labs. IIFE classic script, load once before the GWT app. Licenses: @material/web, lit (Apache-2.0 / BSD-3-Clause). */
 !function(e){"use strict";function t(e,t,r,o){var i,a=arguments.length,l=a<3?t:null===o?o=Object.getOwnPropertyDescriptor(t,r):o;if("object"==typeof Reflect&&"function"==typeof Reflect.decorate)l=Reflect.decorate(e,t,r,o);else for(var n=e.length-1;n>=0;n--)(i=e[n])&&(l=(a<3?i(l):a>3?i(t,r,l):i(t,r))||l);return a>3&&l&&Object.defineProperty(t,r,l),l}"function"==typeof SuppressedError&&SuppressedError;
 /**
    * @license

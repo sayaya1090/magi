@@ -270,28 +270,34 @@ internal class ShellDrawerTest : GwtTestSpec({
             page.keyboard().press("Meta+k")
             Then("팔레트가 서고, 이름 없이도 갈 수 있는 곳들이 이미 있다") {
                 page.waitForSelector("#palDialog[open] #palField")
-                (page.locator("#palList .palrow").count() > 0) shouldBe true
+                (page.locator("#palField [role=option]").count() > 0) shouldBe true
                 // 목록이라고 말한다 — 스크린리더에게도 목록이어야 고를 수 있다.
-                (page.locator("#palList").getAttribute("role")) shouldBe "listbox"
-                (page.locator("#palList .palrow").first().getAttribute("aria-selected")) shouldBe "true"
+                page.locator("#palField [role=listbox]").count() shouldBe 1
+                // 찾기 칸은 그 목록을 다스리는 combobox다(sayaya-ui search) — 화살표가 고르는 자리를 거기서 말한다.
+                page.locator("#palField input[role=combobox]").count() shouldBe 1
             }
             Then("적으면 좁혀지고, 앞에서 맞은 것이 위로 온다") {
                 page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("shared")
-                page.waitForCondition { page.locator("#palList .palrow").count() == 1 }
+                page.waitForCondition { page.locator("#palField [role=option]").count() == 1 }
                 // 팩이 없는 페이지라 이름이 곧 키다 — 문구가 아니라 "앞에서 맞은 것이 위"를 잰다.
-                page.locator("#palList .palrow .palname").first().textContent() shouldBe "nav.shared"
+                page.locator("#palField [role=option] .headline").first().textContent() shouldBe "nav.shared"
             }
             Then("화살표가 고르는 자리를 옮긴다") {
                 page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("")
-                page.waitForCondition { page.locator("#palList .palrow").count() > 1 }
+                page.waitForCondition { page.locator("#palField [role=option]").count() > 1 }
+                // 처음엔 아무것도 고르지 않은 채다(그때의 Enter는 맨 위의 것) — ↓가 첫 줄, 다시 ↓가 둘째 줄.
                 page.keyboard().press("ArrowDown")
                 page.waitForCondition {
-                    page.locator("#palList .palrow").nth(1).getAttribute("aria-selected") == "true"
+                    page.locator("#palField [role=option]").nth(0).getAttribute("aria-selected") == "true"
+                }
+                page.keyboard().press("ArrowDown")
+                page.waitForCondition {
+                    page.locator("#palField [role=option]").nth(1).getAttribute("aria-selected") == "true"
                 }
             }
             Then("고르면 그리로 가고 상자는 걷힌다") {
                 page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("shared")
-                page.waitForCondition { page.locator("#palList .palrow").count() == 1 }
+                page.waitForCondition { page.locator("#palField [role=option]").count() == 1 }
                 page.keyboard().press("Enter")
                 page.waitForCondition { page.url().contains("v=skills") }
                 page.waitForCondition { page.locator("#palDialog[open]").count() == 0 }
@@ -309,8 +315,8 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.keyboard().press("Meta+k")
                 page.waitForSelector("#palDialog[open] #palField")
                 page.locator("#palDialog #palField input, #palDialog #palField textarea").first().fill("main.go")
-                page.waitForCondition { page.locator("#palList .palrow").count() >= 1 }
-                page.locator("#palList .palrow .palname").first().textContent() shouldBe "main.go"
+                page.waitForCondition { page.locator("#palField [role=option]").count() >= 1 }
+                page.locator("#palField [role=option] .headline").first().textContent() shouldBe "main.go"
                 page.keyboard().press("Enter")
                 page.waitForCondition { page.evaluate("window.__magi_palette_ran") == "main.go" }
             }
@@ -348,15 +354,15 @@ internal class ShellDrawerTest : GwtTestSpec({
                 // 셸이 아는 것 중엔 zzone에 맞는 것이 없으니 그 자리는 비어 있고, 상자는 이미 서 있다.
                 page.waitForCondition { page.evaluate("window.__magi_pal_backs.length > 0") == true }
                 page.locator("#palDialog[open]").count() shouldBe 1
-                page.locator("#palList .palrow").count() shouldBe 0
+                page.locator("#palField [role=option]").count() shouldBe 0
                 page.evaluate("window.__magi_pal_backs[window.__magi_pal_backs.length - 1][0]") shouldBe "zzone"
             }
             Then("답이 오면 그 자리에 얹힌다, 그리고 고르면 화면의 것이 불린다") {
                 page.evaluate("(() => { const b = window.__magi_pal_backs.pop();" +
                     " b[1]([{kind:'pal.kind_file', name:'zzone.go', hint:'src/zzone.go'," +
                     " run: () => { window.__magi_asked_ran = 'zzone.go' }}]); true })()")
-                page.waitForCondition { page.locator("#palList .palrow").count() == 1 }
-                page.locator("#palList .palrow .palname").first().textContent() shouldBe "zzone.go"
+                page.waitForCondition { page.locator("#palField [role=option]").count() == 1 }
+                page.locator("#palField [role=option] .headline").first().textContent() shouldBe "zzone.go"
                 page.keyboard().press("Enter")
                 page.waitForCondition { page.evaluate("window.__magi_asked_ran") == "zzone.go" }
             }
@@ -376,13 +382,13 @@ internal class ShellDrawerTest : GwtTestSpec({
             Then("지운 글자의 답은 버린다 — 제가 이미 지운 것을 고르게 하지 않는다") {
                 page.evaluate("(() => { window.__magi_pal_backs[0][1](" +
                     "[{kind:'pal.kind_file', name:'stale.go', hint:'src/stale.go', run: () => {}}]); true })()")
-                page.locator("#palList .palrow").count() shouldBe 0
+                page.locator("#palField [role=option]").count() shouldBe 0
             }
             Then("지금 친 글자의 답만 선다") {
                 page.evaluate("(() => { window.__magi_pal_backs[1][1](" +
                     "[{kind:'pal.kind_file', name:'fresh.go', hint:'src/fresh.go', run: () => {}}]); true })()")
-                page.waitForCondition { page.locator("#palList .palrow").count() == 1 }
-                page.locator("#palList .palrow .palname").first().textContent() shouldBe "fresh.go"
+                page.waitForCondition { page.locator("#palField [role=option]").count() == 1 }
+                page.locator("#palField [role=option] .headline").first().textContent() shouldBe "fresh.go"
             }
         }
         When("답이 스무 개를 넘게 오면") {
@@ -399,8 +405,8 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.evaluate("(() => { const b = window.__magi_pal_backs.pop();" +
                     " b[1](Array.from({length: 25}, (_, i) => ({kind: 'pal.kind_file'," +
                     " name: 'w' + i + '.go', hint: 'src/w' + i + '.go', run: () => {}}))); true })()")
-                page.waitForCondition { page.locator("#palList .palrow").count() > 0 }
-                page.locator("#palList .palrow").count() shouldBe 20
+                page.waitForCondition { page.locator("#palField [role=option]").count() > 0 }
+                page.locator("#palField [role=option]").count() shouldBe 20
             }
             // 다음 장면에 상자를 열어 둔 채 넘기지 않는다(앞 장면과 같은 이유·같은 절차).
             page.evaluate("(() => { window.__magi_palette_ask = null;" +
