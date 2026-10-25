@@ -1123,13 +1123,21 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	// Addressed at nobody: the fleet screens watch the same stream rather than asking every three
 	// seconds. The transcript half of this loop is skipped there — there is no conversation — and
 	// what goes out is the roster, when it changes.
+	// Addressed at nobody means addressed at nobody — even when this console was started in a
+	// workspace that has a companion of its own. target() resolves an empty `d` to that `here`
+	// companion (the targeted routes want that), and this stream used to go through it: the list
+	// screen then received the workspace companion's transcript and, worse, its `turn` frames, so
+	// the window-wide turn bar ran on the fleet screen whenever that one companion was working —
+	// with every row on the screen idle. Measured: /events with no `d` sent {"open":true} while
+	// /events?d=<an idle companion> sent nothing. The page already ignores an untargeted
+	// transcript (FetchRosterSource: socket == null), so the fleet loop is all it ever wanted.
+	if q := r.URL.Query(); q.Get("d") == "" && q.Get("p") == "" {
+		s.fleetStream(w, r, fl)
+		return
+	}
 	in, err := s.target(r)
 	if err != nil {
-		if r.URL.Query().Get("d") != "" || r.URL.Query().Get("p") != "" {
-			http.Error(w, err.Error(), targetStatus(err))
-			return
-		}
-		s.fleetStream(w, r, fl)
+		http.Error(w, err.Error(), targetStatus(err))
 		return
 	}
 	sid := session.SessionID(in.Session)
