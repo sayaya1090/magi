@@ -23,8 +23,6 @@ body:not([nav="open"]) #rail[tool="expand"] {
   /* 그림자가 아니라 헤어라인 — 운영은 레일에 box-shadow를 쓰지 않는다(스크림이 요소다). */
   border-right:1px solid var(--magi-ref-outlineVariant);
 }
-body:not([nav="open"]) #rail[tool="expand"] #railTool .words { display:block; }
-body:not([nav="open"]) #rail[tool="collapse"] #railTool .words { display:none; }
 
 /* 열린 드로어: 툴 레일은 펼쳐진 메뉴 레일(20rem) 오른쪽의 둘째 기둥이다(머리 = 문의
    이름·문장). 그때만 드로어가 그만큼 더 넓어진다 — 도구 없는 문(오늘 전부)은 운영과
@@ -38,8 +36,20 @@ body[nav="open"] #rail[tool="expand"] #railTool {
   overflow:hidden auto; overscroll-behavior:contain;
 }
 
-/* 도구 항목은 메뉴 문과 같은 마크업(.raili)이라 모양이 공짜다 — 버튼이라는 것만 다르다. */
-#railTool .raili.tooli { background:none; border:0; cursor:pointer; text-align:inherit; }
+/* 도구의 기둥은 md-navigation-rail — 제 M3 치수(위 44·폭 96) 대신 #railTool 틀을 채운다(메뉴 기둥과 같은 방식).
+   접힘·펼침 모양은 컴포넌트의 expanded가 그리고, 그 사이의 움직임은 메뉴 레일과 같은 part 규칙이다. */
+#railToolNav {
+  flex:1 1 auto; min-height:0; width:100%; height:auto; padding:0; background:transparent;
+  --md-navigation-rail-collapsed-width:100%; --md-navigation-rail-expanded-min-width:100%;
+  --md-navigation-rail-expanded-max-width:100%; --md-navigation-rail-expanded-padding-inline:0;
+  --md-navigation-rail-top-space:0; --md-navigation-rail-bottom-space:0;
+}
+#railToolNav .tooli::part(label) { animation:noticedWord 150ms var(--magi-sys-ease-standard); }
+#railToolNav .tooli::part(indicator)::before { transition:opacity var(--magi-sys-dur-short2) var(--magi-sys-ease-standard); }
+@media (prefers-reduced-motion:reduce) {
+  #railToolNav .tooli::part(label) { animation:none; }
+  #railToolNav .tooli::part(indicator)::before { transition:none; }
+}
 
 /* ← 메뉴 레일로 — 접힌 툴 기둥의 첫 항목. */
 #railToolClose { margin:0 auto; }

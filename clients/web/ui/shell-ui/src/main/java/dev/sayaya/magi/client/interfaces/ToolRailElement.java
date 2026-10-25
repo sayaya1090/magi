@@ -32,6 +32,9 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 @Singleton
 public class ToolRailElement {
     private final HTMLElement box = el("div");
+    // 도구의 기둥은 sayaya-ui md-navigation-rail이다 — 메뉴 기둥과 같은 컴포넌트, 같은 모양.
+    // 다만 도구는 목적지가 아니라 동작이라, 누른 뒤 컴포넌트가 옮긴 선택을 바로 비운다.
+    private final HTMLElement column = el("md-navigation-rail");
     private final RailMode mode;
     private final MenuHover hover;
     private final Navigation nav;
@@ -44,6 +47,11 @@ public class ToolRailElement {
         this.hover = hover;
         this.nav = nav;
         box.id = "railTool";
+        column.id = "railToolNav";
+        // 접힌 기둥은 아이콘만 — 라벨은 피크(펼친 모양)에서 선다(옛 .words 규칙의 그 몫).
+        Js.asPropertyMap(column).set("hideCollapsedLabels", true);
+        Js.asPropertyMap(column).set("activeIndex", -1);
+        column.addEventListener("navigation-rail-activated", evt -> Js.asPropertyMap(column).set("activeIndex", -1));
         nav.subscribe(place -> { if (hover.current() == null) showing = place.section; });
         hover.subscribe(d -> { if (d != null) showing = d; render(); });
         list.subscribe(now -> { tools = now == null ? List.of() : now; render(); });
@@ -77,29 +85,30 @@ public class ToolRailElement {
         }
         List<Tool> sorted = new ArrayList<>(tools);
         sorted.sort(Comparator.comparingInt(t -> t.order));
-        for (Tool t : sorted) box.append(item(t));
+        column.replaceChildren();
+        // 피크(접힌 드로어 위 손끝)와 둘째 기둥은 펼친 모양, 접힌 기둥은 아이콘 기둥.
+        Js.asPropertyMap(column).set("expanded", mode.tool() == RailModes.State.EXPAND);
+        Js.asPropertyMap(column).set("activeIndex", -1);
+        for (Tool t : sorted) column.append(item(t));
+        box.append(column);
     }
 
-    /** 도구 하나 — 옛 메뉴 문의 마크업 계약(.raili/.icwrap/.words)을 그대로 써서 console.css의 그 스타일을 입는다. */
+    /**
+     * 도구 하나 — md-navigation-rail-item. 누르면 그 도구의 일이 돈다(주소는 그대로).
+     * 컴포넌트는 누른 항목을 "현재 위치"로 표시하므로, 그 표시를 곧바로 걷는다: 도구는 가는 곳이 아니다.
+     */
     private HTMLElement item(Tool t) {
-        HTMLElement b = el("button");
-        b.className = "raili tooli";
-        b.setAttribute("type", "button");
-        HTMLElement icwrap = el("span");
-        icwrap.className = "icwrap";
-        icwrap.innerHTML = "<svg class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
+        HTMLElement b = el("md-navigation-rail-item");
+        b.className = "tooli";
+        Js.asPropertyMap(b).set("label", tr(t.labelKey));
+        HTMLElement icon = el("span");
+        icon.setAttribute("slot", "inactive-icon");
+        icon.innerHTML = "<svg class=\"ic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
                 + "<path d=\"" + t.iconPath + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
                 + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
-        HTMLElement words = el("span");
-        words.className = "words";
-        HTMLElement lbl = el("span");
-        lbl.className = "lbl";
-        lbl.textContent = tr(t.labelKey);
-        words.append(lbl);
-        b.setAttribute("aria-label", tr(t.labelKey));
-        b.append(icwrap, words);
+        b.append(icon);
         b.addEventListener("click", evt -> {
-            evt.preventDefault();
+            Js.asPropertyMap(column).set("activeIndex", -1);
             if (t.run != null) t.run.run();
         });
         return b;

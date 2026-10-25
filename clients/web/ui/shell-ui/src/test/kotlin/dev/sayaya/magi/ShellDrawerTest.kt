@@ -248,12 +248,18 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#rail[tool=collapse]")
                 page.locator("#rail[menu=hide]").count() shouldBe 1
                 page.locator("#railNav").isVisible() shouldBe false
-                page.locator("#railTool .raili.tooli").count() shouldBe 2
+                page.locator("#railToolNav > .tooli").count() shouldBe 2
                 page.locator("#railToolClose").count() shouldBe 1
             }
             Then("도구를 누르면 그 도구의 일이 돈다 — 주소는 그대로다") {
-                page.locator("#railTool .raili.tooli").first().click()
+                page.locator("#railToolNav > .tooli").first().click()
                 page.evaluate("window.__magi_test_tool_ran") shouldBe "hammer"
+                // 도구는 가는 곳이 아니다 — 누른 뒤에도 "선택된 도구"는 없다(컴포넌트가 옮긴 선택을 셸이 걷는다).
+                page.evaluate("document.getElementById('railToolNav').activeIndex") shouldBe -1
+                page.evaluate("[...document.querySelectorAll('#railToolNav > .tooli')].filter(e => e.active).length") shouldBe 0
+                // 옛 도구 항목(.raili)이 받던 움직임 — 상태 레이어는 번지고, 라벨은 페이드로 선다.
+                (page.evaluate("getComputedStyle(document.querySelector('#railToolNav > .tooli').shadowRoot.querySelector('[part=indicator]'), '::before').transitionProperty") as String).contains("opacity") shouldBe true
+                page.evaluate("getComputedStyle(document.querySelector('#railToolNav > .tooli').shadowRoot.querySelector('[part=label]')).animationName") shouldBe "noticedWord"
                 page.url().contains("v=") shouldBe false
             }
         }
@@ -491,7 +497,7 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.waitForSelector("#rail[tool=expand]")
                 page.locator("#rail[menu=expand]").count() shouldBe 1
                 page.locator("#railTool .railpanel-head").textContent() shouldBe "nav.companions"
-                page.locator("#railTool .raili.tooli").count() shouldBe 2
+                page.locator("#railToolNav > .tooli").count() shouldBe 2
             }
         }
         When("그림뿐인 컨트롤에 포인터가 올라가면") {
