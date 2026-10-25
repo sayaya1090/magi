@@ -46,6 +46,9 @@ public class RailElement implements RailView {
     private final HTMLElement column = el("md-navigation-rail");
     private final HTMLElement foot = el("div");
     private final HTMLElement bar = el("md-navigation-bar");
+    // 기다리는 수의 읽는 몫. 컴포넌트의 버튼은 라벨을 제 이름으로 고정해서, 옛 레일이 문 이름에
+    // 싣던 "N명이 기다린다"를 실을 자리가 없다 — 그래서 보이지 않는 한 줄이 그것을 말한다.
+    private final HTMLElement waitingNote = el("span");
     private final Map<String, HTMLElement> items = new LinkedHashMap<>();
     private final Map<String, HTMLElement> tabs = new LinkedHashMap<>();
     private int waiting = 0;
@@ -105,6 +108,7 @@ public class RailElement implements RailView {
             }
             if (tab != null) Js.asPropertyMap(tab).set("label", tr(d.shortKey));
         }
+        sayWaiting();
     }
 
     @Override
@@ -156,6 +160,12 @@ public class RailElement implements RailView {
             Js.asPropertyMap(e).set("badgeValue", value);
             Js.asPropertyMap(e).set("showBadge", n > 0);
         }
+        sayWaiting();
+    }
+
+    /** 0이면 빈 줄 — 늘 있는 말은 안 읽힌다(배지와 같은 규칙). */
+    private void sayWaiting() {
+        waitingNote.textContent = waiting > 0 ? tr("state.waiting_on_you", "n", String.valueOf(waiting)) : "";
     }
 
     // ── 마크업 ───────────────────────────────────────────────────────────────
@@ -193,7 +203,10 @@ public class RailElement implements RailView {
             bar.append(tab);
         }
         column.append(foot);
-        rail.append(menu, column, bar);
+        waitingNote.id = "railWaiting";
+        waitingNote.className = "sr-only";
+        waitingNote.setAttribute("aria-live", "polite");
+        rail.append(menu, column, bar, waitingNote);
         // 툴 레일 — 언제 어떤 모습인지는 RailMode(#rail의 menu/tool 속성)가 말한다.
         rail.append(panel.element());
         // 호버 터널: 레일 전체를 벗어날 때만 피크를 접는다. 접힌 툴 기둥의 라벨 피크는

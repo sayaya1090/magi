@@ -80,13 +80,14 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             And("한 자리의 이름을 눌러 그 표를 열면") {
                 page.locator("#log .row.council button.whoin").first().click()
-                Then("표 자체가 읽힌다 — 결정·렌즈·확신이 한 칩에") {
+                Then("표 자체가 읽힌다 — 결정·렌즈가 한 칩에, 옛 숫자 확신은 그리지 않는다") {
                     page.waitForSelector("#fileview .dinsp")
                     page.evaluate("window.__magi_test_council") shouldBe "2@-"
                     page.locator("#fileview .filebar .filedir").textContent() shouldBe "Melchior"
                     // tr()이 키로 폴백하는 페이지라 문구가 아니라 고른 키를 잰다.
+                    // 픽스처는 confidence 0.9를 싣고 온다 — 칩은 그것을 그리지 않는다(voteChip, b873949d).
                     page.locator("#fileview .filebar .dchip").textContent() shouldBe
-                            "council.reject · correctness · 90%"
+                            "council.reject · correctness"
                 }
                 Then("증거 다음에 표의 넷이 선다 — 이유·다음·유지·근거") {
                     val keys = page.locator("#fileview .dinsp .dk")

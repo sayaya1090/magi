@@ -62,6 +62,8 @@ internal class ShellDrawerTest : GwtTestSpec({
             Then("컴패니언 문의 배지가 기다림 수를 단다") {
                 page.evaluate("document.querySelector('#railNav > .dest').showBadge") shouldBe true
                 page.evaluate("document.querySelector('#railNav > .dest').badgeValue") shouldBe "1"
+                // 배지는 그림이다 — 같은 수가 읽히는 자리에도 선다(버튼 이름은 컴포넌트가 고정한다).
+                page.locator("#railWaiting[aria-live=polite]").textContent().orEmpty().isNotEmpty() shouldBe true
             }
         }
         When("선 목적지를 다시 눌러도") {

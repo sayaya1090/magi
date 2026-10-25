@@ -309,7 +309,12 @@ public class FleetElement {
     private void reading() {
         if (fleetEl.childElementCount > 0) return;
         fleetEl.replaceChildren();
-        fleetEl.append(cell("paneloading", tr("loading.roster")));
+        // 짧고 길이를 모르는 기다림 — M3 loading indicator가 그 자리의 것이다(5초를 넘는 일은 아니다:
+        // 명단의 첫 줄이 오면 걷힌다). 글자는 남는다: 무엇을 기다리는지 말하는 것은 그림이 아니다.
+        HTMLElement waiting = cell("paneloading", tr("loading.roster"));
+        waiting.insertBefore(dev.sayaya.ui.elements.LoadingIndicatorElementBuilder.loadingIndicator()
+                .size(48).ariaLabel(tr("loading.roster")).element(), waiting.firstChild);
+        fleetEl.append(waiting);
     }
 
     /** 첫 로드의 거부만 빈칸을 대신한다 — 이후의 거부는 화면을 그대로 둔다(낡고-말한 것 > 빈 것). */
