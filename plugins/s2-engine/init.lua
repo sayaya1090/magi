@@ -269,6 +269,9 @@ magi.register_tool{
     if baseline.error ~= "" or baseline.steps >= steps then return fail("baseline failed or exhausted its step budget") end
     if not guidance then
       local proposal
+      -- The last reply that was not used, and why: without it the failure below said only THAT
+      -- no proposal survived, never whether it was unparseable, oversized or missing a field.
+      local rejected, rejected_why
       for attempt = 1, proposal_attempts do
         local raw, perr = analyze("proposal", PROPOSE, { task = args.task, baseline = baseline, prior_comparison = prior, adopted_experience = record.consulted_experience, previous_proposals = record.proposals })
         if not raw then return fail(perr) end
@@ -280,16 +283,28 @@ magi.register_tool{
           end
         else
           local parsed = decode_object(raw)
-          if type(parsed) == "table" and text(parsed.guidance, 4000) and text(parsed.hypothesis, 2000) then
+          if type(parsed) ~= "table" then
+            rejected, rejected_why = raw, "not a JSON object"
+          elseif not text(parsed.guidance, 4000) then
+            rejected, rejected_why = raw, "guidance missing, empty or over 4000 bytes"
+          elseif not text(parsed.hypothesis, 2000) then
+            rejected, rejected_why = raw, "hypothesis missing, empty or over 2000 bytes"
+          else
             local duplicate = false
             for _, old in ipairs(record.proposals) do if old.guidance == parsed.guidance then duplicate = true end end
             if not duplicate then
               proposal = proposal or parsed; record.proposals[#record.proposals + 1] = { guidance = parsed.guidance, hypothesis = parsed.hypothesis, attempt = attempt }
+            else
+              rejected, rejected_why = raw, "duplicate of an earlier proposal"
             end
           end
         end
       end
-      if not proposal then return fail("no valid, evidence-supported proposal after bounded attempts") end
+      if not proposal then
+        local why = "no valid, evidence-supported proposal after bounded attempts"
+        if rejected then why = why .. "; last reply rejected (" .. rejected_why .. "), began: " .. excerpt(rejected, 500) end
+        return fail(why)
+      end
       guidance, record.hypothesis = proposal.guidance, proposal.hypothesis
     end
     record.guidance = guidance
