@@ -169,7 +169,8 @@ func TestHarnessLabRepeatedHoldoutAdoptionAndWithdrawal(t *testing.T) {
 			if regression {
 				expected = "regressed"
 			}
-			if report.Assessment.State != expected || len(specs) != 6 || report.Cost.Calls != 7 || report.Cost.TokensKnown {
+			// Six executions and three analyses: the criteria, then the judgment in each order.
+			if report.Assessment.State != expected || len(specs) != 6 || report.Cost.Calls != 9 || report.Cost.TokensKnown {
 				t.Fatalf("assessment/cost: %s", result.Content)
 			}
 			if _, ok := report.Judgment["score"]; ok {
