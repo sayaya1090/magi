@@ -54,10 +54,37 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			defer t.Stop()
 			expired = t.C
 		}
+		// withdraw takes the question back when the wait ends without an answer, and says so.
+		//
+		// Only an ANSWER used to publish question.answered, and that is the event every client puts
+		// its modal away on. An expired or cancelled question was dropped from the map in silence:
+		// measured 2026-10-27, the selection modal stayed open after the three-minute wait and every
+		// button on it came back "보내지 못했습니다" — RespondQuestion refusing a question that no
+		// longer existed while the screen still drew it. Claimed under the same lock RespondQuestion
+		// claims under, so an answer that lands at the same instant is used rather than lost.
+		withdraw := func() (string, bool) {
+			a.mu.Lock()
+			st := a.stateLocked(sid)
+			_, open := st.questions[qid]
+			if open {
+				delete(st.questions, qid)
+				delete(st.asking, qid)
+			}
+			a.mu.Unlock()
+			if !open {
+				return <-ch, true // RespondQuestion claimed it first; its send is buffered
+			}
+			wd, _ := json.Marshal(event.QuestionAnsweredData{CallID: qid})
+			a.publishTransient(sid, event.TypeQuestionAnswered, event.Actor{Kind: event.ActorSystem, ID: "loop"}, wd)
+			return "", false
+		}
 		select {
 		case ans := <-ch:
 			return ans, nil
 		case <-expired:
+			if ans, answered := withdraw(); answered {
+				return ans, nil
+			}
 			// The tool degrades to "decide for yourself", which is what it does anywhere there is
 			// no human — but the agent is TOLD, so it does not treat silence as an answer.
 			//
@@ -83,6 +110,9 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			// decides that policy, not with this message.
 			return "", fmt.Errorf("nobody answered within %s — decide for yourself and say which way you went", a.answerBound(sid))
 		case <-ctx.Done():
+			if ans, answered := withdraw(); answered {
+				return ans, nil
+			}
 			return "", ctx.Err()
 		}
 	}
