@@ -55,8 +55,8 @@ func TestS2HostAutoComparisonBudgetFitsTwoArms(t *testing.T) {
 	if err := json.Unmarshal(got, &args); err != nil {
 		t.Fatalf("no comparison dispatched: %q %v", got, err)
 	}
-	if args.Timeout != 240 || args.MaxSteps != 12 {
-		t.Errorf("per-arm budget timeout=%d max_steps=%d, want 240 and 12", args.Timeout, args.MaxSteps)
+	if args.Timeout != 240 || args.MaxSteps != 24 {
+		t.Errorf("per-arm budget timeout=%d max_steps=%d, want 240 and 24", args.Timeout, args.MaxSteps)
 	}
 	if left < 2*240*time.Second {
 		t.Errorf("experiment deadline %v cannot hold two %ds arms", left.Round(time.Second), args.Timeout)

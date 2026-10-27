@@ -86,12 +86,14 @@ func (a *App) maybeRunS2(ctx context.Context, tc turnCtx, task string, attempted
 	}
 	*attempted = true // one bounded attempt, including errors; never retry an analysis failure
 	a.notePromptText(ctx, tc.s.ID, event.Actor{Kind: event.ActorSystem, ID: "s2-engine"},
-		"S² host trigger: an edit/check execution supplied comparison evidence (a completed check or repeated failure). Running one isolated baseline/candidate comparison (12 steps per execution, 240 seconds each). Results are evidence, not automatically adopted artifacts or verified reusable instructions.")
+		"S² host trigger: an edit/check execution supplied comparison evidence (a completed check or repeated failure). Running one isolated baseline/candidate comparison (24 steps per execution, 240 seconds each). Results are evidence, not automatically adopted artifacts or verified reusable instructions.")
 	// 240s per arm, 10 minutes for the whole experiment (two arms plus two analyses), so the
 	// per-arm bound is the one that bites. Measured: at 120s, two of six automatic runs on a
 	// document workspace cut the baseline mid-read ("context deadline exceeded", 9 of 12 steps)
 	// and the candidate never ran — the cost was paid and nothing was compared.
-	args, _ := json.Marshal(map[string]any{"task": task, "checkpoint": false, "max_steps": 12, "timeout": 240, "proposal_attempts": 1})
+	// 24 steps for the same reason: with time to spare, the next aitoon run stopped on the step
+	// count instead (baseline 13 steps against a bound of 12, no error), again before any comparison.
+	args, _ := json.Marshal(map[string]any{"task": task, "checkpoint": false, "max_steps": 24, "timeout": 240, "proposal_attempts": 1})
 	call := &session.ToolCall{CallID: "s2_" + newID(), Name: "s2_compare", Args: args}
 	a.appendPart(ctx, tc.s.ID, tc.actor, "m_"+newID(), session.RoleAssistant, session.Part{ID: "p_" + newID(), Kind: session.PartToolCall, ToolCall: call})
 	experimentCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
