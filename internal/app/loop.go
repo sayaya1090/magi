@@ -900,17 +900,17 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	}
 	arrivals := make([]string, 0, 4)
 	if available["skill"] {
-		for _, line := range a.skillArrivals(sid, s.Workdir) {
+		if lines := a.skillArrivals(sid, s.Workdir); len(lines) > 0 {
 			arrivals = append(arrivals,
-				"A skill became available since this conversation started (use the skill tool to load it):\n"+line)
+				"A skill became available since this conversation started (use the skill tool to load the listed skills):\n"+strings.Join(lines, "\n"))
 		}
 	}
-	// Memories arriving by a side door get the same treatment, capped per step so a busy fleet
-	// feeding the shared store cannot turn a step into a bulletin board.
+	// One bounded memory batch per user request, rather than a separate permanent
+	// prompt per item on every step. Unsent hints remain queued for the next request.
 	if available["recall_memory"] {
-		for _, line := range a.takeMemoryArrivals(sid, 3) {
+		if lines := a.takeMemoryArrivals(sid, 3); len(lines) > 0 {
 			arrivals = append(arrivals,
-				"A team memory matching this task became available (use recall_memory to read it):\n"+line)
+				"Relevant team memories are available (use recall_memory to read them):\n"+strings.Join(lines, "\n"))
 		}
 	}
 	for _, text := range arrivals {

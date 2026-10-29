@@ -55,9 +55,13 @@ func TestArrivalsDrainIsCappedAndKeepsOrder(t *testing.T) {
 	if len(first) != 3 {
 		t.Fatalf("capped at three per step so a busy fleet cannot turn a step into a bulletin board: %v", first)
 	}
+	if got := a.takeMemoryArrivals("s1", 3); len(got) != 0 {
+		t.Fatalf("second announcement in one request: %v", got)
+	}
+	a.resetForNewTopLevel("s1")
 	rest := a.takeMemoryArrivals("s1", 3)
 	if len(rest) != 1 || !strings.Contains(rest[0], "m4") {
-		t.Fatalf("the overflow keeps its place for the next step: %v", rest)
+		t.Fatalf("the overflow keeps its place for the next request: %v", rest)
 	}
 }
 
@@ -96,6 +100,7 @@ func TestMemoryCorrectionReplacesPendingHintAndIsAnnouncedOnce(t *testing.T) {
 	if got := a.takeMemoryArrivals("s", 3); len(got) != 0 {
 		t.Fatalf("duplicate revision: %v", got)
 	}
+	a.resetForNewTopLevel("s")
 	a.noteMemoryArrivals("s", []port.Memory{{ID: "stable", Text: "third revision"}})
 	if got := a.takeMemoryArrivals("s", 3); len(got) != 1 {
 		t.Fatalf("correction not delivered: %v", got)
@@ -111,8 +116,8 @@ func TestMemoryDeliveryWindowAndWithdrawnPendingHint(t *testing.T) {
 	if got := a.takeMemoryArrivals("s", 0); len(got) != 0 {
 		t.Fatal(got)
 	}
-	if got := a.takeMemoryArrivals("s", 3); len(got) != 1 {
-		t.Fatalf("compacted context did not get a fresh hint: %v", got)
+	if got := a.takeMemoryArrivals("s", 3); len(got) != 0 {
+		t.Fatalf("compaction reannounced an already advertised memory: %v", got)
 	}
 	a.noteMemoryArrivals("s", []port.Memory{{ID: "new", Text: "will be withdrawn"}})
 	a.noteMemoryArrivals("s", nil)

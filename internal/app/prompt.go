@@ -398,25 +398,23 @@ func memoryFingerprint(m port.Memory) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q:%q", m.Text, m.Tags))))
 }
 
-// A compaction starts a new delivery window. Relevant matches are reannounced
-// on the next ordinary retrieval, without changing the frozen system prefix.
+// Refresh retrieval after compaction without announcing already delivered memories
+// again. The ordinary count pointer still offers recall_memory in the new context.
 func (a *App) resetMemoryDelivery(sid session.SessionID) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
-	st.memSeen = nil
-	st.memPending = nil
 	st.expPtrQ, st.expPtr = "", ""
 }
 
 // takeMemoryArrivals drains up to n queued arrival lines. Capped so a busy fleet feeding the
-// shared store cannot turn a step into a bulletin board; the rest keep their place for the next
-// step.
+// shared store cannot flood a request. One batch is delivered per user request;
+// the rest keep their place for the next request.
 func (a *App) takeMemoryArrivals(sid session.SessionID, n int) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
-	if n <= 0 {
+	if n <= 0 || st.memArrivalSent {
 		return nil
 	}
 	if len(st.memPending) == 0 {
@@ -425,6 +423,7 @@ func (a *App) takeMemoryArrivals(sid session.SessionID, n int) []string {
 	if n > len(st.memPending) {
 		n = len(st.memPending)
 	}
+	st.memArrivalSent = true
 	out := make([]string, n)
 	for i := range out {
 		out[i] = st.memPending[i].text

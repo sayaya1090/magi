@@ -97,11 +97,12 @@ type sessionState struct {
 	// baseline (the count pointer already advertises it), and an ID that enters the match set
 	// later arrived by a side door: engram's sidecar landing a lesson, another companion feeding
 	// the shared store, a person dropping a file in. Those are queued here and appended to the
-	// transcript as one-line handles per content fingerprint. Compaction opens a new delivery
-	// window; a corrected object keeps its ID but can be announced again.
-	memSeen      map[string]string // ID -> content fingerprint, so corrections can be announced
-	memBaselined bool
-	memPending   []memoryArrival
+	// transcript in one bounded batch per request. Compaction keeps delivery history;
+	// a corrected object keeps its ID but can be announced again.
+	memSeen        map[string]string // ID -> content fingerprint, so corrections can be announced
+	memBaselined   bool
+	memPending     []memoryArrival
+	memArrivalSent bool // at most one memory announcement per user request
 	// The frozen prefix pieces — see prompt_frozen.go for why these are the only doors.
 	profileIntroTurn bool
 	turnSys          string
@@ -456,6 +457,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.delegatedAutoApprove = false
+	st.memArrivalSent = false
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
 	// queue: a queued interjection's original PromptSubmitted must stay hidden
 	// until it runs as its own turn — dropping its mask here would leak it into

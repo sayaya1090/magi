@@ -89,3 +89,37 @@ func TestRequestHintsUseItsFrozenToolCatalog(t *testing.T) {
 		t.Fatalf("arrival count %d", count)
 	}
 }
+
+func TestMemoryArrivalBatchIsOnePromptPerRequest(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.noteMemoryArrivals(sid, nil)
+	a.noteMemoryArrivals(sid, []port.Memory{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}, {ID: "three", Text: "third"}, {ID: "four", Text: "fourth"}})
+	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "main"}, runStart: time.Now(), guard: newRunGuard(nil)}
+	first, evs := a.buildStepRequest(ctx, tc, nil, 0, 0)
+	count := func(req port.ChatRequest) int {
+		n := 0
+		for _, m := range req.Messages {
+			for _, p := range m.Parts {
+				if strings.Contains(p.Text, "Relevant team memories are available") {
+					n++
+					if !strings.Contains(p.Text, "- one:") || !strings.Contains(p.Text, "- three:") {
+						t.Fatalf("incomplete batch: %s", p.Text)
+					}
+				}
+			}
+		}
+		return n
+	}
+	if n := count(first); n != 1 {
+		t.Fatalf("first request has %d arrival prompts", n)
+	}
+	again, _ := a.buildStepRequest(ctx, tc, evs, 1, 0)
+	if n := count(again); n != 1 {
+		t.Fatalf("later step has %d arrival prompts", n)
+	}
+}
