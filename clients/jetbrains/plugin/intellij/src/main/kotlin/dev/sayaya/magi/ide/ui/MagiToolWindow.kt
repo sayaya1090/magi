@@ -293,7 +293,12 @@ class MagiToolWindow : ToolWindowFactory {
         private data class PaintedRow(val row: Row, val open: Boolean, val rich: Boolean, val session: String?, val user: String?, val panel: JBPanel<JBPanel<*>>)
         private var paintedRows = emptyList<PaintedRow>()
         private fun richRenderKey(r: Row) = RowText.richKey(r) + ":" + (r.outputSeq?.toString() ?: r.text.hashCode().toString())
-        private val column = Look.column()
+        private val column = Look.column().apply {
+            // Keep traversal in transcript order without sorting the entire history by coordinates.
+            // A provider lets Tab leave the transcript; a cycle root would trap it here.
+            isFocusTraversalPolicyProvider = true
+            focusTraversalPolicy = java.awt.ContainerOrderFocusTraversalPolicy()
+        }
 
         /** 트랜스크립트 복사 액션 핸들러(단일 말풍선 복사 및 범위 선택 복사 지원). */
         private val copying = Copying().also { c ->
