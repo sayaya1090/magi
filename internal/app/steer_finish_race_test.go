@@ -102,6 +102,9 @@ type triageAwareLLM struct {
 	steps      [][]port.ProviderEvent
 	call       int
 	routeAside func(aside string) bool // nil ⇒ always answer inline
+	// routeAck, when set, is said before the route call — what a real model does ("queued, will do
+	// it next") and what the plain fake never did, which is why ordering against it went untested.
+	routeAck string
 	// Optional gate: block the FIRST triage call (before it decides) after closing
 	// triageStarted, until triageRelease is closed — lets a test land a steer mid-triage.
 	triageStarted chan struct{}
@@ -142,10 +145,13 @@ func (f *triageAwareLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-
 		}
 		var evs []port.ProviderEvent
 		if f.routeAside != nil && f.routeAside(aside) {
-			evs = []port.ProviderEvent{
+			if f.routeAck != "" {
+				evs = append(evs, port.ProviderEvent{Type: port.ProviderText, Text: f.routeAck})
+			}
+			evs = append(evs, []port.ProviderEvent{
 				{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_route", Name: "route_interjection", Args: json.RawMessage(`{"action":"append","reason":"needs real work"}`)}},
 				{Type: port.ProviderFinish},
-			}
+			}...)
 		} else {
 			evs = textStep("triage: answered inline from context")
 		}

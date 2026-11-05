@@ -42,9 +42,12 @@ func TestClosingTextAfterRouteIsNotTagged(t *testing.T) {
 	a, s := newAsideApp(t, llm)
 
 	// triageQueued runs the modeQueued mini-turn (route → escalate=true).
-	if escalate := a.triageQueued(context.Background(), AgentSpec{Name: "default"}, s, "m_route2", "add a README too"); !escalate {
+	escalate, held := a.triageQueued(context.Background(), AgentSpec{Name: "default"}, s, "m_route2", "add a README too")
+	if !escalate {
 		t.Fatalf("a routed queued message must escalate")
 	}
+	// The drain writes these after the re-emitted request; write them here the same way.
+	a.writeHeld(context.Background(), s.ID, held)
 	evs, _ := a.store.Read(context.Background(), s.ID, 0)
 	for _, e := range evs {
 		if e.Type != event.TypePartAppended {

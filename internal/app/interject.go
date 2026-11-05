@@ -174,6 +174,24 @@ type asideEffect struct {
 	route    string // route_interjection action that fired (redirect/append/queue), "" if none
 	reason   string // route reason as given by the model
 	escalate bool   // the model routed → run the steer as its own top-level turn
+	// held is what the mini-turn said, not yet written, when it ran with holdReplies and routed.
+	// The caller writes it once the request it is about is back on the record (heldReply.write).
+	held []heldReply
+}
+
+// heldReply is one visible reply the triage kept back instead of writing at once.
+type heldReply struct {
+	actor   event.Actor
+	msgID   string
+	replyTo string
+	part    session.Part
+}
+
+// writeHeld puts held replies on the record, in the order they were said.
+func (a *App) writeHeld(ctx context.Context, sid session.SessionID, held []heldReply) {
+	for _, h := range held {
+		a.appendReplyPart(ctx, sid, h.actor, h.msgID, h.replyTo, session.RoleAssistant, h.part)
+	}
 }
 
 // queuedTriageSystem drives the finish-boundary triage of a dequeued steer (modeQueued). The
@@ -236,7 +254,7 @@ func (a *App) triageAtTurnStart(ctx context.Context, agent AgentSpec, s session.
 	if tail := a.recentTranscript(ctx, s.ID, 8, 2000); tail != "" {
 		sys += "\n\nRecent conversation (for context — do not re-answer it):\n" + tail
 	}
-	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, waiting, msgID)
+	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, waiting, msgID, false)
 	switch {
 	case eff.route == "append":
 		return startFold
@@ -257,19 +275,24 @@ func (a *App) triageAtTurnStart(ctx context.Context, agent AgentSpec, s session.
 // reset — so a follow-up like "how many files did you change?" keeps the task context) and
 // returns false. Anything the model routes, or that produces nothing usable, returns true so
 // the drain resurfaces it as a fresh turn. The safe default is escalate: no work is dropped.
-func (a *App) triageQueued(ctx context.Context, agent AgentSpec, s session.Session, msgID, aside string) (escalate bool) {
+//
+// When it escalates, held is what the mini-turn said about it ("queued, taking it next"), NOT yet
+// written: the request it is about is re-emitted by the drain, and a reply written first would sit
+// above the request in every transcript — an answer to a question not yet asked. The drain writes
+// held right after the re-emitted prompt (writeHeld). Reported from a live session exactly so.
+func (a *App) triageQueued(ctx context.Context, agent AgentSpec, s session.Session, msgID, aside string) (escalate bool, held []heldReply) {
 	sys := queuedTriageSystem
 	if tail := a.recentTranscript(ctx, s.ID, 8, 2000); tail != "" {
 		sys += "\n\nRecent conversation (for context — do not re-answer it):\n" + tail
 	}
-	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, msgID)
+	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, msgID, true)
 	if eff.escalate {
-		return true // routed → run it as its own fully-tooled turn
+		return true, eff.held // routed → run it as its own fully-tooled turn
 	}
 	if replied {
-		return false // answered inline from context — the drain consumes it (pops the queue)
+		return false, nil // answered inline from context — the drain consumes it (pops the queue)
 	}
-	return true // nothing usable → run it as its own turn rather than risk dropping real work
+	return true, nil // nothing usable → run it as its own turn rather than risk dropping real work
 }
 
 // recentTranscript renders the last maxMsgs reconstructed messages of a session as compact
@@ -300,7 +323,13 @@ func (a *App) recentTranscript(ctx context.Context, sid session.SessionID, maxMs
 // plus the accumulated effect. Queue disposition (consume vs escalate vs break-park) is the
 // caller's, since it differs by mode. mode selects how route_interjection is wired: modeAside
 // signals turnControl to re-anchor the parked turn; modeQueued marks escalate.
-func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, replyTo string) (replied bool, eff asideEffect) {
+//
+// holdReplies keeps every visible reply back until the mini-turn has decided. Without a route they
+// are written as it ends, exactly as before; with one they go back to the caller in eff.held to be
+// written after the request they are about. They are not streamed either: a live draft would put
+// the reply on screen ahead of the request just the same.
+func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, replyTo string, holdReplies bool) (replied bool, eff asideEffect) {
+	var held []heldReply
 	// Signal/interaction tools only — the model can reply or change course but cannot start
 	// (or duplicate) delegated work here.
 	var specs []port.ToolSpec
@@ -329,8 +358,10 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 			switch ev.Type {
 			case port.ProviderText:
 				text.WriteString(ev.Text)
-				d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartText, Text: ev.Text})
-				a.publishTransient(s.ID, event.TypePartDelta, actor, d)
+				if !holdReplies {
+					d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, Kind: session.PartText, Text: ev.Text})
+					a.publishTransient(s.ID, event.TypePartDelta, actor, d)
+				}
 			case port.ProviderToolCall:
 				if ev.ToolCall != nil {
 					calls = append(calls, *ev.ToolCall)
@@ -360,7 +391,12 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 			if len(calls) > 0 || eff.escalate {
 				rt = ""
 			}
-			a.appendReplyPart(ctx, s.ID, actor, msgID, rt, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
+			part := session.Part{ID: textPartID, Kind: session.PartText, Text: reply}
+			if holdReplies {
+				held = append(held, heldReply{actor: actor, msgID: msgID, replyTo: rt, part: part})
+			} else {
+				a.appendReplyPart(ctx, s.ID, actor, msgID, rt, session.RoleAssistant, part)
+			}
 			replied = true
 		}
 		if len(calls) == 0 {
@@ -380,6 +416,16 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 			res := a.execAsideTool(ctx, s, depth, &c, &eff)
 			msgs = append(msgs, session.Message{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: &res}}})
 		}
+	}
+	if eff.escalate {
+		// Routed: a reply must not tag the question (the route made it an ack, not an answer), and
+		// it is written by the caller after the re-emitted request.
+		for i := range held {
+			held[i].replyTo = ""
+		}
+		eff.held = held
+	} else {
+		a.writeHeld(ctx, s.ID, held)
 	}
 	// A route leaves no trace here: the drain's resurfaced prompt is itself the record.
 	return replied, eff

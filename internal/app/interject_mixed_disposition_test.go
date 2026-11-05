@@ -168,16 +168,28 @@ func TestAnExactRepeatIsAnsweredOnce(t *testing.T) {
 // whether the boundary treats it as work.
 func runWithSteers(t *testing.T, routeAside func(string) bool, steers ...string) (*App, session.SessionID) {
 	t.Helper()
-	started, release := make(chan struct{}), make(chan struct{})
-	reg := builtin.Default()
-	reg.Register(&blockingTool{started: started, release: release})
+	return runWithSteersOn(t, steersLLM(routeAside), steers...)
+}
 
-	llm := &triageAwareLLM{routeAside: routeAside, steps: [][]port.ProviderEvent{
+// steersLLM is the fake runWithSteers drives: a turn held open on the blocking tool, then its finish,
+// then the escalated turn's answer.
+func steersLLM(routeAside func(string) bool) *triageAwareLLM {
+	return &triageAwareLLM{routeAside: routeAside, steps: [][]port.ProviderEvent{
 		// Turn A step 0: hold the turn open. Step 1: finish, absorbing nothing.
 		{{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_block", Name: "block", Args: json.RawMessage(`{}`)}}, {Type: port.ProviderFinish}},
 		textStep("A done"),
 		textStep("the escalated turn's answer"),
 	}}
+}
+
+func runWithSteersOn(t *testing.T, llm *triageAwareLLM, steers ...string) (*App, session.SessionID) {
+	t.Helper()
+	started, release := make(chan struct{}), make(chan struct{})
+	reg := builtin.Default()
+	// The tools a person-facing run has. Without route_interjection the triage could never route,
+	// and every "escalation" these tests saw was the nothing-usable default instead.
+	builtin.RegisterOrchestration(reg, false)
+	reg.Register(&blockingTool{started: started, release: release})
 
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {

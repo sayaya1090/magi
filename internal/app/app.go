@@ -754,6 +754,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 					// the answers in the order they were typed. The cost is that two pieces of work
 					// are two turns; ordering is worth more than the turn.
 					var work *pendingInterjection
+					var workSaid []heldReply
 					s := a.sessionInfo(runCtx, sid)
 					for i := range q {
 						// The ctx died mid-batch: put back everything not yet looked at, ahead of
@@ -762,8 +763,8 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 							a.requeueInterjects(sid, q[i:])
 							break
 						}
-						if a.triageQueued(runCtx, a.agentFor(s), s, q[i].MsgID, q[i].Text) {
-							work = &q[i]
+						if escalate, said := a.triageQueued(runCtx, a.agentFor(s), s, q[i].MsgID, q[i].Text); escalate {
+							work, workSaid = &q[i], said
 							a.requeueInterjects(sid, q[i+1:]) // they wait their turn, in order
 							break
 						}
@@ -784,6 +785,8 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						// answer. On a dead ctx, persist but do NOT re-run (no-retry-storm).
 						a.resetForNewTopLevel(sid)
 						a.resurface(bctx, sid, work.MsgID, work.Text)
+						// What the triage said about it follows the request, never precedes it.
+						a.writeHeld(bctx, sid, workSaid)
 						if runCtx.Err() == nil {
 							rerun = true
 						}
