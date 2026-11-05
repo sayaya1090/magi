@@ -53,6 +53,9 @@ func (m *Model) syncJobPanes() bool {
 	for _, j := range m.app.BackgroundJobs() {
 		p := m.paneByJob(j.ID)
 		if p == nil {
+			if !j.Running && m.retiredJobs[j.ID] {
+				continue
+			}
 			m.subID++
 			p = &agentPane{
 				job:     j.ID,
@@ -96,6 +99,9 @@ func (m *Model) syncSubagentPanes(jobs []app.SubagentJob) bool {
 	for _, j := range jobs {
 		p := m.paneByJob(j.ID)
 		if p == nil {
+			if !j.Running && m.retiredJobs[j.ID] {
+				continue
+			}
 			m.subID++
 			p = &agentPane{
 				sid:     session.SessionID(j.ID),
@@ -181,6 +187,8 @@ func jobStatus(p *agentPane) string {
 		return fmt.Sprintf("exited 0 · %s", p.dur.Round(time.Second))
 	case p.exited:
 		return fmt.Sprintf("exited %d · %s", p.exit, p.dur.Round(time.Second))
+	case p.started.IsZero():
+		return "running"
 	default:
 		return "running " + time.Since(p.started).Round(time.Second).String()
 	}

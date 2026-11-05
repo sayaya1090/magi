@@ -183,18 +183,142 @@ func (p *agentPane) label() string { return p.role }
 // hard-capped) so same-role panes are distinguishable without dumping the full
 // request.
 func (p *agentPane) desc(width int) string {
-	t := strings.TrimSpace(p.task)
+	t := taskGist(p.task)
 	if t == "" {
 		return p.role
-	}
-	if i := strings.IndexByte(t, '\n'); i >= 0 {
-		t = t[:i] // first line only
 	}
 	limit := 28
 	if w := width - len(p.role) - 3; w < limit {
 		limit = w
 	}
-	return p.role + " · " + oneLine(t, max(8, limit))
+	if limit < 4 {
+		return p.role
+	}
+	return p.role + " · " + oneLine(t, limit)
+}
+
+// taskGist extracts the human-meaningful purpose from a pane's task string.
+func taskGist(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	firstLine := s
+	if i := strings.IndexByte(firstLine, '\n'); i >= 0 {
+		firstLine = strings.TrimSpace(firstLine[:i])
+	}
+	if i := strings.Index(firstLine, " — "); i > 0 {
+		if desc := strings.TrimSpace(firstLine[:i]); desc != "" {
+			return desc
+		}
+	}
+	if strings.HasPrefix(firstLine, "#") && !strings.HasPrefix(firstLine, "#!") {
+		if comment := strings.TrimSpace(strings.TrimLeft(firstLine, "#")); comment != "" {
+			return comment
+		}
+	}
+	s = unwrapShellCommand(s)
+	clauses := splitShellClauses(s)
+	for idx, c := range clauses {
+		c = strings.TrimSpace(c)
+		if c == "" || isShellSetupClause(c) {
+			continue
+		}
+		rest := strings.Join(clauses[idx:], " && ")
+		if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+			rest = strings.TrimSpace(rest[:nl])
+		}
+		return rest
+	}
+	return firstLine
+}
+
+func unwrapShellCommand(s string) string {
+	for _, prefix := range []string{"bash -lc ", "bash -c ", "sh -lc ", "sh -c ", "/bin/bash -c ", "/bin/sh -c "} {
+		if strings.HasPrefix(s, prefix) {
+			body := strings.TrimSpace(s[len(prefix):])
+			if len(body) >= 2 && ((body[0] == '\'' && body[len(body)-1] == '\'') || (body[0] == '"' && body[len(body)-1] == '"')) {
+				return strings.TrimSpace(body[1 : len(body)-1])
+			}
+		}
+	}
+	return s
+}
+
+func splitShellClauses(s string) []string {
+	var out []string
+	var cur strings.Builder
+	inSingle, inDouble, escaped := false, false, false
+	flush := func() {
+		if part := strings.TrimSpace(cur.String()); part != "" {
+			out = append(out, part)
+		}
+		cur.Reset()
+	}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			cur.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' && !inSingle {
+			escaped = true
+			cur.WriteByte(ch)
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			cur.WriteByte(ch)
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			cur.WriteByte(ch)
+			continue
+		}
+		if !inSingle && !inDouble {
+			if ch == '\n' || ch == ';' {
+				flush()
+				continue
+			}
+			if ch == '&' && i+1 < len(s) && s[i+1] == '&' {
+				flush()
+				i++
+				continue
+			}
+		}
+		cur.WriteByte(ch)
+	}
+	flush()
+	return out
+}
+
+func isShellSetupClause(c string) bool {
+	if strings.HasPrefix(c, "#") {
+		return true
+	}
+	if c == "cd" || strings.HasPrefix(c, "cd ") || strings.HasPrefix(c, "set -") || strings.HasPrefix(c, "export ") {
+		return true
+	}
+	if eq := strings.IndexByte(c, '='); eq > 0 {
+		name := c[:eq]
+		valid := true
+		for i := 0; i < len(name); i++ {
+			b := name[i]
+			if !((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_' || (i > 0 && b >= '0' && b <= '9')) {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			rest := strings.TrimSpace(c[eq+1:])
+			if rest == "" || rest[0] == '\'' || rest[0] == '"' || !strings.ContainsAny(rest, " \t") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // anyPaneRunning reports whether any subagent pane is still working.
@@ -212,6 +336,20 @@ func (m *Model) closePanes() {
 	for _, p := range m.panes {
 		if p.cancel != nil {
 			p.cancel()
+		}
+		if p.done && p.job != "" {
+			if m.retiredJobs == nil {
+				m.retiredJobs = make(map[string]bool)
+			}
+			m.retiredJobs[p.job] = true
+		}
+	}
+	for _, p := range m.doneRoster {
+		if p.done && p.job != "" {
+			if m.retiredJobs == nil {
+				m.retiredJobs = make(map[string]bool)
+			}
+			m.retiredJobs[p.job] = true
 		}
 	}
 	m.panes = nil

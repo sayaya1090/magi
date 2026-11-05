@@ -166,8 +166,12 @@ func (m *Model) statusPanel(panelTop int) string {
 			if labelW < 4 {
 				labelW = 4
 			}
+			rowLabel := oneLine(p.label(), labelW)
+			if p.job != "" && p.sid == "" {
+				rowLabel = p.desc(labelW)
+			}
 			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
-				oneLine(p.label(), labelW)+" "+status)
+				rowLabel+" "+status)
 		}
 		// List running panes AND faded-out ones (doneRoster) together in their original
 		// START order (by sub), so a job keeps its position after it exits instead of

@@ -301,6 +301,9 @@ type Model struct {
 	// the right status panel keeps listing them (a persistent record of what ran) even
 	// though their inline box is gone. Cleared on a new turn (closePanes).
 	doneRoster []*agentPane
+	// retiredJobs records job/subagent IDs that were already finished when closePanes
+	// cleared the roster, so subsequent job polls do not resurrect them across turns.
+	retiredJobs map[string]bool
 
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
