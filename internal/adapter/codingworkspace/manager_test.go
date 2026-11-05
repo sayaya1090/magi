@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -412,5 +413,84 @@ func TestUnbornGitRequiresExplicitCopy(t *testing.T) {
 	}
 	if _, e = git(ctx, source, "rev-parse", "--verify", "HEAD"); e == nil {
 		t.Fatal("unexpected initial commit")
+	}
+}
+
+func TestMeaningfulTaskIDAndBranchNameAndCleanup(t *testing.T) {
+	if _, e := exec.LookPath("git"); e != nil {
+		t.Skip("Git not installed")
+	}
+	ctx := context.Background()
+	source := t.TempDir()
+	m := New(t.TempDir())
+	for _, args := range [][]string{{"init"}, {"config", "user.email", "test@example.invalid"}, {"config", "user.name", "test"}} {
+		if _, e := git(ctx, source, args...); e != nil {
+			t.Fatal(e)
+		}
+	}
+	put(t, filepath.Join(source, "a"), "original")
+	if _, e := git(ctx, source, "add", "a"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := git(ctx, source, "commit", "-m", "initial"); e != nil {
+		t.Fatal(e)
+	}
+	r, e := m.Prepare(ctx, source, task.Request{RequestID: "Fix: Worktree Cleanup!", Purpose: "Clean up worktrees and tags"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !strings.HasPrefix(r.ID, "fix-worktree-cleanup-") || !strings.HasPrefix(r.Branch, "magi/task-fix-worktree-cleanup-") {
+		t.Fatalf("expected meaningful ID and branch, got id=%q branch=%q", r.ID, r.Branch)
+	}
+	// Fallback to purpose slug when requestId is a 24-hex nonce.
+	r2, e := m.Prepare(ctx, source, task.Request{RequestID: "0123456789abcdef01234567", Purpose: "Meaningful Purpose Slug"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !strings.HasPrefix(r2.ID, "meaningful-purpose-slug-") {
+		t.Fatalf("expected purpose slug ID, got %q", r2.ID)
+	}
+	if _, e := m.Remove(ctx, source, r2.ID); e != nil {
+		t.Fatalf("remove unchanged task r2: %v", e)
+	}
+	// Dirty worktree must be rejected.
+	put(t, filepath.Join(r.Workspace, "a"), "updated")
+	if _, e := m.Remove(ctx, source, r.ID); e == nil {
+		t.Fatal("remove accepted dirty worktree")
+	}
+	if _, e := git(ctx, r.Workspace, "add", "a"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := git(ctx, r.Workspace, "commit", "-m", "update a"); e != nil {
+		t.Fatal(e)
+	}
+	// Create a task tag to verify tag cleanup on remove.
+	if _, e := git(ctx, source, "tag", r.ID); e != nil {
+		t.Fatal(e)
+	}
+	// Unmerged commit must be rejected.
+	if _, e := m.Remove(ctx, source, r.ID); e == nil {
+		t.Fatal("remove accepted unmerged task branch")
+	}
+	// Merge into source and then remove.
+	if _, e := git(ctx, source, "merge", "--ff-only", r.Branch); e != nil {
+		t.Fatal(e)
+	}
+	removed, e := m.Remove(ctx, source, r.ID)
+	if e != nil || removed.State != "removed" {
+		t.Fatalf("remove after merge: %+v %v", removed, e)
+	}
+	if _, e := os.Stat(r.Workspace); !os.IsNotExist(e) {
+		t.Fatalf("workspace directory still exists: %v", e)
+	}
+	if _, e := git(ctx, source, "show-ref", "--verify", "--quiet", "refs/heads/"+r.Branch); e == nil {
+		t.Fatalf("task branch %s still exists", r.Branch)
+	}
+	if _, e := git(ctx, source, "show-ref", "--verify", "--quiet", "refs/tags/"+r.ID); e == nil {
+		t.Fatalf("task tag %s still exists", r.ID)
+	}
+	entries, e := m.List(ctx, source)
+	if e != nil || len(entries) != 0 {
+		t.Fatalf("expected 0 remaining tasks, got %d (%v)", len(entries), e)
 	}
 }

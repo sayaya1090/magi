@@ -34,6 +34,8 @@ func TestCodingTaskRejectsAmbiguousOperationArguments(t *testing.T) {
 		`{"operation":"diff","taskId":"id","mode":"copy"}`,
 		`{"operation":"list","taskId":"id"}`,
 		`{"operation":"review","taskId":"id"}`,
+		`{"operation":"remove"}`,
+		`{"operation":"remove","taskId":"id","mode":"git"}`,
 		`{"operation":"list"} {"operation":"prepare"}`,
 	} {
 		if _, err := parseCodingTaskRequest([]byte(raw)); err == nil {
@@ -45,6 +47,7 @@ func TestCodingTaskRejectsAmbiguousOperationArguments(t *testing.T) {
 		`{"operation":"prepare","requestId":"r","mode":"git","base":"HEAD"}`,
 		`{"operation":"review","taskId":"id","path":"src/main.go"}`,
 		`{"operation":"status","taskId":"id"}`,
+		`{"operation":"remove","taskId":"id"}`,
 		`{"operation":"list"}`,
 	} {
 		if _, err := parseCodingTaskRequest([]byte(raw)); err != nil {

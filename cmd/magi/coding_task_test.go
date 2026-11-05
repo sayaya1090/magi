@@ -41,6 +41,10 @@ func TestCodingTaskCLISelectionAndRestore(t *testing.T) {
 	if e != nil || string(b) != "original" {
 		t.Fatalf("restored %q: %v", b, e)
 	}
+	call("remove", "--id", r.ID)
+	if _, e := os.Stat(r.Workspace); !os.IsNotExist(e) {
+		t.Fatalf("workspace not removed: %v", e)
+	}
 }
 
 func TestCodingTaskCLIPartialIsNotSuccessfulExit(t *testing.T) {

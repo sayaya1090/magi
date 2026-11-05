@@ -17,7 +17,7 @@ func TestCodingWorkflowIsRequiredOnlyForCodingClientsWithWorkspaceService(t *tes
 			t.Fatalf("role %q guide=%q", role, guide)
 		}
 		if want {
-			for _, term := range []string{"MUST call coding_task", "mode=git", "does NOT move", "Do not call council complete=true", "mode=copy", "do not nest worktrees"} {
+			for _, term := range []string{"MUST call coding_task", "mode=git", "does NOT move", "Do not call council complete=true", "mode=copy", "do not nest worktrees", "operation=remove", "git tags"} {
 				if !strings.Contains(guide, term) {
 					t.Errorf("missing contract %q", term)
 				}

@@ -52,7 +52,82 @@ func resolveExistingAncestor(path string) string {
 	return filepath.Join(resolveExistingAncestor(parent), filepath.Base(path))
 }
 
-var safeID = regexp.MustCompile(`^[a-f0-9]{24}$`)
+var (
+	safeID = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
+	hexID  = regexp.MustCompile(`^[a-f0-9]{24}$`)
+)
+
+func slugify(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			dash = false
+		default:
+			if b.Len() > 0 && !dash {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	for _, prefix := range []string{"magi-task-", "task-"} {
+		if after, ok := strings.CutPrefix(slug, prefix); ok && after != "" {
+			slug = strings.Trim(after, "-")
+		}
+	}
+	if len(slug) > 40 {
+		slug = strings.TrimRight(slug[:40], "-")
+	}
+	return slug
+}
+
+func taskID(root, requestID, purpose string) string {
+	full := hash([]byte(root + "\x00" + requestID))
+	var slug string
+	if !hexID.MatchString(requestID) {
+		slug = slugify(requestID)
+	}
+	if slug == "" {
+		slug = slugify(purpose)
+	}
+	if slug == "" {
+		return full[:24]
+	}
+	return slug + "-" + full[:8]
+}
+
+func (m *Manager) resolveTaskID(root, requestID, purpose string) string {
+	id := taskID(root, requestID, purpose)
+	if dir, err := m.dir(id); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "task.json")); err == nil {
+			return id
+		}
+	}
+	full := hash([]byte(root + "\x00" + requestID))
+	legacyID := full[:24]
+	if dir, err := m.dir(legacyID); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "task.json")); err == nil {
+			return legacyID
+		}
+	}
+	suffix := "-" + full[:8]
+	entries, err := os.ReadDir(filepath.Join(m.Root, "tasks"))
+	if err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if !e.IsDir() || !strings.HasSuffix(name, suffix) || !safeID.MatchString(name) {
+				continue
+			}
+			if _, statErr := os.Stat(filepath.Join(m.Root, "tasks", name, "task.json")); statErr == nil {
+				return name
+			}
+		}
+	}
+	return id
+}
 
 func hash(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 func nonce() string {
@@ -271,7 +346,7 @@ func (m *Manager) Prepare(ctx context.Context, source string, q task.Request) (r
 		return r, fmt.Errorf("unsupported isolation mode; direct editing is not implemented")
 	}
 	spec, _ := json.Marshal(struct{ Root, Request, Purpose, Mode, Base string }{root, q.RequestID, q.Purpose, q.Mode, q.Base})
-	id := hash([]byte(root + "\x00" + q.RequestID))[:24]
+	id := m.resolveTaskID(root, q.RequestID, q.Purpose)
 	release, err := m.lock(ctx, id)
 	if err != nil {
 		return r, err
@@ -418,4 +493,129 @@ func (m *Manager) lockExisting(ctx context.Context, source, id string) (func(), 
 		return nil, err
 	}
 	return m.lock(ctx, id)
+}
+
+func (m *Manager) Remove(ctx context.Context, source, id string) (task.Record, error) {
+	release, err := m.lockExisting(ctx, source, id)
+	if err != nil {
+		return task.Record{}, err
+	}
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
+	r, err := m.Status(ctx, source, id)
+	if err != nil {
+		return r, err
+	}
+	if r.State == "running" {
+		return r, fmt.Errorf("cannot remove running task; wait for completion or recover first")
+	}
+	dir, err := m.dir(id)
+	if err != nil {
+		return r, err
+	}
+	if r.Mode == "git" {
+		commonDir := r.CommonDir
+		if commonDir == "" {
+			if out, e := git(ctx, r.Source, "rev-parse", "--path-format=absolute", "--git-common-dir"); e == nil {
+				commonDir = out
+			}
+		}
+		if commonDir != "" {
+			if err := os.MkdirAll(filepath.Join(m.Root, "locks"), 0o700); err != nil {
+				return r, err
+			}
+			unlock, err := filelock.Acquire(ctx, filepath.Join(m.Root, "locks", hash([]byte(commonDir))+".lock"))
+			if err != nil {
+				return r, err
+			}
+			defer unlock()
+		}
+		if _, statErr := os.Stat(r.Workspace); statErr == nil {
+			dirty, err := git(ctx, r.Workspace, "status", "--porcelain")
+			if err != nil {
+				return r, err
+			}
+			if dirty != "" {
+				return r, fmt.Errorf("task worktree has uncommitted or untracked changes; commit, integrate, or clean before removing")
+			}
+			wsHead, err := git(ctx, r.Workspace, "rev-parse", "--verify", "HEAD^{commit}")
+			if err != nil {
+				return r, err
+			}
+			if r.Base == "" || wsHead != r.Base {
+				if _, err := git(ctx, r.Source, "merge-base", "--is-ancestor", wsHead, "HEAD"); err != nil {
+					return r, fmt.Errorf("task branch %s has unmerged commits; integrate into source before removing", r.Branch)
+				}
+			}
+			if _, err := git(ctx, r.Source, "worktree", "remove", "--", r.Workspace); err != nil {
+				return r, err
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return r, statErr
+		} else {
+			_, _ = git(ctx, r.Source, "worktree", "prune")
+			if r.Branch != "" {
+				if branchHead, e := git(ctx, r.Source, "rev-parse", "--verify", "refs/heads/"+r.Branch+"^{commit}"); e == nil {
+					if r.Base == "" || branchHead != r.Base {
+						if _, err := git(ctx, r.Source, "merge-base", "--is-ancestor", branchHead, "HEAD"); err != nil {
+							return r, fmt.Errorf("task branch %s has unmerged commits; integrate into source before removing", r.Branch)
+						}
+					}
+				}
+			}
+		}
+		if r.Branch != "" {
+			if _, e := git(ctx, r.Source, "show-ref", "--verify", "--quiet", "refs/heads/"+r.Branch); e == nil {
+				if _, err := git(ctx, r.Source, "branch", "-D", r.Branch); err != nil {
+					return r, err
+				}
+			}
+		}
+		for _, tag := range []string{r.ID, "task-" + r.ID, r.Branch} {
+			if tag == "" {
+				continue
+			}
+			if _, e := git(ctx, r.Source, "show-ref", "--verify", "--quiet", "refs/tags/"+tag); e == nil {
+				_, _ = git(ctx, r.Source, "tag", "-d", tag)
+			}
+		}
+	} else if r.Mode == "copy" {
+		integrated := false
+		if jb, e := os.ReadFile(filepath.Join(dir, "integration.json")); e == nil {
+			var j task.Journal
+			if json.Unmarshal(jb, &j) == nil && (j.State == "applied" || j.State == "restored") {
+				integrated = true
+			}
+		}
+		if !integrated {
+			if _, statErr := os.Stat(r.Workspace); statErr == nil {
+				current, _, err := m.snapshot(ctx, dir, r.Workspace, r.Baseline)
+				if err != nil {
+					return r, err
+				}
+				for _, ch := range changes(r.Baseline, current) {
+					srcFile, err := m.current(ctx, r.Source, ch.Path)
+					if err != nil {
+						return r, err
+					}
+					if different(srcFile, ch.After) {
+						return r, fmt.Errorf("copy task has unapplied changes (%s); apply or discard before removing", ch.Path)
+					}
+				}
+			} else if !errors.Is(statErr, os.ErrNotExist) {
+				return r, statErr
+			}
+		}
+	}
+	release()
+	release = nil
+	r.State = "removed"
+	r.Updated = time.Now().UTC()
+	if err := os.RemoveAll(dir); err != nil {
+		return r, err
+	}
+	return r, nil
 }

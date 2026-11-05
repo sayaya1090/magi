@@ -156,6 +156,7 @@ func TestForeignSourceDoesNotWaitForActiveTaskLease(t *testing.T) {
 		{"apply", func(c context.Context) error { _, e := m.Apply(c, wrongSource, r.ID, []string{"a"}); return e }},
 		{"restore", func(c context.Context) error { _, e := m.Restore(c, wrongSource, r.ID); return e }},
 		{"recover", func(c context.Context) error { _, e := m.Recover(c, wrongSource, r.ID); return e }},
+		{"remove", func(c context.Context) error { _, e := m.Remove(c, wrongSource, r.ID); return e }},
 		{"run", func(c context.Context) error {
 			_, e := m.Run(c, wrongSource, r.ID, func(context.Context, string) error { t.Error("foreign run callback called"); return nil })
 			return e

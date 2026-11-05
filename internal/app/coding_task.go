@@ -34,6 +34,8 @@ func (a *App) codingTask(ctx context.Context, source string, raw json.RawMessage
 		value, err = m.Review(ctx, source, q.TaskID, q.Path)
 	case "diff":
 		value, err = m.Diff(ctx, source, q.TaskID)
+	case "remove":
+		value, err = m.Remove(ctx, source, q.TaskID)
 	default:
 		return "", fmt.Errorf("unsupported coding workspace operation")
 	}
@@ -42,16 +44,19 @@ func (a *App) codingTask(ctx context.Context, source string, raw json.RawMessage
 	}
 	public := task.Public(value)
 	if r, ok := value.(task.Record); ok {
+		nextAction := "This session has NOT moved. Its read/grep/edit tools still target sessionWorkdir. To develop in the isolated workspace, start a separate coding session using runCommand (replace the prompt placeholder). Do not join the argument array as an unquoted shell string: source/store may contain spaces. A bash cd affects only that shell call; it does not move this session. diff/review remain available here using taskId."
+		runCommand := []string{"magi", "coding-task", "run", "--source", r.Source, "--store", filepath.Dir(filepath.Dir(filepath.Dir(r.Workspace))), "--id", r.ID, "--prompt", "<development request>"}
+		if q.Operation == "remove" {
+			nextAction = "Isolated task workspace, branch, and task tags have been removed."
+			runCommand = nil
+		}
 		public = struct {
 			task.Summary
 			SessionWorkdir        string   `json:"sessionWorkdir"`
 			SessionWorkdirChanged bool     `json:"sessionWorkdirChanged"`
 			NextAction            string   `json:"nextAction"`
-			RunCommand            []string `json:"runCommand"`
-		}{task.Summarize(r), source, false,
-			"This session has NOT moved. Its read/grep/edit tools still target sessionWorkdir. To develop in the isolated workspace, start a separate coding session using runCommand (replace the prompt placeholder). Do not join the argument array as an unquoted shell string: source/store may contain spaces. A bash cd affects only that shell call; it does not move this session. diff/review remain available here using taskId.",
-			[]string{"magi", "coding-task", "run", "--source", r.Source, "--store", filepath.Dir(filepath.Dir(filepath.Dir(r.Workspace))), "--id", r.ID, "--prompt", "<development request>"},
-		}
+			RunCommand            []string `json:"runCommand,omitempty"`
+		}{task.Summarize(r), source, false, nextAction, runCommand}
 	}
 	b, err := json.Marshal(public)
 	return string(b), err
@@ -91,7 +96,7 @@ func parseCodingTaskRequest(raw json.RawMessage) (codingTaskRequest, error) {
 		if q.Mode == "copy" && q.Base != "" {
 			return q, fmt.Errorf("base selects a Git commit and cannot be used with copy mode")
 		}
-	case "list", "status", "diff", "review":
+	case "list", "status", "diff", "review", "remove":
 		if q.RequestID != "" || q.Mode != "" || q.Base != "" || q.Purpose != "" {
 			return q, fmt.Errorf("requestId/mode/base/purpose are only accepted by prepare")
 		}
@@ -105,7 +110,7 @@ func parseCodingTaskRequest(raw json.RawMessage) (codingTaskRequest, error) {
 			return q, fmt.Errorf("review requires a changed file-relative path, e.g. src/main.go")
 		}
 	default:
-		return q, fmt.Errorf("operation must be prepare, list, status, diff, or review")
+		return q, fmt.Errorf("operation must be prepare, list, status, diff, review, or remove")
 	}
 	return q, nil
 }

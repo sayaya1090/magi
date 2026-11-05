@@ -23,7 +23,7 @@ type codingTaskRunKey struct{}
 
 func codingTaskCommand(args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(errOut, "usage: magi coding-task prepare|list|status|diff|review|apply|restore|recover|run [options]")
+		fmt.Fprintln(errOut, "usage: magi coding-task prepare|list|status|diff|review|apply|restore|recover|remove|run [options]")
 		return 2
 	}
 	fs := flag.NewFlagSet("coding-task "+args[0], flag.ContinueOnError)
@@ -73,6 +73,8 @@ func codingTaskCommand(args []string, out, errOut io.Writer) int {
 		result, e = m.Recover(ctx, *source, *id)
 	case "restore":
 		result, e = m.Restore(ctx, *source, *id)
+	case "remove":
+		result, e = m.Remove(ctx, *source, *id)
 	case "run":
 		if *prompt == "" {
 			fmt.Fprintln(errOut, "run requires --prompt")

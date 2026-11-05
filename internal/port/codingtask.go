@@ -14,4 +14,5 @@ type CodingTasks interface {
 	Diff(context.Context, string, string) ([]task.Change, error)
 	Apply(context.Context, string, string, []string) (task.Journal, error)
 	Restore(context.Context, string, string) (task.Journal, error)
+	Remove(context.Context, string, string) (task.Record, error)
 }
