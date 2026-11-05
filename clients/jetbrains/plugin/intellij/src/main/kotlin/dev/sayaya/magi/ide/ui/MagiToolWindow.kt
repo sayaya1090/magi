@@ -293,7 +293,7 @@ class MagiToolWindow : ToolWindowFactory {
         private data class PaintedRow(val row: Row, val open: Boolean, val rich: Boolean, val session: String?, val user: String?, val panel: JBPanel<JBPanel<*>>)
         private var paintedRows = emptyList<PaintedRow>()
         private fun richRenderKey(r: Row) = RowText.richKey(r) + ":" + (r.outputSeq?.toString() ?: r.text.hashCode().toString())
-        private val column = Look.column().apply {
+        private val column = VirtualTranscript { redrawLog() }.apply {
             // Keep traversal in transcript order without sorting the entire history by coordinates.
             // A provider lets Tab leave the transcript; a cycle root would trap it here.
             isFocusTraversalPolicyProvider = true
@@ -313,6 +313,7 @@ class MagiToolWindow : ToolWindowFactory {
             // Keep viewport width constant when the growing answer first needs scrolling.
             verticalScrollBarPolicy = javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
         }
+        private val viewportChanged = javax.swing.event.ChangeListener { redrawLog() }
         private val tailScroll = TailScroll(scroll)
 
         /** 트랜스크립트 셰이퍼. 이벤트 파싱은 워커 스레드에서 수행하며, 렌더링은 EDT에서 스냅샷 기반으로 실행합니다. */
@@ -803,6 +804,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 첫 프레임부터 인사가 서 있어야 한다. [paintLink] 가 상태가 **바뀔 때** 다시
             // 그리므로, 아무 상태도 아직 안 바뀐 이 순간을 그것만으로는 못 덮는다 — 붙기를
             // 시도하기 전의 빈 판이 바로 사용자가 불안해한 그 화면이다.
+            scroll.viewport.addChangeListener(viewportChanged)
             redrawLog()
             when (val a = follow()) {
                 Attach.Ok -> {}
@@ -852,7 +854,9 @@ class MagiToolWindow : ToolWindowFactory {
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
+            tail.stop()
             inputGate.dispose()
+            scroll.viewport.removeChangeListener(viewportChanged)
             tailScroll.close()
             runCatching { following?.close() }
             following = null
@@ -938,6 +942,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
             // 사유가 하나뿐이라 더 그럴듯해서 더 나쁘다.
             if (sid != followedSid) {
+                SwingUtilities.invokeLater { column.reset() }
                 lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
                 SwingUtilities.invokeLater { tailScroll.followEnd() }
             }
@@ -1082,23 +1087,32 @@ class MagiToolWindow : ToolWindowFactory {
         private val tail = javax.swing.Timer(130) { redrawLog() }.apply { isRepeats = false }
 
         private fun redrawSoon() {
+            if (closing.get() || project.isDisposed) return
             val now = System.nanoTime()
             val due = nextDraw.get()
-            if (now < due) { SwingUtilities.invokeLater { tail.restart() }; return }
+            if (now < due) { SwingUtilities.invokeLater { if (!closing.get() && !project.isDisposed) tail.restart() }; return }
             if (!nextDraw.compareAndSet(due, now + 120_000_000L)) {
-                SwingUtilities.invokeLater { tail.restart() }
+                SwingUtilities.invokeLater { if (!closing.get() && !project.isDisposed) tail.restart() }
                 return
             }
             redrawLog()
         }
 
         private fun redrawLog() {
+            if (closing.get() || project.isDisposed) return
             if (!dirty.compareAndSet(false, true)) return
             SwingUtilities.invokeLater {
                 dirty.set(false)
+                if (closing.get() || project.isDisposed) return@invokeLater
                 // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
                 // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
-                val rows0 = shaper.list()
+                val allRows = shaper.list()
+                val range = column.range(allRows.size, scroll.viewport.viewPosition.y, scroll.viewport.extentSize.height)
+                val rows0 = if (range.isEmpty()) emptyList() else allRows.subList(range.first, range.last + 1)
+                column.start(range.first.coerceAtLeast(0))
+                fun identity(r: Row): String = if (r.msgId.isNotBlank() || r.callId.isNotBlank())
+                    "${r.msgId}:${r.who}:${r.callId}" else RowText.foldKey(r)
+                val previous = paintedRows.associateBy { identity(it.row) }
                 // Completed rich renderers belong to this view. Drafts do not reload CEF
                 // or evict any completed answer while tokens arrive.
                 if (pinned == null) richAnswers.keepOnly(
@@ -1116,20 +1130,20 @@ class MagiToolWindow : ToolWindowFactory {
                 // 툴팁에만 있었다 — 사용자 실측("뜨는중인지 무슨 문제가 있는지 불안해").
                 // 사유는 [mood] 에서 꺼낸다: 글리프와 한 자리라 둘이 어긋날 수가 없다(R6).
                 var preservedRows = 0
-                val next = rows.mapIndexed { index, r ->
-                    val old = paintedRows.getOrNull(index)
+                val next = rows.map { r ->
+                    val old = previous[identity(r)]
                     val open = shows(r)
                     val rich = pinned == null && !r.draft && richRenderKey(r) in richKeys
                     val samePresentation = old != null && old.open == open && old.rich == rich &&
                         old.session == currentSendSession() && old.user == youName
                     val panel = when {
-                        samePresentation && old.row == r -> old.panel.also { copying.retain(it, r) { shaper.list() } }
+                        samePresentation && old.row == r -> old.panel.also { copying.retain(it, r) { allRows } }
                         samePresentation && old.row.draft && r.draft && r.who == Who.Agent &&
                             old.row.copy(text = r.text) == r && old.panel.getClientProperty("magi.draft.body") is javax.swing.JTextArea -> {
                             val body = old.panel.getClientProperty("magi.draft.body") as javax.swing.JTextArea
                             body.text = r.text + " ▌"
                             old.panel.putClientProperty("magi.draft.updates", (old.panel.getClientProperty("magi.draft.updates") as? Int ?: 0) + 1)
-                            copying.retain(old.panel, r) { shaper.list() }
+                            copying.retain(old.panel, r) { allRows }
                             old.panel
                         }
                         else -> rowPanel(r).also { copying.install(it, r) { shaper.list() } }
@@ -1155,6 +1169,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 while (column.componentCount > components.size) column.remove(column.componentCount - 1)
                 paintedRows = next
+                column.doLayout()
                 column.revalidate()
                 column.repaint()
                 tailScroll.contentChanged()
