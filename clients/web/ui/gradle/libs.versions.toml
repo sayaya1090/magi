@@ -2,7 +2,7 @@
 # 버전 올릴 때 여기 한 곳만 고치면 된다.
 
 [versions]
-elemento = "2.5.10"
+elemento = "2.5.12"
 sayaya-ui = "2.5.0.8"
 sayaya-rx = "2.4.0"
 dagger = "2.60.1"

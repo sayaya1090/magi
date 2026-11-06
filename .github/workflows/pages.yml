@@ -29,7 +29,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read # the new console's dependencies come from GitHub Packages
   pages: write
   id-token: write
   # To delete the duplicate artifacts described in the deploy job. Nothing else here writes.
@@ -122,9 +121,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
       - name: build the site
         uses: ./.github/actions/pages-site
-        env:
-          GITHUB_USERNAME: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           fa-token: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
 

@@ -55,15 +55,15 @@ the GWT bootstrap it appends.
 
 Licence: Apache-2.0 (sayaya-ui, Material Web), BSD-3-Clause (Lit), as the bundle's header states.
 
-## marked.js — marked 18.1.1, 45.4KB, **lexer only**
+## marked.js — marked 18.1.3, 47.9KB, **lexer only**
 
-    npm pack marked@18.1.1              # marked-18.1.1.tgz
-    mkdir -p node_modules && tar xzf marked-18.1.1.tgz && mv package node_modules/marked
+    npm pack marked@18.1.3              # marked-18.1.3.tgz
+    mkdir -p node_modules && tar xzf marked-18.1.3.tgz && mv package node_modules/marked
     cat > entry.mjs <<'ENTRY'
     export { lexer } from 'marked';
     ENTRY
     npx esbuild@0.25.12 entry.mjs --bundle --format=esm --minify --outfile=marked.js
-    #   sha256 6cb3abdef30d09fe576be18224b81ab8ac703fd50cb22c3b3482f0f2396998d4
+    #   sha256 62ac36050bab9dc818548a9c02e4ba69305b3b94417c514249aee84dbef79187
 
 Only `lexer` is exported, and that is the whole point rather than a size optimisation.
 

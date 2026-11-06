@@ -21,7 +21,7 @@ public class WireTests
     private static string GoSource(string relative)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, ".git")))
+        while (dir is not null && !(Directory.Exists(Path.Combine(dir.FullName, ".git")) || File.Exists(Path.Combine(dir.FullName, ".git"))))
         {
             dir = dir.Parent;
         }
@@ -184,7 +184,7 @@ public class WireTests
     internal static string SourceDir()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, ".git")))
+        while (dir is not null && !(Directory.Exists(Path.Combine(dir.FullName, ".git")) || File.Exists(Path.Combine(dir.FullName, ".git"))))
         {
             dir = dir.Parent;
         }

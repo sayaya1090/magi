@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ try {
   for (const product of ['powerpoint', 'word', 'excel']) {
     const page = await browser.newPage({ viewport: { width: 320, height: 600 } });
     await page.setContent('<div id="advanced"></div>');
-    await page.addStyleTag({ path: new URL(`../../${product}/addin/taskpane.css`, import.meta.url).pathname });
+    await page.addStyleTag({ path: fileURLToPath(new URL(`../../${product}/addin/taskpane.css`, import.meta.url)) });
     const source = await readFile(new URL(`../../${product}/addin/src/ui/providerProfiles.js`, import.meta.url), 'utf8');
     await page.addScriptTag({ content: source.replace('export function ', 'function ') });
     await page.evaluate(() => {

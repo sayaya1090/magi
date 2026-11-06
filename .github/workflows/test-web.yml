@@ -3,8 +3,7 @@
 # and a core change does not spend minutes compiling GWT it did not touch.
 #
 # The Playwright browser specs are real browser tests — chromium is installed with system deps
-# before gradle runs them. Dependencies come from GitHub Packages (same owner), so the
-# workflow's own token suffices with packages: read.
+# before gradle runs them. Dependencies come from Maven Central and Gradle Plugin Portal.
 name: test-web
 
 on:
@@ -20,7 +19,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 jobs:
   # 아이콘은 한 번만 굽고 산출물로 넘긴다 — 사이트를 짓는 잡마다 npm을 다시 설치하지 않게.
@@ -93,9 +91,6 @@ jobs:
           java-version: "25"
       - uses: gradle/actions/setup-gradle@v5
       - name: Test ${{ matrix.module }}
-        env:
-          GITHUB_USERNAME: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: clients/web/ui
         run: ./gradlew :${{ matrix.module }}:test
 
@@ -112,9 +107,6 @@ jobs:
           java-version: "25"
       - uses: gradle/actions/setup-gradle@v5
       - name: Assemble the console
-        env:
-          GITHUB_USERNAME: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: clients/web/ui
         # 데모의 목도 함께 — 사이트 잡이 그것을 페이지 곁에 싣는다(운영 자산에는 없다).
         run: ./gradlew assembleConsole assembleDemoMock
@@ -200,7 +192,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
       pages: write
       id-token: write
       actions: write
@@ -235,9 +226,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
       - name: build the site
         uses: ./.github/actions/pages-site
-        env:
-          GITHUB_USERNAME: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           fa-token: ${{ secrets.FONTAWESOME_NPM_AUTH_TOKEN }}
       - uses: actions/configure-pages@v6

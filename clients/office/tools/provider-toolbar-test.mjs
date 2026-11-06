@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -15,16 +16,16 @@ try {
   for(const width of [320,420,600]) {
    const page=await browser.newPage({viewport:{width,height:600}});
    await page.setContent('<section id="pane">'+html.slice(start,end)+'</section>');
-   await page.addStyleTag({path:new URL('taskpane.css',root).pathname});
+   await page.addStyleTag({path:fileURLToPath(new URL('taskpane.css',root))});
    await page.locator('#advanced').evaluate(e=>e.hidden=false);
    await page.addScriptTag({content:source.replace('export function ','function ')+icons.replace('export function ','function ')});
    await page.evaluate(()=>mountIconControls());
    await page.evaluate(()=>mountProviderProfiles({api:{providerProfiles:async()=>({profiles:[]})}}));
    const layout=await page.evaluate(()=>{
     const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right}};
-    return {manage:rect('manage-providers'),provider:rect('provider'),model:rect('model'),advanced:rect('advanced'),icons:['fresh','rules','guides','council','repick'].map(rect),align:getComputedStyle(document.querySelector('.advanced-tools')).justifyContent,overflow:document.documentElement.scrollWidth>innerWidth};
+    return {manage:rect('manage-providers'),provider:rect('provider'),model:rect('model'),advanced:rect('advanced'),icons:['fresh','rules','guides','council','repick'].map(rect),tools:(()=>{const e=document.querySelector('.advanced-tools'),r=e.getBoundingClientRect(),s=getComputedStyle(e);return {left:r.left+parseFloat(s.borderLeftWidth)+parseFloat(s.paddingLeft)}})(),overflow:document.documentElement.scrollWidth>innerWidth};
    });
-   assert.equal(layout.align,'flex-start'); assert.equal(layout.overflow,false);
+   assert.ok(Math.abs(layout.icons[0].x-layout.tools.left)<1,'toolbar is not aligned to its leading edge'); assert.equal(layout.overflow,false);
    assert.equal(layout.manage.height,32);
    assert.equal(layout.manage.y,layout.icons[4].y);
    assert.equal(await page.locator('#manage-providers').getAttribute('aria-label'),'프로바이더 관리');

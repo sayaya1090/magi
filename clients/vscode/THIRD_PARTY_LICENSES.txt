@@ -52,7 +52,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 
 --------------------------------------------------------------------------------
-Package: markdown-it@15.0.2
+Package: markdown-it@15.0.3
 License: MIT
 File:    LICENSE
 --------------------------------------------------------------------------------

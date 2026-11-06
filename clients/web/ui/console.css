@@ -2575,7 +2575,7 @@
      이것이었다(실측). 라벨이 긴 항목이 들어오면 칸이 다시 들쭉날쭉해지는 것도 같은 이유다. */
   :is(#detail, #dusage, #dcontrols) .f .v > md-outlined-select,
   :is(#detail, #dusage, #dcontrols) .f .v > md-filled-select,
-  :is(#detail, #dusage, #dcontrols) .f .v > md-outlined-text-field { width:100%; }
+  :is(#detail, #dusage, #dcontrols) .f .v > md-outlined-text-field { width:100%; min-width:0; }
   /* An open file stays at the top of the conversation while the conversation scrolls under it.
      It is being read ALONGSIDE the transcript — that is the whole reason it is on this page and
      not a screen of its own — and a file that scrolls away the moment somebody reads three

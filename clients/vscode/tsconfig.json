@@ -10,7 +10,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node", "vscode", "markdown-it"]
   },
   "include": ["src/**/*.ts"]
 }

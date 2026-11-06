@@ -138,10 +138,9 @@ internal class CompanionPanelTest : GwtTestSpec({
                     "(() => { const d = document.querySelector('#sidecol #dcontrols');" +
                         " const row = d.querySelector('.f .v > md-outlined-select');" +
                         " if (!row) return 'no select in the panel';" +
-                        " const box = row.parentElement.getBoundingClientRect().width;" +
                         " const bad = Array.from(d.querySelectorAll('.f .v > md-outlined-select'))" +
-                        "   .filter(e => Math.abs(e.getBoundingClientRect().width - box) > 1)" +
-                        "   .map(e => Math.round(e.getBoundingClientRect().width) + '/' + Math.round(box));" +
+                        "   .filter(e => Math.abs(e.getBoundingClientRect().width - e.parentElement.getBoundingClientRect().width) > 1)" +
+                        "   .map(e => Math.round(e.getBoundingClientRect().width) + '/' + Math.round(e.parentElement.getBoundingClientRect().width));" +
                         " return bad.length ? bad.join(', ') : 'ok'; })()"
                 )
                 same shouldBe "ok"

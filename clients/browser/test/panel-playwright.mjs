@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';import fs from 'node:fs';import assert from 'node:assert/strict';
 const require=createRequire(new URL('../../web/e2e/package.json',import.meta.url));const {chromium}=require('@playwright/test');
 const browser=await chromium.launch({headless:true});
@@ -20,7 +21,7 @@ try{
  });
  await page.route('https://panel.test/**',r=>r.fulfill({body:'<html></html>'}));await page.goto('https://panel.test');await page.setContent(fs.readFileSync(new URL('../extension/panel.html',import.meta.url),'utf8').replace(/<script.*?<\/script>/gs,''));
  await page.evaluate(id=>{const store={};window.chrome={windows:{getCurrent:async()=>({id})},storage:{session:{get:async k=>({[k]:store[k]}),set:async o=>Object.assign(store,o)}},tabs:{query:async()=>[{id:window.testTab||11,url:'https://example.com/a',title:'One'}],get:async id=>({id,url:'https://example.com/a',title:'One'}),onRemoved:{addListener(){}}},permissions:{request:async()=>true}};},windowId);
- await page.addScriptTag({path:new URL('../extension/material.js',import.meta.url).pathname});await page.addScriptTag({path:new URL('../extension/browser.js',import.meta.url).pathname});await page.addScriptTag({path:new URL('../extension/panel.js',import.meta.url).pathname});await page.addStyleTag({path:new URL('../extension/panel.css',import.meta.url).pathname});
+ await page.addScriptTag({path:fileURLToPath(new URL('../extension/material.js',import.meta.url))});await page.addScriptTag({path:fileURLToPath(new URL('../extension/browser.js',import.meta.url))});await page.addScriptTag({path:fileURLToPath(new URL('../extension/panel.js',import.meta.url))});await page.addStyleTag({path:fileURLToPath(new URL('../extension/panel.css',import.meta.url))});
  await page.locator('#token').fill('test');await page.locator('#connect').click();await page.waitForFunction(()=>!document.getElementById('settings').disabled);
  await page.locator('#grant').click();await page.evaluate(()=>window.testTab=12);await page.locator('#grant').click();assert.equal((await page.evaluate(()=>browserTools.execute({name:'list_tabs',args:{}}))).tabs.length,2);assert.match(await page.locator('#granted').textContent(),/One/);
  await page.waitForFunction(()=>document.getElementById('sessions').options.length===3);await page.locator('#sessions').selectOption('b');await page.waitForFunction(()=>document.getElementById('status').textContent.includes('세션 b'));

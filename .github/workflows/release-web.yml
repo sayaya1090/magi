@@ -25,7 +25,6 @@ on:
 
 permissions:
   contents: write # gh release create uploads the assets
-  packages: read # clients/web/ui's dependencies come from GitHub Packages (same owner)
 
 jobs:
   release:
@@ -46,9 +45,6 @@ jobs:
       # 시험(gwt-test·Playwright)은 test-web.yml의 몫이다 — 이 레인은 web-v* 태그가 가리키는
       # 커밋을 싣는 일이고, 그 커밋은 이미 그 레인을 지나왔다.
       - name: Assemble the console into the package
-        env:
-          GITHUB_USERNAME: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           (cd clients/web/ui && ./gradlew assembleConsole)

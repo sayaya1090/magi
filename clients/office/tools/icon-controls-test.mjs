@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -11,7 +12,7 @@ try {
   const html=await readFile(new URL('taskpane.html',root),'utf8');
   const start=html.indexOf('<div id="advanced"');const end=html.indexOf('<!-- 파괴적',start);
   await page.setContent('<section id="pane">'+html.slice(start,end)+'</section>');
-  await page.addStyleTag({path:new URL('taskpane.css',root).pathname});
+  await page.addStyleTag({path:fileURLToPath(new URL('taskpane.css',root))});
   await page.locator('#advanced').evaluate(e=>e.hidden=false);
   const source=await readFile(new URL('src/ui/iconControls.js',root),'utf8');
   await page.addScriptTag({content:source.replace('export function ','function ')});
