@@ -736,7 +736,6 @@ function paintViewport(tail = followingTail) {
     belowRows.style.height = (rowOffsets[rs.length] - rowOffsets[end]) + 'px';
     if (!tail && rs.length > 200) scrollEl.scrollTop = origin + rowOffsets[anchor] + anchorInside;
   }
-  if (tail) scrollEl.scrollTop = scrollEl.scrollHeight;
   if (focusedCallId) {
     const btns = rowsEl.querySelectorAll<HTMLElement>('.args-toggle-btn');
     for (let i = 0; i < btns.length; i++) {
