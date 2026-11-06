@@ -9,7 +9,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 const testMatch = process.env.PLAYWRIGHT_TEST_MATCH
   ? new RegExp(process.env.PLAYWRIGHT_TEST_MATCH)
-  : /transcript\.spec\.mjs$/;
+  : /(?:transcript|virtualization)\.spec\.mjs$/;
 
 const maxFailures = process.env.PLAYWRIGHT_MAX_FAILURES !== undefined
   ? parseInt(process.env.PLAYWRIGHT_MAX_FAILURES, 10)

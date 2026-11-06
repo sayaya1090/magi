@@ -108,7 +108,7 @@ public class ConversationElement {
             restoreDraft();
         });
         store.onRows(this::paintRows);
-        // 창 위에 닿는 것이 더 달라는 말이다 — 두 상자 모두에, passive 로.
+        // 데스크톱은 전사 상자, 모바일은 페이지의 스크롤 위치로 표시 범위를 정한다.
         DomGlobal.window.addEventListener("scroll", evt -> reachedUp(), passive());
         log.addEventListener("scroll", evt -> reachedUp(), passive());
         store.onPast(this::paintPast);
@@ -850,10 +850,10 @@ public class ConversationElement {
 
     /** 페이지에 있는 가장 오래된 행의 <b>절대</b> 인덱스. 그 앞은 spacer가 대신한다. */
     private int winFrom = 0;
-    /** winFrom 앞 전부의 높이(px). spacer가 이만큼 자리를 차지해 스크롤바를 정직하게 만든다. */
-    private double above = 0;
-    /** 창이 들 의향 — CAP에서 시작해 REACH만큼씩 자라고, 같은 대화에서는 줄지 않는다. */
-    private int keepRows = Window.CAP;
+    /** -1이면 끝을 따라가고, 그 밖에는 독자가 보고 있는 범위의 첫 행이다. */
+    private int viewportFrom = -1;
+    private final HTMLElement belowSpacer = el("div");
+    private double[] offsets = new double[]{0};
     /** 내보낸 행의 실측 높이를 절대 인덱스로 기억한다 — 되찾을 때 넣은 만큼 정확히 뺀다. */
     private final java.util.Map<Integer, Double> droppedH = new java.util.HashMap<>();
     /**
@@ -868,8 +868,9 @@ public class ConversationElement {
         // 창도 같이 잊는다. 안 그러면 다음 컴패니언이 남의 spacer 높이를 물려받아, 짧은 대화가
         // 긴 대화인 척하는 스크롤바를 달고 선다.
         winFrom = 0;
-        above = 0;
-        keepRows = Window.CAP;
+        viewportFrom = -1;
+        offsets = new double[]{0};
+        belowSpacer.remove();
         droppedH.clear();
         spacer.remove();
     }
@@ -930,76 +931,73 @@ public class ConversationElement {
         // 행을 빼고 넣고 위쪽 상자의 높이를 고친다 — 그 뒤에 읽은 scrollHeight는 이미 새 값이라
         // 뺄셈이 늘 0이 되고, 보정은 조용히 아무 일도 안 하게 된다. 옛 콘솔이 이 순서를 지켰다.
         HTMLElement box = Js.uncheckedCast(scroller());
-        double wasAt = box == null ? 0 : box.scrollTop, wasTall = box == null ? 0 : box.scrollHeight;
-        // 창이 이번 프레임에 어디서 시작하는가. 셈은 domain/Window가 한다.
-        int target = Window.nextFrom(total, winFrom, keepRows);
-        // 나가는 행: 높이를 <b>지금</b> 재서 기억하고 위쪽 상자에 더한다. 그린 적 없는 행은
-        // 잴 것이 없으므로 가정 높이로 센다(긴 전사의 첫 프레임이 그 경우다).
-        for (int i = winFrom; i < target; i++) {
-            int at = i - winFrom;
-            HTMLElement n = at < drawn.size() ? drawn.get(at) : null;
-            double h = n != null && n.offsetHeight > 0 ? n.offsetHeight
-                     : droppedH.getOrDefault(i, (double) Window.GUESS);
-            droppedH.put(i, h);
-            above += h;
+        double wasAt = box == null ? 0 : box.scrollTop;
+        rebuildOffsets(total);
+        double origin = log.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+        int anchor = offsetRow(Math.max(0, wasAt - origin), total);
+        double inside = wasAt - origin - offsets[anchor];
+        int target = total <= Window.CAP + Window.SLACK ? 0
+                : viewportFrom >= 0 ? Math.min(viewportFrom, total - 1)
+                : Math.max(0, total - Window.CAP);
+        int end = Math.min(total, target + Window.CAP + Window.SLACK);
+        java.util.Map<Integer, HTMLElement> previous = new java.util.HashMap<>();
+        java.util.Map<Integer, String> previousSigs = new java.util.HashMap<>();
+        for (int i = 0; i < drawn.size(); i++) {
+            previous.put(winFrom + i, drawn.get(i));
+            previousSigs.put(winFrom + i, sigs.get(i));
         }
-        // 되찾는 행: 넣은 만큼 빼야 하는데, 기록값으로 빼면 어긋난다. 되돌아온 행은 아래에서
-        // 페이지에 들어간 뒤 <b>실측</b>으로 뺀다(실측: 기록값이면 한 번에 2,500px, 실측이면 ~600px).
-        int recovered = Math.max(0, winFrom - target);
-        if (target != winFrom) {
-            // 창이 움직이면 창 상대 인덱스가 통째로 어긋난다 — 재사용 목록을 버리고 다시 짓는다.
-            // 드물다(청크로만 움직인다), 그리고 어긋난 채로 그리는 것보다 싸다.
-            for (HTMLElement n : drawn) n.remove();
-            drawn.clear();
-            sigs.clear();
-            winFrom = target;
+        drawn.clear(); sigs.clear();
+        for (int i = target; i < end; i++) {
+            HTMLElement node = previous.get(i);
+            if (node == null || !want[i].equals(previousSigs.get(i)))
+                node = rowNode(Js.uncheckedCast(rows.getAt(i)));
+            drawn.add(node); sigs.add(want[i]);
         }
-        // 자리로 견주어 <b>달라진 행만</b> 짓는다(운영 draw()의 그 규칙).
-        //
-        // 전사는 한 턴씩 자라고, 통째로 다시 그리면 자란 것 하나 때문에 이미 읽고 있던 행이
-        // 전부 새 노드가 된다 — 펼쳐 둔 툴 결과가 접히고, 고르던 글자가 풀리고, 브라우저는
-        // 매 프레임 화면 전체를 다시 칠한다(실측: 10초에 49번, 그중 새 행은 여섯).
-        int firstChanged = -1;
-        for (int i = winFrom; i < total; i++) {
-            int at = i - winFrom;
-            JsPropertyMap<Object> row = Js.uncheckedCast(rows.getAt(i));
-            HTMLElement had = at < drawn.size() ? drawn.get(at) : null;
-            if (had != null && want[i].equals(sigs.get(at))) continue;   // 같은 말이면 그대로 둔다
-            if (firstChanged < 0) firstChanged = at;
-            HTMLElement made = rowNode(row);
-            if (had == null) {
-                log.append(made);
-                drawn.add(made);
-                sigs.add(want[i]);
-            } else {
-                had.replaceWith(made);
-                drawn.set(at, made);
-                sigs.set(at, want[i]);
-            }
+        if (total > Window.CAP + Window.SLACK) {
+            spacer.style.setProperty("height", offsets[target] + "px");
+            belowSpacer.style.setProperty("height", (offsets[total] - offsets[end]) + "px");
+            belowSpacer.setAttribute("aria-hidden", "true");
+            if (spacer.parentNode != log) log.insertBefore(spacer, log.firstChild);
+            if (belowSpacer.parentNode != log) log.append(belowSpacer);
+        } else { spacer.remove(); belowSpacer.remove(); }
+        for (int i = 0; i < drawn.size(); i++) {
+            HTMLElement node = drawn.get(i);
+            int at = i + (spacer.parentNode == log ? 1 : 0);
+            elemental2.dom.Node current = log.childNodes.getAt(at);
+            if (current != node) log.insertBefore(node, current);
         }
-        // 남은 것은 이제 없는 행이다(전사가 짧아지는 자리: 컴패니언을 옮기거나 접었을 때).
-        for (int at = drawn.size() - 1; at >= total - winFrom; at--) {
-            drawn.remove(at).remove();
-            sigs.remove(at);
+        for (HTMLElement node : previous.values()) if (!drawn.contains(node)) node.remove();
+        for (int i = 0; i < drawn.size(); i++) {
+            HTMLElement node = drawn.get(i);
+            double height = node.getBoundingClientRect().height;
+            String margin = computedMarginBottom(node);
+            height += elemental2.core.Global.parseFloat(margin.isEmpty() ? "0" : margin);
+            if (height > 0) droppedH.put(target + i, height);
         }
-        // 되돌아온 행의 실제 높이만큼 위쪽 상자를 줄인다 — 페이지에 들어간 뒤라야 잴 수 있다.
-        for (int k = 0; k < recovered && k < drawn.size(); k++) {
-            HTMLElement n = drawn.get(k);
-            double h = n.offsetHeight > 0 ? n.offsetHeight
-                     : droppedH.getOrDefault(winFrom + k, (double) Window.GUESS);
-            above = Math.max(0, above - h);
+        rebuildOffsets(total);
+        spacer.style.setProperty("height", offsets[target] + "px");
+        belowSpacer.style.setProperty("height", (offsets[total] - offsets[end]) + "px");
+        winFrom = target;
+        if (stick && viewportFrom < 0) toBottom();
+        else if (total > Window.CAP + Window.SLACK) box.scrollTop = origin + offsets[anchor] + inside;
+    }
+
+    private static native String computedMarginBottom(HTMLElement node) /*-{
+        return $wnd.getComputedStyle(node).getPropertyValue("margin-bottom");
+    }-*/;
+
+    private void rebuildOffsets(int total) {
+        offsets = new double[total + 1];
+        for (int i = 0; i < total; i++) offsets[i + 1] = offsets[i] + droppedH.getOrDefault(i, (double) Window.GUESS);
+    }
+
+    private int offsetRow(double position, int total) {
+        int low = 0, high = total;
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (offsets[mid + 1] <= position) low = mid + 1; else high = mid;
         }
-        // 상자 높이는 <b>다시 재기 전에</b> 정한다. 나중에 정하면 되돌아온 행이 이미 문서를
-        // 키웠는데 상자는 옛 자리를 주장하고 있어, 그 유령 성장만큼 독자가 밀린다.
-        if (above > 0) spacer.style.setProperty("height", above + "px");
-        else spacer.style.removeProperty("height");
-        if (above > 0 && spacer.parentNode != log) log.insertBefore(spacer, log.firstChild);
-        else if (above <= 0) spacer.remove();
-        // 위에서 높이가 바뀌면 그 아래 전부가 움직인다 — 읽던 사람이 다른 자리에 가 있게 된다.
-        if (stick) toBottom();
-        else if (box != null && firstChanged == 0 && box.scrollHeight != wasTall) {
-            box.scrollTop = wasAt + (box.scrollHeight - wasTall);
-        }
+        return Math.min(low, Math.max(0, total - 1));
     }
 
     /**
@@ -1024,14 +1022,15 @@ public class ConversationElement {
      * 두 상자 모두에 건다 — 한 번에 하나만 스크롤하고, 요소 안의 스크롤은 window에 안 닿는다.
      */
     private void reachedUp() {
-        if (above <= 0 || spacer.parentNode == null || !Window.canReach(winFrom)) return;
-        Element s = scroller();
-        double margin = s == null ? 0 : clientHeight(s) * 1.5;
-        if (spacer.getBoundingClientRect().bottom > -margin) {
-            keepRows = Window.reach(keepRows);
-            lastSig = null;        // 같은 전사라도 다시 그려야 한다 — 창이 넓어졌다
-            paintRows(heldRows);
-        }
+        if (heldRows == null || offsets.length <= Window.CAP + Window.SLACK + 1) return;
+        Element scroll = scroller();
+        double origin = log.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+        int total = offsets.length - 1;
+        int next = atBottom() ? -1 : Math.max(0, offsetRow(Math.max(0, scroll.scrollTop - origin), total) - 30);
+        if (next == viewportFrom) return;
+        viewportFrom = next;
+        lastSig = null;
+        paintRows(heldRows);
     }
 
     private static String rawText(JsPropertyMap<Object> row, String who) {

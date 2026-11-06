@@ -468,14 +468,61 @@ function drawRefs(rs: string[]) {
 }
 type PaintedChatRow = { signature: string; draftSignature: string; node: HTMLDivElement };
 let paintedChatRows = new Map<string, PaintedChatRow>();
-function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
+type ChatRows = Parameters<ReceiveOptions['drawRows']>[0];
+let transcriptRows: ChatRows = [];
+let transcriptScope = '';
+let rowHeights: number[] = [];
+let rowOffsets: number[] = [0];
+let viewportFrame = 0;
+const aboveRows = document.createElement('div');
+const belowRows = document.createElement('div');
+for (const spacer of [aboveRows, belowRows]) spacer.setAttribute('aria-hidden', 'true');
+function offsetsForRows() {
+  rowOffsets = [0];
+  for (let i = 0; i < transcriptRows.length; i++) rowOffsets.push(rowOffsets[i] + (rowHeights[i] ?? 80));
+}
+function rowAtOffset(offset: number) {
+  let low = 0, high = transcriptRows.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (rowOffsets[mid + 1] <= offset) low = mid + 1; else high = mid;
+  }
+  return Math.min(low, Math.max(0, transcriptRows.length - 1));
+}
+function scheduleViewport() {
+  if (viewportFrame) return;
+  viewportFrame = requestAnimationFrame(() => { viewportFrame = 0; paintViewport(); });
+}
+scrollEl.addEventListener('scroll', scheduleViewport, { passive: true });
+window.addEventListener('resize', () => { rowHeights = []; offsetsForRows(); scheduleViewport(); });
+function draw(rs: ChatRows) {
+  const scope = JSON.stringify([currentCompanionKey, currentSession, currentGeneration, currentWebviewId]);
+  if (scope !== transcriptScope) {
+    transcriptScope = scope;
+    rowHeights = [];
+    paintedChatRows.clear();
+  }
+  transcriptRows = rs;
+  rowHeights.length = rs.length;
+  offsetsForRows();
+  paintViewport(followingTail);
+}
+function paintViewport(tail = followingTail) {
+  const rs = transcriptRows;
+  const origin = rowsEl.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop;
+  const position = Math.max(0, scrollEl.scrollTop - origin);
+  const anchor = rowAtOffset(position);
+  const anchorInside = scrollEl.scrollTop - origin - rowOffsets[anchor];
+  const first = rs.length <= 200 ? 0 : Math.max(0, (tail ? rs.length - 100 : anchor - 30));
+  const end = Math.min(rs.length, first + 200);
   const boundSession = currentSession;
   const activeEl = document.activeElement as HTMLElement | null;
   const focusedCallId = (activeEl && activeEl.classList && activeEl.classList.contains('args-toggle-btn')) ? activeEl.dataset.callId : null;
   const nextPainted = new Map<string, PaintedChatRow>();
   const nextNodes: HTMLDivElement[] = [];
   const scope = JSON.stringify([currentCompanionKey, boundSession, currentGeneration, currentWebviewId]);
-  for (const [index, r] of rs.entries()) {
+  for (let index = first; index < end; index++) {
+    const r = rs[index];
     const key = scope + ':' + index;
     const signature = JSON.stringify(r);
     const draftSignature = JSON.stringify({ ...r, text: '' });
@@ -663,15 +710,33 @@ function draw(rs: Parameters<ReceiveOptions['drawRows']>[0]) {
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);
   }
+  aboveRows.style.height = rowOffsets[first] + 'px';
+  belowRows.style.height = (rowOffsets[rs.length] - rowOffsets[end]) + 'px';
+  if (rs.length > 200) {
+    if (aboveRows.parentNode !== rowsEl) rowsEl.prepend(aboveRows);
+    if (belowRows.parentNode !== rowsEl) rowsEl.append(belowRows);
+  } else { aboveRows.remove(); belowRows.remove(); }
   nextNodes.forEach((node, index) => {
-    const current = rowsEl.children[index];
+    const current = rowsEl.children[index + (rs.length > 200 ? 1 : 0)];
     if (current !== node) rowsEl.insertBefore(node, current ?? null);
   });
   const retained = new Set(nextNodes);
   for (const node of Array.from(rowsEl.children)) {
-    if (!retained.has(node as HTMLDivElement)) node.remove();
+    if (node !== aboveRows && node !== belowRows && !retained.has(node as HTMLDivElement)) node.remove();
   }
   paintedChatRows = nextPainted;
+  let measured = false;
+  nextNodes.forEach((node, at) => {
+    const height = node.getBoundingClientRect().height + parseFloat(getComputedStyle(node).marginBottom || '0');
+    if (height > 0 && rowHeights[first + at] !== height) { rowHeights[first + at] = height; measured = true; }
+  });
+  if (measured) {
+    offsetsForRows();
+    aboveRows.style.height = rowOffsets[first] + 'px';
+    belowRows.style.height = (rowOffsets[rs.length] - rowOffsets[end]) + 'px';
+    if (!tail && rs.length > 200) scrollEl.scrollTop = origin + rowOffsets[anchor] + anchorInside;
+  }
+  if (tail) scrollEl.scrollTop = scrollEl.scrollHeight;
   if (focusedCallId) {
     const btns = rowsEl.querySelectorAll<HTMLElement>('.args-toggle-btn');
     for (let i = 0; i < btns.length; i++) {

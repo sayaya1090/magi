@@ -1163,7 +1163,28 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("맨 끝 행이 서 있다 — 창은 전사의 끝을 보여 준다") {
                 page.locator("#log .row").last().textContent() shouldContain "row 400"
             }
+            Then("과거로 이동해도 DOM 행 수는 제한된다") {
+                page.evaluate("""(() => {
+                    const log = document.querySelector('#log');
+                    for (let i = 0; i < 8; i++) {
+                        const scroll = log.scrollHeight - log.clientHeight > 4 ? log : document.scrollingElement;
+                        scroll.scrollTop = 0;
+                        (scroll === log ? log : window).dispatchEvent(new Event('scroll'));
+                    }
+                })()""")
+                page.waitForCondition { page.locator("#log .row").first().textContent().orEmpty().contains("row 1") }
+                withClue("과거 복원 뒤에도 화면 밖 행은 DOM에 남지 않는다") {
+                    (page.locator("#log .row").count() <= 200) shouldBe true
+                }
+            }
             Then("행 재사용이 창 안에서도 살아 있다") {
+                page.evaluate("""(() => {
+                    const log = document.querySelector('#log');
+                    const scroll = log.scrollHeight - log.clientHeight > 4 ? log : document.scrollingElement;
+                    scroll.scrollTop = scroll.scrollHeight;
+                    (scroll === log ? log : window).dispatchEvent(new Event('scroll'));
+                })()""")
+                page.waitForCondition { page.locator("#log .row").last().textContent().orEmpty().contains("row 400") }
                 // 창을 넣다가 재사용을 깨면 지금은 아무도 안 운다 — 그래서 여기서 잰다.
                 page.evaluate("document.querySelectorAll('#log .row').forEach((n,i)=>{n.dataset.wmark='w'+i})")
                 val grown = (1..401).joinToString(",") { """{"who":"assistant","text":"row $it"}""" }

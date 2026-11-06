@@ -923,8 +923,86 @@ export class View {
     // 이 그만큼 줄어드는데 여기서 붙여 둔 바닥은 그 줄어듦을 못 봐서 그대로 풀린다 — 실물에서
     // 그 화면을 봤다(2026-09-04). 판이 하나 늘 때마다 같은 일이 난다.
     const box = $('#turns');
-    box.replaceChildren();
-    for (const r of rows) box.append(this.rowEl(r));
+    const scope = `${this.boundName ?? ''}/${this.boundSession ?? ''}`;
+    if (!this._transcript || this._transcript.scope !== scope) {
+      this._transcript = { scope, rows: [], heights: [], offsets: [0], painted: new Map() };
+    }
+    const state = this._transcript;
+    state.rows = rows;
+    state.heights.length = rows.length;
+    this.transcriptOffsets();
+    if (this._transcriptScroll !== this.scroller()) {
+      this._transcriptScroll = this.scroller();
+      this._transcriptScroll.addEventListener('scroll', () => this.scheduleTranscript(), { passive: true });
+      window.addEventListener('resize', () => {
+        this._transcript.heights = [];
+        this.transcriptOffsets();
+        this.scheduleTranscript();
+      });
+    }
+    this.paintTranscript(box);
+  }
+
+  transcriptOffsets() {
+    const s = this._transcript;
+    s.offsets = [0];
+    for (let i = 0; i < s.rows.length; i++) s.offsets.push(s.offsets[i] + (s.heights[i] ?? 56));
+  }
+
+  scheduleTranscript() {
+    if (this._transcriptFrame) return;
+    this._transcriptFrame = requestAnimationFrame(() => {
+      this._transcriptFrame = 0;
+      this.paintTranscript($('#turns'));
+    });
+  }
+
+  paintTranscript(box) {
+    if (!box || !this._transcript) return;
+    const s = this._transcript, scroll = this.scroller();
+    const origin = box.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+    const position = Math.max(0, scroll.scrollTop - origin);
+    let low = 0, high = s.rows.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (s.offsets[mid + 1] <= position) low = mid + 1; else high = mid;
+    }
+    const anchor = Math.min(low, Math.max(0, s.rows.length - 1));
+    const inside = scroll.scrollTop - origin - s.offsets[anchor];
+    const tail = this._followingEnd;
+    const first = s.rows.length <= 200 ? 0 : Math.max(0, tail ? s.rows.length - 100 : anchor - 30);
+    const end = Math.min(s.rows.length, first + 200);
+    s.above ??= document.createElement('div');
+    s.below ??= document.createElement('div');
+    for (const spacer of [s.above, s.below]) spacer.setAttribute('aria-hidden', 'true');
+    if (s.rows.length > 200) {
+      if (s.above.parentNode !== box) box.prepend(s.above);
+      if (s.below.parentNode !== box) box.append(s.below);
+    } else { s.above.remove(); s.below.remove(); }
+    const next = new Map(), nodes = [];
+    for (let i = first; i < end; i++) {
+      const signature = JSON.stringify(s.rows[i]);
+      const old = s.painted.get(i);
+      const node = old?.signature === signature ? old.node : this.rowEl(s.rows[i]);
+      next.set(i, { signature, node }); nodes.push(node);
+      const current = box.children[nodes.length - 1 + (s.rows.length > 200 ? 1 : 0)];
+      if (current !== node) box.insertBefore(node, current ?? null);
+    }
+    const retained = new Set(nodes);
+    for (const node of Array.from(box.children)) {
+      if (node !== s.above && node !== s.below && !retained.has(node)) node.remove();
+    }
+    s.painted = next;
+    nodes.forEach((node, at) => {
+      const style = getComputedStyle(node);
+      const height = node.getBoundingClientRect().height + parseFloat(style.marginTop || '0') + parseFloat(style.marginBottom || '0');
+      if (height > 0) s.heights[first + at] = height;
+    });
+    this.transcriptOffsets();
+    s.above.style.height = s.offsets[first] + 'px';
+    s.below.style.height = (s.offsets[s.rows.length] - s.offsets[end]) + 'px';
+    if (tail) this.toEnd();
+    else if (s.rows.length > 200) scroll.scrollTop = origin + s.offsets[anchor] + inside;
   }
 
   /** 스크롤은 **가운데 영역이 갖는다.** 없으면 예전처럼 대화 칸이다. */
