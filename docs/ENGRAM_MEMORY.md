@@ -412,11 +412,11 @@ Incorporated review `4d58fee3`. Personal-state recovery, log retention and merge
 
 ## 11. Memory upgrade design (2026-11-07)
 
-The next steps below come from reading the oh-my-openagent memory implementation (HEAD `38bf4f81c8`), its code and its prompts, and comparing it with the current implementation. As of 2026-11-07 the chunked ranking, the similarity floor (`embed_min_similarity`), best-chunk excerpt injection, the background index and the query time budget of §11.3 are implemented; the rest is design. The other project's features were not run, so their effect is unconfirmed. The similarity floor and `/v1/embeddings` compatibility were measured (§11.6). The floor was set to 0.5 (provisional) rather than the planned 0.65; 150ms, 4 turns and 25 turns are still assumptions.
+The next steps below come from reading the oh-my-openagent memory implementation (HEAD `38bf4f81c8`), its code and its prompts, and comparing it with the current implementation. As of 2026-11-07 the chunked ranking, the similarity floor (`embed_min_similarity`), best-chunk excerpt injection, the background index and the query time budget of §11.3, and the local-server connection of §11.2 (detect and connect only), are implemented; the rest is design. The other project's features were not run, so their effect is unconfirmed. The similarity floor and `/v1/embeddings` compatibility were measured (§11.6). The floor was set to 0.5 (provisional) rather than the planned 0.65; 150ms, 4 turns and 25 turns are still assumptions.
 
 Out of scope: judging whether a recalled memory was useful (their telemetry model judge), people cards, soul files and the save nudge.
 
-**Proposed names**: `embed_url` (config key), `engram_dream` (tool), `/engram-embed` (command) and `context_compacted` (plugin event) in this section do not exist in the source yet (0 matches in `cmd`, `internal` and `plugins` on 2026-11-07). `embed_min_similarity` is now implemented in `internal/config/config.go`. They are names to be created during implementation and may change. The other identifiers cited here, `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model` and `analyze_and_record`, exist in the current source.
+**Proposed names**: `engram_dream` (tool) and `context_compacted` (plugin event) in this section do not exist in the source yet (0 matches in `cmd`, `internal` and `plugins` on 2026-11-07). `embed_min_similarity` is now implemented in `internal/config/config.go`. `[plugins.engram] embed_url` and `embed_model` and `/engram-embed` were implemented in `plugins/engram/init.lua` on 2026-11-08. They are names to be created during implementation and may change. The other identifiers cited here, `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model` and `analyze_and_record`, exist in the current source.
 
 ### 11.1 Storage tiers and classification
 
@@ -467,6 +467,8 @@ Four constraints must be fixed before implementation.
 - The client only calls the OpenAI-compatible `/v1/embeddings`. The Ollama container answers that path, including `data[].index`, and its vector for a sentence had cosine 1.0 with the `/api/embed` vector (§11.6), so the Ollama path needs no client change. TEI's `/v1/embeddings` compatibility has not been checked.
 
 The vector cache key is backend + model + revision. TEI's original weights and Ollama's GGUF conversion of the same bge-m3 can produce different vectors, and for the same reason the similarity threshold is measured per backend.
+
+**Implementation (2026-11-08)**: the plugin does not start containers itself. A person starts the server (for example `ollama pull bge-m3` on a local Ollama), and at `startup` engram only checks for a loopback server that is already running and connects it. If the `/models` list at `[plugins.engram] embed_url` (default `http://127.0.0.1:11434/v1`) has `embed_model` (default `bge-m3`, tags included), engram hands it to the recall client with `magi.set_embed_endpoint` (`plugins/engram/init.lua`). The manifest gains only `net:127.0.0.1`, `net:localhost` and `config:read:embed_model`, so non-loopback addresses cannot be connected. A user who set `embed_model` in `config.toml` keeps that setting and nothing is connected. `/engram-embed status` shows the state and the reason for a failure; `/engram-embed connect` retries after the server is up. On the host side `embed.Client.SetEndpoint` changes the address while running, and the similarity floor is computed from the current model on every recall (`WithMinSimilarityFunc`), so a bge-m3 server connected later still gets the 0.5 floor.
 
 ### 11.3 Chunked recall and injection
 
@@ -525,7 +527,7 @@ Embeddings serve facts (duplicate check), reflection (finding related objects) a
 
 ### 11.6 Open decisions and unverified points
 
-Still to decide: the core tier token budget, the model for facts, reflection and dream (whether to reuse `sidecar_model`), and whether to normalize the existing 79 records (67 managed + 12 legacy) into new-format revisions. Not checked: TEI's `/v1/embeddings` compatibility and a daemon idle-detection path. A 30-minute idle trigger would need a new daemon idle event.
+Decided (2026-11-08): facts, reflection and dream use the user's default model, or a separate model when the user names one. Still to decide: the core tier token budget and whether to normalize the existing 79 records (67 managed + 12 legacy) into new-format revisions. Not checked: TEI's `/v1/embeddings` compatibility and a daemon idle-detection path. A 30-minute idle trigger would need a new daemon idle event.
 
 **Measurements (2026-11-07)**: the `ollama/ollama` container (CPU) on an arm64 Mac with `bge-m3:latest` (F16, 1024 dimensions), over the 47 managed memories in this repository. Each query is the task description at the start of a memory body (at most 80 characters) and the right answer is that memory itself. Because the query comes from the body, right-answer scores may run higher than for real questions.
 

@@ -46,6 +46,10 @@ type Store struct {
 	// minSim is the cosine a document's best chunk must reach to enter the semantic ranking. 0 keeps
 	// the old rule (any positive cosine), which is what a store built without WithMinSimilarity gets.
 	minSim float64
+	// minSimFn, when set, is asked on every retrieval instead of minSim. The embedding model can
+	// change while running (a plugin installs a local server after start-up), and the floor is
+	// model-specific, so a value fixed at start-up would be the wrong model's.
+	minSimFn func() float64
 }
 
 // Managed projections currently stay in the explicit project store. No fallback
@@ -106,6 +110,22 @@ func (s *Store) WithMinSimilarity(v float64) *Store {
 	return s
 }
 
+// WithMinSimilarityFunc makes the floor a function of the moment; out-of-range answers count as 0.
+func (s *Store) WithMinSimilarityFunc(f func() float64) *Store {
+	s.minSimFn = f
+	return s
+}
+
+func (s *Store) floor() float64 {
+	if s.minSimFn != nil {
+		if v := s.minSimFn(); v >= 0 && v < 1 {
+			return v
+		}
+		return 0
+	}
+	return s.minSim
+}
+
 const (
 	memCap   = 5
 	skillCap = 3
@@ -148,11 +168,12 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 	expgit.RankCJK(query, mems, func(m port.Memory) string { return m.Text })
 	expgit.RankCJK(query, skills, func(k port.Skill) string { return k.Name + "\n" + k.Description + "\n" + k.Body })
 
-	outMem := rankWithin(ctx, s.emb, s.minSim, query, mems, memCap, func(m port.Memory) string { return m.Text },
+	minSim := s.floor()
+	outMem := rankWithin(ctx, s.emb, minSim, query, mems, memCap, func(m port.Memory) string { return m.Text },
 		func(m port.Memory, e string) port.Memory { m.Excerpt = e; return m })
 	// The body is embedded too: it is chunked, so a long skill no longer costs one blurred vector,
 	// and the step that answers a question is usually in the body, not the one-line description.
-	outSkill := rankWithin(ctx, s.emb, s.minSim, query, skills, skillCap, func(k port.Skill) string {
+	outSkill := rankWithin(ctx, s.emb, minSim, query, skills, skillCap, func(k port.Skill) string {
 		return k.Name + "\n" + k.Description + "\n" + k.Body
 	}, nil)
 	return outMem, outSkill, nil

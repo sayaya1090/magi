@@ -52,6 +52,12 @@ type LLMHeaderRegistry interface {
 	AddLLMHeaders(fn func() map[string]string)
 }
 
+// EmbedEndpointRegistry is where an embedding endpoint chosen at run time is installed.
+// *embed.Client is one.
+type EmbedEndpointRegistry interface {
+	SetEndpoint(url, model string)
+}
+
 // BaseURLRegistry lets a plugin redirect the LLM backend base URL at runtime
 // (magi.set_base_url) — e.g. to point the agent at a loopback server the plugin runs
 // in-process via magi.serve. An empty string clears the override.
@@ -103,6 +109,7 @@ type Host struct {
 	contextReg    ContextProviderRegistry
 	llmReg        LLMHeaderRegistry
 	baseReg       BaseURLRegistry
+	embedReg      EmbedEndpointRegistry
 	modelReg      ModelRegistry
 	userReg       UserLabelRegistry
 	runtime       RuntimeInfo
@@ -153,10 +160,13 @@ type MeasuredAnalyzer interface {
 // HostConfig configures the plugin host.
 type HostConfig struct {
 	ToolSink   ToolSink
-	MCPMgr     MCPManager                   // optional: enables magi.register_mcp()
-	ContextReg ContextProviderRegistry      // optional: enables magi.register_context_provider()
-	LLMReg     LLMHeaderRegistry            // optional: enables magi.set_llm_headers()
-	BaseReg    BaseURLRegistry              // optional: enables magi.set_base_url()
+	MCPMgr     MCPManager              // optional: enables magi.register_mcp()
+	ContextReg ContextProviderRegistry // optional: enables magi.register_context_provider()
+	LLMReg     LLMHeaderRegistry       // optional: enables magi.set_llm_headers()
+	BaseReg    BaseURLRegistry         // optional: enables magi.set_base_url()
+	// EmbedReg, when set, enables magi.set_embed_endpoint: a plugin that starts a local embedding
+	// server hands its address to the client recall already uses.
+	EmbedReg   EmbedEndpointRegistry
 	ModelReg   ModelRegistry                // optional: enables magi.set_model()
 	UserReg    UserLabelRegistry            // optional: enables magi.set_user_label()
 	Analyzer   Analyzer                     // optional: enables magi.analyze (sidecar LLM analysis)
@@ -185,6 +195,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		contextReg:    cfg.ContextReg,
 		llmReg:        cfg.LLMReg,
 		baseReg:       cfg.BaseReg,
+		embedReg:      cfg.EmbedReg,
 		modelReg:      cfg.ModelReg,
 		userReg:       cfg.UserReg,
 		runtime:       cfg.Runtime,

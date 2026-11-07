@@ -660,3 +660,29 @@ func (p *plugin) neutralDir() (string, error) {
 	}
 	return dir, nil
 }
+
+// magi.set_embed_endpoint(url, model?) -> true | (nil, err)
+//
+// Points recall's embedding client at url (an OpenAI-compatible base, e.g. http://127.0.0.1:11434/v1)
+// with model, or clears the override when url is "". Same gate as set_base_url: http/https only and
+// a net:<host> permission, because the text of every memory is sent to that address.
+func (p *plugin) bridgeSetEmbedEndpoint(L *lua.LState) int {
+	if p.host == nil || p.host.embedReg == nil {
+		return fail(L, "set_embed_endpoint: embedding client not available")
+	}
+	raw := L.CheckString(1)
+	model := L.OptString(2, "")
+	if raw != "" {
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return fail(L, "set_embed_endpoint: only http/https URLs are allowed")
+		}
+		if !p.perms.allowNet(u.Hostname()) {
+			return fail(L, "permission denied: net:"+u.Hostname())
+		}
+	}
+	p.host.embedReg.SetEndpoint(raw, model)
+	p.logf("[" + p.name + "] set embedding endpoint: " + raw + " " + model)
+	L.Push(lua.LTrue)
+	return 1
+}

@@ -62,6 +62,47 @@ type Client struct {
 
 	warmMu  sync.Mutex
 	warming bool
+
+	// endpointMu guards an endpoint set while running (SetEndpoint), which wins over BaseURL/Model.
+	endpointMu sync.RWMutex
+	ovURL      string
+	ovModel    string
+}
+
+// SetEndpoint points the client at another embedding server while it runs. A plugin that starts a
+// local server does so after this client was built from config, so the address has to arrive late.
+// An empty url clears the override and the configured BaseURL/Model apply again; an empty model
+// keeps the configured one. Cached vectors are keyed by model, so a new model never reads an old one.
+func (c *Client) SetEndpoint(url, model string) {
+	c.endpointMu.Lock()
+	defer c.endpointMu.Unlock()
+	c.ovURL, c.ovModel = strings.TrimSpace(url), ""
+	if c.ovURL != "" {
+		c.ovModel = strings.TrimSpace(model)
+	}
+}
+
+// CurrentModel is the model in effect, including one installed by SetEndpoint.
+func (c *Client) CurrentModel() string {
+	if c == nil {
+		return ""
+	}
+	_, m := c.endpoint()
+	return m
+}
+
+// endpoint is the base URL and model in effect: the override if one is set, else the configured ones.
+func (c *Client) endpoint() (string, string) {
+	c.endpointMu.RLock()
+	defer c.endpointMu.RUnlock()
+	url, model := c.BaseURL, c.Model
+	if c.ovURL != "" {
+		url = c.ovURL
+		if c.ovModel != "" {
+			model = c.ovModel
+		}
+	}
+	return url, model
 }
 
 // warmTimeout bounds one background warm. A cold store on a CPU server embeds at about 0.9s per
@@ -128,7 +169,11 @@ func (c *Client) Warm(texts []string) {
 // Available reports whether this client has enough to try. Callers check it rather than discovering
 // the answer through a failed request per query.
 func (c *Client) Available() bool {
-	return c != nil && strings.TrimSpace(c.BaseURL) != "" && strings.TrimSpace(c.Model) != ""
+	if c == nil {
+		return false
+	}
+	url, model := c.endpoint()
+	return strings.TrimSpace(url) != "" && strings.TrimSpace(model) != ""
 }
 
 // warn reports at most once per distinct message. A cache directory that cannot be written to
@@ -150,7 +195,8 @@ func (c *Client) warn(msg string) {
 }
 
 func (c *Client) key(text string) string {
-	sum := sha256.Sum256([]byte(c.Model + "\x00" + text))
+	_, model := c.endpoint()
+	sum := sha256.Sum256([]byte(model + "\x00" + text))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -245,11 +291,12 @@ func (c *Client) embedOnce(ctx context.Context, texts []string) ([][]float32, er
 	if len(missing) == 0 {
 		return out, nil
 	}
-	body, err := json.Marshal(map[string]any{"model": c.Model, "input": missing})
+	baseURL, model := c.endpoint()
+	body, err := json.Marshal(map[string]any{"model": model, "input": missing})
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(c.BaseURL, "/") + "/embeddings"
+	url := strings.TrimRight(baseURL, "/") + "/embeddings"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

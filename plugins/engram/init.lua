@@ -1133,6 +1133,89 @@ magi.register_command{
   end,
 }
 
+-- 로컬 임베딩 서버 연결. 서버를 띄우는 일은 사람이 하고(안내만 한다), 플러그인은 이미 떠 있는
+-- 루프백 서버를 확인해 회상용 임베딩 클라이언트에 연결한다(magi.set_embed_endpoint).
+-- config.toml 에 embed_model 을 직접 둔 사용자는 그 설정을 존중해 손대지 않는다.
+local EMBED_DEFAULT_URL = "http://127.0.0.1:11434/v1"
+local EMBED_DEFAULT_MODEL = "bge-m3"
+local embed_state = { why = "아직 확인하지 않았습니다" }
+
+local function embed_setting(key)
+  local v = magi.store_get(key)
+  if v == nil then return nil end
+  v = tostring(v)
+  if v == "" then return nil end
+  return v
+end
+
+-- 사용자가 config.toml 에 embed_model 을 직접 정했는가. 읽을 수 없으면(설정 경로 없음 등) 아니라고 본다.
+local function user_embed_configured()
+  local ok, v = pcall(magi.get_config_key, "embed_model", "")
+  return ok and v ~= nil and tostring(v) ~= ""
+end
+
+-- base 의 /models 에서 want 모델(태그 포함, 예: bge-m3:latest)을 찾아 그 id 를 돌려준다.
+local function embed_probe(base, want)
+  local r, err = magi.http{ url = (base:gsub("/+$", "")) .. "/models" }
+  if not r then return nil, tostring(err) end
+  if r.status ~= 200 then return nil, "HTTP " .. tostring(r.status) end
+  local doc = magi.json_decode(r.body or "")
+  if type(doc) ~= "table" or type(doc.data) ~= "table" then return nil, "모델 목록 형식이 아닙니다" end
+  for _, m in ipairs(doc.data) do
+    local id = type(m) == "table" and tostring(m.id or "") or ""
+    if id == want or id:sub(1, #want + 1) == want .. ":" then return id end
+  end
+  return nil, want .. " 모델이 없습니다"
+end
+
+local function embed_connect()
+  if user_embed_configured() then
+    embed_state = { why = "config.toml 의 embed_model 설정을 사용합니다(플러그인은 연결하지 않음)" }
+    return false
+  end
+  local url = embed_setting("embed_url") or EMBED_DEFAULT_URL
+  local want = embed_setting("embed_model") or EMBED_DEFAULT_MODEL
+  local id, why = embed_probe(url, want)
+  if not id then
+    embed_state = { url = url, why = why }
+    return false
+  end
+  local ok, err = magi.set_embed_endpoint(url, id)
+  if not ok then
+    embed_state = { url = url, why = tostring(err) }
+    return false
+  end
+  embed_state = { url = url, model = id }
+  return true
+end
+
+local function embed_status()
+  if embed_state.model then
+    return "engram: 임베딩 서버 연결됨 — " .. embed_state.url .. " (" .. embed_state.model .. ")"
+  end
+  return "engram: 임베딩 서버 미연결 — " .. (embed_state.url and (embed_state.url .. ": ") or "") .. tostring(embed_state.why) ..
+    "\n의미 검색을 쓰려면 루프백 주소에 OpenAI 호환 임베딩 서버를 띄우고 bge-m3 를 받은 뒤 `/engram-embed connect` 를 실행하세요." ..
+    "\n예: 로컬 Ollama 는 `ollama pull bge-m3`. 다른 주소·모델은 [plugins.engram] embed_url / embed_model 로 지정합니다(루프백만 허용)."
+end
+
+magi.on("startup", function()
+  embed_connect()
+end)
+
+magi.register_command{
+  name = "engram-embed",
+  description = "로컬 임베딩 서버 연결 상태 확인/재연결 (/engram-embed [status|connect])",
+  execute = function(args)
+    if type(args) == "table" then args = table.concat(args, " ") end
+    local sub = ((tostring(args or "")):match("^%s*(%S*)") or ""):lower()
+    if sub == "connect" then embed_connect() end
+    if sub ~= "" and sub ~= "status" and sub ~= "connect" then
+      return "engram: 사용법 /engram-embed [status|connect]"
+    end
+    return embed_status()
+  end,
+}
+
 -- /engram-prune-days [N] — show or set the unused-skill archive cutoff (days). Human-
 -- edited skills are never archived regardless of the cutoff.
 magi.register_command{

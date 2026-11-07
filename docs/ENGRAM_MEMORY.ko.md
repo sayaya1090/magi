@@ -412,11 +412,11 @@ v1 peer에는 v2가 관리하는 객체를 내보내지 않습니다. tombstone�
 
 ## 11. 고도화 설계 (2026-11-07)
 
-oh-my-openagent 메모리 구현(HEAD `38bf4f81c8`)을 코드와 지시문으로 읽고 현재 구현과 대조해 정한 다음 단계입니다. 2026-11-07 현재 구현된 것은 §11.3의 청크 순위, 유사도 하한(`embed_min_similarity`), 최고 청크 발췌 주입, 백그라운드 색인과 질의 시간 예산이고 나머지는 설계입니다. 상대 기능은 실행하지 않았으므로 상대 설계의 효과는 확인되지 않았습니다. 유사도 하한과 `/v1/embeddings` 호환은 §11.6에서 쟀습니다. 하한은 계획한 0.65가 아니라 0.5로 정했고(잠정), 150ms·4턴·25턴은 아직 가정입니다.
+oh-my-openagent 메모리 구현(HEAD `38bf4f81c8`)을 코드와 지시문으로 읽고 현재 구현과 대조해 정한 다음 단계입니다. 2026-11-07 현재 구현된 것은 §11.3의 청크 순위, 유사도 하한(`embed_min_similarity`), 최고 청크 발췌 주입, 백그라운드 색인과 질의 시간 예산, §11.2의 로컬 서버 연결(감지·연결만)이고 나머지는 설계입니다. 상대 기능은 실행하지 않았으므로 상대 설계의 효과는 확인되지 않았습니다. 유사도 하한과 `/v1/embeddings` 호환은 §11.6에서 쟀습니다. 하한은 계획한 0.65가 아니라 0.5로 정했고(잠정), 150ms·4턴·25턴은 아직 가정입니다.
 
 범위에서 뺀 것: 회상된 기억의 유용성 판정(상대의 telemetry model judge), people 카드, soul 파일, 저장 독려(nudge).
 
-**제안 이름**: 이 절의 `embed_url`(설정 키), `engram_dream`(도구), `/engram-embed`(명령), `context_compacted`(플러그인 이벤트)는 아직 소스에 없습니다(2026-11-07 `cmd`·`internal`·`plugins` 검색 0건). `embed_min_similarity`는 이번에 구현되어 `internal/config/config.go`에 있습니다. 구현할 때 새로 만들 이름이며 바뀔 수 있습니다. 그 밖에 인용한 `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model`, `analyze_and_record`는 현재 소스에 있습니다.
+**제안 이름**: 이 절의 `engram_dream`(도구), `context_compacted`(플러그인 이벤트)는 아직 소스에 없습니다(2026-11-07 `cmd`·`internal`·`plugins` 검색 0건). `embed_min_similarity`는 이번에 구현되어 `internal/config/config.go`에 있습니다. `[plugins.engram] embed_url`·`embed_model`과 `/engram-embed`는 2026-11-08에 `plugins/engram/init.lua`에 구현됐습니다. 구현할 때 새로 만들 이름이며 바뀔 수 있습니다. 그 밖에 인용한 `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model`, `analyze_and_record`는 현재 소스에 있습니다.
 
 ### 11.1 저장 층과 분류
 
@@ -467,6 +467,8 @@ engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합
 - 클라이언트는 OpenAI 호환 `/v1/embeddings`만 호출합니다. 컨테이너 Ollama는 이 경로에 `data[].index`까지 포함해 답하고, 같은 문장의 `/api/embed` 벡터와 코사인 1.0이었습니다(§11.6). 그래서 Ollama 경로는 클라이언트 변경이 필요 없습니다. TEI의 `/v1/embeddings` 호환은 확인하지 않았습니다.
 
 벡터 캐시 키는 백엔드 + 모델 + revision입니다. 같은 bge-m3라도 TEI의 원본 가중치와 Ollama의 GGUF 변환본은 벡터가 다를 수 있기 때문입니다. 같은 이유로 유사도 임계값도 백엔드마다 따로 잽니다.
+
+**구현(2026-11-08)**: 컨테이너를 플러그인이 직접 띄우는 부분은 넣지 않았습니다. 서버는 사람이 띄우고(예: 로컬 Ollama에서 `ollama pull bge-m3`), engram은 `startup` 때 이미 떠 있는 루프백 서버를 확인해 연결만 합니다. `[plugins.engram] embed_url`(기본 `http://127.0.0.1:11434/v1`)의 `/models`에 `embed_model`(기본 `bge-m3`, 태그 포함)이 있으면 `magi.set_embed_endpoint`로 회상용 클라이언트에 연결합니다(`plugins/engram/init.lua`). 매니페스트에는 `net:127.0.0.1`, `net:localhost`, `config:read:embed_model`만 추가했으므로 루프백이 아닌 주소는 연결할 수 없습니다. `config.toml`에 `embed_model`을 직접 둔 사용자는 그 설정을 존중해 연결하지 않습니다. 상태와 실패 원인은 `/engram-embed status`로 보고, 서버를 띄운 뒤 `/engram-embed connect`로 다시 연결합니다. 호스트 쪽은 `embed.Client.SetEndpoint`로 실행 중 주소를 바꾸고, 유사도 하한은 회상할 때마다 현재 모델 기준으로 정합니다(`WithMinSimilarityFunc`). 그래서 플러그인이 나중에 bge-m3를 연결해도 하한 0.5가 적용됩니다.
 
 ### 11.3 청크 회상과 주입
 
@@ -525,7 +527,7 @@ engram 매니페스트에는 지금 `spawn` 능력이 없습니다. 저장소에
 
 ### 11.6 남은 결정과 미확인
 
-정해야 할 것은 상주 층 토큰 예산, facts·reflection·dream에 쓸 모델(`sidecar_model` 재사용 여부), 기존 기록 79건(managed 67 + 구형 12)을 새 포맷 revision으로 정규화할지입니다. 확인하지 않은 것은 TEI의 `/v1/embeddings` 호환과 데몬 유휴 감지 경로입니다. 30분 유휴 트리거를 쓰려면 데몬 유휴 이벤트가 새로 필요합니다.
+facts·reflection·dream에 쓸 모델은 정했습니다(2026-11-08). 기본은 사용자가 지정한 기본 모델이고, 사용자가 별도 모델을 지정하면 그것을 씁니다. 정해야 할 것은 상주 층 토큰 예산, 기존 기록 79건(managed 67 + 구형 12)을 새 포맷 revision으로 정규화할지입니다. 확인하지 않은 것은 TEI의 `/v1/embeddings` 호환과 데몬 유휴 감지 경로입니다. 30분 유휴 트리거를 쓰려면 데몬 유휴 이벤트가 새로 필요합니다.
 
 **측정(2026-11-07)**: arm64 맥의 `ollama/ollama` 컨테이너(CPU)와 `bge-m3:latest`(F16, 1024차원)로 이 저장소의 managed 메모리 47건을 쟀습니다. 질의는 각 메모리 본문 앞의 작업 설명(최대 80자)이고 정답은 그 메모리 자신입니다. 질의가 본문에서 나왔으므로 정답 점수는 실제 질문보다 높게 나올 수 있습니다.
 

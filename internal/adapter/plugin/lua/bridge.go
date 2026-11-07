@@ -75,6 +75,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "http", L.NewFunction(p.bridgeHTTP))
 	L.SetField(t, "serve", L.NewFunction(p.bridgeServe))
 	L.SetField(t, "set_base_url", L.NewFunction(p.bridgeSetBaseURL))
+	L.SetField(t, "set_embed_endpoint", L.NewFunction(p.bridgeSetEmbedEndpoint))
 	// Plugin custom settings: read [plugins.<name>], persist own values.
 	L.SetField(t, "store_get", L.NewFunction(p.bridgeStoreGet))
 	L.SetField(t, "store_set", L.NewFunction(p.bridgeStoreSet))

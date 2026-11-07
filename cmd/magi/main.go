@@ -829,9 +829,14 @@ func runWithContext(runCtx context.Context) int {
 	// The memory store gets the same embedder the search does. Retrieval is lexical without one —
 	// which is the default and stays correct — but a store that could only ever find a memory by
 	// the words it happens to contain is deaf to the question asked in anybody else's vocabulary.
+	// One client for recall and for the plugin that may start a local embedding server, so the
+	// address the plugin installs is the one recall uses.
+	expEmbedder := newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) })
 	experienceStore := explayered.New(expProjectDir, expTeamDir, expDir).
-		WithEmbedder(newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) })).
-		WithMinSimilarity(embedMinSimilarity(cfg, env("MAGI_EMBED_MODEL", cfg.EmbedModel), os.Getenv("MAGI_EMBED_MIN_SIMILARITY")))
+		WithEmbedder(expEmbedder).
+		WithMinSimilarityFunc(func() float64 {
+			return embedMinSimilarity(cfg, expEmbedder.CurrentModel(), os.Getenv("MAGI_EMBED_MIN_SIMILARITY"))
+		})
 
 	// Seeing the other magi on this machine. Registered here rather than in builtin because the
 	// daemon package imports app and app imports builtin, so a built-in that reads daemon records
@@ -1058,7 +1063,7 @@ func runWithContext(runCtx context.Context) int {
 	var sid session.SessionID
 	host := startPluginHost(hostParams{
 		reg: reg, mcpMgr: mcpMgr, app: a, llm: llm, cfg: cfg, plat: plat, wd: wd,
-		pluginsDir: *pluginsDir, modelID: modelID, experience: experienceStore, obs: obs,
+		pluginsDir: *pluginsDir, modelID: modelID, experience: experienceStore, embedder: expEmbedder, obs: obs,
 	}, &sid)
 	defer host.FireEvent("shutdown")
 	// Drain queued observation events before shutdown fires: a headless one-shot
@@ -1240,6 +1245,7 @@ type hostParams struct {
 	pluginsDir string
 	modelID    string
 	experience *explayered.Store
+	embedder   *embed.Client
 	obs        *pluginObserver
 }
 
@@ -1266,6 +1272,7 @@ func startPluginHost(p hostParams, sid *session.SessionID) *pluginlua.Host {
 		ContextReg: p.app,
 		LLMReg:     p.llm,
 		BaseReg:    p.llm,
+		EmbedReg:   p.embedder,
 		ModelReg: modelSetter{
 			setModel: func(m string) { p.app.SetModel(*sid, m) },
 			setWindow: func(model string, tokens int) error {
