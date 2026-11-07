@@ -126,11 +126,47 @@ func (c *Client) writeCached(text string, v []float32) {
 	}
 }
 
+// embedBatch is how many uncached texts go in one request.
+//
+// Everything used to go in one request. On a CPU embedding server that is measured, not guessed: a
+// bge-m3 container on an arm64 Mac took about 0.9s per memory, so 47 memories needed about 41s and
+// the 20s client timeout cut the request every time. Nothing was cached, the next search started
+// from zero, and semantic recall never happened at all while the failure stayed silent. Eight texts
+// fit the timeout with room to spare, and each finished batch is cached before the next starts, so a
+// cold store fills across searches instead of never.
+const embedBatch = 8
+
 // Embed returns one vector per input, in order, reading from the cache where it can.
 //
-// Everything not cached goes in ONE request. A note store is a few dozen entries and one round trip
-// is the difference between a search that answers and a search somebody stops waiting for.
+// What is not cached goes out in batches of embedBatch. A batch that fails returns the error, but
+// the batches before it are already cached, so the next call only pays for what is left.
 func (c *Client) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	var missing []string
+	var where []int
+	for i, t := range texts {
+		if v := c.readCached(t); v != nil {
+			out[i] = v
+			continue
+		}
+		missing = append(missing, t)
+		where = append(where, i)
+	}
+	for start := 0; start < len(missing); start += embedBatch {
+		end := min(len(missing), start+embedBatch)
+		vecs, err := c.embedOnce(ctx, missing[start:end])
+		if err != nil {
+			return nil, err
+		}
+		for j, v := range vecs {
+			out[where[start+j]] = v
+		}
+	}
+	return out, nil
+}
+
+// embedOnce embeds texts in one request (after the cache), caching what comes back.
+func (c *Client) embedOnce(ctx context.Context, texts []string) ([][]float32, error) {
 	out := make([][]float32, len(texts))
 	var missing []string
 	var where []int

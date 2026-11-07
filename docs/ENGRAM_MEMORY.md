@@ -412,11 +412,11 @@ Incorporated review `4d58fee3`. Personal-state recovery, log retention and merge
 
 ## 11. Memory upgrade design (2026-11-07)
 
-The next steps below come from reading the oh-my-openagent memory implementation (HEAD `38bf4f81c8`), its code and its prompts, and comparing it with the current implementation. **None of it is implemented yet.** The other project's features were not run, so their effect is unconfirmed. The numbers in this section (0.65, 150ms, 4 turns, 25 turns) are assumptions until stage 0 of §11.5 measures them.
+The next steps below come from reading the oh-my-openagent memory implementation (HEAD `38bf4f81c8`), its code and its prompts, and comparing it with the current implementation. As of 2026-11-07 only the chunked ranking and the similarity floor (`embed_min_similarity`) of §11.3 are implemented; the rest is design. The other project's features were not run, so their effect is unconfirmed. The similarity floor and `/v1/embeddings` compatibility were measured (§11.6). The floor was set to 0.5 (provisional) rather than the planned 0.65; 150ms, 4 turns and 25 turns are still assumptions.
 
 Out of scope: judging whether a recalled memory was useful (their telemetry model judge), people cards, soul files and the save nudge.
 
-**Proposed names**: `embed_url`, `embed_min_similarity` (config keys), `engram_dream` (tool), `/engram-embed` (command) and `context_compacted` (plugin event) in this section do not exist in the source yet (0 matches in `cmd`, `internal` and `plugins` on 2026-11-07). They are names to be created during implementation and may change. The other identifiers cited here, `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model` and `analyze_and_record`, exist in the current source.
+**Proposed names**: `embed_url` (config key), `engram_dream` (tool), `/engram-embed` (command) and `context_compacted` (plugin event) in this section do not exist in the source yet (0 matches in `cmd`, `internal` and `plugins` on 2026-11-07). `embed_min_similarity` is now implemented in `internal/config/config.go`. They are names to be created during implementation and may change. The other identifiers cited here, `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model` and `analyze_and_record`, exist in the current source.
 
 ### 11.1 Storage tiers and classification
 
@@ -464,7 +464,7 @@ Four constraints must be fixed before implementation.
 - The engram manifest has only `permissions = ["fs:read", "fs:write"]` (`plugins/engram/plugin.toml`). It needs permission to run docker or podman and to make local HTTP calls.
 - `magi.exec` stops a command at 60 seconds. bge-m3 is 1.2GB on Ollama, so the container starts with `run -d`, the model download is requested asynchronously and only its status is polled.
 - The Go embedding client is built once at start-up (`newEmbedder` in `cmd/magi/main.go`). The plugin `startup` hook runs after that, so a bridge is needed to hand the plugin's address to the client.
-- The client only calls the OpenAI-compatible `/v1/embeddings`. TEI defaults to `/embed` and Ollama to `/api/embed`. Whether either server also answers `/v1/embeddings` has not been checked.
+- The client only calls the OpenAI-compatible `/v1/embeddings`. The Ollama container answers that path, including `data[].index`, and its vector for a sentence had cosine 1.0 with the `/api/embed` vector (§11.6), so the Ollama path needs no client change. TEI's `/v1/embeddings` compatibility has not been checked.
 
 The vector cache key is backend + model + revision. TEI's original weights and Ollama's GGUF conversion of the same bge-m3 can produce different vectors, and for the same reason the similarity threshold is measured per backend.
 
@@ -476,7 +476,7 @@ The changes:
 
 - **Chunks**: memory bodies, skill descriptions and bodies, and wiki bodies are cut into 1,200-character chunks. A paragraph break more than 400 characters past the start becomes the cut, and neighbouring chunks overlap by 160 characters (the values in the other project's `memory-core/src/recall/chunks.ts`). Each chunk carries the `description` as a header.
 - **Index**: vectors are built in the background after a write and after start-up. A turn embeds only the query, under a time budget (about 150ms); past it, or while the index is incomplete, the lexical ranking alone is used.
-- **Ranking**: a document scores as its best chunk's cosine. Below 0.65 is dropped, adjustable with `embed_min_similarity`. The existing RRF fusion with the lexical ranking (k=60, `Fuse` in `internal/core/embed/embed.go`) stays, so an exact token such as a file name or error code cannot lose to something that only looks related.
+- **Ranking**: a document scores as its best chunk's cosine. Below the floor is dropped, adjustable with `embed_min_similarity`. The default floor for bge-m3 is 0.5 (§11.6). The existing RRF fusion with the lexical ranking (k=60, `Fuse` in `internal/core/embed/embed.go`) stays, so an exact token such as a file name or error code cannot lose to something that only looks related.
 - **Injection**: `description` + the best chunk's excerpt (at most 600 characters) + the object ID. The full text is read with `recall_memory`. The per-turn budget of 5 memories, 3 skills and 3,000 tokens (§5) stays.
 - **Session ledger**: an `object_id@revision` already injected is not injected again in the same session. A compaction clears the ledger.
 - **No more ledger table**: engram currently injects its whole lesson table into the context, including rows unrelated to the task and imperative sentences. The excerpt injection above replaces it.
@@ -525,4 +525,23 @@ Embeddings serve facts (duplicate check), reflection (finding related objects) a
 
 ### 11.6 Open decisions and unverified points
 
-Still to decide: the core tier token budget, the model for facts, reflection and dream (whether to reuse `sidecar_model`), and whether to normalize the existing 79 records (67 managed + 12 legacy) into new-format revisions. Not checked: `/v1/embeddings` compatibility of either server, CPU latency of bge-m3 inside a container, and a daemon idle-detection path. A 30-minute idle trigger would need a new daemon idle event.
+Still to decide: the core tier token budget, the model for facts, reflection and dream (whether to reuse `sidecar_model`), and whether to normalize the existing 79 records (67 managed + 12 legacy) into new-format revisions. Not checked: TEI's `/v1/embeddings` compatibility and a daemon idle-detection path. A 30-minute idle trigger would need a new daemon idle event.
+
+**Measurements (2026-11-07)**: the `ollama/ollama` container (CPU) on an arm64 Mac with `bge-m3:latest` (F16, 1024 dimensions), over the 47 managed memories in this repository. Each query is the task description at the start of a memory body (at most 80 characters) and the right answer is that memory itself. Because the query comes from the body, right-answer scores may run higher than for real questions.
+
+| Item | Value |
+|---|---|
+| Query embedding latency | p50 117ms, p90 381ms, max 683ms |
+| Document embedding (8 per request) | 47 in 41s, about 878ms each |
+| Right-answer cosine | p10 0.683, median 0.757, min 0.633 |
+| Highest wrong answer per query | median 0.673, max 0.749 |
+| Own memory ranked first | 43 of 47 |
+| Floor 0.50 / 0.60 / 0.65 / 0.70 | right answers kept 47 / 47 / 46 / 41, wrong pairs passing 29.6% / 9.1% / 4.3% / 0.9% |
+
+Those queries are copied from the bodies, so five questions with known answers were reworded and measured again. Their right-answer cosines were 0.505, 0.569, 0.569, 0.575 and 0.612; the best wrong answer for the same queries was 0.518 to 0.551, and the right memory ranked first in 4 of 5. A 0.65 floor would have dropped all five from semantic recall. Through the real `Retrieve` path, a 0.65 floor gave exactly the lexical result, while a floor of 0 brought up a relevant memory that lexical search missed.
+
+So the default of `embed_min_similarity` is 0.5: unset, it is 0.5 when the model name starts with `bge-m3` and 0 (the previous behaviour) for any other model, whose score distribution was not measured. Five questions are a small sample, so 0.5 is provisional. Precedence is `MAGI_EMBED_MIN_SIMILARITY`, then `embed_min_similarity`, then the per-model default.
+
+The measurements also found a bug. The client sent every uncached text in one request under a 20s HTTP timeout, and the 47 memories took about 41s. The request was cut every time, nothing was cached, and the ranking function swallowed the error, so semantic recall silently never ran. It now sends 8 texts per request and caches each batch as it finishes (`embedBatch` in `internal/core/embed/embed.go`). After the fix, the first recall over the same store took 49s and later ones 28 to 190ms.
+
+The measurements change the design in two more places. With a query p90 of 381ms, a 150ms budget would send many queries to lexical-only recall. And with an empty cache a document takes about 0.9s to embed, so embedding synchronously inside `Retrieve`, as today, can make the first recall take tens of seconds. The background index and the query budget will be set from these values in the next stage.

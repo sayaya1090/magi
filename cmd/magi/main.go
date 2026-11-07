@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -357,6 +358,22 @@ func newEmbedder(cfg config.Config, baseURL, apiKey string, plat port.Platform, 
 		CacheDir: filepath.Join(plat.ConfigDir(), "embeddings"),
 		Warn:     warn,
 	}
+}
+
+// embedMinSimilarity is the semantic recall floor: MAGI_EMBED_MIN_SIMILARITY, then
+// embed_min_similarity, then a default that depends on the model (see config.EmbedMinSimilarity).
+// An unparsable environment value is ignored rather than turning the floor off.
+func embedMinSimilarity(cfg config.Config, model, envValue string) float64 {
+	if v, err := strconv.ParseFloat(strings.TrimSpace(envValue), 64); err == nil {
+		return v
+	}
+	if cfg.EmbedMinSimilarity != nil {
+		return *cfg.EmbedMinSimilarity
+	}
+	if strings.HasPrefix(strings.ToLower(filepath.Base(strings.TrimSpace(model))), "bge-m3") {
+		return 0.5
+	}
+	return 0
 }
 
 // windowOf answers a model's context window for the LLM client, which holds its configured output
@@ -813,7 +830,8 @@ func runWithContext(runCtx context.Context) int {
 	// which is the default and stays correct — but a store that could only ever find a memory by
 	// the words it happens to contain is deaf to the question asked in anybody else's vocabulary.
 	experienceStore := explayered.New(expProjectDir, expTeamDir, expDir).
-		WithEmbedder(newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) }))
+		WithEmbedder(newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) })).
+		WithMinSimilarity(embedMinSimilarity(cfg, env("MAGI_EMBED_MODEL", cfg.EmbedModel), os.Getenv("MAGI_EMBED_MIN_SIMILARITY")))
 
 	// Seeing the other magi on this machine. Registered here rather than in builtin because the
 	// daemon package imports app and app imports builtin, so a built-in that reads daemon records
@@ -1595,6 +1613,9 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	// not zero the global max_output_tokens).
 	if proj.EmbedModel != "" {
 		cfg.EmbedModel = proj.EmbedModel
+	}
+	if proj.EmbedMinSimilarity != nil {
+		cfg.EmbedMinSimilarity = proj.EmbedMinSimilarity
 	}
 	if proj.Limits.MaxOutputTokens != 0 {
 		cfg.Limits.MaxOutputTokens = proj.Limits.MaxOutputTokens

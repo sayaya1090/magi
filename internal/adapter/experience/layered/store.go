@@ -42,6 +42,9 @@ type Store struct {
 	// than one directory.
 	team   *expgit.Store
 	global *expgit.Store
+	// minSim is the cosine a document's best chunk must reach to enter the semantic ranking. 0 keeps
+	// the old rule (any positive cosine), which is what a store built without WithMinSimilarity gets.
+	minSim float64
 }
 
 // Managed projections currently stay in the explicit project store. No fallback
@@ -89,6 +92,19 @@ func (s *Store) WithEmbedder(e Embedder) *Store {
 	return s
 }
 
+// WithMinSimilarity sets the cosine below which a document is left out of the semantic ranking.
+//
+// Without it every document with a positive cosine is ranked, and an embedding model scores almost
+// any two texts above zero, so an unrelated memory still takes a place in the fusion and can fill a
+// slot the lexical half left open. The value is model-specific: a cosine from one embedding model
+// says nothing about another's scale. Out-of-range values are ignored.
+func (s *Store) WithMinSimilarity(v float64) *Store {
+	if v >= 0 && v < 1 {
+		s.minSim = v
+	}
+	return s
+}
+
 const (
 	memCap   = 5
 	skillCap = 3
@@ -131,9 +147,11 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 	expgit.RankCJK(query, mems, func(m port.Memory) string { return m.Text })
 	expgit.RankCJK(query, skills, func(k port.Skill) string { return k.Name + "\n" + k.Description + "\n" + k.Body })
 
-	outMem := rank(ctx, s.emb, query, mems, memCap, func(m port.Memory) string { return m.Text })
-	outSkill := rank(ctx, s.emb, query, skills, skillCap, func(k port.Skill) string {
-		return k.Name + "\n" + k.Description
+	outMem := rankWithin(ctx, s.emb, s.minSim, query, mems, memCap, func(m port.Memory) string { return m.Text })
+	// The body is embedded too: it is chunked, so a long skill no longer costs one blurred vector,
+	// and the step that answers a question is usually in the body, not the one-line description.
+	outSkill := rankWithin(ctx, s.emb, s.minSim, query, skills, skillCap, func(k port.Skill) string {
+		return k.Name + "\n" + k.Description + "\n" + k.Body
 	})
 	return outMem, outSkill, nil
 }
@@ -151,6 +169,16 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 // A document with NO lexical hit is in the semantic list but not the lexical one, which is the
 // whole point: that is the note about invoices, when the question said billing.
 func rank[T any](ctx context.Context, emb Embedder, query string, xs []expgit.Scored[T], n int, textOf func(T) string) []T {
+	return rankWithin(ctx, emb, 0, query, xs, n, textOf)
+}
+
+// rankWithin is rank with a similarity floor and chunked documents.
+//
+// Each document is split into passages (embed.Chunks) and scored by its best passage. A document at
+// or under one chunk embeds exactly as before, so its cached vector is still a hit; a long one is
+// no longer one averaged vector that its matching paragraph cannot lift. minSim drops documents
+// whose best passage is below it; 0 keeps any positive cosine.
+func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query string, xs []expgit.Scored[T], n int, textOf func(T) string) []T {
 	if len(xs) == 0 || n <= 0 {
 		return nil
 	}
@@ -165,23 +193,32 @@ func rank[T any](ctx context.Context, emb Embedder, query string, xs []expgit.Sc
 
 	order := lex
 	if emb != nil && emb.Available() {
-		docs := make([]string, len(xs))
+		var chunks []string
+		var owner []int
 		for i := range xs {
-			docs[i] = textOf(xs[i].V)
+			for _, c := range embed.Chunks(textOf(xs[i].V)) {
+				chunks = append(chunks, c)
+				owner = append(owner, i)
+			}
 		}
-		// Documents and query in one request; documents are cached by the client, so the
-		// steady-state cost is one embedding for the query.
-		if vecs, err := emb.Embed(ctx, append(append([]string{}, docs...), query)); err == nil && len(vecs) == len(docs)+1 {
+		// Chunks and query in one request; chunks are cached by the client, so the steady-state
+		// cost is one embedding for the query.
+		if vecs, err := emb.Embed(ctx, append(append([]string{}, chunks...), query)); err == nil && len(vecs) == len(chunks)+1 {
 			q := vecs[len(vecs)-1]
+			best := make([]float64, len(xs))
+			seen := make([]bool, len(xs))
+			for j, i := range owner {
+				if c := embed.Cosine(vecs[j], q); !seen[i] || c > best[i] {
+					best[i], seen[i] = c, true
+				}
+			}
 			sem := make([]int, 0, len(xs))
 			for i := range xs {
-				if embed.Cosine(vecs[i], q) > 0 {
+				if seen[i] && best[i] > 0 && best[i] >= minSim {
 					sem = append(sem, i)
 				}
 			}
-			sort.SliceStable(sem, func(a, b int) bool {
-				return embed.Cosine(vecs[sem[a]], q) > embed.Cosine(vecs[sem[b]], q)
-			})
+			sort.SliceStable(sem, func(a, b int) bool { return best[sem[a]] > best[sem[b]] })
 			order = embed.Fuse(lex, sem)
 		}
 		// On error: the lexical order stands. A search that quietly became worse is one nobody can

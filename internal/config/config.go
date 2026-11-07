@@ -59,10 +59,16 @@ type Config struct {
 	// Anthropic has none at all and points at Voyage, and vLLM answers only when it is serving an
 	// embedding model. MAGI_EMBED_BASE_URL and MAGI_EMBED_API_KEY point it elsewhere; unset, they
 	// follow the chat backend, which is right for Ollama and for a LiteLLM proxy.
-	EmbedModel string               `toml:"embed_model"`
-	APIKey     string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
-	Permission string               `toml:"permission"`
-	MCP        map[string]MCPServer `toml:"mcp"` // name -> server
+	EmbedModel string `toml:"embed_model"`
+	// EmbedMinSimilarity is the cosine a memory's best passage must reach to be ranked by meaning.
+	// Unset, it follows the model: 0.5 for bge-m3 and 0 for any other model, whose scale was not
+	// measured and could otherwise switch semantic recall off. 0.5 is provisional, from 2026-11-07
+	// measurements on this repository's memories: five reworded questions scored their right memory
+	// at 0.505 to 0.612, so the 0.65 first planned would have dropped every one of them.
+	EmbedMinSimilarity *float64             `toml:"embed_min_similarity"`
+	APIKey             string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
+	Permission         string               `toml:"permission"`
+	MCP                map[string]MCPServer `toml:"mcp"` // name -> server
 	// Cron is the unattended work this workspace does on a schedule, name -> job. Only a daemon
 	// runs them; an interactive session reads them so its editor can show them, and fires nothing.
 	Cron          map[string]CronJob `toml:"cron"`
