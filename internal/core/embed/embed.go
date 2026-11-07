@@ -59,6 +59,70 @@ type Client struct {
 
 	warnedMu sync.Mutex
 	warned   map[string]bool
+
+	warmMu  sync.Mutex
+	warming bool
+}
+
+// warmTimeout bounds one background warm. A cold store on a CPU server embeds at about 0.9s per
+// text (measured 2026-11-07), so this covers roughly a thousand chunks; the rest are picked up by
+// the next warm, because every finished batch is already cached.
+const warmTimeout = 15 * time.Minute
+
+// Peekable reports whether Peek can ever answer: without a cache directory nothing is kept between
+// calls, so a caller must embed synchronously instead.
+func (c *Client) Peekable() bool { return c != nil && c.CacheDir != "" }
+
+// Peek returns the cached vector for each text, and whether every text was cached. It makes no
+// request, so a caller in the middle of a turn can learn what it can rank by meaning right now.
+func (c *Client) Peek(texts []string) ([][]float32, bool) {
+	out := make([][]float32, len(texts))
+	all := true
+	for i, t := range texts {
+		if out[i] = c.readCached(t); out[i] == nil {
+			all = false
+		}
+	}
+	return out, all
+}
+
+// Warm embeds the texts that are not cached yet, in the background, and returns at once.
+//
+// One warm runs at a time per client; a call while one is running is dropped, and the next search
+// that still finds a gap starts another. The warm is detached from any turn: a turn that ends must
+// not cancel the work that makes the next one faster.
+func (c *Client) Warm(texts []string) {
+	if !c.Peekable() || !c.Available() {
+		return
+	}
+	var missing []string
+	for _, t := range texts {
+		if c.readCached(t) == nil {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	c.warmMu.Lock()
+	if c.warming {
+		c.warmMu.Unlock()
+		return
+	}
+	c.warming = true
+	c.warmMu.Unlock()
+	go func() {
+		defer func() {
+			c.warmMu.Lock()
+			c.warming = false
+			c.warmMu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), warmTimeout)
+		defer cancel()
+		if _, err := c.Embed(ctx, missing); err != nil {
+			c.warn("background embedding stopped early; the next search continues it: " + err.Error())
+		}
+	}()
 }
 
 // Available reports whether this client has enough to try. Callers check it rather than discovering

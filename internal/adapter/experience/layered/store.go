@@ -9,6 +9,7 @@ package layered
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -206,9 +207,7 @@ func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query 
 				owner = append(owner, i)
 			}
 		}
-		// Chunks and query in one request; chunks are cached by the client, so the steady-state
-		// cost is one embedding for the query.
-		if vecs, err := emb.Embed(ctx, append(append([]string{}, chunks...), query)); err == nil && len(vecs) == len(chunks)+1 {
+		if vecs, err := embedForRank(ctx, emb, chunks, query); err == nil && len(vecs) == len(chunks)+1 {
 			q := vecs[len(vecs)-1]
 			best := make([]float64, len(xs))
 			seen := make([]bool, len(xs))
@@ -419,4 +418,46 @@ func clipRunes(s string, n int) string {
 		return string(r)
 	}
 	return string(r[:n]) + "…"
+}
+
+// warmer is an embedder that keeps vectors between calls and can fill its cache off the turn.
+// *embed.Client is one; an embedder without a cache is not, and is embedded synchronously.
+type warmer interface {
+	Peekable() bool
+	Peek(texts []string) ([][]float32, bool)
+	Warm(texts []string)
+}
+
+// queryBudget bounds the one embedding a warm search makes inside the turn. Measured on a bge-m3
+// CPU container (2026-11-07): p50 117ms, p90 381ms, max 683ms. Past it the lexical order stands.
+const queryBudget = time.Second
+
+var errNotWarm = errors.New("embedding cache is still being filled")
+
+// embedForRank returns one vector per chunk followed by the query's.
+//
+// With a warmer it never blocks on the documents: if any chunk is missing from the cache it starts
+// a background warm and reports errNotWarm, so this turn ranks lexically instead of waiting. A cold
+// store used to embed every chunk inside the turn, which took 49s for this repository's memories.
+// Without a warmer the old single synchronous call stands.
+func embedForRank(ctx context.Context, emb Embedder, chunks []string, query string) ([][]float32, error) {
+	w, ok := emb.(warmer)
+	if !ok || !w.Peekable() {
+		return emb.Embed(ctx, append(append([]string{}, chunks...), query))
+	}
+	docs, all := w.Peek(chunks)
+	if !all {
+		w.Warm(chunks)
+		return nil, errNotWarm
+	}
+	qctx, cancel := context.WithTimeout(ctx, queryBudget)
+	defer cancel()
+	q, err := emb.Embed(qctx, []string{query})
+	if err != nil {
+		return nil, err
+	}
+	if len(q) != 1 {
+		return nil, fmt.Errorf("asked for 1 query embedding and got %d", len(q))
+	}
+	return append(docs, q[0]), nil
 }
