@@ -319,6 +319,9 @@ func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID
 	}
 	a.noteMemoryArrivals(sid, mems)
 	p := experiencePointer(len(mems), len(skills))
+	if e := experienceExcerpts(mems); e != "" {
+		p += "\n" + e
+	}
 	// The wiki's advertisement rides the same cached line: the index says the pages EXIST (a
 	// companion cannot pull what it never heard of — the transfer failure this store exists for
 	// is "B never thought to ask"), and a query match points at the one page that likely answers

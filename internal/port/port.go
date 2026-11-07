@@ -833,6 +833,10 @@ type Memory struct {
 	ID   string
 	Text string
 	Tags []string
+	// Excerpt is the passage of Text that matched a recall query best, clipped for the prompt. It is
+	// set by retrieval only and never stored: omitempty keeps managed records and their operation
+	// digests byte-identical to before the field existed.
+	Excerpt string `json:",omitempty"`
 }
 
 // Skill is a reusable, named procedure.

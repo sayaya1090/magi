@@ -147,12 +147,13 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 	expgit.RankCJK(query, mems, func(m port.Memory) string { return m.Text })
 	expgit.RankCJK(query, skills, func(k port.Skill) string { return k.Name + "\n" + k.Description + "\n" + k.Body })
 
-	outMem := rankWithin(ctx, s.emb, s.minSim, query, mems, memCap, func(m port.Memory) string { return m.Text })
+	outMem := rankWithin(ctx, s.emb, s.minSim, query, mems, memCap, func(m port.Memory) string { return m.Text },
+		func(m port.Memory, e string) port.Memory { m.Excerpt = e; return m })
 	// The body is embedded too: it is chunked, so a long skill no longer costs one blurred vector,
 	// and the step that answers a question is usually in the body, not the one-line description.
 	outSkill := rankWithin(ctx, s.emb, s.minSim, query, skills, skillCap, func(k port.Skill) string {
 		return k.Name + "\n" + k.Description + "\n" + k.Body
-	})
+	}, nil)
 	return outMem, outSkill, nil
 }
 
@@ -169,7 +170,7 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 // A document with NO lexical hit is in the semantic list but not the lexical one, which is the
 // whole point: that is the note about invoices, when the question said billing.
 func rank[T any](ctx context.Context, emb Embedder, query string, xs []expgit.Scored[T], n int, textOf func(T) string) []T {
-	return rankWithin(ctx, emb, 0, query, xs, n, textOf)
+	return rankWithin(ctx, emb, 0, query, xs, n, textOf, nil)
 }
 
 // rankWithin is rank with a similarity floor and chunked documents.
@@ -178,7 +179,10 @@ func rank[T any](ctx context.Context, emb Embedder, query string, xs []expgit.Sc
 // or under one chunk embeds exactly as before, so its cached vector is still a hit; a long one is
 // no longer one averaged vector that its matching paragraph cannot lift. minSim drops documents
 // whose best passage is below it; 0 keeps any positive cosine.
-func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query string, xs []expgit.Scored[T], n int, textOf func(T) string) []T {
+//
+// withExcerpt, when set, receives each semantically ranked document's best passage clipped to
+// excerptRunes, so the caller can show the part that matched instead of the whole document.
+func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query string, xs []expgit.Scored[T], n int, textOf func(T) string, withExcerpt func(T, string) T) []T {
 	if len(xs) == 0 || n <= 0 {
 		return nil
 	}
@@ -192,6 +196,7 @@ func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query 
 	sort.SliceStable(lex, func(a, b int) bool { return xs[lex[a]].Score > xs[lex[b]].Score })
 
 	order := lex
+	excerpts := make([]string, len(xs))
 	if emb != nil && emb.Available() {
 		var chunks []string
 		var owner []int
@@ -207,9 +212,10 @@ func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query 
 			q := vecs[len(vecs)-1]
 			best := make([]float64, len(xs))
 			seen := make([]bool, len(xs))
+			bestAt := make([]int, len(xs))
 			for j, i := range owner {
 				if c := embed.Cosine(vecs[j], q); !seen[i] || c > best[i] {
-					best[i], seen[i] = c, true
+					best[i], seen[i], bestAt[i] = c, true, j
 				}
 			}
 			sem := make([]int, 0, len(xs))
@@ -219,6 +225,9 @@ func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query 
 				}
 			}
 			sort.SliceStable(sem, func(a, b int) bool { return best[sem[a]] > best[sem[b]] })
+			for _, i := range sem {
+				excerpts[i] = clipRunes(chunks[bestAt[i]], excerptRunes)
+			}
 			order = embed.Fuse(lex, sem)
 		}
 		// On error: the lexical order stands. A search that quietly became worse is one nobody can
@@ -230,7 +239,11 @@ func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query 
 	sort.SliceStable(order, func(a, b int) bool { return !xs[order[a]].Cold && xs[order[b]].Cold })
 	out := make([]T, 0, n)
 	for _, i := range order {
-		out = append(out, xs[i].V)
+		v := xs[i].V
+		if withExcerpt != nil && excerpts[i] != "" {
+			v = withExcerpt(v, excerpts[i])
+		}
+		out = append(out, v)
 		if len(out) >= n {
 			break
 		}
@@ -394,4 +407,16 @@ func (s *Store) ImportLegacySkill(ctx context.Context, skill port.Skill) error {
 		return fmt.Errorf("project experience unavailable")
 	}
 	return s.project.ImportLegacySkill(ctx, skill)
+}
+
+// excerptRunes bounds a recall excerpt. Five memories at this size are about 3,000 characters, the
+// per-turn recall budget of the design (docs/ENGRAM_MEMORY.md §5, §11.3).
+const excerptRunes = 600
+
+func clipRunes(s string, n int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= n {
+		return string(r)
+	}
+	return string(r[:n]) + "…"
 }

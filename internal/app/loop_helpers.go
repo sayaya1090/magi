@@ -272,6 +272,24 @@ func experiencePointer(nMem, nSkill int) string {
 	return fmt.Sprintf("%d relevant team memory/skill %s exist — call recall_memory with keywords to read the details.", total, noun)
 }
 
+// experienceExcerpts lists, under the count pointer, the passage of each memory that matched the
+// request by meaning. Only memories retrieval gave an excerpt appear (semantic ranking is on and the
+// passage cleared the similarity floor); the full text stays behind recall_memory.
+func experienceExcerpts(mems []port.Memory) string {
+	var b strings.Builder
+	for _, m := range mems {
+		e := strings.Join(strings.Fields(m.Excerpt), " ")
+		if e == "" {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("Matching passages (recall_memory returns the full text):")
+		}
+		b.WriteString("\n- " + m.ID + ": " + e)
+	}
+	return b.String()
+}
+
 // formatExperienceFull renders the full memory/skill entries for a recall_memory pull
 // (as opposed to the one-line push pointer). This is where the detail actually enters
 // context, and only when the agent asked for it.
