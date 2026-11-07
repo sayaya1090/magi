@@ -416,6 +416,8 @@ oh-my-openagent 메모리 구현(HEAD `38bf4f81c8`)을 코드와 지시문으로
 
 범위에서 뺀 것: 회상된 기억의 유용성 판정(상대의 telemetry model judge), people 카드, soul 파일, 저장 독려(nudge).
 
+**제안 이름**: 이 절의 `embed_url`, `embed_min_similarity`(설정 키), `engram_dream`(도구), `/engram-embed`(명령), `context_compacted`(플러그인 이벤트)는 아직 소스에 없습니다(2026-11-07 `cmd`·`internal`·`plugins` 검색 0건). 구현할 때 새로 만들 이름이며 바뀔 수 있습니다. 그 밖에 인용한 `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model`, `analyze_and_record`는 현재 소스에 있습니다.
+
 ### 11.1 저장 층과 분류
 
 현재 저장물 실측(`.magi/experience`)은 다음과 같습니다. managed 메모리 42건과 스킬 25건, 구형 `memories/*.md` 12건, `skills/*.md` 7건입니다. managed 메모리는 `{ID, Tags, Text}`이고 42건 모두 `Tags`가 null, `ID`가 빈 문자열입니다. 분류는 `Text` 앞의 `[구현]` 같은 접두어뿐이며 본문 길이는 중앙값 930자, 최대 1,963자입니다. 한 줄 요약이 없어서 회상할 때 본문 전체가 노출됩니다. 구형 파일에는 managed에 없는 `리팩터링` 분류가 있어 어휘도 맞지 않습니다.

@@ -416,6 +416,8 @@ The next steps below come from reading the oh-my-openagent memory implementation
 
 Out of scope: judging whether a recalled memory was useful (their telemetry model judge), people cards, soul files and the save nudge.
 
+**Proposed names**: `embed_url`, `embed_min_similarity` (config keys), `engram_dream` (tool), `/engram-embed` (command) and `context_compacted` (plugin event) in this section do not exist in the source yet (0 matches in `cmd`, `internal` and `plugins` on 2026-11-07). They are names to be created during implementation and may change. The other identifiers cited here, `ApplyExperience`, `newEmbedder`, `bridgeSpawn`, `volatileContext`, `Fuse`, `sidecar_model` and `analyze_and_record`, exist in the current source.
+
 ### 11.1 Storage tiers and classification
 
 Measured on the current store (`.magi/experience`): 42 managed memories and 25 managed skills, 12 legacy `memories/*.md` and 7 `skills/*.md`. A managed memory is `{ID, Tags, Text}`; all 42 have `Tags` null and `ID` empty. The only classification is a prefix such as `[구현]` at the start of `Text`. Bodies have a median of 930 characters and a maximum of 1,963. There is no one-line summary, so recall shows the whole body. Legacy files use a `리팩터링` category that managed records never use, so the vocabulary does not match either.
