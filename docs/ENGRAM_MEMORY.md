@@ -409,3 +409,118 @@ Release reports include canonical/duplicate/conflict counts, incorrect automatic
 ## 10. Implementer review incorporated (2026-09-12)
 
 Incorporated review `4d58fee3`. Personal-state recovery, log retention and merged evidence are addressed by §3.3, §6.1 and M12–M14. Driver adoption now starts with windows/arm64 validation; attribution regeneration is required by §3.1/M11. Section 6.1 explicitly permits offline-device GC delays until administrator action and specifies reminders and capacity handling. Actual driver adoption and acceptance tests remain outstanding.
+
+## 11. Memory upgrade design (2026-11-07)
+
+The next steps below come from reading the oh-my-openagent memory implementation (HEAD `38bf4f81c8`), its code and its prompts, and comparing it with the current implementation. **None of it is implemented yet.** The other project's features were not run, so their effect is unconfirmed. The numbers in this section (0.65, 150ms, 4 turns, 25 turns) are assumptions until stage 0 of §11.5 measures them.
+
+Out of scope: judging whether a recalled memory was useful (their telemetry model judge), people cards, soul files and the save nudge.
+
+### 11.1 Storage tiers and classification
+
+Measured on the current store (`.magi/experience`): 42 managed memories and 25 managed skills, 12 legacy `memories/*.md` and 7 `skills/*.md`. A managed memory is `{ID, Tags, Text}`; all 42 have `Tags` null and `ID` empty. The only classification is a prefix such as `[구현]` at the start of `Text`. Bodies have a median of 930 characters and a maximum of 1,963. There is no one-line summary, so recall shows the whole body. Legacy files use a `리팩터링` category that managed records never use, so the vocabulary does not match either.
+
+The other project splits memory by what it costs to show (the Visibility section of `dream-persona.md`). The same rule applies here.
+
+| Tier | Content | What enters the context |
+|---|---|---|
+| Core | User instructions and preferences, repository conventions, confirmed (observed) key lessons | Added once at session start and held at that revision for the session. Over budget, dream trims it to 80% |
+| Reference | fact, lesson and pitfall notes | Only an excerpt of the matching chunk |
+| Skill | Skills | Name and description, plus body chunks when relevant |
+| Episode | The raw conversation | Not copied into memory. Only an evidence pointer is kept |
+
+Classification has two axes. `kind` is exactly one value and decides the tier and the recall policy (lesson / fact / procedure / preference / pitfall). `areas[]` takes several values from a fixed vocabulary (구현 / 디버깅 / 분석 / 설정 / 리팩터링 / 문서).
+
+Managed memories gain optional fields. `Text` stays, so existing JSON still reads.
+
+```
+description (at most 200 chars, required) · kind · areas[] · tier (core|reference)
+status: hypothesis | observed | conflicted | disconfirmed
+valid_until · evidence[]{session#turn, commit, outcome} · links[] (canonical for corrections and duplicates)
+```
+
+Recording follows the Extract filter of the other project's reflection prompt. The conversation is already searchable, so it is not recorded again. One-off details such as line numbers, error strings and temporary paths are dropped, and relative dates become absolute. Contradictions keep both sides and are marked `conflicted`. Instructions the user states directly and `remember` calls start as `observed`; candidates a model extracts start as `hypothesis`.
+
+### 11.2 Local embedding server
+
+When the engram plugin starts (`startup`) it prepares a local embedding server. The model is bge-m3.
+
+1. If `embed_url` is set, that server is used. This is the path for a user who already runs one. A non-loopback address shows a one-time warning that memory text will be sent to it.
+2. Otherwise the container runtime (docker, else podman) is chosen and its **server architecture** (`Server.Arch` from `docker version`) picks the image in one step. The host `uname` is not the criterion; the VM that actually runs the container is. There is no try-the-next-one fallback.
+
+| Server architecture | Image | Basis |
+|---|---|---|
+| amd64 | TEI `cpu-1.9.4` + `BAAI/bge-m3` (pinned revision) | Same as the other project's Engram server (`servers/engram/deploy/docker-compose.yml`) |
+| arm64 | `ollama/ollama` + `bge-m3` | The TEI CPU images (`cpu-1.9.4`, `cpu-latest`) list only amd64 in their manifests; `ollama/ollama` has arm64 (`docker manifest inspect`, 2026-11-07) |
+
+3. The choice is recorded in plugin state and made again only when the runtime or architecture changes, or on `/engram-embed reselect`. If the image does not start, no other image is tried: the cause is shown and recall stays lexical.
+4. The container binds only to `127.0.0.1` under a fixed name. Several magi processes share it, so start-up runs under a file lock and an existing container is reused. It is left running on exit.
+5. Project, team and global memories are all embedded by this local server. The other project's Engram server embeds with TEI on the server and stores vectors in pgvector; here only text is shared and each device makes its own vectors, so team memories written by other people do not leave the machine.
+
+Four constraints must be fixed before implementation.
+
+- The engram manifest has only `permissions = ["fs:read", "fs:write"]` (`plugins/engram/plugin.toml`). It needs permission to run docker or podman and to make local HTTP calls.
+- `magi.exec` stops a command at 60 seconds. bge-m3 is 1.2GB on Ollama, so the container starts with `run -d`, the model download is requested asynchronously and only its status is polled.
+- The Go embedding client is built once at start-up (`newEmbedder` in `cmd/magi/main.go`). The plugin `startup` hook runs after that, so a bridge is needed to hand the plugin's address to the client.
+- The client only calls the OpenAI-compatible `/v1/embeddings`. TEI defaults to `/embed` and Ollama to `/api/embed`. Whether either server also answers `/v1/embeddings` has not been checked.
+
+The vector cache key is backend + model + revision. TEI's original weights and Ollama's GGUF conversion of the same bge-m3 can produce different vectors, and for the same reason the similarity threshold is measured per backend.
+
+### 11.3 Chunked recall and injection
+
+Recall today scores each document whole; there are no chunks. Embedding covers the whole memory `Text` and only the name and description of a skill, never the skill body (`Retrieve` in `internal/adapter/experience/layered/store.go`). Every candidate with a cosine above 0 enters the semantic list, and embedding runs synchronously inside `Retrieve`.
+
+The changes:
+
+- **Chunks**: memory bodies, skill descriptions and bodies, and wiki bodies are cut into 1,200-character chunks. A paragraph break more than 400 characters past the start becomes the cut, and neighbouring chunks overlap by 160 characters (the values in the other project's `memory-core/src/recall/chunks.ts`). Each chunk carries the `description` as a header.
+- **Index**: vectors are built in the background after a write and after start-up. A turn embeds only the query, under a time budget (about 150ms); past it, or while the index is incomplete, the lexical ranking alone is used.
+- **Ranking**: a document scores as its best chunk's cosine. Below 0.65 is dropped, adjustable with `embed_min_similarity`. The existing RRF fusion with the lexical ranking (k=60, `Fuse` in `internal/core/embed/embed.go`) stays, so an exact token such as a file name or error code cannot lose to something that only looks related.
+- **Injection**: `description` + the best chunk's excerpt (at most 600 characters) + the object ID. The full text is read with `recall_memory`. The per-turn budget of 5 memories, 3 skills and 3,000 tokens (§5) stays.
+- **Session ledger**: an `object_id@revision` already injected is not injected again in the same session. A compaction clears the ledger.
+- **No more ledger table**: engram currently injects its whole lesson table into the context, including rows unrelated to the task and imperative sentences. The excerpt injection above replaces it.
+- **Tone**: excerpts are injected as plain statements of fact. Excerpts in the second person, with an imperative ending or with a secret-like pattern are left out (the same judgement as the other project's `recall/gate.ts`).
+- **Pinned core tier**: the core tier keeps the revision chosen at session start; changes during the session appear as a one-line notice. Per-turn excerpts go into `volatileContext` as now (`internal/app/prompt.go`).
+
+### 11.4 Running facts, reflection and dream
+
+Today engram analyzes each turn with the sidecar model on `turn_finished` and records one lesson or skill. Nothing tidies the store afterwards. The other project runs fact extraction (facts), session-span tidying (reflection) and cross-session consolidation (dream) separately.
+
+Host constraints decide how each runs. `magi.spawn` accepts `model`, `provider`, `tools` (an allowlist), `max_steps`, `timeout` and `review`, but works **only inside a tool call**; an event handler has no tool environment and the call fails (`bridgeSpawn` in `internal/adapter/plugin/lua/bridge.go`). A daemon cron `prompt` job is submitted as an ordinary turn in its own session (`SubmitPrompt` in `internal/app/cron.go`), so an engram tool called in that turn can start a subagent.
+
+| Process | When | How | What it does |
+|---|---|---|---|
+| facts | Every 4 turns, on shutdown, on compaction | One `magi.analyze` call | Analyzes the turn summaries in a persistent inbox at once and returns candidates. If an embedding match already says the same thing, only evidence is added |
+| reflection | On compaction, every 25 turns, at session end | One `magi.analyze` call | The plugin gathers the inbox and related objects found by embedding and passes them in. The result is update / create / discard / mark conflicted |
+| dream | Once a day | Daemon cron `prompt` → `engram_dream` tool → `magi.spawn` subagent | Merges embedding clusters, promotes hypotheses matched in two or more sessions to `observed`, expires past `valid_until`, keeps the core tier within budget, audits skills (unused, duplicate) and reports contradictions |
+
+Running reflection as a subagent would need a separate host change to allow spawn from event handlers. Because the plugin can gather the needed context itself and pass it to a single call, this design leaves that out.
+
+**Only the host writes.** The other project's reflection and dream children edit memory files directly in their own worktree and merge afterwards. Here all three return only a list of proposed changes (target object, expected revision, operation), and the host applies them through the CAS in `ApplyExperience` (`internal/adapter/experience/git/managed.go`). If someone else changed the object in between, the proposal stays as a conflict and nothing is overwritten. This is the single-writer rule of §2. The dream subagent gets read-only tools only: memory search and read, and session search.
+
+Safeguards:
+
+- Each run has time and step limits. Three consecutive failures stop automatic runs; the inbox is kept.
+- One run at a time per workspace.
+- Proposals are validated strictly against a schema; malformed ones are discarded.
+- The dream session itself is excluded from engram's turn analysis. Otherwise the tidying work would be recorded again as a lesson.
+- Nothing is deleted; only new revisions are written. Pins, human edits and the cold/archive policy (§0.3) still apply.
+
+The engram manifest does not declare the `spawn` capability today. In this repository only s2-engine declares it.
+
+### 11.5 Order and verification
+
+Embeddings serve facts (duplicate check), reflection (finding related objects) and dream (clusters), so stages up to 3 come first.
+
+| Stage | Content | Check |
+|---|---|---|
+| 0 | Measure: response format, `/v1/embeddings` compatibility, query latency, cosine distribution over our memories | Record the values here and fix 0.65 and 150ms |
+| 1 | Storage format and classification (§11.1) | Regression test that the existing 67 JSON records still read |
+| 2 | Embedding server, permissions, address bridge (§11.2) | Start, reuse and lexical fallback on failure, on arm64 and amd64 |
+| 3 | Chunk index, injection, ledger table removal (§11.3) | Recall of a late chunk in a long document, threshold, fallback past budget, per-turn injected tokens before and after |
+| 4 | facts | Fewer analysis calls, inbox survives a crash |
+| 5 | reflection, plus a new `context_compacted` event | Candidates applied after compaction, CAS conflicts kept |
+| 6 | dream | Cron run, proposal validation, dream session not recorded as a lesson |
+
+### 11.6 Open decisions and unverified points
+
+Still to decide: the core tier token budget, the model for facts, reflection and dream (whether to reuse `sidecar_model`), and whether to normalize the existing 79 records (67 managed + 12 legacy) into new-format revisions. Not checked: `/v1/embeddings` compatibility of either server, CPU latency of bge-m3 inside a container, and a daemon idle-detection path. A 30-minute idle trigger would need a new daemon idle event.
