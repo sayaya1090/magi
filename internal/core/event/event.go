@@ -107,6 +107,7 @@ const (
 	TypeWorkflowPhase       Type = "workflow.phase"
 	TypeCouncilDeliberating Type = "council.deliberating" // a member is being polled (live panel)
 	TypeUserLabelChanged    Type = "user.label.changed"   // user display label changed (plugin set_user_label) — UI re-reads it
+	TypeSlotChanged         Type = "slot.changed"         // a plugin UI slot changed — UI re-queries slots
 	// TypeQuestionAnswered — somebody answered an ask_user prompt. Announced because a prompt can
 	// be answered from a DIFFERENT process than the one showing it: a browser and a terminal on one
 	// daemon is the arrangement the socket exists for, and the second screen was left holding a
@@ -130,6 +131,7 @@ var transientTypes = map[Type]bool{
 	// caller does — and disarmed the one guard that would have caught a mistaken Append, since
 	// jsonl.Store rejects a persist by asking exactly this map.
 	TypeUserLabelChanged: true,
+	TypeSlotChanged:      true,
 }
 
 // IsTransient reports whether t is a bus-only event type (never persisted).

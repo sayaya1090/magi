@@ -203,6 +203,21 @@
         "category": "Magi"
       },
       {
+        "command": "magi.engramReflect",
+        "title": "%magi.engramReflect.title%",
+        "category": "Magi"
+      },
+      {
+        "command": "magi.engramDream",
+        "title": "%magi.engramDream.title%",
+        "category": "Magi"
+      },
+      {
+        "command": "magi.engramFactsFlush",
+        "title": "%magi.engramFactsFlush.title%",
+        "category": "Magi"
+      },
+      {
         "command": "magi.profileMaintenance",
         "title": "%magi.profileMaintenance.title%",
         "category": "Magi"

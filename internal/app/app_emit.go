@@ -255,3 +255,17 @@ func (a *App) reconcileBackground(ctx context.Context, sid session.SessionID) {
 		a.appendBestEffort(ctx, sid, event.TypeToolBackground, event.Actor{Kind: event.ActorSystem, ID: "background"}, data)
 	}
 }
+
+// NotifySlotChanged publishes a transient slot.changed event so connected observers reload slots.
+func (a *App) NotifySlotChanged(target, plugin string) {
+	if a == nil || a.bus == nil {
+		return
+	}
+	payload, _ := json.Marshal(event.SlotChangedData{Target: target, Plugin: plugin})
+	a.bus.Publish(event.Event{
+		Type:  event.TypeSlotChanged,
+		Actor: event.Actor{Kind: event.ActorSystem},
+		TS:    time.Now(),
+		Data:  payload,
+	})
+}

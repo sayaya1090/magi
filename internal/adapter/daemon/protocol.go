@@ -743,6 +743,7 @@ type Request struct {
 // failed cannot tell a rejected session id from a dead engine, and would retry both.
 type Response struct {
 	Knowledge       []port.KnowledgeItem `json:"knowledge,omitempty"`
+	Slots           []port.PluginSlot    `json:"slots,omitempty"`
 	Declaration     json.RawMessage      `json:"declaration,omitempty"`
 	OperationResult *session.ToolResult  `json:"operationResult,omitempty"`
 	OK              bool                 `json:"ok"`

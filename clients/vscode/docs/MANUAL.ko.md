@@ -346,6 +346,9 @@ VS Code 설정(`settings.json` 또는 GUI 설정 편집기)에서 `magi` 네임�
 | Show child chats | 서브에이전트 자식 대화 세션 목록을 조회합니다 | §7.1 |
 | Internal description session | 자동 설명의 실행·게시 이력을 보고 선택한 대화의 새 근거로 갱신을 요청합니다 | §7.4 |
 | Project memory and skills | 현재 프로젝트의 메모리·스킬, 보관 상태와 검증 이력을 조회하고 고정·보관·복원합니다 | §7.3 |
+| Engram: Run Reflection now | 누적된 관찰 inbox와 관리 기억을 즉시 대조해 성찰(reflection)을 수행합니다 | §7.3 |
+| Engram: Run Dream now | 기억 만료·가설 승격·코어 티어 예산 정리 및 중복 클러스터 병합(dream)을 수행합니다 | §7.3 |
+| Engram: Flush Facts inbox now | 누적된 팩트 inbox를 즉시 분석 및 영구 저장소에 반영합니다 | §7.3 |
 | Scheduled work | 주기적 예약 작업을 관리합니다 | §7.2 |
 | Ask another companion to do something | 타 컴패니언에게 작업을 인계합니다 (도달 가능한 로컬 인스턴스 전용) | §7.1.5 |
 

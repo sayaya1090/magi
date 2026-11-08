@@ -162,6 +162,7 @@ class ArchitectureTest {
             "checkpoint.context" to "체크포인트 채택 후 모델에 전달하는 컨텍스트를 교체하는 내부 사건이며, 화면의 대화 행은 기존 로그에서 그대로 읽는다",
             "labels.changed" to "이 클라이언트는 아직 일에 이름을 안 붙인다 — 붙이는 화면이 생기면 그때 읽는다",
             "result.elided" to "덜어낸 툴 결과는 **컨텍스트 창의 사실**이지 대화의 사실이 아니다. 그 행은 이미 무엇을 불렀는지 적고 있고, 「모델에게 안 보인다」는 계획 판의 컨텍스트 띠가 말한다",
+            "slot.changed" to "플러그인 UI 슬롯 상태 변경 알림이며, 지식 다이얼로그나 슬롯 패널에서 필요 시 갱신한다",
         )
         val missed = (types - read - skipped.keys).sorted()
         assertEquals(

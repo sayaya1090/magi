@@ -4,7 +4,7 @@ export function mountIconControls(root = document) {
   if (advanced && !advanced.querySelector('.advanced-tools')) {
     const tools = root.createElement('div'); tools.className = 'advanced-tools';
     tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', '대화 작업');
-    for (const [label, ids] of [['대화', ['fresh']], ['규칙과 가이드', ['rules', 'guides']], ['설정과 연결', ['council', 'repick']]]) {
+    for (const [label, ids] of [['대화', ['fresh']], ['규칙과 가이드', ['rules', 'guides', 'slots']], ['설정과 연결', ['council', 'repick']]]) {
       const group = root.createElement('div'); group.className = 'control-group';
       group.setAttribute('role', 'group'); group.setAttribute('aria-label', label);
       for (const id of ids) { const button = advanced.querySelector('#' + id); if (button) group.append(button); }

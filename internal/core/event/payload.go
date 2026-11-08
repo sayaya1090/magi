@@ -618,3 +618,9 @@ type CheckpointContextData struct {
 	Digest        string            `json:"digest"`
 	Replace       bool              `json:"replace,omitempty"`
 }
+
+// SlotChangedData carries the target and plugin of a modified UI slot.
+type SlotChangedData struct {
+	Target string `json:"target,omitempty"`
+	Plugin string `json:"plugin,omitempty"`
+}

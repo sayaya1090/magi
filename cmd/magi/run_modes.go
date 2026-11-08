@@ -39,6 +39,7 @@ type daemonModeParams struct {
 	clientOwned   bool
 	noUpdateCheck bool
 	store         *jsonl.Store
+	obs           *pluginObserver
 }
 
 func runDaemonMode(p daemonModeParams) int {
@@ -292,7 +293,7 @@ func runDaemonMode(p daemonModeParams) int {
 	}()
 	a.EnableBackgroundReconciliation()
 	serveErr := serving.Serve(dctx, daemonEngine{
-		App: a, workdir: wd, handover: taking, configDir: plat.ConfigDir(),
+		App: a, workdir: wd, handover: taking, configDir: plat.ConfigDir(), obs: p.obs,
 		republish: func(to session.SessionID) error { return daemon.Moved(sockPath, to) },
 		card: func() mcpserve.Card {
 			return mcpserve.Card{

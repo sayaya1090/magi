@@ -33,6 +33,8 @@ func installBridge(p *plugin) {
 	L.SetField(t, "register_context_provider", L.NewFunction(p.bridgeRegisterContextProvider))
 	L.SetField(t, "register_command", L.NewFunction(p.bridgeRegisterCommand))
 	L.SetField(t, "register_doctor_probes", L.NewFunction(p.bridgeRegisterDoctorProbes))
+	L.SetField(t, "register_slot", L.NewFunction(p.bridgeRegisterSlot))
+	L.SetField(t, "notify_slot_change", L.NewFunction(p.bridgeNotifySlotChange))
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
@@ -875,6 +877,62 @@ func (p *plugin) bridgeRegisterDoctorProbes(L *lua.LState) int {
 		return 0
 	}
 	p.logf(fmt.Sprintf("Registered %d doctor probe(s)", n))
+	return 0
+}
+
+// magi.register_slot{ target = "knowledge", title = "...", description = "...", query = function() ... end, execute = function(action_id) ... end }
+func (p *plugin) bridgeRegisterSlot(L *lua.LState) int {
+	spec := L.CheckTable(1)
+
+	target := spec.RawGetString("target").String()
+	if target == "" || spec.RawGetString("target") == lua.LNil {
+		L.RaiseError("register_slot: 'target' is required")
+		return 0
+	}
+
+	title := spec.RawGetString("title").String()
+	if title == "" || spec.RawGetString("title") == lua.LNil {
+		title = p.name
+	}
+
+	desc := ""
+	if d := spec.RawGetString("description"); d != lua.LNil {
+		desc = d.String()
+	}
+
+	var queryFn *lua.LFunction
+	if q, ok := spec.RawGetString("query").(*lua.LFunction); ok {
+		queryFn = q
+	}
+
+	var execFn *lua.LFunction
+	if ex, ok := spec.RawGetString("execute").(*lua.LFunction); ok {
+		execFn = ex
+	}
+
+	id := p.name
+	if rawID := spec.RawGetString("id"); rawID != lua.LNil && rawID.String() != "" {
+		id = rawID.String()
+	}
+
+	p.slots = append(p.slots, &luaSlot{
+		plugin:      p,
+		id:          id,
+		target:      target,
+		title:       title,
+		description: desc,
+		queryFn:     queryFn,
+		executeFn:   execFn,
+	})
+	p.logf(fmt.Sprintf("Registered UI slot target=%q id=%q", target, id))
+	return 0
+}
+
+func (p *plugin) bridgeNotifySlotChange(L *lua.LState) int {
+	target := L.OptString(1, "")
+	if p.host != nil && p.host.slotChangeNotifier != nil {
+		p.host.slotChangeNotifier(target, p.name)
+	}
 	return 0
 }
 

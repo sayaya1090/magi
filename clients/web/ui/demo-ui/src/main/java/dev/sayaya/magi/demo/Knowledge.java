@@ -23,6 +23,10 @@ final class Knowledge {
     static Promise<Response> answer(String path, RequestInit init) {
         switch (path) {
             case "/skills": return Mock.json(Global.JSON.stringify(skills()));
+            case "/slots":
+            case "/engram":
+                if (Mock.wrote(init)) return Mock.took(path, init);
+                return Mock.json("[{\"id\":\"engram\",\"plugin\":\"engram\",\"title\":\"🧠 Engram Memory Engine\",\"status\":{\"label\":\"최신\",\"badge\":0},\"items\":[{\"id\":\"facts\",\"label\":\"Facts\",\"value\":\"0 pending\"}],\"actions\":[{\"id\":\"reflect\",\"label\":\"Reflection\"},{\"id\":\"dream\",\"label\":\"Dream\"},{\"id\":\"flush_facts\",\"label\":\"Flush Facts\"}]}]");
             case "/wiki": return Mock.json(Global.JSON.stringify(wiki()));
             case "/mcp":
                 // 같은 길이 읽기이자 쓰기다 — 무엇인지는 몸이 있느냐가 가른다(운영 계약).

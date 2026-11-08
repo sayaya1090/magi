@@ -20,9 +20,30 @@ func answerKnowledge(ctx context.Context, eng Engine, req Request) Response {
 			return Response{Err: "invalid knowledge action"}
 		}
 	}
+
+	var doing string
+	sm, hasSlots := eng.(port.SlotManager)
+	if hasSlots && action.Action != "" {
+		// Generic slot action dispatch.
+		// action.Name carries plugin/slot ID if present.
+		out, err := sm.TriggerSlotAction(ctx, action.Name, action.Action)
+		if err == nil && out != "" {
+			doing = out
+			action = port.KnowledgeAction{}
+		}
+	}
+
 	items, err := host.ManageKnowledge(ctx, action)
 	if err != nil {
 		return Response{Err: err.Error()}
 	}
-	return Response{OK: true, Knowledge: items}
+
+	resp := Response{OK: true, Knowledge: items, Doing: doing}
+	if hasSlots {
+		slots, err := sm.QuerySlots(ctx, "knowledge")
+		if err == nil {
+			resp.Slots = slots
+		}
+	}
+	return resp
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // 채팅창의 뒤쪽 — 방향이 둘이다(DESIGN.md §5.7).
@@ -504,4 +505,46 @@ func (b *Bridge) AnswerQuestion(callID, text string) error {
 			SessionID: session.SessionID(sid), CallID: callID, Answer: text,
 		})
 	})
+}
+
+// Slots queries plugin UI slots for the bound companion.
+func (b *Bridge) Slots(target string) ([]port.PluginSlot, error) {
+	var slots []port.PluginSlot
+	err := b.call(func(cl *daemon.Client) error {
+		resp, err := cl.Knowledge(port.KnowledgeAction{})
+		if err != nil {
+			return err
+		}
+		if !resp.OK && resp.Err != "" {
+			return errors.New(resp.Err)
+		}
+		slots = resp.Slots
+		return nil
+	})
+	if slots == nil {
+		slots = []port.PluginSlot{}
+	}
+	return slots, err
+}
+
+// SlotAction triggers an action on a plugin slot and returns updated slots.
+func (b *Bridge) SlotAction(plugin, action string) (string, []port.PluginSlot, error) {
+	var doing string
+	var slots []port.PluginSlot
+	err := b.call(func(cl *daemon.Client) error {
+		resp, err := cl.Knowledge(port.KnowledgeAction{Name: plugin, Action: action})
+		if err != nil {
+			return err
+		}
+		if !resp.OK && resp.Err != "" {
+			return errors.New(resp.Err)
+		}
+		doing = resp.Doing
+		slots = resp.Slots
+		return nil
+	})
+	if slots == nil {
+		slots = []port.PluginSlot{}
+	}
+	return doing, slots, err
 }

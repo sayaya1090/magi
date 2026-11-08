@@ -1220,6 +1220,7 @@ func runWithContext(runCtx context.Context) int {
 			clientOwned:   *clientOwned,
 			noUpdateCheck: *noUpdateCheck,
 			store:         store,
+			obs:           obs,
 		})
 	}
 
@@ -1289,6 +1290,11 @@ func startPluginHost(p hostParams, sid *session.SessionID) *pluginlua.Host {
 		Experience:    p.experience,
 		Notify:        func(sid, text string) { p.app.PluginNote(sid, text) },
 		Finish:        func(sid string) { p.app.PluginFinish(sid) },
+		SlotChangeNotifier: func(target, plugin string) {
+			if p.app != nil {
+				p.app.NotifySlotChanged(target, plugin)
+			}
+		},
 		Runtime: pluginlua.RuntimeInfo{
 			Model:          p.modelID,
 			Platform:       runtime.GOOS,
@@ -2631,6 +2637,7 @@ type daemonEngine struct {
 	// layer hangs off. Held because the settings door has to name the files a value came from and
 	// a write goes to, and those are not derivable from the workspace alone.
 	configDir string
+	obs       *pluginObserver
 }
 
 // SessionsHere satisfies daemon.ConversationKeeper: this workspace's conversations, for the

@@ -17,7 +17,7 @@ try {
   const source=await readFile(new URL('src/ui/iconControls.js',root),'utf8');
   await page.addScriptTag({content:source.replace('export function ','function ')});
   await page.evaluate(()=>mountIconControls());
-  assert.deepEqual(await page.locator('.control-group').evaluateAll(groups=>groups.map(g=>[...g.children].map(b=>b.id))),[['fresh'],['rules','guides'],['council','repick']]);
+  assert.deepEqual(await page.locator('.control-group').evaluateAll(groups=>groups.map(g=>[...g.children].map(b=>b.id))),[['fresh'],['rules','guides','slots'],['council','repick']]);
   const button=page.locator('#fresh'); const tip=page.getByRole('tooltip');
   const title=await button.getAttribute('title');
   await button.hover();await tip.waitFor({state:'visible'});

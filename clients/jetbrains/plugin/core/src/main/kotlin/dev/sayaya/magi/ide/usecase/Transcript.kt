@@ -69,7 +69,7 @@ class Transcript(
         internal val transients = setOf(
             "part.delta", "tool.progress", "permission.requested", "question.requested",
             "context.usage", "workflow.phase", "council.deliberating",
-            "question.answered", "user.label.changed",
+            "question.answered", "user.label.changed", "slot.changed",
         )
 
         /**

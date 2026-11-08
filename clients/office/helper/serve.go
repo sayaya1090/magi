@@ -365,6 +365,9 @@ func (a *API) Route(mux *http.ServeMux) {
 	// 가이드 관리 — 추가·삭제·활성화·비활성화(guides.go).
 	mux.HandleFunc("/api/guides", a.guard(a.guides))
 	mux.HandleFunc("/api/guide", a.guard(a.guide))
+	// 플러그인 슬롯 조회 및 액션 실행.
+	mux.HandleFunc("/api/slots", a.guard(a.slots))
+	mux.HandleFunc("/api/slots/action", a.guard(a.slotAction))
 }
 
 // ours 는 「이 소켓·이 생애에 우리 묶음이 있는가」 — 명단과 상태가 같은 물음을 같은 자리에 한다.
@@ -1196,4 +1199,55 @@ func (a *API) image(w http.ResponseWriter, r *http.Request) {
 		// 받는 쪽이 끊은 것이다 — 창이 닫혔거나 다른 그림으로 넘어갔다. 우리 쪽 실패가 아니라 적어만 둔다.
 		log.Printf("image: could not send %s: %v", filepath.Base(abs), err)
 	}
+}
+
+// slots 는 현재 연결된 컴패니언의 플러그인 UI 슬롯(지식 통계, 액션 목록 등)을 조회합니다.
+func (a *API) slots(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		target = "knowledge"
+	}
+	b := a.chat(r)
+	if b == nil {
+		http.Error(w, "컴패니언에 연결되어 있지 않습니다", http.StatusBadGateway)
+		return
+	}
+	slots, err := b.Slots(target)
+	if err != nil {
+		writeStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"slots": slots})
+}
+
+// slotAction 은 플러그인 슬롯에 등록된 액션(예: engram의 reflect, dream)을 실행합니다.
+func (a *API) slotAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		Target string `json:"target"`
+		Plugin string `json:"plugin"`
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "잘못된 요청 형식입니다", http.StatusBadRequest)
+		return
+	}
+	if in.Action == "" {
+		http.Error(w, "action은 필수 항목입니다", http.StatusBadRequest)
+		return
+	}
+	b := a.chat(r)
+	if b == nil {
+		http.Error(w, "컴패니언에 연결되어 있지 않습니다", http.StatusBadGateway)
+		return
+	}
+	doing, slots, err := b.SlotAction(in.Plugin, in.Action)
+	if err != nil {
+		writeStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "doing": doing, "slots": slots})
 }

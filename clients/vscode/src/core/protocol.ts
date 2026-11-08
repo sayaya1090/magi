@@ -98,8 +98,41 @@ export interface KnowledgeItem {
   protected: boolean; application_count: number; since: string; last_applied: string;
 }
 
+export interface SlotStatus {
+  label: string;
+  variant?: 'info' | 'warning' | 'success' | 'error';
+  badge?: number;
+}
+
+export interface SlotItem {
+  id: string;
+  label: string;
+  value: string;
+  description?: string;
+  warning?: boolean;
+}
+
+export interface SlotAction {
+  id: string;
+  label: string;
+  description?: string;
+  variant?: 'primary' | 'secondary' | 'ghost';
+}
+
+export interface PluginSlot {
+  id: string;
+  plugin: string;
+  target: string;
+  title: string;
+  description?: string;
+  status?: SlotStatus;
+  items?: SlotItem[];
+  actions?: SlotAction[];
+}
+
 export interface Response {
   knowledge?: KnowledgeItem[];
+  slots?: PluginSlot[];
   ok: boolean;
   error?: string;
   out?: string;

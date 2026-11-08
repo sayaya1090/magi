@@ -19,6 +19,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // About asks a companion to describe itself.
@@ -712,6 +713,15 @@ func (c *Client) SetPermission(p string) error {
 // For an editor in another process — the console, an attached terminal. The schedule tool runs
 // inside the daemon and calls the engine directly instead.
 func (c *Client) ReloadCron() error { return c.call(Request{Method: "reload-cron"}) }
+
+// Knowledge runs or queries project-scoped knowledge and Engram memory actions.
+func (c *Client) Knowledge(action port.KnowledgeAction) (Response, error) {
+	b, err := json.Marshal(action)
+	if err != nil {
+		return Response{}, err
+	}
+	return c.exchange(Request{Method: "knowledge", Args: b})
+}
 
 // Shell runs a command in the daemon's workspace, as the daemon's user, and returns what it wrote
 // and what it exited with.

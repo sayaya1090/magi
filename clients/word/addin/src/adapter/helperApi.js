@@ -144,6 +144,16 @@ export class HelperApi {
   permission(callId, decision) { return this.#send('/api/permission', { body: { callId, decision } }); }
   question(callId, text) { return this.#send('/api/question', { body: { callId, text } }); }
 
+  /** 플러그인 UI 슬롯(지식 통계, 확장 액션 등)을 조회한다. */
+  slots(target = 'knowledge') {
+    return this.#send(`/api/slots?target=${encodeURIComponent(target)}`, { method: 'GET' });
+  }
+
+  /** 플러그인 슬롯 액션을 실행한다. */
+  slotAction(plugin, action, target = 'knowledge') {
+    return this.#send('/api/slots/action', { body: { plugin, action, target } });
+  }
+
   /** 조작의 답을 올려 보낸다. 기다리는 사람이 없으면 헬퍼가 **410 으로 말한다**. */
   reply(payload) { return this.#send('/hand/reply', { body: payload }); }
 }

@@ -46,6 +46,7 @@
       <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
       <g id="i-trash"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8"/></g>
       <g id="i-council"><path d="M8 2.5v11M4 13.5h8M2.5 5.5h11"/><path d="M4 5.5l-1.8 4h3.6zM12 5.5l-1.8 4h3.6z"/></g>
+      <g id="i-knowledge"><path d="M2.5 3A1.5 1.5 0 0 1 4 1.5h8A1.5 1.5 0 0 1 13.5 3v10a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V3z"/><path d="M5 4.5h6M5 7.5h6M5 10.5h4"/></g>
     </defs>
   </svg>
     <!--
@@ -114,6 +115,18 @@
           </div>
         </div>
         <p id="guides-note" class="rules-note" hidden></p>
+      </section>
+
+      <!-- 플러그인 슬롯 패널 (지식 및 확장 기능) -->
+      <section id="slots-panel" class="rules" hidden>
+        <h2>지식 및 확장 기능</h2>
+        <p class="rules-why">플러그인이 등록한 지식 상태(Engram 등)를 확인하고 정리·꿈 등 배경 작업을 실행합니다.</p>
+        <div id="slots-list" class="slots-list"></div>
+        <div class="rules-row">
+          <button type="button" id="slots-close" class="icon-btn" title="패널 닫기" aria-label="패널 닫기"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+          <button type="button" id="slots-refresh" class="icon-btn" title="새로 고침" aria-label="새로 고침"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
+        </div>
+        <p id="slots-note" class="rules-note" hidden></p>
       </section>
 
       <!-- 스트림 연결 상태 알림 -->
@@ -195,6 +208,7 @@
       <button type="button" id="fresh" class="icon-btn" title="새 대화 시작 (문서 상태 보존)" aria-label="새 대화 시작 (문서 상태 보존)"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
       <button type="button" id="rules" class="icon-btn" title="상시 규칙 설정 (모든 요청에 자동 포함)" aria-label="상시 규칙 설정 (모든 요청에 자동 포함)"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
       <button type="button" id="guides" class="icon-btn" title="가이드 관리 (필요 시 모델이 참조하는 규칙)" aria-label="가이드 관리 (필요 시 모델이 참조하는 규칙)"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
+      <button type="button" id="slots" class="icon-btn" title="지식 및 확장 기능 (메모리, 통계, 반추·꿈)" aria-label="지식 및 확장 기능 (메모리, 통계, 반추·꿈)"><svg class="i" viewBox="0 0 16 16"><use href="#i-knowledge"/></svg></button>
       <button type="button" id="council" class="icon-btn" aria-pressed="false" title="카운슬 합의 게이트 전환 (컴패니언 재기동 및 새 대화 시작)" aria-label="카운슬 합의 게이트 전환 (컴패니언 재기동 및 새 대화 시작)"><svg class="i" viewBox="0 0 16 16"><use href="#i-council"/></svg></button>
       <button type="button" id="repick" class="icon-btn" title="컴패니언 전환 (다른 컴패니언 연결)" aria-label="컴패니언 전환 (다른 컴패니언 연결)"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
       <div id="pick-model" class="pick-model">

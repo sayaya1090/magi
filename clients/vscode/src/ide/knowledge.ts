@@ -2,6 +2,23 @@ import * as vscode from 'vscode';
 import { Companion } from './workspace';
 import { KnowledgeItem } from '../core/protocol';
 
+export async function runSlotAction(companion: Companion, plugin: string, action: string, title?: string): Promise<void> {
+  const t = vscode.l10n.t;
+  const result = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: title || t('Executing action…') },
+    () => companion.ask('knowledge', { args: { name: plugin, action } })
+  );
+  if (!result?.ok) {
+    await vscode.window.showWarningMessage(result?.error || t('Operation failed.'));
+  } else {
+    await vscode.window.showInformationMessage(result?.doing || t('Operation completed.'));
+  }
+}
+
+export function runEngramAction(companion: Companion, action: string): Promise<void> {
+  return runSlotAction(companion, 'engram', action);
+}
+
 /** Native, project-scoped management. Every action carries the displayed revision. */
 export async function manageKnowledge(companion: Companion): Promise<void> {
   const t = vscode.l10n.t;
@@ -11,15 +28,65 @@ export async function manageKnowledge(companion: Companion): Promise<void> {
     const response = await companion.ask('knowledge');
     if (!response?.ok) { await vscode.window.showWarningMessage(response?.error || t('Could not load project knowledge.')); return; }
     const items = response.knowledge || [];
-    if (!items.length) { await vscode.window.showInformationMessage(t('No saved project knowledge.')); return; }
-    const selected = await vscode.window.showQuickPick(items.map(item => ({
+    const slots = response.slots || [];
+
+    const quickPickItems: Array<{
+      label: string;
+      description?: string;
+      detail?: string;
+      item?: KnowledgeItem;
+      slotAction?: { plugin: string; action: string; title: string };
+      kind?: vscode.QuickPickItemKind;
+    }> = items.map(item => ({
       label: item.description || item.name,
       description: [item.kind === 'memory' ? t('Memory') : t('Skill'),
         item.archived ? t('Archived') : item.archive_candidate ? t('Archive candidate') : item.cold ? t('Cold') : t('Active'),
         ...(item.pinned ? [t('Pinned')] : []), ...(item.protected ? [t('In use')] : [])].join(' · '),
       detail: item.name, item,
-    })), { title: t('Project memory and skills'), matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true });
+    }));
+
+    const sepKind = (vscode as any).QuickPickItemKind?.Separator;
+
+    // Dynamically render plugin-contributed UI slots
+    for (const slot of slots) {
+      const statusBadge = slot.status ? ` [${slot.status.label}${slot.status.badge !== undefined ? ` (${slot.status.badge})` : ''}]` : '';
+      quickPickItems.push({ label: `${slot.title}${statusBadge}`, kind: sepKind });
+
+      if (slot.items) {
+        for (const item of slot.items) {
+          const icon = item.warning ? '$(warning)' : '$(info)';
+          quickPickItems.push({
+            label: `${icon} ${item.label}: ${item.value}`,
+            description: item.description,
+            detail: slot.description,
+          });
+        }
+      }
+
+      if (slot.actions) {
+        for (const act of slot.actions) {
+          const icon = act.variant === 'primary' ? '$(sparkle)' : '$(play)';
+          quickPickItems.push({
+            label: `${icon} ${act.label}`,
+            description: act.description,
+            slotAction: { plugin: slot.plugin, action: act.id, title: act.label },
+          });
+        }
+      }
+    }
+
+    const selected = await vscode.window.showQuickPick(quickPickItems, {
+      title: t('Project memory and skills'),
+      matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true
+    });
     if (!selected) return;
+
+    if (selected.slotAction) {
+      await runSlotAction(companion, selected.slotAction.plugin, selected.slotAction.action, selected.slotAction.title);
+      continue;
+    }
+
+    if (!selected.item) continue;
     const item: KnowledgeItem = selected.item;
     const actions = [{ label: t('Back to list'), action: '' }];
     if (item.importable) actions.unshift({ label: t('Register a managed copy'), action: 'import' });

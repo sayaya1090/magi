@@ -7,6 +7,7 @@ import dev.sayaya.magi.bridge.Says;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.component.Rank;
 import dev.sayaya.magi.client.usecase.KnowledgeStore;
+import elemental2.core.JsArray;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
@@ -319,8 +320,11 @@ public class KnowledgeElement {
         JsArrayLike<Object> list = Js.uncheckedCast(store.skills());
         if (list == null) { skills.fill("", 0, false, failed()); return; }
         if (list.getLength() == 0) {
-            skills.fill("", 0, false, empty("empty.nothing_learned", "empty.nothing_learned_how"),
-                    writeBox(list));
+            List<HTMLElement> emptyKids = new ArrayList<>();
+            emptyKids.add(empty("empty.nothing_learned", "empty.nothing_learned_how"));
+            emptyKids.addAll(slotBoxes());
+            emptyKids.add(writeBox(list));
+            skills.fill("", 0, false, emptyKids.toArray(new HTMLElement[0]));
             return;
         }
         List<JsPropertyMap<Object>> shown = ranked(list, store.skillQuery(), r ->
@@ -336,8 +340,80 @@ public class KnowledgeElement {
             for (JsPropertyMap<Object> sk : shown) if ("memory".equals(str(sk, "kind"))) kids.add(skillRow(sk));
         }
         if (!q.trim().isEmpty() && shown.isEmpty()) kids.add(empty("empty.no_match", "empty.no_match_how"));
+        kids.addAll(slotBoxes());
         kids.add(writeBox(list));
         skills.fill(q, shown.size(), true, kids.toArray(new HTMLElement[0]));
+    }
+
+    private List<HTMLElement> slotBoxes() {
+        List<HTMLElement> boxes = new ArrayList<>();
+        Object rawSlots = store.slots();
+        if (rawSlots == null) return boxes;
+
+        JsArray<Object> arr = Js.cast(rawSlots);
+        for (int i = 0; i < arr.length; i++) {
+            JsPropertyMap<Object> slot = Js.asPropertyMap(arr.getAt(i));
+            String plugin = String.valueOf(slot.get("plugin"));
+            String title = String.valueOf(slot.get("title"));
+
+            HTMLElement box = cell("engram-box slot-box");
+            box.style.setProperty("margin-bottom", "1em");
+            box.style.setProperty("padding", "0.75em");
+            box.style.setProperty("border", "1px solid var(--md-sys-color-outline-variant, #ccc)");
+            box.style.setProperty("border-radius", "8px");
+
+            HTMLElement top = cell("top");
+            HTMLElement label = cell("what", title);
+            label.style.setProperty("font-weight", "bold");
+            top.append(label);
+            box.append(top);
+
+            HTMLElement status = cell("meta");
+            status.style.setProperty("margin", "0.5em 0");
+            StringBuilder sb = new StringBuilder();
+            if (slot.has("items")) {
+                JsArray<Object> items = Js.cast(slot.get("items"));
+                for (int j = 0; j < items.length; j++) {
+                    if (j > 0) sb.append(" · ");
+                    JsPropertyMap<Object> it = Js.asPropertyMap(items.getAt(j));
+                    sb.append(it.get("label")).append(": ").append(it.get("value"));
+                }
+            }
+            if (slot.has("status")) {
+                JsPropertyMap<Object> st = Js.asPropertyMap(slot.get("status"));
+                if (st != null && st.has("label")) {
+                    sb.append(" [").append(st.get("label")).append("]");
+                }
+            }
+            status.textContent = sb.toString();
+            box.append(status);
+
+            if (slot.has("actions")) {
+                HTMLElement actions = cell("top");
+                actions.style.setProperty("display", "flex");
+                actions.style.setProperty("gap", "0.5em");
+                actions.style.setProperty("margin-top", "0.5em");
+
+                JsArray<Object> acts = Js.cast(slot.get("actions"));
+                for (int j = 0; j < acts.length; j++) {
+                    JsPropertyMap<Object> act = Js.asPropertyMap(acts.getAt(j));
+                    String actId = String.valueOf(act.get("id"));
+                    String actLabel = String.valueOf(act.get("label"));
+                    String cls = "btn-slot";
+                    if ("reflect".equals(actId) || actId.contains("reflect")) cls += " btn-reflect";
+                    else if ("dream".equals(actId) || actId.contains("dream")) cls += " btn-dream";
+                    else if ("flush_facts".equals(actId) || actId.contains("flush")) cls += " btn-flush";
+
+                    HTMLElement btn = button(cls, actLabel, null);
+                    btn.textContent = actLabel;
+                    btn.addEventListener("click", evt -> store.triggerSlotAction(plugin, actId));
+                    actions.append(btn);
+                }
+                box.append(actions);
+            }
+            boxes.add(box);
+        }
+        return boxes;
     }
 
     private HTMLElement skillRow(JsPropertyMap<Object> sk) {

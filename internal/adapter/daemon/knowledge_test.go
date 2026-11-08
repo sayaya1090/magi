@@ -80,3 +80,53 @@ func TestKnowledgeControlOverConnectionRejectsStaleArchive(t *testing.T) {
 		t.Fatal(changed)
 	}
 }
+
+type slotMockEngine struct {
+	knowledgeEngine
+	triggered []string
+}
+
+func (e *slotMockEngine) QuerySlots(ctx context.Context, target string) ([]port.PluginSlot, error) {
+	return []port.PluginSlot{
+		{
+			ID:     "engram",
+			Plugin: "engram",
+			Target: target,
+			Title:  "Engram Memory",
+			Status: &port.SlotStatus{Label: "정리 필요", Badge: 7, Variant: "warning"},
+			Items: []port.SlotItem{
+				{ID: "facts", Label: "Facts", Value: "2건"},
+				{ID: "reflections", Label: "Reflections", Value: "5건"},
+			},
+			Actions: []port.SlotAction{
+				{ID: "reflect", Label: "Reflect"},
+				{ID: "dream", Label: "Dream"},
+			},
+		},
+	}, nil
+}
+
+func (e *slotMockEngine) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+	e.triggered = append(e.triggered, action)
+	return "slot: " + action + " done", nil
+}
+
+func TestKnowledgeDoorSlotsAndTrigger(t *testing.T) {
+	e := &slotMockEngine{knowledgeEngine: knowledgeEngine{fakeEngine: &fakeEngine{}}}
+	r := answerKnowledge(context.Background(), e, Request{})
+	if !r.OK || len(r.Slots) != 1 {
+		t.Fatalf("expected slots attached, got %+v", r)
+	}
+	s := r.Slots[0]
+	if s.Plugin != "engram" || s.Status == nil || s.Status.Badge != 7 || len(s.Items) != 2 {
+		t.Fatalf("unexpected slot stats: %+v", s)
+	}
+
+	trig := answerKnowledge(context.Background(), e, Request{Args: json.RawMessage(`{"action":"reflect"}`)})
+	if !trig.OK || trig.Doing != "slot: reflect done" {
+		t.Fatalf("expected trigger response doing message, got %+v", trig)
+	}
+	if len(e.triggered) != 1 || e.triggered[0] != "reflect" {
+		t.Fatalf("expected trigger recorded, got %v", e.triggered)
+	}
+}

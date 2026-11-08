@@ -91,8 +91,45 @@ data class FileRef(
 )
 
 @Serializable
+data class SlotStatus(
+    val label: String,
+    val variant: String? = null,
+    val badge: Int = 0,
+)
+
+@Serializable
+data class SlotItem(
+    val id: String,
+    val label: String,
+    val value: String,
+    val description: String? = null,
+    val warning: Boolean = false,
+)
+
+@Serializable
+data class SlotAction(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+    val variant: String? = null,
+)
+
+@Serializable
+data class PluginSlot(
+    val id: String,
+    val plugin: String,
+    val target: String,
+    val title: String,
+    val description: String? = null,
+    val status: SlotStatus? = null,
+    val items: List<SlotItem>? = null,
+    val actions: List<SlotAction>? = null,
+)
+
+@Serializable
 data class Response(
     val knowledge: List<KnowledgeItem>? = null,
+    val slots: List<PluginSlot>? = null,
     val declaration: JsonElement? = null,
     val operationResult: JsonElement? = null,
     val ok: Boolean = false,

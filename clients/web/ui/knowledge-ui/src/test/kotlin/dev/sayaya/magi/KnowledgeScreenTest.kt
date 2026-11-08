@@ -42,6 +42,14 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.locator("#mcp .sectionhead .mcpopen").count() shouldBe 1
                 page.locator(".skwrite .skmodel").count() shouldBe 1
             }
+            Then("Engram 메모리 엔진 상자에 성찰·드림·플러시 버튼과 대기 상태가 표시된다") {
+                page.locator(".engram-box").count() shouldBe 1
+                page.locator(".engram-box .btn-reflect").count() shouldBe 1
+                page.locator(".engram-box .btn-dream").count() shouldBe 1
+                page.locator(".engram-box .btn-flush").count() shouldBe 1
+                page.locator(".engram-box .btn-reflect").click()
+                page.evaluate("() => window.__magi_test_engram") shouldBe "reflect"
+            }
         }
         When("보관 후보를 고정하고 로컬 보관 후 복원하면") {
             Then("내용 revision과 동작을 전달하고 상태에 맞는 버튼을 그린다") {

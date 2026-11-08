@@ -155,7 +155,7 @@ func (s *Store) ManagedMemoryReferences(ctx context.Context, ids []string) ([]po
 		if current == "" {
 			current = r.Revision
 		}
-		if revision == current && r.Change.Owner == "plugin:engram" && r.Change.State == "active" && r.Change.Memory != nil {
+		if revision == current && strings.HasPrefix(r.Change.Owner, "plugin:") && r.Change.State == "active" && r.Change.Memory != nil {
 			out = append(out, port.ExperienceReference{Kind: "memory", ObjectID: object, ContentRevision: revision})
 		}
 	}

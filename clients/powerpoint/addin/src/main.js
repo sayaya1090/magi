@@ -23,7 +23,7 @@ import { handRole } from './usecase/HandRole.js';
 import { mountPick } from './ui/pick.js';
 import { ReadTranscript } from './usecase/ReadTranscript.js';
 import { View } from './ui/view.js';
-import { guideBoard } from './ui/screen.js';
+import { guideBoard, slotsBoard } from './ui/screen.js';
 
 /**
  * 스프라이트에서 아이콘 하나를 꺼낸다(`taskpane.html` 의 `<defs>`).
@@ -779,6 +779,154 @@ async function boot() {
         } catch (e) { sayGuides(`저장하지 못했습니다: ${e?.message ?? e}`); }
       })();
     });
+
+    /**
+     * 플러그인 슬롯(지식 통계, 확장 액션 등) 패널
+     */
+    const sPanel = document.querySelector('#slots-panel');
+    const sList = document.querySelector('#slots-list');
+    const sNote = document.querySelector('#slots-note');
+    const saySlots = (msg) => {
+      if (!sNote) return;
+      sNote.textContent = msg ?? '';
+      sNote.hidden = !msg;
+    };
+    const drawSlots = async () => {
+      if (!sList) return;
+      let board;
+      try {
+        const got = await api.slots('knowledge');
+        board = slotsBoard({ slots: got?.slots ?? [] });
+      } catch (e) {
+        board = slotsBoard({ error: e?.message ?? String(e) });
+      }
+      sList.replaceChildren();
+      const head = document.createElement('p');
+      head.className = 'rules-why';
+      head.textContent = board.headText;
+      sList.append(head);
+      if (board.note) saySlots(board.note);
+
+      for (const slot of board.slots) {
+        const card = document.createElement('div');
+        card.className = 'slot-card';
+        card.dataset.slotId = slot.id;
+
+        const headRow = document.createElement('div');
+        headRow.className = 'slot-head';
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'slot-title-wrap';
+        const title = document.createElement('h3');
+        title.className = 'slot-title';
+        title.textContent = slot.title;
+        titleWrap.append(title);
+        if (slot.badge) {
+          const badge = document.createElement('span');
+          badge.className = 'slot-badge' + (slot.badgeWarning ? ' warning' : '');
+          badge.textContent = slot.badge;
+          titleWrap.append(badge);
+        }
+        headRow.append(titleWrap);
+        if (slot.detail) {
+          const detail = document.createElement('span');
+          detail.className = 'slot-detail';
+          detail.textContent = slot.detail;
+          headRow.append(detail);
+        }
+        card.append(headRow);
+
+        if (slot.description) {
+          const desc = document.createElement('p');
+          desc.className = 'slot-desc';
+          desc.textContent = slot.description;
+          card.append(desc);
+        }
+
+        if (slot.items.length > 0) {
+          const itemsBox = document.createElement('div');
+          itemsBox.className = 'slot-items';
+          for (const it of slot.items) {
+            const itemEl = document.createElement('div');
+            itemEl.className = 'slot-item';
+            const lbl = document.createElement('span');
+            lbl.className = 'slot-item-label';
+            lbl.textContent = it.label;
+            const val = document.createElement('span');
+            val.className = 'slot-item-value';
+            val.textContent = it.value;
+            itemEl.append(lbl, val);
+            if (it.hint) {
+              const hint = document.createElement('span');
+              hint.className = 'slot-item-hint';
+              hint.textContent = it.hint;
+              itemEl.append(hint);
+            }
+            itemsBox.append(itemEl);
+          }
+          card.append(itemsBox);
+        }
+
+        if (slot.actions.length > 0) {
+          const actsBox = document.createElement('div');
+          actsBox.className = 'slot-actions';
+          for (const act of slot.actions) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'slot-act-btn' + (act.primary ? ' primary' : '');
+            btn.textContent = act.label;
+            btn.disabled = act.disabled;
+            btn.addEventListener('click', () => {
+              void (async () => {
+                btn.disabled = true;
+                saySlots(`${act.label} 실행 중...`);
+                try {
+                  const res = await api.slotAction(slot.plugin, act.id, slot.target || 'knowledge');
+                  saySlots(res?.doing || `${act.label} 완료`);
+                  await drawSlots();
+                } catch (e) {
+                  saySlots(`${act.label} 실패: ${e?.message ?? e}`);
+                  btn.disabled = false;
+                }
+              })();
+            });
+            actsBox.append(btn);
+          }
+          card.append(actsBox);
+        }
+
+        sList.append(card);
+      }
+    };
+
+    document.querySelector('#slots')?.addEventListener('click', () => {
+      if (!sPanel) return;
+      if (!sPanel.hidden) { sPanel.hidden = true; return; }
+      sPanel.hidden = false;
+      view.reveal(sPanel);
+      saySlots('');
+      void drawSlots();
+    });
+    document.querySelector('#slots-close')?.addEventListener('click', () => {
+      if (sPanel) sPanel.hidden = true;
+    });
+    document.querySelector('#slots-refresh')?.addEventListener('click', () => {
+      saySlots('새로 고치는 중...');
+      void drawSlots();
+    });
+
+    // **옵저버 패턴 연동**: 코어/플러그인이 slot.changed 이벤트를 발행하면 슬롯 패널 자동 갱신
+    if (helperStream) {
+      helperStream.on('event', (data) => {
+        try {
+          const ev = typeof data === 'string' ? JSON.parse(data) : data;
+          if (ev?.type === 'slot.changed') {
+            if (sPanel && !sPanel.hidden) {
+              void drawSlots();
+            }
+          }
+        } catch {}
+      });
+    }
 
     /**
      * **새 대화.** 채팅을 쓰는 사람은 누구나 아는 그 단추다.

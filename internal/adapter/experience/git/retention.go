@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
@@ -194,5 +195,5 @@ func (s LocalRetention) Public() LocalRetention {
 }
 
 func retentionOwner(owner string) bool {
-	return owner == "plugin:engram" || owner == "user:legacy-import"
+	return strings.HasPrefix(owner, "plugin:") || owner == "user:legacy-import"
 }

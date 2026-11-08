@@ -23,14 +23,14 @@ try {
    await page.evaluate(()=>mountProviderProfiles({api:{providerProfiles:async()=>({profiles:[]})}}));
    const layout=await page.evaluate(()=>{
     const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right}};
-    return {manage:rect('manage-providers'),provider:rect('provider'),model:rect('model'),advanced:rect('advanced'),icons:['fresh','rules','guides','council','repick'].map(rect),tools:(()=>{const e=document.querySelector('.advanced-tools'),r=e.getBoundingClientRect(),s=getComputedStyle(e);return {left:r.left+parseFloat(s.borderLeftWidth)+parseFloat(s.paddingLeft)}})(),overflow:document.documentElement.scrollWidth>innerWidth};
+    return {manage:rect('manage-providers'),provider:rect('provider'),model:rect('model'),advanced:rect('advanced'),icons:['fresh','rules','guides','slots','council','repick'].map(rect),tools:(()=>{const e=document.querySelector('.advanced-tools'),r=e.getBoundingClientRect(),s=getComputedStyle(e);return {left:r.left+parseFloat(s.borderLeftWidth)+parseFloat(s.paddingLeft)}})(),overflow:document.documentElement.scrollWidth>innerWidth};
    });
    assert.ok(Math.abs(layout.icons[0].x-layout.tools.left)<1,'toolbar is not aligned to its leading edge'); assert.equal(layout.overflow,false);
    assert.equal(layout.manage.height,32);
-   assert.equal(layout.manage.y,layout.icons[4].y);
+   assert.equal(layout.manage.y,layout.icons[5].y);
    assert.equal(await page.locator('#manage-providers').getAttribute('aria-label'),'프로바이더 관리');
    assert.equal(await page.locator('#manage-providers svg').count(),1);
-   for(let i=1;i<layout.icons.length;i++) if(layout.icons[i].y===layout.icons[i-1].y) assert.ok(Math.abs(layout.icons[i].x-layout.icons[i-1].right-(i===1 || i===3 ? 24 : 16))<1,'icon gap expanded');
+   for(let i=1;i<layout.icons.length;i++) if(layout.icons[i].y===layout.icons[i-1].y) assert.ok(Math.abs(layout.icons[i].x-layout.icons[i-1].right-(i===1 || i===4 ? 24 : 16))<1,'icon gap expanded');
    await page.locator('#manage-providers').click();
    for(const id of ['profile-name','profile-endpoint','profile-model','profile-key']) {
     assert.equal(await page.locator('#'+id).getAttribute('autocapitalize'),'off');

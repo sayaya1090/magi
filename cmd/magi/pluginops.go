@@ -225,6 +225,27 @@ type pluginObserver struct {
 
 func (o *pluginObserver) bind(h *pluginlua.Host) { o.host.Store(h) }
 
+func (o *pluginObserver) DispatchCommand(name string, args []string) (bool, error) {
+	if h := o.host.Load(); h != nil {
+		return h.DispatchCommand(name, args)
+	}
+	return false, fmt.Errorf("plugin host not available")
+}
+
+func (o *pluginObserver) QuerySlots(ctx context.Context, target string) ([]port.PluginSlot, error) {
+	if h := o.host.Load(); h != nil {
+		return h.QuerySlots(ctx, target)
+	}
+	return nil, nil
+}
+
+func (o *pluginObserver) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+	if h := o.host.Load(); h != nil {
+		return h.TriggerSlotAction(ctx, plugin, action)
+	}
+	return "", fmt.Errorf("plugin host not available")
+}
+
 func (o *pluginObserver) UserMessage(sid, text string) {
 	if h := o.host.Load(); h != nil {
 		if os.Getenv("MAGI_DEBUG") != "" {

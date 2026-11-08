@@ -113,6 +113,17 @@ public class FakeKnowledgeSource implements KnowledgeSource {
     public void console(java.util.function.Consumer<String> embedModel) { embedModel.accept(""); }
 
     @Override
+    public void slots(Consumer<Object> cb) {
+        cb.accept(Global.JSON.parse("[{\"id\":\"engram\",\"plugin\":\"engram\",\"title\":\"🧠 Engram Memory Engine\",\"status\":{\"label\":\"정리 필요\",\"badge\":3},\"items\":[{\"id\":\"facts\",\"label\":\"Facts\",\"value\":\"1 pending\"},{\"id\":\"refl\",\"label\":\"Reflection\",\"value\":\"2 pending\"}],\"actions\":[{\"id\":\"reflect\",\"label\":\"Reflection\"},{\"id\":\"dream\",\"label\":\"Dream\"},{\"id\":\"flush_facts\",\"label\":\"Flush Facts\"}]}]"));
+    }
+
+    @Override
+    public void triggerSlotAction(String plugin, String action, Consumer<String> why) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_engram", action);
+        why.accept("");
+    }
+
+    @Override
     public void removeServer(String name, String socket, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_removed",
                 name + "@" + (socket == null ? "global" : socket));

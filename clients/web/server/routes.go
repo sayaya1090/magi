@@ -51,6 +51,8 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		// contract, which is GWT's.
 		"/ui/":           s.uiAsset,
 		"/skills":        s.skills,
+		"/slots":         s.slots,
+		"/engram":        s.slots,
 		"/retention":     s.experienceRetention,
 		"/wiki":          s.wiki,
 		"/forget":        s.forgetSkill,

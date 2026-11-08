@@ -131,7 +131,15 @@ public class FetchRosterSource implements RosterSource {
                 boolean on = Js.isTruthy(d.get("open"));
                 double sec = d.has("forSec") ? Js.coerceToDouble(d.get("forSec")) : 0;
                 listener.turn(on, sec);
+                if (!on && elemental2.dom.DomGlobal.window != null) {
+                    elemental2.dom.DomGlobal.window.dispatchEvent(new elemental2.dom.CustomEvent("magi:slot.changed"));
+                }
             } catch (Exception ignore) { listener.turn(false, 0); }
+        });
+        es.addEventListener("slot", evt -> {
+            if (elemental2.dom.DomGlobal.window != null) {
+                elemental2.dom.DomGlobal.window.dispatchEvent(new elemental2.dom.CustomEvent("magi:slot.changed"));
+            }
         });
         // 조준된 회의의 방 프레임 — 참가자 하나가 방금 한 일. 서버가 변한 것만 보내므로
         // (main.go의 roomFrames가 NewSince로 고른다) 받는 쪽은 이어 붙이기만 하면 된다.

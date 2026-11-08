@@ -36,4 +36,16 @@ public interface KnowledgeSource {
 
     /** 이 머신의 임베딩 모델(/console) — 빈 값도 진짜 답이다("없음"). */
     void console(Consumer<String> embedModel);
+
+    /** 플러그인 UI 슬롯 목록 조회 (/slots). */
+    void slots(Consumer<Object> slotsOrNull);
+
+    /** 플러그인 슬롯 액션 실행 (/slots). */
+    void triggerSlotAction(String plugin, String action, Consumer<String> why);
+
+    /** Engram 인박스 및 상태 조회 (하위 호환). */
+    default void engram(Consumer<Object> statsOrNull) { slots(statsOrNull); }
+
+    /** Engram 동작 실행 (하위 호환). */
+    default void triggerEngram(String action, Consumer<String> why) { triggerSlotAction("engram", action, why); }
 }

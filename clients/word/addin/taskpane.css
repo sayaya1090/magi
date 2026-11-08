@@ -751,6 +751,115 @@ button:disabled { cursor: default; opacity: .5; }
 .guides-edit { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
 .guide-name { padding: var(--s1) var(--s2); font: var(--t-body); border: 1px solid var(--line); border-radius: var(--r-sm); }
 
+/* 슬롯 판 (지식 및 확장 기능). M3 카드 및 상태 레이어 규약 */
+.slots-list { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
+.slot-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  background: var(--bg-sub);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.slot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s2);
+}
+.slot-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.slot-title {
+  margin: 0;
+  font: var(--t-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+.slot-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  font: var(--t-caption);
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  background: var(--bg-surface, rgba(0, 0, 0, 0.05));
+  color: var(--fg-2);
+}
+.slot-badge.warning {
+  background: rgba(186, 26, 26, 0.12);
+  color: #ba1a1a;
+}
+.slot-detail {
+  font: var(--t-caption);
+  color: var(--muted);
+}
+.slot-desc {
+  margin: 0;
+  font: var(--t-caption);
+  color: var(--fg-2);
+}
+.slot-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: var(--s2);
+  padding: var(--s2);
+  background: var(--bg);
+  border-radius: var(--r-sm);
+}
+.slot-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slot-item-label {
+  font: var(--t-caption);
+  color: var(--muted);
+}
+.slot-item-value {
+  font: var(--t-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+.slot-item-hint {
+  font-size: 10px;
+  color: var(--muted);
+}
+.slot-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s1);
+}
+.slot-act-btn {
+  padding: var(--s1) var(--s3);
+  font: var(--t-caption);
+  font-weight: 500;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.slot-act-btn:hover:not(:disabled) {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  border-color: var(--sel);
+}
+.slot-act-btn.primary {
+  background: var(--sel);
+  color: #fff;
+  border-color: var(--sel);
+}
+.slot-act-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.slot-act-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* 계획 판. 상태는 색이 아니라 **부호**로 가른다 — 색만 쓰면 못 가리는 사람이 있다. */
 .plan-list { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s2); }
 .plan-row { display: grid; grid-template-columns: 16px 1fr; gap: var(--s2); font: var(--t-caption); }

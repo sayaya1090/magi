@@ -16,9 +16,11 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
     private Object skills = null;
     private Object wiki = null;
     private Object mcp = null;
+    private Object slots = null;
     private boolean skillsAnswered = false;
     private boolean wikiAnswered = false;
     private boolean mcpAnswered = false;
+    private boolean slotsAnswered = false;
     private String skillQuery = "";
     private String wikiQuery = "";
     private String mcpQuery = "";
@@ -35,6 +37,12 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
         reloadSkills();
         reloadWiki();
         reloadMcp();
+        reloadSlots();
+
+        // Observer pattern: live update when background slot changes occur
+        try {
+            elemental2.dom.DomGlobal.window.addEventListener("magi:slot.changed", evt -> reloadSlots());
+        } catch (Throwable ignore) {}
     }
 
     public void reloadSkills() { source.skills(list -> { skills = list; skillsAnswered = true; told(); }); }
@@ -43,12 +51,28 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
 
     public void reloadMcp() { source.mcp(list -> { mcp = list; mcpAnswered = true; told(); }); }
 
+    public void reloadSlots() { source.slots(list -> { slots = list; slotsAnswered = true; told(); }); }
+
+    public void triggerSlotAction(String plugin, String action) {
+        source.triggerSlotAction(plugin, action, msg -> {
+            reloadSkills();
+            reloadSlots();
+            skillsSaid(msg);
+        });
+    }
+
+    public void triggerEngram(String action) { triggerSlotAction("engram", action); }
+
     public Object skills() { return skills; }
     public Object wiki() { return wiki; }
     public Object mcp() { return mcp; }
+    public Object slots() { return slots; }
+    public Object engram() { return slots; }
     public boolean skillsAnswered() { return skillsAnswered; }
     public boolean wikiAnswered() { return wikiAnswered; }
     public boolean mcpAnswered() { return mcpAnswered; }
+    public boolean slotsAnswered() { return slotsAnswered; }
+    public boolean engramAnswered() { return slotsAnswered; }
 
     public String skillQuery() { return skillQuery; }
     public String wikiQuery() { return wikiQuery; }

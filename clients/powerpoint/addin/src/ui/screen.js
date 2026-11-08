@@ -991,3 +991,43 @@ export function councilButton(on) {
     title: `카운슬을 ${verb} — ${state}. 다음 턴부터 적용합니다. 컨텍스트 일부가 다시 처리될 수 있습니다`,
   };
 }
+
+/**
+ * 플러그인 슬롯(지식, 확장 기능) 목록을 화면에 그릴 상태로 가공합니다.
+ *
+ * @param {{slots?:Array, error?:string}} state
+ */
+export function slotsBoard(state) {
+  if (state?.error) {
+    return { failed: true, headText: '확장 기능 슬롯을 못 읽었습니다', note: state.error, slots: [] };
+  }
+  const list = state?.slots ?? [];
+  return {
+    failed: false,
+    headText: list.length === 0
+      ? '등록된 확장 기능 슬롯이 없습니다'
+      : `확장 기능 슬롯 ${list.length}개`,
+    note: '',
+    slots: list.map((s) => ({
+      id: s.id || '',
+      plugin: s.plugin || '',
+      target: s.target || '',
+      title: s.title || s.plugin || '확장 기능',
+      description: s.description || '',
+      badge: s.status?.badge || '',
+      badgeWarning: Boolean(s.status?.warning),
+      detail: s.status?.detail || '',
+      items: Array.isArray(s.items) ? s.items.map((it) => ({
+        label: it.label || '',
+        value: it.value || '',
+        hint: it.hint || '',
+      })) : [],
+      actions: Array.isArray(s.actions) ? s.actions.map((act) => ({
+        id: act.id || '',
+        label: act.label || act.id,
+        primary: act.style === 'primary',
+        disabled: Boolean(act.disabled),
+      })) : [],
+    })),
+  };
+}

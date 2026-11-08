@@ -1489,6 +1489,12 @@ local function facts_batch_size(outcome)
   return FACTS_BATCH_DEFAULT
 end
 
+local function notify_knowledge_change()
+  if type(magi.notify_slot_change) == "function" then
+    magi.notify_slot_change("knowledge")
+  end
+end
+
 local function load_facts_inbox()
   local key = "engram_inbox_v1:" .. magi.workdir()
   local raw = magi.store_get(key) or ""
@@ -1534,6 +1540,7 @@ local function flush_facts_inbox(force, fallback_batch)
     last_outcome,
     table.concat(parts, "\n\n===\n\n")
   )
+  notify_knowledge_change()
   return true
 end
 
@@ -1559,6 +1566,7 @@ local function enqueue_facts_inbox(sid, hint, user, used_csv, outcome)
   }
   while #list > 32 do table.remove(list, 1) end
   magi.store_compare_exchange(key, raw, magi.json_encode(list))
+  notify_knowledge_change()
   if #list >= batch_n then
     return flush_facts_inbox( true, batch_n )
   end
@@ -1838,6 +1846,7 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
     end
   end
   magi.log("engram: reflection 완료 (" .. applied .. "건 반영, 사유=" .. tostring(trigger_reason or "manual") .. ")")
+  notify_knowledge_change()
   return "engram: reflection 완료 — " .. applied .. "건 반영"
 end
 
@@ -2208,6 +2217,7 @@ local function run_dream(origin, reason)
   magi.store_set("dream_dirty_v1:" .. magi.workdir(), "0")
   magi.store_set("pressure_last_chars_v1:" .. magi.workdir(), tostring(core_chars))
   magi.log(summary)
+  notify_knowledge_change()
   return summary
 end
 
@@ -2397,10 +2407,91 @@ magi.register_command{
 }
 
 magi.register_command{
+  name = "engram-flush-facts",
+  description = "누적된 팩트(Facts) inbox를 즉시 분석 및 영구 저장소에 반영합니다.",
+  execute = function()
+    local ok = flush_facts_inbox(true, 1)
+    if ok then
+      return "engram: 팩트 inbox 플러시 완료."
+    else
+      return "engram: 플러시할 팩트 inbox가 비어 있습니다."
+    end
+  end,
+}
+
+magi.register_command{
+  name = "engram-facts-flush",
+  description = "누적된 팩트(Facts) inbox를 즉시 분석 및 영구 저장소에 반영합니다.",
+  execute = function()
+    local ok = flush_facts_inbox(true, 1)
+    if ok then
+      return "engram: 팩트 inbox 플러시 완료."
+    else
+      return "engram: 플러시할 팩트 inbox가 비어 있습니다."
+    end
+  end,
+}
+
+magi.register_command{
   name = "engram-dream",
   description = "기억 만료·가설 승격·코어 티어 예산 정리 및 중복 클러스터 병합(dream)을 수행합니다.",
   execute = function()
     return run_dream()
+  end,
+}
+
+magi.register_slot{
+  id = "engram",
+  target = "knowledge",
+  title = "Engram 자가 학습 메모리",
+  description = "단기 관찰 사실과 세션 간 교훈을 관리합니다.",
+  query = function()
+    local facts_inbox = load_facts_inbox()
+    local refl_inbox = load_inbox()
+    local facts_count = (facts_inbox and #facts_inbox) or 0
+    local refl_count = (refl_inbox and #refl_inbox) or 0
+    local dirty = (magi.store_get("dream_dirty_v1:" .. magi.workdir()) or "0") ~= "0"
+    local total_pending = facts_count + refl_count
+
+    local status_label = "정상"
+    local status_variant = "info"
+    if dirty or total_pending > 0 then
+      status_label = "정리 대기"
+      status_variant = "warning"
+    end
+
+    return {
+      status = {
+        label = status_label,
+        variant = status_variant,
+        badge = total_pending,
+      },
+      items = {
+        { id = "facts", label = "미정리 팩트", value = tostring(facts_count) .. "건", warning = facts_count > 10 },
+        { id = "reflection", label = "대기 교훈", value = tostring(refl_count) .. "건", warning = refl_count > 5 },
+        { id = "dream", label = "드림 상태", value = dirty and "정리 필요" or "최신", warning = dirty },
+      },
+      actions = {
+        { id = "reflect", label = "회고 (Reflect)", description = "사실에서 교훈 도출", variant = "primary" },
+        { id = "dream", label = "드림 (Dream)", description = "장기 기억 압축 및 스킬화" },
+        { id = "flush_facts", label = "팩트 플러시", description = "인박스 즉시 저장" },
+      },
+    }
+  end,
+  execute = function(action_id)
+    if action_id == "reflect" or action_id == "engram-reflect" then
+      return run_reflection("manual_slot", true)
+    elseif action_id == "dream" or action_id == "engram-dream" then
+      return run_dream()
+    elseif action_id == "flush_facts" or action_id == "engram-flush-facts" then
+      local ok = flush_facts_inbox(true, 1)
+      if ok then
+        return "engram: 팩트 inbox 플러시 완료."
+      else
+        return "engram: 플러시할 팩트 inbox가 비어 있습니다."
+      end
+    end
+    error("unknown slot action: " .. tostring(action_id))
   end,
 }
 

@@ -83,4 +83,17 @@ public class FetchKnowledgeSource implements KnowledgeSource {
         Console.post("/mcp", body, socket == null || socket.isEmpty() ? null : socket, null,
                 (ok, w) -> why.accept(Console.why(ok, w)));
     }
+
+    @Override
+    public void slots(Consumer<Object> cb) {
+        Console.fetchList("/slots", cb::accept);
+    }
+
+    @Override
+    public void triggerSlotAction(String plugin, String action, Consumer<String> why) {
+        URLSearchParams body = new URLSearchParams();
+        if (plugin != null && !plugin.isEmpty()) body.set("plugin", plugin);
+        body.set("action", action);
+        Console.post("/slots", body, null, null, (ok, w) -> why.accept(Console.why(ok, w)));
+    }
 }

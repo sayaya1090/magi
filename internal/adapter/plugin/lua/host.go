@@ -122,6 +122,7 @@ type Host struct {
 	experience    port.ExperienceStore         // D13 team store (magi.propose_experience); nil = unavailable
 	notify        func(sessionID, text string) // session note sink (magi.notify); nil = unavailable
 	finish        func(sessionID string)       // turn ender (magi.finish); nil = unavailable
+	slotChangeNotifier func(target, plugin string) // optional: slot observer sink (magi.notify_slot_change)
 	logf          func(string)
 
 	mu        sync.Mutex
@@ -198,8 +199,9 @@ type HostConfig struct {
 	// Finish, when set, enables magi.finish: a tool that ends the turn it was called in. The
 	// landing plugin's `land` is the case — without it the turn ended only when the model's next
 	// step carried no call, and a model that kept re-calling land never produced one.
-	Finish        func(sessionID string)
-	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
+	Finish             func(sessionID string)
+	SlotChangeNotifier func(target, plugin string) // optional: slot change observer
+	PluginConfigs      map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
 	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
 	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
 	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
@@ -244,6 +246,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		experience:    cfg.Experience,
 		notify:        cfg.Notify,
 		finish:        cfg.Finish,
+		slotChangeNotifier: cfg.SlotChangeNotifier,
 		logf:          cfg.Logf,
 		plugins:       map[string]*plugin{},
 	}
@@ -500,6 +503,57 @@ func (h *Host) DoctorProbes() []port.DoctorProbe {
 		}
 	}
 	return probes
+}
+
+// QuerySlots collects and queries all slots registered for the given target across loaded plugins.
+func (h *Host) QuerySlots(ctx context.Context, target string) ([]port.PluginSlot, error) {
+	h.mu.Lock()
+	var slots []*luaSlot
+	for _, p := range h.snapshot() {
+		for _, s := range p.slots {
+			if target == "" || s.target == target {
+				slots = append(slots, s)
+			}
+		}
+	}
+	h.mu.Unlock()
+
+	var result []port.PluginSlot
+	for _, s := range slots {
+		slot, err := s.Query(ctx)
+		if err != nil {
+			if h.logf != nil {
+				h.logf(fmt.Sprintf("QuerySlots error for %s/%s: %v", s.plugin.name, s.id, err))
+			}
+			continue
+		}
+		result = append(result, slot)
+	}
+	return result, nil
+}
+
+// TriggerSlotAction executes an action on a specific plugin slot.
+func (h *Host) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+	h.mu.Lock()
+	var targetSlot *luaSlot
+	for _, p := range h.snapshot() {
+		if plugin != "" && p.name != plugin {
+			continue
+		}
+		for _, s := range p.slots {
+			targetSlot = s
+			break
+		}
+		if targetSlot != nil {
+			break
+		}
+	}
+	h.mu.Unlock()
+
+	if targetSlot == nil {
+		return "", fmt.Errorf("no slot found for plugin %q", plugin)
+	}
+	return targetSlot.Execute(ctx, action)
 }
 
 // DispatchCommand runs the plugin command whose name matches (leading slash

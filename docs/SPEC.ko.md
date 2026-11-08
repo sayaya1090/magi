@@ -191,7 +191,7 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
   `interjection.answered` / `prompt.abandoned` / `session.moved` / `model.changed` / `tool.background`)은 Store에 기록합니다.
 - R2 전이 타입(`part.delta` / `tool.progress` / `permission.requested` / `question.requested` /
   `context.usage` / `workflow.phase` / `council.deliberating` / `question.answered` /
-  `user.label.changed`)은 버스로만 전송하고 영속 기록하지 않습니다.
+  `user.label.changed` / `slot.changed`)은 버스로만 전송하고 영속 기록하지 않습니다.
 - R3 모든 이벤트 봉투(seq/sessionId/type/actor/ts/data) JSON 왕복 무손실을 보장합니다.
 - R4 두 집합은 **어느 타입이 Store에 기록될 수 있는가**를 규정하며, **특정 프레임이 seq 번호를 보유하고
   도착하는가**를 직접 결정하지 않습니다. 클라이언트는 `seq == 0` 여부를 수신된 이벤트 봉투의 필드값에서 직접 읽어야 하며

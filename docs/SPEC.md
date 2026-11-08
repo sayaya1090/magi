@@ -209,7 +209,7 @@ Rules:
   `model.changed` / `tool.background`) are written to the Store.
 - R2 The transient types (`part.delta` / `tool.progress` / `permission.requested` /
   `question.requested` / `context.usage` / `workflow.phase` / `council.deliberating` /
-  `question.answered` / `user.label.changed`) go to the bus only and are never recorded.
+  `question.answered` / `user.label.changed` / `slot.changed`) go to the bus only and are never recorded.
 - R3 Every envelope (seq/sessionId/type/actor/ts/data) round-trips through JSON losslessly.
 - R4 The two sets say which types the Store MAY hold — not which frames arrive carrying a seq. A
   client reads `seq == 0` off the envelope it has and never infers it from the type: one type can

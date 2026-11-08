@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { manageKnowledge } from './knowledge';
+import { manageKnowledge, runEngramAction } from './knowledge';
 import { profileMaintenance } from './profileMaintenance';
 import { editCompanionProfile } from './companionProfile';
 import { Companion } from './workspace';
@@ -61,6 +61,9 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
 
   return [
     reg('magi.knowledge', () => manageKnowledge(companion)),
+    reg('magi.engramReflect', () => runEngramAction(companion, 'reflect')),
+    reg('magi.engramDream', () => runEngramAction(companion, 'dream')),
+    reg('magi.engramFactsFlush', () => runEngramAction(companion, 'flush_facts')),
     reg('magi.profileMaintenance', () => profileMaintenance(companion, chat.session)),
     /**
      * One place that SHOWS what is running and lets it be changed.

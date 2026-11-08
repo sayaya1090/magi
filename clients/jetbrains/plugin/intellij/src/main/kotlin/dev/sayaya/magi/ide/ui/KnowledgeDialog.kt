@@ -26,11 +26,13 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
     private val entries = DefaultListModel<String>()
     private val list = JBList(entries).apply { selectionMode = ListSelectionModel.SINGLE_SELECTION }
     private val details = JBLabel(" ")
+    private val slotStatus = JBLabel(" ")
     private val notice = JBLabel(" ")
     private val pin = JButton()
     private val archive = JButton()
     private val register = JButton(MagiBundle.msg("knowledge.import"))
     private val reload = JButton(MagiBundle.msg("knowledge.reload"))
+    private val slotButtons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT))
     private var items = emptyList<KnowledgeItem>()
     private var busy = false
     private var alive = true
@@ -52,6 +54,31 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         }
         reload.addActionListener { request() }
         request()
+        // Observer loop: live sync slot counts while dialog is open
+        requests.launch {
+            while (alive) {
+                kotlinx.coroutines.delay(3000)
+                if (!busy && alive) {
+                    val res = runCatching { workspace.askWithoutChat { it.knowledge() } }.getOrNull()
+                    if (res?.ok == true && alive) {
+                        managementUiLater {
+                            if (!alive || busy) return@managementUiLater
+                            val slots = res.slots.orEmpty()
+                            if (slots.isNotEmpty()) {
+                                val statusSummaries = slots.mapNotNull { s ->
+                                    val itemsText = s.items?.joinToString(" · ") { "${it.label}: ${it.value}" } ?: ""
+                                    val badgeText = s.status?.let { " [${it.label}${if (it.badge > 0) " (${it.badge})" else ""}]" } ?: ""
+                                    "${s.title}: $itemsText$badgeText"
+                                }
+                                slotStatus.text = statusSummaries.joinToString("  |  ")
+                            } else {
+                                slotStatus.text = " "
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     private fun selected(): KnowledgeItem? = items.getOrNull(list.selectedIndex)
     private fun updateSelection() {
@@ -62,6 +89,7 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         archive.isEnabled = !busy && item?.managed == true
         register.isEnabled = !busy && item?.importable == true
         reload.isEnabled = !busy
+        slotButtons.components.forEach { it.isEnabled = !busy }
         details.text = when {
             item == null -> " "
             !item.managed -> MagiBundle.msg("knowledge.legacy")
@@ -71,13 +99,13 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         details.toolTipText = details.text
     }
     private fun change(action: String) { selected()?.let { request(it, action) } }
-    private fun request(item: KnowledgeItem? = null, action: String = "") {
+    private fun request(item: KnowledgeItem? = null, action: String = "", plugin: String = "") {
         if (busy || !alive) return
         busy = true
         notice.text = MagiBundle.msg("knowledge.loading")
         updateSelection()
         requests.launch {
-            val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action) } }
+            val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action, plugin) } }
             // Always reload after mutation, including stale revision or lost acknowledgement.
             val inventory = if (item != null) runCatching { workspace.askWithoutChat { it.knowledge() } } else result
             managementUiLater {
@@ -92,6 +120,33 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
                     else -> " "
                 }
                 val selectedName = item?.name ?: selected()?.name
+                val slots = response?.slots.orEmpty()
+                if (slots.isNotEmpty()) {
+                    val statusSummaries = slots.mapNotNull { s ->
+                        val itemsText = s.items?.joinToString(" · ") { "${it.label}: ${it.value}" } ?: ""
+                        val badgeText = s.status?.let { " [${it.label}${if (it.badge > 0) " (${it.badge})" else ""}]" } ?: ""
+                        "${s.title}: $itemsText$badgeText"
+                    }
+                    slotStatus.text = statusSummaries.joinToString("  |  ")
+                } else {
+                    slotStatus.text = " "
+                }
+
+                // Dynamically update slot action buttons
+                slotButtons.removeAll()
+                slots.forEach { slot ->
+                    slot.actions?.forEach { act ->
+                        val btn = JButton(act.label).apply {
+                            toolTipText = act.description
+                            isEnabled = !busy
+                            addActionListener { request(action = act.id, plugin = slot.plugin) }
+                        }
+                        slotButtons.add(btn)
+                    }
+                }
+                slotButtons.revalidate()
+                slotButtons.repaint()
+
                 items = if (response?.ok == true) response.knowledge.orEmpty() else emptyList()
                 entries.clear()
                 items.forEach { row ->
@@ -108,11 +163,19 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         }
     }
     override fun createCenterPanel(): JComponent = JBPanel<JBPanel<*>>(BorderLayout(JBUI.scale(8), JBUI.scale(8))).apply {
-        preferredSize = JBUI.size(640, 380)
+        preferredSize = JBUI.size(720, 420)
         add(JBScrollPane(list), BorderLayout.CENTER)
         add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
-            add(details, BorderLayout.NORTH)
-            add(JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT)).apply { add(pin); add(archive); add(register); add(reload) }, BorderLayout.CENTER)
+            add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                add(details, BorderLayout.NORTH)
+                add(slotStatus, BorderLayout.SOUTH)
+            }, BorderLayout.NORTH)
+            add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                add(JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT)).apply {
+                    add(pin); add(archive); add(register); add(reload)
+                }, BorderLayout.NORTH)
+                add(slotButtons, BorderLayout.CENTER)
+            }, BorderLayout.CENTER)
             add(notice, BorderLayout.SOUTH)
         }, BorderLayout.SOUTH)
     }
