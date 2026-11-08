@@ -211,6 +211,17 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	if reportReady && strings.TrimSpace(lastText) == "" {
 		reportReady = false // no report exists yet: generate the answer once after acceptance
 	}
+	if complete && (stoppedBySafetyClassifier(lastText) || currentTurnSafetyStopped(evs)) {
+		reason := "the model backend's safety classifier stopped the response"
+		a.signalTurnControl(sid, func(tc *turnControl) {
+			tc.finish = true
+			tc.unverifiedReason = reason
+			tc.reportReady = reportReady
+		})
+		return "The turn was stopped by the model backend's safety classifier, so the council was not convened. " +
+			"Your turn ends here; report plainly what could not be produced and stop." +
+			notesTail(a.turnNotesBlock(sid)), nil
+	}
 
 	// A re-declaration with nothing changed is not worth an endless fresh fan-out. When the agent
 	// declares complete again with a byte-identical report and the same edits — it did no work,
@@ -685,6 +696,27 @@ func currentTurnAssistantText(evs []event.Event) string {
 		}
 	}
 	return lastTurnAssistantText(evs[start:])
+}
+
+func currentTurnSafetyStopped(evs []event.Event) bool {
+	start := 0
+	for i, e := range evs {
+		if e.Type == event.TypeTurnFinished {
+			start = i + 1
+		}
+	}
+	for _, e := range evs[start:] {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) == nil && d.Role == session.RoleAssistant && d.Part.Kind == session.PartText {
+			if stoppedBySafetyClassifier(d.Part.Text) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // lastTurnAssistantText is the agent's claim, read beside the execution record.

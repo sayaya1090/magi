@@ -325,7 +325,7 @@ func (a *App) assembledParts(sid session.SessionID, s session.Session, evs []eve
 	}
 	agent := a.agentFor(s)
 	sys := a.systemFor(agent, s.Workdir)
-	if dir := langDirective(lastUserPromptText(a.liveEvents(sid, evs))); dir != "" {
+	if dir := a.sessionLangDirective(sid, a.liveEvents(sid, evs)); dir != "" {
 		sys = dir + "\n\n" + sys
 	}
 	sys += renderSkillBlock(a.loadSkills(s.Workdir))

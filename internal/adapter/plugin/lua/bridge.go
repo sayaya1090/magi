@@ -50,6 +50,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "json_encode", L.NewFunction(p.bridgeJSONEncode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "apply_experience", L.NewFunction(p.bridgeApplyExperience))
+	L.SetField(t, "search_experience", L.NewFunction(p.bridgeSearchExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
 	L.SetField(t, "finish", L.NewFunction(p.bridgeFinish))
 	L.SetField(t, "remove_file", L.NewFunction(p.bridgeRemoveFile))
@@ -634,16 +635,21 @@ var knownEvents = map[string]bool{
 	"session_start": true, // a new top-level session was created
 	// Observation events (payload table arg; fired asynchronously off the turn
 	// path, best-effort): conversation milestones for observer-style plugins.
-	"user_message":  true, // {session=, text=} — a genuine user prompt was submitted
-	"turn_finished": true, // {session=, text=} — a top-level turn ended (text = final assistant answer)
+	"user_message":      true, // {session=, text=} — a genuine user prompt was submitted
+	"turn_finished":     true, // {session=, text=} — a top-level turn ended (text = final assistant answer)
+	"context_compacted": true, // {session=, summary=} — conversation context was compacted into a summary
+	"idle":              true, // {idle_seconds=} — no user prompt and no turn in flight for the idle period (default 30m), once per quiet period
 }
 
 // magi.on(event, fn) — register a lifecycle handler the host calls at `event`.
 func (p *plugin) bridgeOn(L *lua.LState) int {
 	event := L.CheckString(1)
 	if !knownEvents[event] {
-		L.RaiseError("on: unknown event %q (known: startup, shutdown, session_start, user_message, turn_finished)", event)
+		L.RaiseError("on: unknown event %q (known: startup, shutdown, session_start, user_message, turn_finished, context_compacted, idle)", event)
 		return 0
+	}
+	if event == "idle" && p.host != nil {
+		p.host.ensureIdleWatch()
 	}
 	fn, ok := L.Get(2).(*lua.LFunction)
 	if !ok {

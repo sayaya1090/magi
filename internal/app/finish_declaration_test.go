@@ -8,6 +8,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // F-LOOP-STOP loop-stop-3: a working turn that never declares completion is asked for the
@@ -302,5 +303,47 @@ func TestAcceptedDeclarationRecordsTheRebuttal(t *testing.T) {
 	// must not imply one did — an omitted field and a zero-valued one read differently.
 	if got := decidedFact(t, base); got.Debate != nil {
 		t.Errorf("no debate ran, so the fact must carry none, got %+v", *got.Debate)
+	}
+}
+
+func TestSafetyClassifierStopSkipsDeclarationAndCouncil(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{
+		Round: 1, Decision: council.Continue, Feedback: "unfinished",
+	}}}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
+	a.cfg.Workflow = false
+	ctx := context.Background()
+	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: newRunGuard(nil)}
+
+	stoppedMsg := "I cannot continue.\n\n[claudecode: response stopped by backend safety classifier]"
+	ts := &turnState{}
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, stoppedMsg, ts); done {
+		t.Fatal("requireFinishDeclaration must not nudge when stopped by safety classifier")
+	}
+	if !strings.Contains(ts.unverifiedReason, "safety classifier") {
+		t.Fatalf("expected safety classifier unverifiedReason, got %q", ts.unverifiedReason)
+	}
+
+	// Also verify explicit council(complete: true) short-circuits without polling the council.
+	pd, _ := json.Marshal(event.PartAppendedData{
+		MessageID: "m_asst",
+		Role:      session.RoleAssistant,
+		Part:      session.Part{Kind: session.PartText, Text: stoppedMsg},
+	})
+	_ = a.appendFact(ctx, sid, event.TypePartAppended, event.Actor{Kind: event.ActorAgent, ID: "coder"}, pd)
+
+	out, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, 0, "", true, true)
+	if err != nil {
+		t.Fatalf("councilAdvice: %v", err)
+	}
+	if len(fc.reqs) != 0 {
+		t.Fatalf("council should not have been polled after safety classifier stop, got %d polls", len(fc.reqs))
+	}
+	if !strings.Contains(out, "stopped by the model backend's safety classifier") {
+		t.Fatalf("unexpected councilAdvice output: %s", out)
+	}
+	ctrl := a.takeTurnControl(sid)
+	if !ctrl.finish || !strings.Contains(ctrl.unverifiedReason, "safety classifier") {
+		t.Fatalf("expected turn finish with safety classifier reason, got %+v", ctrl)
 	}
 }

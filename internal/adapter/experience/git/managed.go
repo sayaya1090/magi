@@ -8,11 +8,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
+	"github.com/sayaya1090/magi/internal/core/embed"
+	"github.com/sayaya1090/magi/internal/core/lexical"
 	"github.com/sayaya1090/magi/internal/filelock"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -167,18 +173,278 @@ func (s *Store) managedPool(ctx context.Context, query string) ([]Scored[port.Me
 		}
 		if r.Change.Kind == "memory" && r.Change.Memory != nil {
 			m := *r.Change.Memory
+			now := time.Now()
+			if s.retentionNow != nil {
+				now = s.retentionNow()
+			}
+			if m.EffectiveStatus() == "disconfirmed" || m.IsExpired(now) {
+				continue
+			}
 			contentRevision := r.ContentRevision
 			if contentRevision == "" {
 				contentRevision = r.Revision
 			}
 			m.ID = "managed:" + r.Change.ObjectID + "@" + contentRevision
-			memories = append(memories, Scored[port.Memory]{Score: overlap(terms, m.Text), Cold: retention.Cold, V: m})
+			score := overlap(terms, m.Description+" "+m.Text)
+			if matchesManagedID(query, r.Change.ObjectID, m.ID) {
+				score += 1000
+			}
+			memories = append(memories, Scored[port.Memory]{Score: score, Cold: retention.Cold, V: m})
 		} else if r.Change.Kind == "skill" && r.Change.Skill != nil {
 			sk := *r.Change.Skill
-			skills = append(skills, Scored[port.Skill]{Score: overlap(terms, sk.Name+" "+sk.Description+" "+sk.Body), Cold: retention.Cold, V: sk})
+			score := overlap(terms, sk.Name+" "+sk.Description+" "+sk.Body)
+			if matchesManagedID(query, r.Change.ObjectID, "managed:"+r.Change.ObjectID) {
+				score += 1000
+			}
+			skills = append(skills, Scored[port.Skill]{Score: score, Cold: retention.Cold, V: sk})
 		}
 	}
 	return memories, skills, nil
+}
+
+func matchesManagedID(query, objectID, fullID string) bool {
+	if objectID == "" {
+		return false
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	obj := strings.ToLower(objectID)
+	full := strings.ToLower(fullID)
+	if q == obj || q == "managed:"+obj || q == full || strings.Contains(q, "managed:"+obj) {
+		return true
+	}
+	for _, f := range strings.Fields(q) {
+		f = strings.Trim(f, "[](),:;\"'`")
+		if idx := strings.IndexByte(f, '@'); idx > 0 {
+			f = f[:idx]
+		}
+		if f == obj || f == "managed:"+obj {
+			return true
+		}
+	}
+	return false
+}
+
+// SearchManagedExperience lists or searches active managed records, scoring by
+// both lexical overlap and best-chunk cosine similarity when an embedder is attached.
+func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string, minSim float64, limit int) ([]port.ManagedRecordSummary, error) {
+	paths, err := filepath.Glob(filepath.Join(s.dir, "managed", "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	sort.Strings(paths)
+	release, err := filelock.Acquire(ctx, filepath.Join(s.dir, ".managed-write.lock"))
+	if err != nil {
+		return nil, err
+	}
+	var items []port.ManagedRecordSummary
+	now := time.Now()
+	if s.retentionNow != nil {
+		now = s.retentionNow()
+	}
+	for _, path := range paths {
+		b, err := atomicfile.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var r managedRecord
+		if json.Unmarshal(b, &r) != nil || r.Version != 1 || filepath.Base(path) != r.Change.ObjectID+".json" {
+			continue
+		}
+		if r.Change.State != "active" {
+			continue
+		}
+		if kind != "" && r.Change.Kind != kind {
+			continue
+		}
+		retention, err := s.retention(ctx, r, "")
+		if err != nil || retention.Archived {
+			continue
+		}
+		contentRev := r.ContentRevision
+		if contentRev == "" {
+			contentRev = r.Revision
+		}
+		var updatedStr string
+		var updatedEpoch int64
+		if fi, statErr := os.Stat(path); statErr == nil {
+			updatedStr = fi.ModTime().UTC().Format(time.RFC3339)
+			updatedEpoch = fi.ModTime().Unix()
+		}
+		sum := port.ManagedRecordSummary{
+			ObjectID:        r.Change.ObjectID,
+			Revision:        r.Revision,
+			ContentRevision: contentRev,
+			Owner:           r.Change.Owner,
+			Kind:            r.Change.Kind,
+			State:           r.Change.State,
+			HostOutcome:     r.Change.HostOutcome,
+			Cold:            retention.Cold,
+			UpdatedAt:       updatedStr,
+			UpdatedEpoch:    updatedEpoch,
+		}
+		if r.Change.Kind == "memory" && r.Change.Memory != nil {
+			m := *r.Change.Memory
+			if m.Description == "" {
+				m.Description = m.EffectiveDescription()
+			}
+			if m.Kind == "" {
+				m.Kind = m.EffectiveKind()
+			}
+			if len(m.Areas) == 0 {
+				m.Areas = m.EffectiveAreas()
+			}
+			if m.Tier == "" {
+				m.Tier = m.EffectiveTier()
+			}
+			if m.Status == "" {
+				m.Status = m.EffectiveStatus()
+			}
+			m.ID = "managed:" + r.Change.ObjectID + "@" + contentRev
+			if m.Status == "disconfirmed" || (query != "" && m.IsExpired(now)) {
+				continue
+			}
+			sum.Memory = &m
+		} else if r.Change.Kind == "skill" && r.Change.Skill != nil {
+			sk := *r.Change.Skill
+			sum.Skill = &sk
+		} else {
+			continue
+		}
+		items = append(items, sum)
+	}
+	release()
+
+	q := strings.TrimSpace(query)
+	if q != "" && len(items) > 0 {
+		// Unified BM25F field-weighted lexical scoring
+		docFields := make([]lexical.DocumentFields, len(items))
+		for i := range items {
+			if items[i].Memory != nil {
+				docFields[i] = lexical.DocumentFields{
+					Fields: []lexical.Field{
+						{Text: items[i].ObjectID + " " + strings.Join(items[i].Memory.Areas, " "), Weight: 3.0},
+						{Text: items[i].Memory.Description, Weight: 2.0},
+						{Text: items[i].Memory.Text, Weight: 1.0},
+					},
+				}
+			} else if items[i].Skill != nil {
+				docFields[i] = lexical.DocumentFields{
+					Fields: []lexical.Field{
+						{Text: items[i].Skill.Name, Weight: 3.0},
+						{Text: items[i].Skill.Description, Weight: 2.0},
+						{Text: items[i].Skill.Body, Weight: 1.0},
+					},
+				}
+			}
+		}
+		bmScores := lexical.FieldScores(q, docFields)
+		for i := range items {
+			score := 0
+			if i < len(bmScores) && bmScores[i] > 0 {
+				score = max(1, int(math.Round(bmScores[i]*1000)))
+			}
+			memID := ""
+			if items[i].Memory != nil {
+				memID = items[i].Memory.ID
+			}
+			if matchesManagedID(q, items[i].ObjectID, memID) {
+				score += 1000
+			}
+			items[i].Score = score
+		}
+
+		if s.same != nil && s.same.Available() {
+			var chunks []string
+			var owner []int
+			for i := range items {
+				if items[i].Memory != nil {
+					for _, c := range embed.ChunksWithHeader(items[i].Memory.Description, items[i].Memory.Text) {
+						chunks = append(chunks, c)
+						owner = append(owner, i)
+					}
+				} else if items[i].Skill != nil {
+					for _, c := range embed.ChunksWithHeader(items[i].Skill.Name+": "+items[i].Skill.Description, items[i].Skill.Body) {
+						chunks = append(chunks, c)
+						owner = append(owner, i)
+					}
+				}
+			}
+			if vecs, err := s.same.Embed(ctx, append(chunks, q)); err == nil && len(vecs) == len(chunks)+1 {
+				qv := vecs[len(vecs)-1]
+				for j, i := range owner {
+					if c := embed.Cosine(vecs[j], qv); c > items[i].Similarity {
+						items[i].Similarity = c
+					}
+				}
+			}
+		}
+		filtered := items[:0]
+		for _, it := range items {
+			if minSim > 0 {
+				minScore := 1
+				if minSim >= 0.70 {
+					minScore = 200
+				} else if minSim >= 0.40 {
+					minScore = 100
+				}
+				if it.Similarity >= minSim || (it.Similarity == 0 && it.Score >= minScore) {
+					filtered = append(filtered, it)
+				}
+			} else if it.Similarity > 0 || it.Score > 0 {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
+		sort.SliceStable(items, func(a, b int) bool {
+			if (items[a].Score >= 1000) != (items[b].Score >= 1000) {
+				return items[a].Score >= 1000
+			}
+			if items[a].Similarity != items[b].Similarity {
+				return items[a].Similarity > items[b].Similarity
+			}
+			return items[a].Score > items[b].Score
+		})
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
+// CoreMemories returns active, observed, non-expired core-tier memories up to maxChars.
+func (s *Store) CoreMemories(ctx context.Context, maxChars int) ([]port.Memory, error) {
+	items, err := s.SearchManagedExperience(ctx, "", "memory", 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	if s.retentionNow != nil {
+		now = s.retentionNow()
+	}
+	var out []port.Memory
+	used := 0
+	for _, it := range items {
+		if it.Memory == nil || it.Cold {
+			continue
+		}
+		m := *it.Memory
+		if m.EffectiveTier() != "core" || m.EffectiveStatus() != "observed" || m.IsExpired(now) {
+			continue
+		}
+		line := m.EffectiveDescription()
+		if line == "" {
+			continue
+		}
+		if maxChars > 0 && used+len(line)+4 > maxChars && len(out) > 0 {
+			break
+		}
+		used += len(line) + 4
+		out = append(out, m)
+	}
+	return out, nil
 }
 
 func (s *Store) managedInventory(ctx context.Context) ([]SkillInfo, error) {

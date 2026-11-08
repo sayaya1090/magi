@@ -124,4 +124,28 @@ func TestAntigravityShimStreamsAndKeepsOneChildPerConversation(t *testing.T) {
 	if !strings.Contains(all3, `"content":"Sure.\n"`) {
 		t.Fatalf("the prose before the call was lost:\n%s", all3)
 	}
+
+	// 4. Council queries run (one-shot, no tools, judging instructions).
+	// They must not evict conversation 3's child or be confused with it.
+	for _, member := range []string{"Melchior", "Balthasar", "Casper"} {
+		fc, _, _ := ask(fmt.Sprintf(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"system","content":"You are %s, judging through the correctness lens."},{"role":"user","content":"check evidence"}]}`, member))
+		if !strings.Contains(joined(fc), `"content":"turn1"`) {
+			t.Fatalf("council call %s did not get its own child: %s", member, joined(fc))
+		}
+	}
+
+	// 5. Turn 4 on conversation 3 continues the SAME child as f3 (turn2), NOT a new child!
+	f4, _, _ := ask(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"user","content":"please CALLME"},{"role":"assistant","content":"Sure.","tool_calls":[{"id":"call_1","type":"function","function":{"name":"list_slides","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"slides: [1, 2]"},{"role":"user","content":"next step"}],"tools":[{"type":"function","function":{"name":"list_slides","description":"x","parameters":{"type":"object"}}}]}`)
+	all4 := joined(f4)
+	if !strings.Contains(all4, `"content":"turn2"`) {
+		t.Fatalf("turn 4 on conversation 3 did not continue the same child (expected turn2 after council queries):\n%s", all4)
+	}
+
+	// 6. Intermediate turns handled by another provider (assistant prose + tool_calls) are fed in
+	// renderTail when switching back to agy on the same child (caught_up_turn3).
+	f5, _, _ := ask(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"user","content":"please CALLME"},{"role":"assistant","content":"Sure.","tool_calls":[{"id":"call_1","type":"function","function":{"name":"list_slides","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"slides: [1, 2]"},{"role":"user","content":"next step"},{"role":"assistant","content":"hello turn2"},{"role":"user","content":"switched away"},{"role":"assistant","content":"OTHER_PROVIDER_ANSWER","tool_calls":[{"id":"call_other","type":"function","function":{"name":"list_slides","arguments":"{\"filter\":\"OTHER_PROVIDER_ARG\"}"}}]},{"role":"tool","tool_call_id":"call_other","content":"slides: [3]"},{"role":"user","content":"switched back to agy"}],"tools":[{"type":"function","function":{"name":"list_slides","description":"x","parameters":{"type":"object"}}}]}`)
+	all5 := joined(f5)
+	if !strings.Contains(all5, `"content":"caught_up_turn3"`) {
+		t.Fatalf("intermediate assistant turns from another provider were lost in renderTail:\n%s", all5)
+	}
 }

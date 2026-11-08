@@ -49,6 +49,7 @@ local MAX_ACTIVE_ROWS = 80  -- 활성 표 상한 — 초과분은 오래된 행�
 -- 세션별 최근 대화 윈도우 / 세션 내 중복 교훈 가드
 local recent = {}   -- sid -> { {role=, text=}, ... }
 local recorded = {} -- sid -> { [lessonKey]=true }
+local embed_lease_touch = function() return false end
 
 -- 사이드카 분석기 시스템 프롬프트 (결정 규칙·성공 확정 정의·환각 금지)
 local SIDECAR_PROMPT = [[당신은 개발 대화 로그를 분석하는 전용 분석기다. 코딩이나 도구 호출은 절대 하지 말 것.
@@ -385,6 +386,115 @@ local function persist_managed(state)
   return ok
 end
 
+local function reconcile_managed_conflict(request)
+  if type(magi.search_experience) ~= "function" then return false end
+
+  -- Optimistic Retry Loop: Reconcile 도중 제3의 컴패니언이 끼어드는 Moving Target 문제 방어 (최대 3회)
+  for attempt = 1, 3 do
+    local hits = magi.search_experience{
+      query = request.object_id,
+      kind = request.kind or "",
+      limit = 1,
+    }
+    if type(hits) ~= "table" or #hits == 0 then return false end
+    local remote = hits[1]
+    if not remote or remote.object_id ~= request.object_id or not remote.revision or remote.revision == "" then
+      return false
+    end
+
+    local latest_revision = remote.revision
+
+    -- 근거(evidence) 목록 병합 (중복 제거)
+    local ev_map = {}
+    local merged_ev = {}
+    local function add_ev(list)
+      if type(list) ~= "table" then return end
+      for _, item in ipairs(list) do
+        if type(item) == "table" then
+          local key = tostring(item.session or "") .. ":" .. tostring(item.turn or "") .. ":" .. tostring(item.outcome or "")
+          if not ev_map[key] then
+            ev_map[key] = true
+            merged_ev[#merged_ev + 1] = item
+          end
+        end
+      end
+    end
+    add_ev(remote.evidence)
+    add_ev(request.evidence)
+    request.evidence = merged_ev
+
+    if request.kind == "memory" then
+      local remote_text = tostring(remote.text or (remote.memory and remote.memory.text) or "")
+      local local_text = tostring(request.text or (request.memory and request.memory.text) or "")
+
+      -- 1. Fast-Path: 본문 내용이 완전히 동일하면 LLM 호출 없이 revision만 전진시켜 즉시 커밋
+      if remote_text == local_text then
+        request.expected_revision = latest_revision
+        request.operation_id = magi.nonce()
+        local receipt, err = magi.apply_experience(request)
+        if receipt then return receipt end
+        -- 그사이 또 바뀌었으면 다음 루프로 재시도
+      elseif remote_text ~= "" and local_text ~= "" then
+        -- 2. 텍스트 충돌 발생: 사이드카 LLM(magi.analyze)으로 3자 의미 화해 시도
+        -- 디테일 증발 방지(Compression Drift 방어) 가드레일 명시
+        local synthesized = nil
+        if type(magi.analyze) == "function" then
+          local sys = "당신은 두 컴패니언의 기억/교훈 충돌을 해결하는 전용 화해기다. 지침에 따라 고유명사와 구체적 기술 엔티티를 무손실 보존한 단일 교훈 텍스트만 출력할 것."
+          local prompt = "동일한 객체(" .. tostring(request.object_id) .. ")에 대해 서로 다른 기억이 충돌했습니다.\n\n" ..
+            "[기존 저장된 기억 (Remote)]:\n" .. remote_text .. "\n\n" ..
+            "[새로 기록하려는 기억 (Local)]:\n" .. local_text .. "\n\n" ..
+            "지침:\n" ..
+            "1. 무손실 보존(Lossless Entities): 포트 번호, CLI 옵션/명령어, 파일 경로, 에러 메시지 등 구체적 고유 명사와 기술 식별자는 단 하나도 누락하거나 일반화하지 마십시오.\n" ..
+            "2. 삭제 의도 존중(Explicit Deletion): 한쪽에만 있던 내용이 다른 쪽에서 명시적으로 정정되거나 폐기된 것이라면 최신 검증된 문맥을 따르십시오.\n" ..
+            "3. 모순 해결 기준(Conflict Resolution): 두 내용이 직접 충돌하면 구체적인 실행 결과나 검증 근거(Evidence)가 포함된 쪽을 채택하십시오.\n" ..
+            "4. 두 기억의 사실과 유효한 관찰을 모두 포함하는 1~2문장의 단일 교훈으로 작성하십시오.\n" ..
+            "5. 서론, 부가 설명, 마크다운 코드블록 없이 오직 합성된 텍스트 본문만 출력하십시오."
+          local res, aerr = magi.analyze{system = sys, text = prompt}
+          if res and type(res) == "string" and string.match(res, "%S") then
+            local cleaned = string.gsub(res, "^```%w*\n?", "")
+            cleaned = string.gsub(cleaned, "\n?```$", "")
+            synthesized = string.match(cleaned, "^%s*(.-)%s*$")
+          end
+        end
+
+        if synthesized and synthesized ~= "" then
+          request.text = synthesized
+          if type(request.memory) == "table" then request.memory.text = synthesized end
+          request.status = "active"
+          magi.log("engram: managed conflict resolved via semantic 3-way analysis for " .. request.object_id)
+        else
+          -- 3. Safe Fallback(LWW): 원격 텍스트를 일단 유지하되, 밀려난 로컬 텍스트를 유실하지 않도록
+          -- status를 'conflicted'로 마킹하고 설명에 남겨 다음 유휴 드림(Dream) 단계에서 재화해하도록 보존
+          request.text = remote_text
+          if type(request.memory) == "table" then request.memory.text = remote_text end
+          request.status = "conflicted"
+          local unmerged_note = "[deferred_reconcile: local=" .. local_text .. "]"
+          if not string.find(tostring(request.description or ""), "deferred_reconcile", 1, true) then
+            request.description = (request.description and (request.description .. " ") or "") .. unmerged_note
+          end
+          magi.log("engram: managed conflict fallback: preserved remote text, merged evidence, and flagged conflicted for " .. request.object_id)
+        end
+
+        request.expected_revision = latest_revision
+        request.operation_id = magi.nonce()
+        local receipt, err = magi.apply_experience(request)
+        if receipt then
+          return receipt
+        end
+        magi.log("engram: managed conflict reconciliation retry " .. attempt .. " failed: " .. tostring(err))
+      end
+    else
+      -- memory 외 kind의 경우
+      request.expected_revision = latest_revision
+      request.operation_id = magi.nonce()
+      local receipt, err = magi.apply_experience(request)
+      if receipt then return receipt end
+    end
+  end
+
+  return false
+end
+
 local function flush_managed()
   local state = managed_state()
   if not state then return false end
@@ -421,9 +531,20 @@ local function flush_managed()
       local receipt, err = magi.apply_experience(request)
       attempts = attempts + 1
       if not receipt then
-        magi.log("engram: managed experience pending: " .. tostring(err))
-        blocked[request.object_id] = true
-        i = i + 1
+        local err_str = tostring(err or "")
+        local resolved_receipt = false
+        if string.find(err_str, "conflict", 1, true) then
+          resolved_receipt = reconcile_managed_conflict(request)
+        end
+        if resolved_receipt then
+          object.revision = resolved_receipt.revision
+          table.remove(state.queue, i)
+          if not persist_managed(state) then return false end
+        else
+          magi.log("engram: managed experience pending: " .. err_str)
+          blocked[request.object_id] = true
+          i = i + 1
+        end
       else
         object.revision = receipt.revision
         table.remove(state.queue, i)
@@ -457,6 +578,32 @@ local function enqueue_managed(key, payload, old_key)
   local request = {}
   for k, v in pairs(payload) do request[k] = v end
   request.object_id = id
+  request.operation_id = magi.nonce()
+  request.observation_id = magi.nonce()
+  state.queue[#state.queue + 1] = request
+  if not persist_managed(state) then return false end
+  return flush_managed()
+end
+
+local function enqueue_managed_object(id, expected_revision, payload)
+  local state = managed_state()
+  if not state then return false end
+  if #state.queue >= 256 then
+    magi.log("engram: managed outbox is full; local change requires reconciliation")
+    return false
+  end
+  local object = state.objects[id] or {}
+  state.objects[id] = object
+  if expected_revision and expected_revision ~= "" and (not object.revision or object.revision == "") then
+    object.revision = expected_revision
+  end
+  object.payload = payload
+  local request = {}
+  for k, v in pairs(payload) do request[k] = v end
+  request.object_id = id
+  if expected_revision and expected_revision ~= "" then
+    request.expected_revision = expected_revision
+  end
   request.operation_id = magi.nonce()
   request.observation_id = magi.nonce()
   state.queue[#state.queue + 1] = request
@@ -721,13 +868,198 @@ local function save_skill(skill)
   return slug
 end
 
+-- 기존 교훈과 의미·어휘 유사도가 높으면 새 관리 객체를 만들지 않고 기존 객체의 evidence 만 보강한다.
+-- 서로 다른 2개 이상의 세션에서 관측되면 hypothesis -> observed 로 자동 승격한다.
+local function append_evidence_to_existing(sid, host_outcome, lesson_text)
+  if type(magi.search_experience) ~= "function" then return false end
+  local hits = magi.search_experience{
+    query = lesson_text,
+    kind = "memory",
+    state = "active",
+    limit = 3,
+    min_similarity = 0.78,
+  }
+  if type(hits) ~= "table" or #hits == 0 then return false end
+  local hit = hits[1]
+  if type(hit) ~= "table" or not hit.object_id or hit.object_id == "" then return false end
+  local ev_list = {}
+  local sessions = {}
+  if type(hit.evidence) == "table" then
+    for _, item in ipairs(hit.evidence) do
+      if type(item) == "table" then
+        ev_list[#ev_list + 1] = item
+        if item.session and item.session ~= "" then
+          sessions[tostring(item.session)] = true
+        end
+      end
+    end
+  end
+  local sid_str = tostring(sid or "")
+  local out_str = tostring(host_outcome or "")
+  local already = false
+  for _, item in ipairs(ev_list) do
+    if tostring(item.session or "") == sid_str and tostring(item.outcome or "") == out_str then
+      already = true
+      break
+    end
+  end
+  if not already and sid_str ~= "" then
+    ev_list[#ev_list + 1] = { session = sid_str, outcome = out_str }
+    sessions[sid_str] = true
+  end
+  local session_count = 0
+  for _ in pairs(sessions) do session_count = session_count + 1 end
+  local new_status = tostring(hit.status or "")
+  if (new_status == "" or new_status == "hypothesis") and session_count >= 2 then
+    new_status = "observed"
+  end
+  local payload = {
+    kind = "memory",
+    state = "active",
+    host_outcome = host_outcome ~= "" and host_outcome or hit.host_outcome,
+    text = tostring(hit.text or lesson_text),
+    evidence = ev_list,
+  }
+  if hit.description and hit.description ~= "" then payload.description = hit.description end
+  if hit.memory_kind and hit.memory_kind ~= "" then payload.memory_kind = hit.memory_kind end
+  if type(hit.areas) == "table" and #hit.areas > 0 then payload.areas = hit.areas end
+  if hit.tier and hit.tier ~= "" then payload.tier = hit.tier end
+  if new_status ~= "" then payload.status = new_status end
+  if hit.valid_until and hit.valid_until ~= "" then payload.valid_until = hit.valid_until end
+  if type(hit.links) == "table" and #hit.links > 0 then payload.links = hit.links end
+  enqueue_managed_object(hit.object_id, hit.revision, payload)
+  magi.log("engram: 기존 기억 근거 보강 (" .. hit.object_id .. ", 세션 " .. session_count .. "개)")
+  return true
+end
+
+local function build_memory_payload(lesson, host_outcome, text)
+  local payload = {
+    kind = "memory",
+    state = "active",
+    host_outcome = host_outcome,
+    text = text,
+  }
+  if type(lesson.description) == "string" and lesson.description ~= "" then
+    payload.description = lesson.description
+  end
+  if type(lesson.kind) == "string" and lesson.kind ~= "" then
+    payload.memory_kind = lesson.kind
+  end
+  if type(lesson.areas) == "table" and #lesson.areas > 0 then
+    payload.areas = lesson.areas
+  end
+  if type(lesson.tier) == "string" and lesson.tier ~= "" then
+    payload.tier = lesson.tier
+  end
+  if type(lesson.status) == "string" and lesson.status ~= "" then
+    payload.status = lesson.status
+  end
+  if type(lesson.valid_until) == "string" and lesson.valid_until ~= "" then
+    payload.valid_until = lesson.valid_until
+  end
+  if type(lesson.evidence) == "table" and #lesson.evidence > 0 then
+    payload.evidence = lesson.evidence
+  end
+  if type(lesson.links) == "table" and #lesson.links > 0 then
+    payload.links = lesson.links
+  end
+  return payload
+end
+
+local function push_reflection_observation(sid, host_outcome, text)
+  if not text or text == "" then return end
+  local key = "reflection_inbox_v1:" .. magi.workdir()
+  local prev = magi.store_get(key) or ""
+  local items = magi.json_decode(prev == "" and "[]" or prev)
+  if type(items) ~= "table" then items = {} end
+  items[#items + 1] = {
+    session = tostring(sid or ""),
+    at = magi.time(),
+    outcome = tostring(host_outcome or ""),
+    text = string.sub(tostring(text), 1, 600),
+  }
+  while #items > 25 do table.remove(items, 1) end
+  magi.store_compare_exchange(key, prev, magi.json_encode(items))
+  magi.store_set("dream_dirty_v1:" .. magi.workdir(), "1")
+end
+
+local function record_extracted_lesson(sid, lesson, user, host_outcome)
+  if type(lesson) ~= "table" or not lesson.task or not lesson.lesson then return end
+  -- This analyzer sees conversation excerpts, not controlled comparisons.
+  -- Preserve its claims separately and never label a successful turn as
+  -- causal evidence for one technique. A model cannot upgrade this field.
+  local evidence_key = "learning_evidence_v1:" .. magi.workdir()
+  local previous_evidence = magi.store_get(evidence_key) or ""
+  local evidence = magi.json_decode(previous_evidence == "" and "[]" or previous_evidence)
+  if type(evidence) ~= "table" then
+    magi.log("engram: learning evidence is malformed; preserving stored data")
+  else
+    evidence[#evidence + 1] = {
+      session = sid, at = magi.time(), host_outcome = host_outcome,
+      task = tostring(lesson.task), change = tostring(lesson.change or lesson.approach or ""),
+      evidence = tostring(lesson.evidence or ""), attribution = "confounded",
+      source = "conversation_excerpt", verified_application = false,
+    }
+    while #evidence > 100 do table.remove(evidence, 1) end
+    local saved, why = magi.store_compare_exchange(evidence_key, previous_evidence, magi.json_encode(evidence))
+    if not saved then magi.log("engram: learning evidence not saved: " .. tostring(why)) end
+  end
+  local outcome = tostring(lesson.outcome or "none")
+  if outcome == "none" then return end
+  local key = lesson_key(lesson.task, lesson.approach)
+  local seen = recorded[sid]
+  if not seen then seen = {} recorded[sid] = seen end
+  if seen[key] then return end
+  seen[key] = true
+  -- 정정(replaces)은 옛 행과 겹치는 것이 정상이라 유사-중복 백스톱을 타지 않는다 —
+  -- 백스톱이 정정을 막으면 낡은 주장이 원장의 현재로 영영 남는다. 단 검증은 한다:
+  -- 범위 밖이거나 정수가 아닌 번호는 정정이 아니라 오지정이고, 그대로 믿으면 두 중복
+  -- 가드를 다 우회한 채 엉뚱한 행을 아카이브할 수 있다 → 일반 append 경로로 강등.
+  local replaces = tonumber(lesson.replaces)
+  if replaces then
+    replaces = math.floor(replaces)
+    if replaces < 1 or replaces > #ledger_rows() or replaces ~= tonumber(lesson.replaces) then
+      replaces = nil
+    end
+  end
+  local full_text = "[" .. tostring(lesson.category or "기타") .. "] " .. tostring(lesson.task)
+    .. " — " .. tostring(lesson.approach or "") .. " → " .. outcome .. ": " .. tostring(lesson.lesson)
+  if not replaces then
+    if append_evidence_to_existing(sid, host_outcome, full_text) then
+      push_reflection_observation(sid, host_outcome, full_text)
+      return
+    end
+    if lesson_is_duplicate(lesson.lesson) then
+      magi.log("engram: 유사 교훈 이미 기록됨 — 스킵: " .. tostring(lesson.task))
+      return
+    end
+  end
+  local ok, new_row, previous_row = append_lesson({
+    timestamp = magi.time(),
+    username = magi.store_get("username") or user or "user",
+    category = tostring(lesson.category or "기타"),
+    task = tostring(lesson.task), approach = tostring(lesson.approach or ""),
+    outcome = outcome, lesson = tostring(lesson.lesson),
+  }, replaces)
+  if ok then
+    magi.log("engram: 교훈 기록 — " .. tostring(lesson.task))
+    local payload = build_memory_payload(lesson, host_outcome, full_text)
+    local synced = enqueue_managed("lesson:" .. new_row, payload, previous_row and ("lesson:" .. previous_row) or nil)
+    if not synced then magi.notify(sid, "engram: 교훈은 로컬에 기록했지만 경험 저장소 반영은 대기 중입니다.") end
+    push_reflection_observation(sid, host_outcome, full_text)
+  end
+end
+
 -- 캡처: 결과가 확정된 턴 → 사이드카 분석 → 교훈 기록 + 검증된 스킬 저장.
 -- 이 핸들러는 호스트의 관찰 워커에서 돌므로 느린 사이드카가 턴을 막지 않는다.
-local function analyze_and_record(sid, hint, user, used_csv, host_outcome)
-  local r = recent[sid]
-  if not r or #r < 2 then return end -- 직전 시도가 될 맥락 부족
-  local input = render_window(r)
-  if hint and hint ~= "" then input = input .. "\n\n" .. hint end
+local function analyze_and_record(sid, hint, user, used_csv, host_outcome, override_input)
+  local input = override_input
+  if not input then
+    local r = recent[sid]
+    if not r or #r < 2 then return end -- 직전 시도가 될 맥락 부족
+    input = render_window(r)
+    if hint and hint ~= "" then input = input .. "\n\n" .. hint end
+  end
   local ld = lessons_digest()
   if ld ~= "" then input = input .. "\n\n" .. ld end
   -- Skills loaded THIS turn → mark them in the digest so the sidecar won't clone a skill the
@@ -750,72 +1082,17 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome)
     magi.log("engram: 사이드카 응답 파싱 실패(무시)")
     return
   end
-  if not result.lesson and not result.skill then
+  if not result.lesson and type(result.lessons) ~= "table" and not result.skill then
     magi.log("engram: 기록할 교훈/스킬 없음(사소하거나 미확정)")
     return
   end
 
-  local lesson = result.lesson
-  if lesson and lesson.task and lesson.lesson then
-    -- This analyzer sees conversation excerpts, not controlled comparisons.
-    -- Preserve its claims separately and never label a successful turn as
-    -- causal evidence for one technique. A model cannot upgrade this field.
-    local evidence_key = "learning_evidence_v1:" .. magi.workdir()
-    local previous_evidence = magi.store_get(evidence_key) or ""
-    local evidence = magi.json_decode(previous_evidence == "" and "[]" or previous_evidence)
-    if type(evidence) ~= "table" then
-      magi.log("engram: learning evidence is malformed; preserving stored data")
-    else
-      evidence[#evidence + 1] = {
-        session = sid, at = magi.time(), host_outcome = host_outcome,
-        task = tostring(lesson.task), change = tostring(lesson.change or lesson.approach or ""),
-        evidence = tostring(lesson.evidence or ""), attribution = "confounded",
-        source = "conversation_excerpt", verified_application = false,
-      }
-      while #evidence > 100 do table.remove(evidence, 1) end
-      local saved, why = magi.store_compare_exchange(evidence_key, previous_evidence, magi.json_encode(evidence))
-      if not saved then magi.log("engram: learning evidence not saved: " .. tostring(why)) end
+  if type(result.lessons) == "table" then
+    for _, item in ipairs(result.lessons) do
+      record_extracted_lesson(sid, item, user, host_outcome)
     end
-    local outcome = tostring(lesson.outcome or "none")
-    if outcome ~= "none" then
-      local key = lesson_key(lesson.task, lesson.approach)
-      local seen = recorded[sid]
-      if not seen then seen = {} recorded[sid] = seen end
-      if not seen[key] then
-        seen[key] = true
-        -- 정정(replaces)은 옛 행과 겹치는 것이 정상이라 유사-중복 백스톱을 타지 않는다 —
-        -- 백스톱이 정정을 막으면 낡은 주장이 원장의 현재로 영영 남는다. 단 검증은 한다:
-        -- 범위 밖이거나 정수가 아닌 번호는 정정이 아니라 오지정이고, 그대로 믿으면 두 중복
-        -- 가드를 다 우회한 채 엉뚱한 행을 아카이브할 수 있다 → 일반 append 경로로 강등.
-        local replaces = tonumber(lesson.replaces)
-        if replaces then
-          replaces = math.floor(replaces)
-          if replaces < 1 or replaces > #ledger_rows() or replaces ~= tonumber(lesson.replaces) then
-            replaces = nil
-          end
-        end
-        if not replaces and lesson_is_duplicate(lesson.lesson) then
-          magi.log("engram: 유사 교훈 이미 기록됨 — 스킵: " .. tostring(lesson.task))
-        else
-          local ok, new_row, previous_row = append_lesson({
-            timestamp = magi.time(),
-            username = magi.store_get("username") or user or "user",
-            category = tostring(lesson.category or "기타"),
-            task = tostring(lesson.task), approach = tostring(lesson.approach or ""),
-            outcome = outcome, lesson = tostring(lesson.lesson),
-          }, replaces)
-          if ok then
-            magi.log("engram: 교훈 기록 — " .. tostring(lesson.task))
-            local synced = enqueue_managed("lesson:" .. new_row, {
-                kind = "memory", state = "active", host_outcome = host_outcome,
-                text = "[" .. tostring(lesson.category or "기타") .. "] " .. tostring(lesson.task)
-                  .. " — " .. tostring(lesson.approach or "") .. " → " .. outcome .. ": " .. tostring(lesson.lesson),
-            }, previous_row and ("lesson:" .. previous_row) or nil)
-            if not synced then magi.notify(sid, "engram: 교훈은 로컬에 기록했지만 경험 저장소 반영은 대기 중입니다.") end
-          end
-        end
-      end
-    end
+  elseif result.lesson then
+    record_extracted_lesson(sid, result.lesson, user, host_outcome)
   end
 
   -- 검증된 성공의 스킬만 저장 (사이드카 프롬프트의 결정 규칙이 1차 게이트)
@@ -994,6 +1271,14 @@ local function to_days(ymd)
   return era * 146097 + doe - 719468
 end
 
+local function epoch_of(ts)
+  ts = tostring(ts or "")
+  local d = to_days(string.sub(ts, 1, 10))
+  if not d then return nil end
+  local h, m, sec = ts:match("T(%d%d):(%d%d):(%d%d)")
+  return d * 86400 + (tonumber(h) or 0) * 3600 + (tonumber(m) or 0) * 60 + (tonumber(sec) or 0)
+end
+
 -- PRUNE_DAYS default; overridable per-user with /engram-prune-days (stored).
 local PRUNE_DAYS_DEFAULT = 7 -- legacy explicit opt-in only; default retention is host-local 30/90 days
 
@@ -1107,18 +1392,815 @@ local function update_usage(skills_csv, outcome)
   magi.store_set("skill_usage", table.concat(out, "\n"))
 end
 
+local FACTS_BATCH_DEFAULT = 4
+local REFLECT_INTERVAL = 25
+local REFLECT_MIN_OBSERVATIONS = 3
+local REFLECT_FAILURE_LIMIT = 3
+local CORE_CHAR_BUDGET = 2400
+local CORE_DREAM_TARGET = 1920 -- 80% of 2400
+local PRESSURE_COOLDOWN_SECONDS = 300 -- 최소 5분 쿨다운으로 스래싱 폭풍 방어
+local PRESSURE_HYSTERESIS_CHARS = 200 -- 직전 드림 대비 최소 +200자 유입 시에만 재트리거
+local NURSERY_GRACE_PERIOD_SECONDS = 2 * 3600 -- 생성/수정 2시간 이내 신생 기억 강등 보호(Grace Period)
+local MAX_UNREFLECTED_BACKLOG = 15 -- 미성찰 인박스 15건 이상 시 backlog_overflow 압박 감지
+
+local REFLECT_PROMPT = [[당신은 경험 저장소의 성찰(reflection) 통합기다.
+입력으로 최근 작업 관찰(inbox)과 관련 기존 기억(managed memory) 목록이 주어진다.
+JSON 객체 하나로만 응답하라(코드펜스·설명 금지):
+{"actions":[{"op":"create|update|conflict|discard","object_id":"기존 객체 ID (create/discard 시 생략 가능)","description":"언제 필요한지 200자 이내 요약","text":"통합·정제된 기억 본문","kind":"lesson|fact|procedure|preference|pitfall","areas":["구현|디버깅|분석|설정|리팩터링|문서"],"tier":"core|reference","status":"hypothesis|observed|conflicted|disconfirmed","valid_until":"YYYY-MM-DD 또는 빈 문자열"}]}
+규칙:
+- 기존 기억과 같은 주제면 새 객체를 만들지 말고 update로 통합하라.
+- 서로 모순되는 관찰이 확인되면 status="conflicted"로 표시하라.
+- 틀렸음이 확인된 기억은 status="disconfirmed"로 표시하라.
+- 새로운 교훈이 없으면 {"actions":[]} 를 반환하라.]]
+
+local DREAM_PROMPT = [[당신은 경험 저장소의 백그라운드 재정리(dream) 통합기다.
+입력으로 유사도가 높거나 충돌(conflicted) 상태인 기억 클러스터 목록이 주어진다.
+각 클러스터를 하나의 정본(keep_id)으로 병합하고 나머지(archive_ids)를 보관 처리하라.
+JSON 객체 하나로만 응답하라(코드펜스·설명 금지):
+{"merges":[{"keep_id":"남길 객체 ID","archive_ids":["보관할 중복 객체 ID"],"description":"200자 이내 트리거 요약","text":"병합된 정본 본문","kind":"lesson|fact|procedure|preference|pitfall","areas":["구현|디버깅|분석|설정|리팩터링|문서"],"tier":"core|reference","status":"observed|conflicted"}]}]]
+
+local DREAM_PRESSURE_PROMPT = [[당신은 경험 저장소의 긴급 압박(pressure dream) 압축기다.
+코어 티어의 예산 초과(2,400자 상한)를 해소하기 위해 고밀도 핵심 규칙으로 압축하라.
+규칙:
+- 원본의 구체적인 에러 로그, CLI 명령어, 포트 번호, 파일 경로는 절대 임의로 삭제하지 말고 reference 객체에 온전히 보존(Split & Link)하라.
+- 코어 정본(keep_id)에는 한 줄짜리 핵심 트리거 규칙과 [ref: archive_id] 포인터만 남겨라.
+JSON 객체 하나로만 응답하라(코드펜스·설명 금지):
+{"merges":[{"keep_id":"남길 객체 ID","archive_ids":["reference로 보존할 객체 ID"],"description":"200자 이내 트리거 요약","text":"한 줄짜리 핵심 규칙 + [ref: archive_id] 포인터","kind":"lesson|fact|procedure|preference|pitfall","areas":["구현|디버깅|분석|설정|리팩터링|문서"],"tier":"core","status":"observed"}]}]]
+
+local function is_dream_session(sid)
+  local s = string.lower(tostring(sid or ""))
+  return s == "dream" or s == "engram_dream" or string.find(s, "engram%-dream") ~= nil
+end
+
+local function is_classifier_blocked(reason)
+  local r = string.lower(tostring(reason or ""))
+  return string.find(r, "safety", 1, true) ~= nil or string.find(r, "classifier", 1, true) ~= nil
+end
+
+local function facts_batch_size(outcome)
+  local cfg = tonumber(magi.store_get("facts_batch") or "")
+  if cfg and cfg >= 1 then return math.floor(cfg) end
+  if outcome == "verified" or outcome == "error" or outcome == "guard" then
+    return 1
+  end
+  return FACTS_BATCH_DEFAULT
+end
+
+local function load_facts_inbox()
+  local key = "engram_inbox_v1:" .. magi.workdir()
+  local raw = magi.store_get(key) or ""
+  local list = magi.json_decode(raw == "" and "[]" or raw)
+  if type(list) ~= "table" then return {}, raw, key end
+  return list, raw, key
+end
+
+local function flush_facts_inbox(force, fallback_batch)
+  local list, raw, key = load_facts_inbox()
+  if #list == 0 then return false end
+  local need = fallback_batch or FACTS_BATCH_DEFAULT
+  if not force and #list < need then return false end
+  magi.store_compare_exchange(key, raw, "[]")
+  local parts = {}
+  local last_sid = "batch"
+  local last_user = nil
+  local last_outcome = "unverified"
+  local skills_seen, skills_list = {}, {}
+  for idx, item in ipairs(list) do
+    if type(item) == "table" then
+      last_sid = tostring(item.session or last_sid)
+      if item.user and item.user ~= "" then last_user = item.user end
+      if item.outcome and item.outcome ~= "" then last_outcome = item.outcome end
+      if item.skills and item.skills ~= "" then
+        for sk in string.gmatch(tostring(item.skills), "[^,]+") do
+          if not skills_seen[sk] then
+            skills_seen[sk] = true
+            skills_list[#skills_list + 1] = sk
+          end
+        end
+      end
+      parts[#parts + 1] = "[배치 턴 " .. idx .. "/" .. #list .. "]\n"
+        .. tostring(item.window or "") .. "\n" .. tostring(item.hint or "")
+    end
+  end
+  if #parts == 0 then return false end
+  analyze_and_record(
+    last_sid,
+    "",
+    last_user,
+    table.concat(skills_list, ","),
+    last_outcome,
+    table.concat(parts, "\n\n===\n\n")
+  )
+  return true
+end
+
+local function enqueue_facts_inbox(sid, hint, user, used_csv, outcome)
+  local r = recent[sid]
+  if not r or #r < 2 then return false end
+  local window = render_window(r)
+  if #window < 20 then return false end
+  local batch_n = facts_batch_size(outcome)
+  if batch_n <= 1 then
+    analyze_and_record(sid, hint, user, used_csv, outcome)
+    return true
+  end
+  local list, raw, key = load_facts_inbox()
+  list[#list + 1] = {
+    session = tostring(sid or ""),
+    at = magi.time(),
+    outcome = tostring(outcome or ""),
+    hint = tostring(hint or ""),
+    user = user,
+    skills = used_csv,
+    window = window,
+  }
+  while #list > 32 do table.remove(list, 1) end
+  magi.store_compare_exchange(key, raw, magi.json_encode(list))
+  if #list >= batch_n then
+    return flush_facts_inbox( true, batch_n )
+  end
+  return false
+end
+
+local function run_reflection(trigger_reason, explicit, compaction_summary)
+  flush_facts_inbox(true, 1)
+  local fail_key = "reflection_failures_v1:" .. magi.workdir()
+  local fails = tonumber(magi.store_get(fail_key) or "0") or 0
+  if explicit then
+    fails = 0
+    magi.store_set(fail_key, "0")
+  elseif fails >= REFLECT_FAILURE_LIMIT then
+    magi.log("engram: reflection 서킷 브레이커 작동 중 (연속 실패 " .. fails .. "회) — 스킵")
+    return "engram: reflection 서킷 브레이커가 열려 있습니다 (/engram-reflect 로 재시도 가능)."
+  end
+
+  local rkey = "reflection_inbox_v1:" .. magi.workdir()
+  local rraw = magi.store_get(rkey) or ""
+  local items = magi.json_decode(rraw == "" and "[]" or rraw)
+  if type(items) ~= "table" then items = {} end
+  if #items == 0 and (not compaction_summary or compaction_summary == "") then
+    return "engram: 성찰할 새 관찰 항목이 없습니다."
+  end
+
+  local obs_lines = {}
+  local query_parts = {}
+  for i, it in ipairs(items) do
+    if type(it) == "table" and it.text then
+      obs_lines[#obs_lines + 1] = "(" .. i .. ") [session=" .. tostring(it.session or "") .. " outcome=" .. tostring(it.outcome or "") .. "] " .. tostring(it.text)
+      query_parts[#query_parts + 1] = tostring(it.text)
+    end
+  end
+  if compaction_summary and compaction_summary ~= "" then
+    obs_lines[#obs_lines + 1] = "(compaction_summary) " .. tostring(compaction_summary)
+    query_parts[#query_parts + 1] = tostring(compaction_summary)
+  end
+  if #obs_lines == 0 then
+    magi.store_compare_exchange(rkey, rraw, "[]")
+    return "engram: 성찰할 새 관찰 항목이 없습니다."
+  end
+
+  local existing_by_id = {}
+  local mem_lines = {}
+  if type(magi.search_experience) == "function" then
+    local hits = magi.search_experience{
+      query = table.concat(query_parts, " "),
+      kind = "memory",
+      state = "active",
+      limit = 10,
+      min_similarity = 0.20,
+    }
+    if type(hits) == "table" then
+      for _, h in ipairs(hits) do
+        if type(h) == "table" and h.object_id then
+          existing_by_id[h.object_id] = h
+          mem_lines[#mem_lines + 1] = "- id=" .. tostring(h.object_id)
+            .. " rev=" .. tostring(h.revision or "")
+            .. " tier=" .. tostring(h.tier or "reference")
+            .. " status=" .. tostring(h.status or "observed")
+            .. " desc=" .. tostring(h.description or "")
+            .. " :: " .. tostring(h.text or "")
+        end
+      end
+    end
+  end
+
+  local prompt_text = "[성찰 트리거] " .. tostring(trigger_reason or "manual")
+    .. "\n\n[최근 관찰 inbox]\n" .. table.concat(obs_lines, "\n")
+  if #mem_lines > 0 then
+    prompt_text = prompt_text .. "\n\n[관련 기존 관리 기억]\n" .. table.concat(mem_lines, "\n")
+  end
+
+  local model = magi.store_get("sidecar_model")
+  local raw, err = magi.analyze{ system = REFLECT_PROMPT, text = prompt_text, model = model }
+  if not raw then
+    fails = fails + 1
+    magi.store_set(fail_key, tostring(fails))
+    magi.log("engram: reflection 분석 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. "): " .. tostring(err))
+    return "engram: reflection 실패 — " .. tostring(err)
+  end
+  local parsed = parse_cortex_json(raw)
+  if type(parsed) ~= "table" or type(parsed.actions) ~= "table" then
+    fails = fails + 1
+    magi.store_set(fail_key, tostring(fails))
+    magi.log("engram: reflection 응답 파싱 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. ")")
+    return "engram: reflection 응답 형식 오류"
+  end
+
+  magi.store_set(fail_key, "0")
+  magi.store_compare_exchange(rkey, rraw, "[]")
+  local applied = 0
+  for _, act in ipairs(parsed.actions) do
+    if type(act) == "table" then
+      local op = tostring(act.op or "")
+      local oid = tostring(act.object_id or "")
+      local prev = existing_by_id[oid]
+      if (op == "update" or op == "conflict") and prev then
+        local st = tostring(act.status or (op == "conflict" and "conflicted" or prev.status or "observed"))
+        local payload = {
+          kind = "memory",
+          state = st == "disconfirmed" and "archived" or "active",
+          host_outcome = prev.host_outcome or "verified",
+          text = tostring(act.text and act.text ~= "" and act.text or prev.text),
+          description = tostring(act.description and act.description ~= "" and act.description or prev.description or ""),
+          memory_kind = tostring(act.kind and act.kind ~= "" and act.kind or prev.memory_kind or "lesson"),
+          tier = tostring(act.tier and act.tier ~= "" and act.tier or prev.tier or "reference"),
+          status = st,
+          valid_until = tostring(act.valid_until or prev.valid_until or ""),
+          evidence = prev.evidence,
+          links = prev.links,
+        }
+        if type(act.areas) == "table" and #act.areas > 0 then
+          payload.areas = act.areas
+        elseif type(prev.areas) == "table" and #prev.areas > 0 then
+          payload.areas = prev.areas
+        end
+        if enqueue_managed_object(oid, prev.revision, payload) then
+          applied = applied + 1
+        end
+      elseif op == "create" and act.text and tostring(act.text) ~= "" then
+        local payload = {
+          kind = "memory",
+          state = "active",
+          host_outcome = "verified",
+          text = tostring(act.text),
+          description = tostring(act.description or ""),
+          memory_kind = tostring(act.kind or "lesson"),
+          tier = tostring(act.tier or "reference"),
+          status = tostring(act.status or "observed"),
+          valid_until = tostring(act.valid_until or ""),
+        }
+        if type(act.areas) == "table" and #act.areas > 0 then payload.areas = act.areas end
+        if enqueue_managed("reflect:" .. magi.nonce(), payload) then
+          applied = applied + 1
+        end
+      end
+    end
+  end
+  magi.log("engram: reflection 완료 (" .. applied .. "건 반영, 사유=" .. tostring(trigger_reason or "manual") .. ")")
+  return "engram: reflection 완료 — " .. applied .. "건 반영"
+end
+
+local function reflection_backlog_count()
+  local rraw = magi.store_get("reflection_inbox_v1:" .. magi.workdir()) or ""
+  local items = magi.json_decode(rraw == "" and "[]" or rraw)
+  local n = type(items) == "table" and #items or 0
+  return n + #(load_facts_inbox())
+end
+
+local function run_dream(origin, reason)
+  origin = origin or "manual"
+  reason = reason or "manual"
+  prune_stale()
+  if type(magi.search_experience) ~= "function" then
+    return "engram: dream 완료 (경험 검색 브리지 비활성)"
+  end
+
+  -- 트리거별 실행 범위 분리: backlog_overflow인 경우 인박스 배치 소화 우선
+  if origin == "pressure" and reason == "backlog_overflow" then
+    run_reflection("pressure_backlog", false)
+  end
+
+  local all = magi.search_experience{
+    query = "",
+    kind = "memory",
+    state = "active",
+    limit = 200,
+    min_similarity = 0,
+  }
+  if type(all) ~= "table" or #all == 0 then
+    return "engram: dream 완료 (활성 기억 0건, LLM 0회 호출)"
+  end
+
+  local today = to_days(string.sub(magi.time(), 1, 10))
+  local now_epoch = epoch_of(magi.time()) or 0
+  local expired_n, promoted_n, demoted_n, merged_n = 0, 0, 0, 0
+  local active_records = {}
+
+  -- 1단계 (결정론적 패스, LLM 0 토큰): 만료 정리 + hypothesis->observed 승격
+  for _, rec in ipairs(all) do
+    if type(rec) == "table" and rec.object_id then
+      local vu = tostring(rec.valid_until or "")
+      local vu_days = vu ~= "" and to_days(vu) or nil
+      if today and vu_days and vu_days < today then
+        local payload = {
+          kind = "memory",
+          state = "archived",
+          host_outcome = rec.host_outcome,
+          text = tostring(rec.text or ""),
+          description = tostring(rec.description or ""),
+          memory_kind = tostring(rec.memory_kind or ""),
+          areas = rec.areas,
+          tier = tostring(rec.tier or "reference"),
+          status = "disconfirmed",
+          valid_until = vu,
+          evidence = rec.evidence,
+          links = rec.links,
+        }
+        if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+          expired_n = expired_n + 1
+        end
+      else
+        local sessions = {}
+        if type(rec.evidence) == "table" then
+          for _, ev in ipairs(rec.evidence) do
+            if type(ev) == "table" and ev.session and ev.session ~= "" then
+              sessions[tostring(ev.session)] = true
+            end
+          end
+        end
+        local scount = 0
+        for _ in pairs(sessions) do scount = scount + 1 end
+        rec._session_count = scount
+        if tostring(rec.status or "") == "hypothesis" and scount >= 2 then
+          rec.status = "observed"
+          local payload = {
+            kind = "memory",
+            state = "active",
+            host_outcome = rec.host_outcome,
+            text = tostring(rec.text or ""),
+            description = tostring(rec.description or ""),
+            memory_kind = tostring(rec.memory_kind or ""),
+            areas = rec.areas,
+            tier = tostring(rec.tier or "reference"),
+            status = "observed",
+            valid_until = vu,
+            evidence = rec.evidence,
+            links = rec.links,
+          }
+          if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+            promoted_n = promoted_n + 1
+          end
+        end
+        active_records[#active_records + 1] = rec
+      end
+    end
+  end
+
+  -- 코어 티어 예산 관리 (2,400자 상한의 80% = 1,920자 이내로 초과분 reference 강등)
+  local core_list = {}
+  local core_chars = 0
+  for _, rec in ipairs(active_records) do
+    if tostring(rec.tier or "") == "core" and tostring(rec.status or "observed") == "observed" then
+      local summary = tostring(rec.description and rec.description ~= "" and rec.description or rec.text or "")
+      local cost = #("- [" .. tostring(rec.memory_kind or "lesson") .. "] " .. summary .. "\n")
+      rec._core_cost = cost
+      core_chars = core_chars + cost
+
+      -- 유예 기간(Grace Period) 및 KeepScore 산출
+      local rec_epoch = tonumber(rec.updated_epoch or "0") or (rec.updated_at and epoch_of(rec.updated_at)) or 0
+      local age_seconds = math.max(0, now_epoch - rec_epoch)
+      local is_nursery = rec_epoch > 0 and (age_seconds < NURSERY_GRACE_PERIOD_SECONDS)
+      rec._is_nursery = is_nursery
+      local age_days = age_seconds / 86400
+      local keep_score = (rec._session_count or 1) / (age_days + 1)
+      rec._keep_score = keep_score
+
+      core_list[#core_list + 1] = rec
+    end
+  end
+
+  -- backlog_overflow의 경우 인박스 소화 후 이미 코어가 정상이면 추가 LLM/강등 스킵
+  if origin == "pressure" and reason == "backlog_overflow" and core_chars <= CORE_DREAM_TARGET then
+    local summary = string.format("engram: dream 완료 (오리진=%s, 사유=%s, 백로그 소화 완료, 코어=%d자 정상)", origin, reason, core_chars)
+    magi.log(summary)
+    return summary
+  end
+
+  if core_chars > CORE_DREAM_TARGET then
+    -- 강등 우선순위 정렬:
+    -- 1) 신규 기억 유예(Nursery) 항목은 맨 뒤로 보호
+    -- 2) KeepScore(재인용/경과일수)가 낮은 항목(오래되었는데 인용 없는 죽은 기억)부터 강등
+    table.sort(core_list, function(a, b)
+      if a._is_nursery ~= b._is_nursery then
+        return not a._is_nursery
+      end
+      if math.abs((a._keep_score or 0) - (b._keep_score or 0)) > 0.0001 then
+        return (a._keep_score or 0) < (b._keep_score or 0)
+      end
+      return tostring(a.updated_at or "") < tostring(b.updated_at or "")
+    end)
+    for _, rec in ipairs(core_list) do
+      if core_chars <= CORE_DREAM_TARGET then break end
+      rec.tier = "reference"
+      local payload = {
+        kind = "memory",
+        state = "active",
+        host_outcome = rec.host_outcome,
+        text = tostring(rec.text or ""),
+        description = tostring(rec.description or ""),
+        memory_kind = tostring(rec.memory_kind or ""),
+        areas = rec.areas,
+        tier = "reference",
+        status = tostring(rec.status or "observed"),
+        valid_until = tostring(rec.valid_until or ""),
+        evidence = rec.evidence,
+        links = rec.links,
+      }
+      if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+        core_chars = core_chars - (rec._core_cost or 0)
+        demoted_n = demoted_n + 1
+      end
+    end
+  end
+
+  -- 2단계 (하이브리드 병합):
+  -- idle: 유사도 >= 0.82 중복 클러스터나 conflicted 상태가 있을 때만 호출
+  -- pressure: 여전히 1,920자 초과 시 코어 항목들을 대상으로 초고밀도 합성(Split & Link) 호출
+  local by_id = {}
+  for _, rec in ipairs(active_records) do by_id[rec.object_id] = rec end
+  local visited = {}
+  local clusters = {}
+
+  if origin == "pressure" and core_chars > CORE_DREAM_TARGET then
+    -- Pressure 모드: 남은 코어 항목들을 유사도 기준 또는 인접 클러스터로 묶어 고밀도 축약
+    for _, rec in ipairs(active_records) do
+      if tostring(rec.tier or "") == "core" and not visited[rec.object_id] then
+        local q = tostring(rec.description or "") .. " " .. tostring(rec.text or "")
+        local sim_hits = magi.search_experience{
+          query = q,
+          kind = "memory",
+          state = "active",
+          limit = 4,
+          min_similarity = 0.65,
+        }
+        local group = { rec }
+        visited[rec.object_id] = true
+        if type(sim_hits) == "table" then
+          for _, h in ipairs(sim_hits) do
+            if type(h) == "table" and h.object_id and h.object_id ~= rec.object_id and not visited[h.object_id] and by_id[h.object_id] then
+              if tostring(by_id[h.object_id].tier or "") == "core" then
+                visited[h.object_id] = true
+                group[#group + 1] = by_id[h.object_id]
+              end
+            end
+          end
+        end
+        if #group >= 2 then
+          clusters[#clusters + 1] = group
+        end
+      end
+    end
+  else
+    for _, rec in ipairs(active_records) do
+      if not visited[rec.object_id] then
+        local q = tostring(rec.description or "") .. " " .. tostring(rec.text or "")
+        local sim_hits = magi.search_experience{
+          query = q,
+          kind = "memory",
+          state = "active",
+          limit = 6,
+          min_similarity = 0.82,
+        }
+        local group = { rec }
+        visited[rec.object_id] = true
+        if type(sim_hits) == "table" then
+          for _, h in ipairs(sim_hits) do
+            if type(h) == "table" and h.object_id and h.object_id ~= rec.object_id and not visited[h.object_id] and by_id[h.object_id] then
+              visited[h.object_id] = true
+              group[#group + 1] = by_id[h.object_id]
+            end
+          end
+        end
+        if #group >= 2 or tostring(rec.status or "") == "conflicted" then
+          clusters[#clusters + 1] = group
+        end
+      end
+    end
+  end
+
+  if #clusters > 0 then
+    local cblocks = {}
+    for ci, grp in ipairs(clusters) do
+      local lines = { "[클러스터 " .. ci .. "]" }
+      for _, m in ipairs(grp) do
+        lines[#lines + 1] = "- id=" .. tostring(m.object_id)
+          .. " status=" .. tostring(m.status or "observed")
+          .. " tier=" .. tostring(m.tier or "reference")
+          .. " desc=" .. tostring(m.description or "")
+          .. " :: " .. tostring(m.text or "")
+      end
+      cblocks[#cblocks + 1] = table.concat(lines, "\n")
+    end
+    local model = magi.store_get("sidecar_model")
+    local sys_prompt = (origin == "pressure") and DREAM_PRESSURE_PROMPT or DREAM_PROMPT
+    local raw = magi.analyze{ system = sys_prompt, text = table.concat(cblocks, "\n\n"), model = model }
+    local parsed = parse_cortex_json(raw)
+    if type(parsed) == "table" and type(parsed.merges) == "table" then
+      for _, mg in ipairs(parsed.merges) do
+        if type(mg) == "table" and mg.keep_id and by_id[mg.keep_id] and mg.text and tostring(mg.text) ~= "" then
+          local keep = by_id[mg.keep_id]
+          local links = {}
+          if type(keep.links) == "table" then
+            for _, lk in ipairs(keep.links) do links[#links + 1] = lk end
+          end
+          if type(mg.archive_ids) == "table" then
+            for _, aid in ipairs(mg.archive_ids) do
+              aid = tostring(aid or "")
+              if aid ~= "" and aid ~= keep.object_id and by_id[aid] then
+                links[#links + 1] = aid
+                local target = by_id[aid]
+                -- Pressure 모드에서는 원본 디테일이 손실되지 않도록 state="active", tier="reference"로 보존(Split & Link)
+                local archive_state = (origin == "pressure") and "active" or "archived"
+                local archive_tier = "reference"
+                enqueue_managed_object(aid, target.revision, {
+                  kind = "memory",
+                  state = archive_state,
+                  host_outcome = target.host_outcome,
+                  text = tostring(target.text or ""),
+                  description = tostring(target.description or ""),
+                  memory_kind = tostring(target.memory_kind or ""),
+                  areas = target.areas,
+                  tier = archive_tier,
+                  status = tostring(target.status or "observed"),
+                  valid_until = tostring(target.valid_until or ""),
+                  evidence = target.evidence,
+                  links = { keep.object_id },
+                })
+              end
+            end
+          end
+          local keep_payload = {
+            kind = "memory",
+            state = "active",
+            host_outcome = keep.host_outcome or "verified",
+            text = tostring(mg.text),
+            description = tostring(mg.description and mg.description ~= "" and mg.description or keep.description or ""),
+            memory_kind = tostring(mg.kind and mg.kind ~= "" and mg.kind or keep.memory_kind or "lesson"),
+            areas = type(mg.areas) == "table" and #mg.areas > 0 and mg.areas or keep.areas,
+            tier = tostring(mg.tier and mg.tier ~= "" and mg.tier or keep.tier or "reference"),
+            status = tostring(mg.status and mg.status ~= "" and mg.status or "observed"),
+            valid_until = tostring(keep.valid_until or ""),
+            evidence = keep.evidence,
+            links = links,
+          }
+          if enqueue_managed_object(keep.object_id, keep.revision, keep_payload) then
+            merged_n = merged_n + 1
+          end
+        end
+      end
+    end
+  end
+
+  -- 최종 수축 계약 검증 (Contract Guarantee: 1,920자 이하 필수 보장)
+  if origin == "pressure" and core_chars > CORE_DREAM_TARGET then
+    for _, rec in ipairs(core_list) do
+      if core_chars <= CORE_DREAM_TARGET then break end
+      if tostring(rec.tier or "") == "core" then
+        rec.tier = "reference"
+        local payload = {
+          kind = "memory",
+          state = "active",
+          host_outcome = rec.host_outcome,
+          text = tostring(rec.text or ""),
+          description = tostring(rec.description or ""),
+          memory_kind = tostring(rec.memory_kind or ""),
+          areas = rec.areas,
+          tier = "reference",
+          status = tostring(rec.status or "observed"),
+          valid_until = tostring(rec.valid_until or ""),
+          evidence = rec.evidence,
+          links = rec.links,
+        }
+        if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+          core_chars = core_chars - (rec._core_cost or 0)
+          demoted_n = demoted_n + 1
+        end
+      end
+    end
+  end
+
+  local summary = string.format(
+    "engram: dream 완료 (오리진=%s, 사유=%s, 만료=%d, 승격=%d, 코어강등=%d, 클러스터병합=%d, LLM호출=%d, 최종코어=%d자)",
+    tostring(origin), tostring(reason), expired_n, promoted_n, demoted_n, merged_n, #clusters > 0 and 1 or 0, core_chars
+  )
+  magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10))
+  magi.store_set("dream_dirty_v1:" .. magi.workdir(), "0")
+  magi.store_set("pressure_last_chars_v1:" .. magi.workdir(), tostring(core_chars))
+  magi.log(summary)
+  return summary
+end
+
+-- 턴 누적 트리거 조건: 25턴 이상 쌓였더라도 실제로 성찰할 만한 관찰(교훈 후보)이
+-- 최소 REFLECT_MIN_OBSERVATIONS(기본 3건) 이상 누적되었고 그중 최소 1건이 확정 결과(verified/error/guard)일 때만 실행.
+local function has_worthwhile_reflection_backlog()
+  local min_obs = tonumber(magi.store_get("reflect_min_observations") or "") or REFLECT_MIN_OBSERVATIONS
+  local rkey = "reflection_inbox_v1:" .. magi.workdir()
+  local rraw = magi.store_get(rkey) or ""
+  local items = magi.json_decode(rraw == "" and "[]" or rraw)
+  if type(items) ~= "table" then items = {} end
+  local fitems = load_facts_inbox()
+  local total = #items + #fitems
+  if total < min_obs then
+    return false
+  end
+  for _, it in ipairs(items) do
+    local out = type(it) == "table" and tostring(it.outcome or "") or ""
+    if out == "verified" or out == "error" or out == "guard" then
+      return true
+    end
+  end
+  return #items >= min_obs
+end
+
+-- 유휴 dream: 사용자 입력도 진행 중인 턴도 없는 유휴 구간(호스트 "idle" 이벤트, 기본 30분)에
+-- 이전 dream 실행 후 최소 12시간이 지났고 새 관찰(dream_dirty_v1)이 쌓였을 때만 실행한다.
+-- 사람이 작업하는 동안에는 토큰도 시간도 쓰지 않는다.
+local DREAM_INTERVAL_SECONDS = 12 * 3600
+
+local function maybe_idle_dream()
+  if not flag("auto_dream", true) or not recordLessons() then return end
+  local dkey = "dream_dirty_v1:" .. magi.workdir()
+  if (magi.store_get(dkey) or "") ~= "1" then return end
+
+  local ekey = "dream_last_epoch_v1:" .. magi.workdir()
+  local last_epoch = tonumber(magi.store_get(ekey) or "0") or 0
+  local now_epoch = epoch_of(magi.time()) or 0
+  if last_epoch > 0 and (now_epoch - last_epoch) < DREAM_INTERVAL_SECONDS then
+    return
+  end
+
+  magi.store_set(dkey, "0")
+  magi.store_set(ekey, tostring(now_epoch))
+  magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10))
+  run_dream("idle", "interval")
+end
+
+local function check_memory_pressure()
+  if not flag("auto_dream", true) or not recordLessons() then
+    return false, nil, 0
+  end
+
+  -- 1) 코어 티어 문자 수 초과 압박
+  local core_chars = 0
+  if type(magi.search_experience) == "function" then
+    local cores = magi.search_experience{
+      query = "",
+      kind = "memory",
+      state = "active",
+      limit = 200,
+      min_similarity = 0,
+    }
+    if type(cores) == "table" then
+      for _, rec in ipairs(cores) do
+        if tostring(rec.tier or "") == "core" and tostring(rec.status or "observed") == "observed" then
+          local summary = tostring(rec.description and rec.description ~= "" and rec.description or rec.text or "")
+          core_chars = core_chars + #("- [" .. tostring(rec.memory_kind or "lesson") .. "] " .. summary .. "\n")
+        end
+      end
+    end
+  end
+  if core_chars >= CORE_CHAR_BUDGET then
+    return true, "core_overflow", core_chars
+  end
+
+  -- 2) 미성찰 인박스 백로그 과적 압박
+  local backlog_n = reflection_backlog_count()
+  if backlog_n >= MAX_UNREFLECTED_BACKLOG then
+    return true, "backlog_overflow", core_chars
+  end
+
+  return false, nil, core_chars
+end
+
+local function maybe_pressure_dream(reason, core_chars)
+  if not flag("auto_dream", true) or not recordLessons() then return false end
+
+  local now_epoch = epoch_of(magi.time()) or 0
+  local ekey = "pressure_last_epoch_v1:" .. magi.workdir()
+  local last_epoch = tonumber(magi.store_get(ekey) or "0") or 0
+
+  -- 1. 전용 최소 쿨다운 (5분) 스래싱 방어
+  if last_epoch > 0 and (now_epoch - last_epoch) < PRESSURE_COOLDOWN_SECONDS then
+    return false
+  end
+
+  -- 2. 워터마크 히스테리시스 점검 (core_overflow 시)
+  local ckey = "pressure_last_chars_v1:" .. magi.workdir()
+  local last_chars = tonumber(magi.store_get(ckey) or "0") or 0
+  if reason == "core_overflow" and last_chars > 0 and core_chars > 0 then
+    if (core_chars - last_chars) < PRESSURE_HYSTERESIS_CHARS and core_chars <= CORE_CHAR_BUDGET + 100 then
+      return false
+    end
+  end
+
+  magi.store_set(ekey, tostring(now_epoch))
+  magi.store_set(ckey, tostring(core_chars or 0))
+  run_dream("pressure", reason)
+  return true
+end
+
 magi.on("turn_finished", function(ev)
   flush_managed()
+  if is_dream_session(ev.session) then
+    return
+  end
   push_recent(ev.session, "assistant", ev.text)
   local outcome = ev.outcome or "done"
   update_usage(ev.skills, outcome)
-  if ANALYZE_OUTCOMES[outcome] and recordLessons() then
+  if ANALYZE_OUTCOMES[outcome] and recordLessons() and not is_classifier_blocked(ev.reason) then
     local user = ev.user
     if user == "" then user = nil end
-    analyze_and_record(ev.session, outcome_hint(outcome, ev.reason), user, ev.skills, outcome)
+    enqueue_facts_inbox(ev.session, outcome_hint(outcome, ev.reason), user, ev.skills, outcome)
   end
+  -- 턴이 많이 쌓이는 경우(25턴마다)에도 성찰할 만한 관찰 백로그(최소 3건 이상)가 있을 때만
+  -- 백그라운드에서 성찰(reflection)로 저장소를 갱신하되, 현 세션의 `# Core memory` 시스템 프롬프트
+  -- 주입은 호스트(`coreBlockFor` / `resetMemoryDelivery`)가 다음 세션 컴팩션이나 재시작까지 지연한다.
+  local tkey = "reflection_turns_v1:" .. magi.workdir()
+  local turns = (tonumber(magi.store_get(tkey) or "0") or 0) + 1
+  if turns >= REFLECT_INTERVAL then
+    if recordLessons() and has_worthwhile_reflection_backlog() then
+      magi.store_set(tkey, "0")
+      run_reflection("turn_interval", false)
+    else
+      magi.store_set(tkey, tostring(turns))
+    end
+  else
+    magi.store_set(tkey, tostring(turns))
+  end
+
+  -- Pressure Dream 점검 (코어 2,400자 상한 초과 또는 미성찰 백로그 과적 시 긴급 압축 발동)
+  local need_pressure, p_reason, p_chars = check_memory_pressure()
+  if need_pressure then
+    maybe_pressure_dream(p_reason, p_chars)
+  end
+
   prune_stale() -- archive engram-owned skills unused past the cutoff (count/date only)
 end)
+
+magi.on("context_compacted", function(ev)
+  if not recordLessons() then return end
+  if ev and is_dream_session(ev.session) then return end
+  magi.store_set("reflection_turns_v1:" .. magi.workdir(), "0")
+  run_reflection("context_compacted", false, ev and ev.summary or nil)
+end)
+
+magi.on("shutdown", function()
+  if not recordLessons() then return end
+  magi.store_set("reflection_turns_v1:" .. magi.workdir(), "0")
+  if has_worthwhile_reflection_backlog() then
+    run_reflection("shutdown", false)
+  else
+    flush_facts_inbox(true, 1)
+  end
+end)
+
+-- 유휴(기본 30분 무입력·무진행 턴): 쌓인 관찰이 1건이라도 있으면 성찰하고,
+-- 최소 12시간이 지났으며 새 관찰이 있었으면 dream까지 돈다.
+magi.on("idle", function()
+  embed_lease_touch()
+  if not recordLessons() then return end
+  if reflection_backlog_count() > 0 then
+    magi.store_set("reflection_turns_v1:" .. magi.workdir(), "0")
+    run_reflection("idle", false)
+  end
+  maybe_idle_dream()
+end)
+
+magi.register_command{
+  name = "engram-reflect",
+  description = "누적된 관찰 inbox와 관리 기억을 즉시 대조해 성찰(reflection)을 수행합니다.",
+  execute = function()
+    return run_reflection("manual_command", true)
+  end,
+}
+
+magi.register_command{
+  name = "engram-dream",
+  description = "기억 만료·가설 승격·코어 티어 예산 정리 및 중복 클러스터 병합(dream)을 수행합니다.",
+  execute = function()
+    return run_dream()
+  end,
+}
+
+magi.register_tool{
+  name = "engram_dream",
+  description = "Engram 관리 기억의 만료 정리, 승격, 코어 예산 조정 및 중복 병합을 수행하는 내부 도구입니다.",
+  internal = true,
+  schema = { type = "object", properties = {} },
+  execute = function()
+    return run_dream()
+  end,
+}
 
 -- Evidence remains local to this workspace and separate from causal claims.
 magi.register_command{
@@ -1133,12 +2215,19 @@ magi.register_command{
   end,
 }
 
--- 로컬 임베딩 서버 연결. 서버를 띄우는 일은 사람이 하고(안내만 한다), 플러그인은 이미 떠 있는
--- 루프백 서버를 확인해 회상용 임베딩 클라이언트에 연결한다(magi.set_embed_endpoint).
+-- 로컬 임베딩 서버 연결 및 백그라운드 컨테이너/모델 프로비저닝.
+-- 이미 떠 있는 루프백 서버가 있으면 즉시 연결하고(magi.set_embed_endpoint), 없으면 docker/podman 으로
+-- magi-engram-embed(ollama/ollama) 컨테이너 기동과 bge-m3 모델 내려받기를 백그라운드 파이프(magi.pipe)로
+-- 진행한다. 준비가 끝날 때까지 회상은 어휘 검색으로 동작하며 턴을 블로킹하지 않는다.
 -- config.toml 에 embed_model 을 직접 둔 사용자는 그 설정을 존중해 손대지 않는다.
 local EMBED_DEFAULT_URL = "http://127.0.0.1:11434/v1"
+local EMBED_FALLBACK_URL = "http://127.0.0.1:11435/v1"
 local EMBED_DEFAULT_MODEL = "bge-m3"
+local EMBED_CONTAINER = "magi-engram-embed"
+local EMBED_VOLUME = "magi-engram-ollama:/root/.ollama"
+local EMBED_IMAGE = "ollama/ollama"
 local embed_state = { why = "아직 확인하지 않았습니다" }
+local embed_bg = { pipe = nil, stage = nil, rt = nil, arch = nil, want = nil, url = nil }
 
 local function embed_setting(key)
   local v = magi.store_get(key)
@@ -1148,20 +2237,67 @@ local function embed_setting(key)
   return v
 end
 
+local function embed_target_url()
+  return embed_setting("embed_url") or embed_setting("embed_managed_url") or EMBED_DEFAULT_URL
+end
+
 -- 사용자가 config.toml 에 embed_model 을 직접 정했는가. 읽을 수 없으면(설정 경로 없음 등) 아니라고 본다.
 local function user_embed_configured()
   local ok, v = pcall(magi.get_config_key, "embed_model", "")
   return ok and v ~= nil and tostring(v) ~= ""
 end
 
+local function embed_close_pipe()
+  if embed_bg.pipe then
+    pcall(embed_bg.pipe.close)
+    embed_bg.pipe = nil
+  end
+end
+
+-- 컨테이너 런타임(docker -> podman)과 데몬 아키텍처(Server.Arch)를 감지해 캐시한다.
+local function embed_select_runtime(force)
+  if force then
+    magi.store_set("embed_runtime", "")
+    magi.store_set("embed_arch", "")
+    magi.store_set("embed_image", "")
+  end
+  local cached_rt = embed_setting("embed_runtime")
+  if cached_rt then
+    local r = magi.exec(cached_rt, { "version", "--format", "{{.Server.Arch}}" }, { timeout = "5s" })
+    if r and r.code == 0 then
+      local arch = (r.stdout or ""):gsub("%s+", "")
+      if arch == "" then arch = "unknown" end
+      local img = embed_setting("embed_image") or EMBED_IMAGE
+      magi.store_set("embed_arch", arch)
+      magi.store_set("embed_image", img)
+      return cached_rt, arch, img
+    end
+  end
+  for _, cand in ipairs({ "docker", "podman" }) do
+    local r = magi.exec(cand, { "version", "--format", "{{.Server.Arch}}" }, { timeout = "5s" })
+    if r and r.code == 0 then
+      local arch = (r.stdout or ""):gsub("%s+", "")
+      if arch == "" then arch = "unknown" end
+      magi.store_set("embed_runtime", cand)
+      magi.store_set("embed_arch", arch)
+      magi.store_set("embed_image", EMBED_IMAGE)
+      return cand, arch, EMBED_IMAGE
+    end
+  end
+  return nil, nil, nil
+end
+
 -- base 의 /models 에서 want 모델(태그 포함, 예: bge-m3:latest)을 찾아 그 id 를 돌려준다.
+-- Ollama 는 설치된 모델이 0개일 때 {"object":"list","data":null} 을 반환하므로 이를 빈 목록으로 처리한다.
 local function embed_probe(base, want)
   local r, err = magi.http{ url = (base:gsub("/+$", "")) .. "/models" }
   if not r then return nil, tostring(err) end
   if r.status ~= 200 then return nil, "HTTP " .. tostring(r.status) end
   local doc = magi.json_decode(r.body or "")
-  if type(doc) ~= "table" or type(doc.data) ~= "table" then return nil, "모델 목록 형식이 아닙니다" end
-  for _, m in ipairs(doc.data) do
+  if type(doc) ~= "table" or (type(doc.data) ~= "table" and doc.object ~= "list") then
+    return nil, "모델 목록 형식이 아닙니다"
+  end
+  for _, m in ipairs(type(doc.data) == "table" and doc.data or {}) do
     local id = type(m) == "table" and tostring(m.id or "") or ""
     if id == want or id:sub(1, #want + 1) == want .. ":" then return id end
   end
@@ -1173,9 +2309,16 @@ local function embed_connect()
     embed_state = { why = "config.toml 의 embed_model 설정을 사용합니다(플러그인은 연결하지 않음)" }
     return false
   end
-  local url = embed_setting("embed_url") or EMBED_DEFAULT_URL
+  local url = embed_target_url()
   local want = embed_setting("embed_model") or EMBED_DEFAULT_MODEL
   local id, why = embed_probe(url, want)
+  if not id and embed_setting("embed_url") == nil and url ~= EMBED_DEFAULT_URL then
+    local def_id = embed_probe(EMBED_DEFAULT_URL, want)
+    if def_id then
+      url = EMBED_DEFAULT_URL
+      id = def_id
+    end
+  end
   if not id then
     embed_state = { url = url, why = why }
     return false
@@ -1185,34 +2328,244 @@ local function embed_connect()
     embed_state = { url = url, why = tostring(err) }
     return false
   end
+  embed_close_pipe()
+  embed_bg.stage = nil
   embed_state = { url = url, model = id }
   return true
 end
 
-local function embed_status()
-  if embed_state.model then
-    return "engram: 임베딩 서버 연결됨 — " .. embed_state.url .. " (" .. embed_state.model .. ")"
+local function embed_launch_pull(rt, arch, url, want)
+  embed_close_pipe()
+  local p, err = magi.pipe(rt, { "exec", EMBED_CONTAINER, "ollama", "pull", want }, { idle = "10m" })
+  if not p then
+    embed_bg.stage = nil
+    embed_state = { url = url, why = want .. " 모델이 없습니다 (내려받기 시작 실패: " .. tostring(err) .. ")" }
+    return false
   end
-  return "engram: 임베딩 서버 미연결 — " .. (embed_state.url and (embed_state.url .. ": ") or "") .. tostring(embed_state.why) ..
-    "\n의미 검색을 쓰려면 루프백 주소에 OpenAI 호환 임베딩 서버를 띄우고 bge-m3 를 받은 뒤 `/engram-embed connect` 를 실행하세요." ..
-    "\n예: 로컬 Ollama 는 `ollama pull bge-m3`. 다른 주소·모델은 [plugins.engram] embed_url / embed_model 로 지정합니다(루프백만 허용)."
+  embed_bg = { pipe = p, stage = "pull", rt = rt, arch = arch, want = want, url = url }
+  embed_state = { url = url, why = want .. " 모델이 없습니다 — 백그라운드에서 내려받는 중 (" .. rt .. "/" .. arch .. ")" }
+  magi.log("engram: 임베딩 모델 백그라운드 내려받기 시작 — " .. want .. " (" .. rt .. "/" .. arch .. ")")
+  return false
+end
+
+local function embed_start(explicit)
+  if user_embed_configured() then
+    embed_state = { why = "config.toml 의 embed_model 설정을 사용합니다(플러그인은 연결하지 않음)" }
+    return false
+  end
+  if embed_connect() then return true end
+  if not explicit then
+    if embed_setting("embed_url") ~= nil and embed_setting("embed_auto_start") == nil then
+      return false
+    end
+    if not flag("embed_auto_start", true) then
+      return false
+    end
+  end
+  if embed_bg.pipe and embed_bg.pipe.alive() then
+    return false
+  end
+  local url = embed_target_url()
+  local want = embed_setting("embed_model") or EMBED_DEFAULT_MODEL
+  local rt, arch, img = embed_select_runtime(false)
+  if not rt then
+    embed_state = { url = url, why = tostring(embed_state.why or "연결 실패") .. " (docker/podman 런타임을 찾지 못함)" }
+    return false
+  end
+  local ins = magi.exec(rt, { "inspect", "--format", "{{.State.Running}}", EMBED_CONTAINER }, { timeout = "5s" })
+  if ins and ins.code == 0 then
+    local running = (ins.stdout or ""):gsub("%s+", "") == "true"
+    if not running then
+      magi.exec(rt, { "start", EMBED_CONTAINER }, { timeout = "15s" })
+    end
+    if embed_connect() then return true end
+    url = embed_target_url()
+    if embed_state.why == want .. " 모델이 없습니다" then
+      return embed_launch_pull(rt, arch, url, want)
+    end
+    embed_bg = { pipe = nil, stage = "wait", rt = rt, arch = arch, want = want, url = url }
+    embed_state = { url = url, why = "컨테이너 기동 대기 중 (" .. rt .. "/" .. arch .. ")" }
+    return false
+  end
+  -- 기본 11434 포트를 다른 로컬 서버(예: 호스트 Ollama)가 이미 쓰고 있고 모델만 없는 상태라면
+  -- 포트 충돌을 피하기 위해 전용 루프백 포트(11435)로 컨테이너를 띄운다.
+  if embed_setting("embed_url") == nil and url == EMBED_DEFAULT_URL and embed_state.why == want .. " 모델이 없습니다" then
+    url = EMBED_FALLBACK_URL
+    magi.store_set("embed_managed_url", url)
+  end
+  local port = url:match("^https?://[^:/]+:(%d+)") or "11434"
+  local p, err = magi.pipe(rt, {
+    "run", "-d", "--name", EMBED_CONTAINER,
+    "-p", "127.0.0.1:" .. port .. ":11434",
+    "-v", EMBED_VOLUME,
+    img,
+  }, { idle = "10m" })
+  if not p then
+    embed_state = { url = url, why = "컨테이너 실행 실패: " .. tostring(err) }
+    return false
+  end
+  embed_bg = { pipe = p, stage = "run", rt = rt, arch = arch, want = want, url = url }
+  embed_state = { url = url, why = "컨테이너 준비 중 — 백그라운드에서 기동 중 (" .. rt .. "/" .. arch .. ")" }
+  magi.log("engram: 임베딩 컨테이너 백그라운드 기동 시작 — " .. EMBED_CONTAINER .. " (" .. rt .. "/" .. arch .. ")")
+  return false
+end
+
+local function embed_tick()
+  if embed_state.model or user_embed_configured() or not embed_bg.stage then
+    return embed_state.model ~= nil
+  end
+  if embed_bg.pipe then
+    if embed_bg.pipe.alive() then
+      return false
+    end
+    embed_close_pipe()
+  end
+  local stage = embed_bg.stage
+  local rt, arch = embed_bg.rt, embed_bg.arch
+  local want = embed_bg.want or embed_setting("embed_model") or EMBED_DEFAULT_MODEL
+  local url = embed_bg.url or embed_target_url()
+  if embed_connect() then
+    magi.log("engram: 임베딩 서버 자동 연결 완료 — " .. tostring(embed_state.url) .. " (" .. tostring(embed_state.model) .. ")")
+    return true
+  end
+  if stage == "run" or stage == "wait" then
+    if embed_state.why == want .. " 모델이 없습니다" then
+      return embed_launch_pull(rt, arch, url, want)
+    end
+    embed_bg.stage = "wait"
+    embed_state = { url = url, why = "컨테이너 기동 대기 중 (" .. tostring(rt) .. "/" .. tostring(arch) .. ")" }
+    return false
+  end
+  embed_bg.stage = nil
+  return false
+end
+
+local function embed_status()
+  local rt = embed_setting("embed_runtime")
+  local arch = embed_setting("embed_arch")
+  local extra = (rt and arch) and (" [" .. rt .. "/" .. arch .. "]") or ""
+  if embed_state.model then
+    return "engram: 임베딩 서버 연결됨 — " .. embed_state.url .. " (" .. embed_state.model .. ")" .. extra
+  end
+  return "engram: 임베딩 서버 미연결 — " .. (embed_state.url and (embed_state.url .. ": ") or "") .. tostring(embed_state.why) .. extra ..
+    "\n의미 검색을 쓰려면 `/engram-embed start` 로 컨테이너·모델을 준비하거나, 루프백 서버에 bge-m3 를 받은 뒤 `/engram-embed connect` 를 실행하세요." ..
+    "\n다른 주소·모델은 [plugins.engram] embed_url / embed_model 로 지정합니다(루프백만 허용)."
+end
+
+-- ── 임베딩 컨테이너 수명: 컴패니언 임대(lease) ───────────────────────────────
+-- 컨테이너 하나를 여러 magi 프로세스(컴패니언)가 같이 쓴다. 프로세스마다 임대 한 줄을 플러그인
+-- 저장소(프로세스 간 공유)에 두고 활동할 때마다 갱신한다. 종료하는 프로세스는 자기 임대를 지우고,
+-- 살아 있는 임대가 하나도 남지 않으면 — 즉 연결한 컴패니언이 모두 끝나면 — 컨테이너를 멈춘다.
+-- 오래 갱신되지 않은 임대(EMBED_LEASE_STALE)는 죽은 프로세스의 것으로 보고 정리한다. 오래 잠든
+-- 프로세스의 임대가 그렇게 지워졌다가 다시 깨어나면, 다음 활동에서 컨테이너를 다시 띄운다.
+local EMBED_LEASE_KEY = "embed_leases_v1"
+local EMBED_LEASE_STALE = 6 * 3600
+local embed_lease_id = magi.nonce(8)
+
+local function embed_managed_here()
+  return embed_setting("embed_url") == nil and not user_embed_configured()
+end
+
+-- lease_update(fn): 임대 표를 CAS로 고친다. fn(map, now)가 표를 바꾸고 결과를 돌려준다.
+local function lease_update(fn)
+  for _ = 1, 5 do
+    local raw = magi.store_get(EMBED_LEASE_KEY) or ""
+    local map = magi.json_decode(raw == "" and "{}" or raw)
+    if type(map) ~= "table" then map = {} end
+    local now = epoch_of(magi.time()) or 0
+    local result = fn(map, now)
+    local enc = next(map) == nil and "" or magi.json_encode(map)
+    if magi.store_compare_exchange(EMBED_LEASE_KEY, raw, enc) then return result end
+  end
+  return nil
+end
+
+-- 임대를 갱신하고, 자기 임대가 사라져 있었는지(다른 프로세스가 컨테이너를 멈췄을 수 있음)를 돌려준다.
+embed_lease_touch = function()
+  return lease_update(function(map, now)
+    local missing = map[embed_lease_id] == nil
+    map[embed_lease_id] = now
+    return missing
+  end)
+end
+
+-- 자기 임대를 지우고, 살아 있는 다른 임대가 남았는지를 돌려준다(오래된 임대는 함께 정리).
+local function embed_lease_release()
+  return lease_update(function(map, now)
+    map[embed_lease_id] = nil
+    local alive = false
+    for id, at in pairs(map) do
+      if now - (tonumber(at) or 0) > EMBED_LEASE_STALE then
+        map[id] = nil
+      else
+        alive = true
+      end
+    end
+    return alive
+  end)
+end
+
+local function embed_activity()
+  local was_missing = embed_lease_touch()
+  -- 처음 붙는 경우(startup)가 아니라 활동 중인데 임대가 사라져 있었다면, 다른 컴패니언이 마지막으로
+  -- 끝나며 컨테이너를 멈춘 것이다. 우리가 관리하는 컨테이너면 다시 띄운다.
+  if was_missing and embed_state.model and embed_managed_here() then
+    embed_state = { why = "다른 컴패니언 종료로 컨테이너가 멈춰 다시 기동합니다" }
+    embed_start(false)
+  end
+  embed_tick()
 end
 
 magi.on("startup", function()
-  embed_connect()
+  embed_lease_touch()
+  embed_start(false)
+end)
+
+magi.on("user_message", function()
+  embed_activity()
+end)
+
+magi.on("turn_finished", function()
+  embed_activity()
+end)
+
+magi.on("shutdown", function()
+  embed_close_pipe()
+  local others = embed_lease_release()
+  if others ~= false then return end -- 다른 컴패니언이 아직 쓰는 중(또는 임대 갱신 실패 → 안전하게 유지)
+  if not flag("embed_auto_stop", true) or not embed_managed_here() then return end
+  local rt = embed_setting("embed_runtime")
+  if not rt then return end
+  local r = magi.exec(rt, { "stop", "-t", "2", EMBED_CONTAINER }, { timeout = "20s" })
+  if r and r.code == 0 then
+    magi.log("engram: 연결한 컴패니언이 모두 종료되어 임베딩 컨테이너를 멈췄습니다 — " .. EMBED_CONTAINER)
+  end
 end)
 
 magi.register_command{
   name = "engram-embed",
-  description = "로컬 임베딩 서버 연결 상태 확인/재연결 (/engram-embed [status|connect])",
+  description = "로컬 임베딩 서버 상태 확인/연결/기동 (/engram-embed [status|connect|start|reselect])",
   execute = function(args)
     if type(args) == "table" then args = table.concat(args, " ") end
     local sub = ((tostring(args or "")):match("^%s*(%S*)") or ""):lower()
-    if sub == "connect" then embed_connect() end
-    if sub ~= "" and sub ~= "status" and sub ~= "connect" then
-      return "engram: 사용법 /engram-embed [status|connect]"
+    if sub == "" or sub == "status" then
+      embed_tick()
+      return embed_status()
+    elseif sub == "connect" then
+      embed_connect()
+      return embed_status()
+    elseif sub == "start" then
+      embed_start(true)
+      embed_tick()
+      return embed_status()
+    elseif sub == "reselect" then
+      local rt, arch, img = embed_select_runtime(true)
+      if not rt then
+        return "engram: 컨테이너 런타임(docker/podman)을 찾지 못했습니다."
+      end
+      return "engram: 컨테이너 런타임 재선택 완료 — " .. rt .. " (arch=" .. arch .. ", image=" .. img .. ")"
     end
-    return embed_status()
+    return "engram: 사용법 /engram-embed [status|connect|start|reselect]"
   end,
 }
 
@@ -1245,6 +2598,13 @@ magi.register_command{
 magi.register_context_provider{
   name = "engram-lessons",
   provide = function(q)
+    embed_tick()
+    if not flag("inject_ledger", true) then return {} end
+    -- 의미 임베딩이 연결된 상태에서는 layered.Store가 <core_memory>와 <recalled_experience>로
+    -- 기억을 회상하므로 SESSION_SUMMARY.md 표를 매 턴 중복 주입하지 않는다.
+    if (embed_state.model ~= nil or user_embed_configured()) and not flag("force_inject_ledger", false) then
+      return {}
+    end
     -- 활성부만: 아카이브(정정으로 밀려난 옛 주장·상한 초과분)는 주입되지 않는다.
     local raw = split_ledger(magi.read_file(SUMMARY))
     if not raw or raw == "" then return {} end

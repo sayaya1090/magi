@@ -73,6 +73,7 @@ type sessionState struct {
 	// "not computed yet".
 	lookLang    string
 	lookLangSet bool
+	langDir     string // sticky primacy language directive so short ASCII replies ("ok", "1", commands) never flip position 0 of the system prompt
 	todos       []session.Todo // per-session plan
 	// skillBase is the skill list this session's SYSTEM PROMPT names, frozen the first time that
 	// prompt was built. skillSeen is every skill the session has been told about, including the
@@ -92,6 +93,9 @@ type sessionState struct {
 	skillBlock    string
 	skillBlockSet bool
 	skillSeen     map[string]bool
+	coreBlock     string
+	coreBlockSet  bool
+	excerptSent   map[string]string // memory ID -> fingerprint of full Excerpt already injected this session
 	// The same arrangement for team memories, with one difference of source: a memory has no
 	// timestamp, so "new" is read off the RETRIEVAL — the first match set of the session is the
 	// baseline (the count pointer already advertises it), and an ID that enters the match set

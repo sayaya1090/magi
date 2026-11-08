@@ -5,6 +5,7 @@ import (
 	"fmt"
 	lua "github.com/yuin/gopher-lua"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -136,7 +137,29 @@ type Host struct {
 	evOnce  sync.Once
 	evQueue chan firedEvent
 	evBusy  sync.WaitGroup // outstanding queued/running observation events (DrainEvents)
+
+	// Idle detection. A plugin that registers an "idle" handler gets one call
+	// per quiet period: no user prompt and no turn in flight for idleAfter.
+	// Activity is read off the observation events this host already carries
+	// (user_message opens a turn, turn_finished closes it), so the app needs no
+	// new plumbing. Background upkeep (engram's reflection/dream) runs then
+	// instead of between a person's prompts.
+	idleAfter    time.Duration
+	idleTick     time.Duration
+	idleOnce     sync.Once
+	idleMu       sync.Mutex
+	lastActivity time.Time
+	inflight     map[string]time.Time // session → when its open turn started
+	idleFired    bool                 // already fired for the current quiet period
 }
+
+// defaultIdleAfter is how long without user input before the "idle" event fires.
+const defaultIdleAfter = 30 * time.Minute
+
+// inflightStale bounds how long an open turn can hold off idle. A turn whose
+// turn_finished was never observed (process crash, dropped event) must not
+// block background upkeep forever.
+const inflightStale = 6 * time.Hour
 
 type firedEvent struct {
 	name    string
@@ -182,6 +205,10 @@ type HostConfig struct {
 	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
 	Runtime       RuntimeInfo               // runtime context for plugins
 	Logf          func(string)              // optional: log output
+	// IdleAfter is the quiet period before the "idle" event fires (default 30m);
+	// IdleTick is how often it is checked (default 1m). Tests shorten both.
+	IdleAfter time.Duration
+	IdleTick  time.Duration
 }
 
 // NewHostWithConfig returns a plugin host with full configuration.
@@ -189,7 +216,17 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string) {}
 	}
+	if cfg.IdleAfter <= 0 {
+		cfg.IdleAfter = defaultIdleAfter
+	}
+	if cfg.IdleTick <= 0 {
+		cfg.IdleTick = time.Minute
+	}
 	return &Host{
+		idleAfter:     cfg.IdleAfter,
+		idleTick:      cfg.IdleTick,
+		lastActivity:  time.Now(),
+		inflight:      map[string]time.Time{},
 		sink:          cfg.ToolSink,
 		mcpMgr:        cfg.MCPMgr,
 		contextReg:    cfg.ContextReg,
@@ -258,6 +295,7 @@ func (h *Host) Has(name string) bool {
 // immediately and one background worker runs the handlers in order; when the
 // queue is full the event is dropped (observation is best-effort).
 func (h *Host) FireEventWith(event string, payload map[string]string) {
+	h.noteActivity(event, payload)
 	h.evOnce.Do(func() {
 		h.evQueue = make(chan firedEvent, 128)
 		go func() {
@@ -282,6 +320,64 @@ func (h *Host) FireEventWith(event string, payload map[string]string) {
 		h.evBusy.Done()
 		h.logf("plugin events: queue full — dropped " + event)
 	}
+}
+
+// noteActivity records user activity from the observation stream: a prompt opens
+// a turn for its session, a finished turn closes it. Either one ends the current
+// quiet period, so the next "idle" fires only after a fresh idleAfter of silence.
+func (h *Host) noteActivity(event string, payload map[string]string) {
+	if event != "user_message" && event != "turn_finished" {
+		return
+	}
+	sid := payload["session"]
+	h.idleMu.Lock()
+	defer h.idleMu.Unlock()
+	now := time.Now()
+	h.lastActivity = now
+	h.idleFired = false
+	if h.inflight == nil {
+		h.inflight = map[string]time.Time{}
+	}
+	if event == "user_message" {
+		h.inflight[sid] = now
+	} else {
+		delete(h.inflight, sid)
+	}
+}
+
+// idleDue reports whether the host has been quiet long enough to fire "idle",
+// and marks the quiet period as fired so it is delivered once.
+func (h *Host) idleDue(now time.Time) (time.Duration, bool) {
+	h.idleMu.Lock()
+	defer h.idleMu.Unlock()
+	quiet := now.Sub(h.lastActivity)
+	if h.idleFired || quiet < h.idleAfter {
+		return 0, false
+	}
+	for sid, started := range h.inflight {
+		if now.Sub(started) < inflightStale {
+			return 0, false // a turn is still running; a long agent run is not idle
+		}
+		delete(h.inflight, sid)
+	}
+	h.idleFired = true
+	return quiet, true
+}
+
+// ensureIdleWatch starts the idle watcher the first time a plugin asks for the
+// "idle" event. Hosts nobody registers idle on never spawn the goroutine.
+func (h *Host) ensureIdleWatch() {
+	h.idleOnce.Do(func() {
+		go func() {
+			t := time.NewTicker(h.idleTick)
+			defer t.Stop()
+			for now := range t.C {
+				if quiet, ok := h.idleDue(now); ok {
+					h.FireEventWith("idle", map[string]string{"idle_seconds": strconv.Itoa(int(quiet.Seconds()))})
+				}
+			}
+		}()
+	})
 }
 
 // DrainEvents waits (up to timeout) for queued observation events to finish.
@@ -324,8 +420,10 @@ func (h *Host) Load(ctx context.Context, dir string) (port.PluginInfo, error) {
 		old.close()
 	}
 	h.plugins[p.name] = p
-	for _, t := range p.tools {
-		h.sink.Register(t)
+	if h.sink != nil {
+		for _, t := range p.tools {
+			h.sink.Register(t)
+		}
 	}
 	return port.PluginInfo{Name: p.name, Version: p.manifest.Version, Capabilities: p.manifest.Capabilities}, nil
 }
@@ -466,6 +564,9 @@ func (h *Host) TakeUIEffects() []string {
 
 // unregister removes a plugin's tools from the sink (caller holds h.mu).
 func (h *Host) unregister(p *plugin) {
+	if h.sink == nil {
+		return
+	}
 	for _, t := range p.tools {
 		h.sink.Unregister(t.name)
 	}

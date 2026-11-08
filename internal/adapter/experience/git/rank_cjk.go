@@ -1,14 +1,17 @@
 package git
 
 import (
-	"github.com/sayaya1090/magi/internal/core/lexical"
 	"math"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/lexical"
 )
 
-// RankCJK preserves the legacy English scorer. Layered retrieval calls this
-// again over the complete visible union so scores share corpus statistics.
+// RankCJK ranks candidates using unified BM25 over the visible corpus.
+// It applies to all scripts, English, and code identifiers while preserving
+// exact-match bonuses (such as ID matches >= 1000).
 func RankCJK[T any](query string, candidates []Scored[T], textOf func(T) string) {
-	if !lexical.HasCJK(query) {
+	if strings.TrimSpace(query) == "" || len(candidates) == 0 {
 		return
 	}
 	docs := make([]string, len(candidates))
@@ -16,9 +19,13 @@ func RankCJK[T any](query string, candidates []Scored[T], textOf func(T) string)
 		docs[i] = textOf(candidate.V)
 	}
 	for i, score := range lexical.Scores(query, docs) {
-		candidates[i].Score = 0
+		bonus := 0
+		if candidates[i].Score >= 1000 {
+			bonus = candidates[i].Score
+		}
+		candidates[i].Score = bonus
 		if score > 0 {
-			candidates[i].Score = max(1, int(math.Round(score*1000)))
+			candidates[i].Score += max(1, int(math.Round(score*1000)))
 		}
 	}
 }

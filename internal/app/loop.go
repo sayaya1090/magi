@@ -57,7 +57,7 @@ func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir st
 	// Anchored on the raw list, a deferred mid-turn interjection — hidden from the messages and from
 	// the turn task — still flipped this directive: the reply language was locked by a message the
 	// model could not see, and the flip at position 0 invalidated the whole KV prefix mid-turn.
-	if dir := langDirective(lastUserPromptText(evs)); dir != "" {
+	if dir := a.sessionLangDirective(sid, evs); dir != "" {
 		parts = append([]contextFragment{{id: "system/language", source: "langDirective", lane: turnSystem, text: dir + "\n\n"}}, parts...)
 	}
 	// Available skills (model loads one via the skill tool when relevant). FROZEN per session —
@@ -66,11 +66,89 @@ func (a *App) buildStepSystem(sid session.SessionID, agent AgentSpec, workdir st
 	if available["skill"] {
 		skill.text = a.skillBlockFor(sid, workdir)
 	}
-	block, decisions := assembleContext(append(parts, skill), available)
+	parts = append(parts, skill)
+	if core := a.coreBlockFor(sid); core != "" {
+		parts = append(parts, contextFragment{id: "system/core-memory", source: "coreBlockFor", lane: turnSystem, text: core})
+	}
+	block, decisions := assembleContext(parts, available)
 	a.mu.Lock()
 	a.stateLocked(sid).systemDecisions = decisions
 	a.mu.Unlock()
 	return block
+}
+
+// sessionLangDirective returns the primacy language-lock directive for sid.
+// Scanning backwards through genuine user prompts (and falling back to the session's
+// last detected directive) prevents short ASCII replies ("ok", "y", "1", commands)
+// from dropping position 0 of the system prompt and invalidating the entire KV prefix.
+func (a *App) sessionLangDirective(sid session.SessionID, evs []event.Event) string {
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Type == event.TypePromptSubmitted && evs[i].Actor.Kind == event.ActorUser {
+			var d event.PromptSubmittedData
+			if json.Unmarshal(evs[i].Data, &d) == nil {
+				if dir := langDirective(partsText(d.Parts)); dir != "" {
+					a.mu.Lock()
+					a.stateLocked(sid).langDir = dir
+					a.mu.Unlock()
+					return dir
+				}
+			}
+		}
+	}
+	a.mu.Lock()
+	dir := a.stateLocked(sid).langDir
+	a.mu.Unlock()
+	return dir
+}
+
+const coreMemoryMaxChars = 2400
+
+// coreBlockFor renders observed core-tier memories ONCE per session so the system
+// prompt prefix stays byte-stable across turns and steps.
+func (a *App) coreBlockFor(sid session.SessionID) string {
+	insp, ok := a.cfg.Experience.(port.ManagedExperienceInspector)
+	if !ok {
+		return ""
+	}
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	if st.coreBlockSet {
+		b := st.coreBlock
+		a.mu.Unlock()
+		return b
+	}
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	mems, err := insp.CoreMemories(ctx, coreMemoryMaxChars)
+	if err != nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, m := range mems {
+		stmt := excerptStatement(m.EffectiveDescription())
+		if stmt == "" {
+			continue
+		}
+		id := m.ID
+		if base, _, ok := strings.Cut(id, "@"); ok {
+			id = base
+		}
+		sb.WriteString("- " + id + ": " + stmt + "\n")
+	}
+	out := ""
+	if sb.Len() > 0 {
+		out = "\n\n# Core memory (pinned for this session)\n" + strings.TrimRight(sb.String(), "\n")
+	}
+	a.mu.Lock()
+	st = a.stateLocked(sid)
+	if !st.coreBlockSet {
+		st.coreBlock = out
+		st.coreBlockSet = true
+	}
+	out = st.coreBlock
+	a.mu.Unlock()
+	return out
 }
 
 // skillBlockFor renders the skill list ONCE per session and hands back the same bytes every time

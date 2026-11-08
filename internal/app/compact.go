@@ -335,6 +335,9 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	if err := a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d); err != nil {
 		return false
 	}
+	if co, ok := a.cfg.Observer.(interface{ ContextCompacted(sid, summary string) }); ok {
+		co.ContextCompacted(string(s.ID), summary)
+	}
 	a.resetMemoryDelivery(s.ID)
 	tokensBefore, tokensAfter := compaction.TokensBefore, compaction.TokensAfter
 	// And say what it cost. The numbers are the ones the fact carries, so the line and the record

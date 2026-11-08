@@ -40,7 +40,9 @@ def update(path: Path) -> bool:
         raise ValueError('Expected liveTurn result handler was not found; file unchanged')
     if '  if appTurnSubmitted then' not in updated:
         updated = updated.replace(success, success + '\n  if appTurnSubmitted then\n' +
-            '''    return { status = 409, body = '{"error":{"message":"Codex 요청이 전송된 뒤 정상 완료되지 않았습니다. 중복 실행을 피하려고 자동 재요청하지 않았습니다. 상태를 확인한 뒤 다시 시도해 주세요."}}' }\n''' +
+            '''    local detail = appTurnError and (': ' .. appTurnError) or ''\n''' +
+            '''    return { status = 409, body = '{"error":{"message":' ..\n''' +
+            '''      jstr('Codex 요청이 전송된 뒤 정상 완료되지 않았습니다' .. detail .. '. 중복 실행을 피하려고 자동 재요청하지 않았습니다. 상태를 확인한 뒤 다시 시도해 주세요.') .. '}}' }\n''' +
             '  end', 1)
     # 409 is deliberately non-retryable by Magi's HTTP client; a 5xx here
     # would replay the already-submitted request at the next layer.

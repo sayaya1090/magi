@@ -269,6 +269,17 @@ func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string,
 	return loopContinue, true
 }
 
+// stoppedBySafetyClassifier reports whether the turn's assistant output indicates that the
+// model backend's safety classifier interrupted generation (e.g., Claude CLI's safeguards
+// notice relayed by the claudecode shim). Forcing a finish declaration or council retry
+// after a safety classifier block causes an expensive refusal loop.
+func stoppedBySafetyClassifier(s string) bool {
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "[claudecode: response stopped by backend safety classifier]") ||
+		strings.Contains(lower, "your response above was stopped by a safety classifier") ||
+		strings.Contains(lower, "safeguards stopped the response above")
+}
+
 // requireFinishDeclaration keeps a working turn open until the agent SAYS it is finished and the
 // council accepts. Ending was previously the absence of an action — the model stopped calling tools
 // and the turn stopped with it, so a turn that trailed off mid-thought and a turn that was actually
@@ -295,6 +306,10 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 		return 0, false
 	}
 	if !contextToolNames(a.sessionToolSpecs(tc.s.ID, tc.agent))["council"] {
+		return 0, false
+	}
+	if stoppedBySafetyClassifier(lastText) {
+		ts.unverifiedReason = "the model backend's safety classifier stopped the response"
 		return 0, false
 	}
 	// The budget is per STRETCH of no progress, not per turn. It counted for the whole turn and

@@ -56,3 +56,22 @@ func Chunks(text string) []string {
 	}
 	return out
 }
+
+// ChunksWithHeader splits text into passages via Chunks and prepends header (when
+// non-empty) to every passage so later chunks retain the document's one-line summary.
+func ChunksWithHeader(header, text string) []string {
+	parts := Chunks(text)
+	h := strings.TrimSpace(header)
+	if h == "" || len(parts) == 0 {
+		return parts
+	}
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		if strings.HasPrefix(strings.TrimSpace(p), h) {
+			out[i] = p
+		} else {
+			out[i] = h + "\n" + p
+		}
+	}
+	return out
+}

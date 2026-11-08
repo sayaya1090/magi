@@ -379,6 +379,13 @@ func (a *App) noteMemoryArrivals(sid session.SessionID, mems []port.Memory) {
 			continue
 		}
 		st.memSeen[m.ID] = fingerprint
+		// Core memories (and memories distilled from this session's own turns) already
+		// have their originating context in the recent conversation window; deferring
+		// their injection until session compaction or restart avoids redundant transcript
+		// announcements and preserves the KV cache prefix.
+		if m.EffectiveTier() == "core" || hasSessionEvidence(m, string(sid)) {
+			continue
+		}
 		arrival := memoryArrival{id: m.ID, text: "- " + m.ID + ": " + oneLineHint(m.Text)}
 		replaced := false
 		for i := range st.memPending {
@@ -393,6 +400,18 @@ func (a *App) noteMemoryArrivals(sid session.SessionID, mems []port.Memory) {
 	}
 }
 
+func hasSessionEvidence(m port.Memory, sid string) bool {
+	if sid == "" {
+		return false
+	}
+	for _, ev := range m.Evidence {
+		if ev.Session == sid {
+			return true
+		}
+	}
+	return false
+}
+
 type memoryArrival struct{ id, text string }
 
 // Fingerprint the whole returned content, not its display hint or filesystem
@@ -403,11 +422,17 @@ func memoryFingerprint(m port.Memory) string {
 
 // Refresh retrieval after compaction without announcing already delivered memories
 // again. The ordinary count pointer still offers recall_memory in the new context.
+// Because compaction summarizes away the recent conversation window (and rewrites the
+// transcript prefix anyway), this is also the single mid-session boundary where the
+// pinned `# Core memory` block is refreshed alongside process/session restart.
 func (a *App) resetMemoryDelivery(sid session.SessionID) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
 	st.expPtrQ, st.expPtr = "", ""
+	st.excerptSent = nil
+	st.coreBlock, st.coreBlockSet = "", false
+	st.turnSys, st.turnSysSet = "", false
 }
 
 // takeMemoryArrivals drains up to n queued arrival lines. Capped so a busy fleet feeding the

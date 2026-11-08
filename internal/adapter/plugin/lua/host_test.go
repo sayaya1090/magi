@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/testenv"
 
@@ -246,3 +247,71 @@ func TestFsResolveRejectsASymlinkOutOfTheWorkdir(t *testing.T) {
 		t.Errorf("an in-workspace read was refused: %q err=%v", got, isErr)
 	}
 }
+
+// TestHostIdleEvent tests that registering an "idle" hook fires when the host has been
+// quiet for IdleAfter duration, and that in-flight turns hold it off.
+func TestHostIdleEvent(t *testing.T) {
+	dir := writePlugin(t,
+		`name="idletest"`+"\n"+`capabilities=["tool"]`,
+		`local count = 0
+		 magi.on("idle", function(ev)
+		   count = count + 1
+		 end)
+		 magi.register_tool{name="idle_stats", description="stats", execute=function()
+		   return tostring(count)
+		 end}`,
+	)
+	reg := builtin.NewRegistry()
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:  reg,
+		IdleAfter: 40 * time.Millisecond,
+		IdleTick:  10 * time.Millisecond,
+	})
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("load plugin: %v", err)
+	}
+
+	tool, ok := reg.Get("idle_stats")
+	if !ok {
+		t.Fatal("idle_stats tool not registered")
+	}
+
+	// 1. Initially active turn should prevent idle.
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "start"})
+	time.Sleep(70 * time.Millisecond)
+	got, _ := execTool(t, tool, `{}`, t.TempDir())
+	if got != "0" {
+		t.Fatalf("idle fired while turn was in flight: count=%s", got)
+	}
+
+	// 2. Finish the turn. After IdleAfter, idle should fire exactly once.
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "done"})
+	// Wait long enough for ticker (10ms) + idleAfter (40ms) + event queue.
+	time.Sleep(100 * time.Millisecond)
+	h.DrainEvents(time.Second)
+
+	got, _ = execTool(t, tool, `{}`, t.TempDir())
+	if got != "1" {
+		t.Fatalf("expected count=1 after quiet period, got: %s", got)
+	}
+
+	// 3. Still quiet: should not fire again repeatedly.
+	time.Sleep(60 * time.Millisecond)
+	h.DrainEvents(time.Second)
+	got, _ = execTool(t, tool, `{}`, t.TempDir())
+	if got != "1" {
+		t.Fatalf("expected count to remain 1 without new activity, got: %s", got)
+	}
+
+	// 4. New activity cycle triggers a new idle after next quiet period.
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "next"})
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "next done"})
+	time.Sleep(100 * time.Millisecond)
+	h.DrainEvents(time.Second)
+
+	got, _ = execTool(t, tool, `{}`, t.TempDir())
+	if got != "2" {
+		t.Fatalf("expected count=2 after second quiet period, got: %s", got)
+	}
+}
+

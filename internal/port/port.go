@@ -828,11 +828,27 @@ type WikiStore interface {
 	WikiIndex(ctx context.Context, n int) ([]WikiPage, error)
 }
 
+// MemoryEvidence records one turn or commit where a memory was observed or confirmed.
+type MemoryEvidence struct {
+	Session string `json:"session,omitempty"`
+	Turn    int    `json:"turn,omitempty"`
+	Commit  string `json:"commit,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+}
+
 // Memory is a learned fact/convention/pitfall.
 type Memory struct {
-	ID   string
-	Text string
-	Tags []string
+	ID          string
+	Text        string
+	Tags        []string
+	Description string           `json:"description,omitempty"`
+	Kind        string           `json:"kind,omitempty"`        // lesson | fact | procedure | preference | pitfall
+	Areas       []string         `json:"areas,omitempty"`       // 구현 | 디버깅 | 분석 | 설정 | 리팩터링 | 문서
+	Tier        string           `json:"tier,omitempty"`        // core | reference
+	Status      string           `json:"status,omitempty"`      // hypothesis | observed | conflicted | disconfirmed
+	ValidUntil  string           `json:"valid_until,omitempty"` // YYYY-MM-DD or RFC3339
+	Evidence    []MemoryEvidence `json:"evidence,omitempty"`
+	Links       []string         `json:"links,omitempty"`
 	// Excerpt is the passage of Text that matched a recall query best, clipped for the prompt. It is
 	// set by retrieval only and never stored: omitempty keeps managed records and their operation
 	// digests byte-identical to before the field existed.

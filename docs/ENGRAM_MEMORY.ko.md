@@ -443,6 +443,8 @@ valid_until · evidence[]{session#turn, commit, outcome} · links[] (정정·중
 
 기록 원칙은 상대 reflection 지시문의 Extract 필터를 따릅니다. 원 대화는 이미 검색할 수 있으므로 다시 기록하지 않습니다. 줄 번호, 오류 문구, 임시 경로 같은 일회성 정보는 버리고 상대 날짜는 절대 날짜로 바꿉니다. 모순은 양쪽을 보존하고 `conflicted`로 표시합니다. 사용자가 직접 말한 지시와 `remember` 호출은 처음부터 `observed`이고, 모델이 추출한 후보는 `hypothesis`로 시작합니다.
 
+**구현(2026-11-08)**: `port.Memory`에 `Description`, `Kind`, `Areas`, `Tier`, `Status`, `ValidUntil`, `Evidence`, `Links`를 모두 `omitempty`로 추가했습니다(`internal/port/port.go`). 구형 managed JSON 67건은 파일을 다시 쓰지 않고 읽을 때 `EffectiveDescription`(200자 상한), `EffectiveKind`, `EffectiveAreas`, `EffectiveTier`, `EffectiveStatus`, `IsExpired`로 기본값을 추론하므로(`internal/port/managed_experience.go`) 기존 파일 바이트와 operation digest가 바뀌지 않습니다. Lua 브리지에는 `magi.search_experience`와 확장 필드 전달을 연결했습니다(`internal/adapter/plugin/lua/bridge_managed_experience.go`).
+
 ### 11.2 로컬 임베딩 서버
 
 engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합니다. 모델은 bge-m3입니다.
@@ -468,7 +470,7 @@ engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합
 
 벡터 캐시 키는 백엔드 + 모델 + revision입니다. 같은 bge-m3라도 TEI의 원본 가중치와 Ollama의 GGUF 변환본은 벡터가 다를 수 있기 때문입니다. 같은 이유로 유사도 임계값도 백엔드마다 따로 잽니다.
 
-**구현(2026-11-08)**: 컨테이너를 플러그인이 직접 띄우는 부분은 넣지 않았습니다. 서버는 사람이 띄우고(예: 로컬 Ollama에서 `ollama pull bge-m3`), engram은 `startup` 때 이미 떠 있는 루프백 서버를 확인해 연결만 합니다. `[plugins.engram] embed_url`(기본 `http://127.0.0.1:11434/v1`)의 `/models`에 `embed_model`(기본 `bge-m3`, 태그 포함)이 있으면 `magi.set_embed_endpoint`로 회상용 클라이언트에 연결합니다(`plugins/engram/init.lua`). 매니페스트에는 `net:127.0.0.1`, `net:localhost`, `config:read:embed_model`만 추가했으므로 루프백이 아닌 주소는 연결할 수 없습니다. `config.toml`에 `embed_model`을 직접 둔 사용자는 그 설정을 존중해 연결하지 않습니다. 상태와 실패 원인은 `/engram-embed status`로 보고, 서버를 띄운 뒤 `/engram-embed connect`로 다시 연결합니다. 호스트 쪽은 `embed.Client.SetEndpoint`로 실행 중 주소를 바꾸고, 유사도 하한은 회상할 때마다 현재 모델 기준으로 정합니다(`WithMinSimilarityFunc`). 그래서 플러그인이 나중에 bge-m3를 연결해도 하한 0.5가 적용됩니다. 실제 서버(`ollama/ollama` 컨테이너, `bge-m3:latest`)로 확인하다가 `magi.http`가 `method`를 생략하면 메서드를 `"nil"`로 보내 405를 받는 호스트 버그를 찾아 고쳤습니다(`bridge_net.go`의 `bridgeHTTP`). 가짜 서버가 메서드를 검사하지 않아 이전 테스트는 통과했었고, 지금은 GET이 아니면 405를 돌려주게 했습니다.
+**구현(2026-11-08)**: `startup` 때 `[plugins.engram] embed_url`(기본 `http://127.0.0.1:11434/v1`)의 `/models`에 `embed_model`(기본 `bge-m3`, 태그 포함)이 이미 있으면 즉시 `magi.set_embed_endpoint`로 회상용 클라이언트에 연결합니다(`plugins/engram/init.lua`). 서버가 없거나 모델이 아직 없으면 컨테이너 런타임(`docker`, 없으면 `podman`)과 `Server.Arch`를 감지해 플러그인 저장소에 기록하고, `magi-engram-embed` 컨테이너(`ollama/ollama`, `127.0.0.1:11434:11434`, 볼륨 `magi-engram-ollama:/root/.ollama`) 기동과 `ollama pull bge-m3`를 `magi.pipe` 백그라운드 프로세스로 진행합니다. `startup`은 동기 훅이므로(`host.go`의 `FireEvent`) 이미지·모델 내려받기를 기다리지 않고 바로 반환하며, 내려받기가 끝날 때까지 회상은 어휘 검색으로 동작하다가 이후 `engram-lessons` 컨텍스트 제공·`user_message`·`turn_finished`·`/engram-embed` 호출에서 준비 완료가 확인되면 자동으로 `magi.set_embed_endpoint`를 호출해 의미 검색으로 전환합니다. 매니페스트에는 `exec_timeout = "10m"`과 `net:127.0.0.1`, `net:localhost`, `config:read:embed_model`, `exec:docker`, `exec:podman`을 선언했습니다(`plugins/engram/plugin.toml`). 여러 magi 프로세스가 하나의 컨테이너를 공유하므로 공유 임대(`embed_leases_v1`)를 유지하며, 연결된 컴패니언이 모두 종료(`shutdown`)되어 남은 활성 임대가 0개가 되면 컨테이너를 자동으로 멈춥니다(`docker stop -t 2 magi-engram-embed`). `config.toml`에 `embed_model`을 직접 둔 사용자는 그 설정을 존중해 건드리지 않으며, `[plugins.engram] embed_url`을 따로 지정한 경우에도 자동 컨테이너 기동은 생략하고 지정한 주소만 확인합니다. 명령은 `/engram-embed [status|connect|start|reselect]` 네 가지를 지원합니다. 호스트 쪽은 `embed.Client.SetEndpoint`로 실행 중 주소를 바꾸고, 유사도 하한은 회상할 때마다 현재 모델 기준으로 정합니다(`WithMinSimilarityFunc`). 그래서 백그라운드 준비가 끝난 뒤 bge-m3가 연결돼도 하한 0.5가 적용됩니다. 실제 서버(`ollama/ollama` 컨테이너, `bge-m3:latest`)로 확인하다가 `magi.http`가 `method`를 생략하면 메서드를 `"nil"`로 보내 405를 받는 호스트 버그(`bridge_net.go`의 `bridgeHTTP`)와, 설치된 모델이 0개일 때 Ollama가 `{"object":"list","data":null}`을 돌려줘 모델 목록 파싱이 실패하던 문제를 찾아 고쳤습니다.
 
 ### 11.3 청크 회상과 주입
 
@@ -485,6 +487,8 @@ engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합
 - **문체**: 회상 발췌는 사실 서술로만 넣습니다. 2인칭, 명령형 어미, 시크릿 패턴이 있는 발췌는 넣지 않습니다(상대 `recall/gate.ts`의 판단과 같습니다).
 - **상주 층 고정**: 상주 층은 세션 시작 때 정한 revision을 유지하고, 세션 중 바뀐 내용은 알림 한 줄로만 알립니다. 턴별 발췌는 지금처럼 `volatileContext`에 넣습니다(`internal/app/prompt.go`).
 
+**구현(2026-11-08)**: 청크마다 `embed.ChunksWithHeader`로 `Description`을 머리말에 붙이고(`internal/core/embed/chunk.go`), `managed:<id>` 정확 일치 점수를 보강해 객체 ID로 `recall_memory`를 부르면 항상 해당 레코드가 회상됩니다(`internal/adapter/experience/git/managed.go`). `tier="core"`이면서 `status="observed"`인 기억은 세션 첫 스텝에서 `coreBlockFor`로 `@<revision>` 해시를 뺀 채 최대 2,400자까지 고정해 세션 중 시스템 프롬프트 앞부분이 흔들리지 않게 했습니다(`internal/app/loop.go`). 세션 도중 새로 만들어진 코어 기억이나 현 세션의 근거에서 나온 기억은 원천 맥락이 이미 최근 대화 창에 들어 있으므로 세션 중간 도착 알림(`noteMemoryArrivals`)을 생략하고, 최근 맥락이 요약되어 사라지는 **세션 압축(`resetMemoryDelivery`) 또는 재시작·새 세션** 경계에서만 `# Core memory` 블록을 갱신합니다(`internal/app/prompt.go`, `internal/app/compact.go`). 또한 한국어 대화 도중 짧은 ASCII 응답(`ok`, `1`, 명령어 등)이 와도 시스템 프롬프트 0번 위치의 언어 지시문이 빠지지 않도록 세션 단위로 고정(`sessionLangDirective`)하고, 상태를 유지하는 CLI 파이프(`claudecode`, `antigravity`)에서는 같은 턴의 툴 결과 연속 스텝마다 변하지 않은 `# Runtime context` 재전송을 생략해 KV 캐시 히트율을 지킵니다. 로컬 임베딩 서버가 연결되면 `engram-lessons` 컨텍스트 프로바이더는 `SESSION_SUMMARY.md` 표 주입을 멈추고, 임베딩 서버가 없을 때만 어휘 폴백으로 동작합니다(`plugins/engram/init.lua`).
+
 ### 11.4 facts·reflection·dream 실행
 
 현재 engram은 `turn_finished`마다 사이드카 모델로 그 턴을 분석해 교훈이나 스킬 1건을 남깁니다. 저장 뒤 다시 정리하는 단계는 없습니다. 상대는 사실 추출(facts), 세션 구간 정리(reflection), 여러 세션 통합(dream)을 나눠 돌립니다.
@@ -494,8 +498,8 @@ engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합
 | 과정 | 시점 | 실행 | 하는 일 |
 |---|---|---|---|
 | facts | 4턴 누적, 종료, 압축 | 단발 `magi.analyze` | 영속 inbox의 턴 요약을 한 번에 분석해 후보를 냅니다. 임베딩으로 같은 내용이 있으면 근거만 덧붙입니다 |
-| reflection | 압축, 25턴마다, 세션 종료 | 단발 `magi.analyze` | 플러그인이 inbox와 임베딩으로 찾은 관련 객체를 모아 넘깁니다. 결과는 갱신 / 생성 / 버림 / 충돌 표시입니다 |
-| dream | 하루 한 번 | 데몬 cron `prompt` → `engram_dream` 도구 → `magi.spawn` 서브에이전트 | 임베딩 군집 병합, 2개 세션 이상 일치한 가설의 `observed` 승격, `valid_until` 만료, 상주 층 예산 관리, 스킬 점검(미사용·중복), 모순 보고 |
+| reflection | 압축(`context_compacted`), 25턴 누적(관찰 3건 이상+확정 결과 포함 시), 유휴(`idle`), 종료(`shutdown`), `/engram-reflect` | 단발 `magi.analyze` | 플러그인이 inbox·압축 요약·임베딩으로 찾은 관련 객체를 모아 넘깁니다. 결과는 갱신 / 생성 / 버림 / 충돌 표시입니다 |
+| dream | 최소 12시간 경과 + 30분 유휴(`idle`) + 새 관찰 누적 시 자동, 또는 데몬 cron / `/engram-dream` | 백그라운드 자동 실행 또는 `engram_dream` 도구 | 임베딩 군집 병합, 2개 세션 이상 일치한 가설의 `observed` 승격, `valid_until` 만료, 상주 층 예산 관리, 스킬 점검(미사용·중복), 모순 보고 |
 
 reflection을 서브에이전트로 돌리려면 이벤트 핸들러에서 spawn을 허용하는 호스트 변경이 따로 필요합니다. 필요한 맥락을 플러그인이 미리 모아 넘기면 단발 호출로 충분하다고 판단해 이번 설계에서는 넣지 않았습니다.
 
@@ -510,6 +514,8 @@ reflection을 서브에이전트로 돌리려면 이벤트 핸들러에서 spawn
 - 삭제하지 않고 새 revision만 만듭니다. pin, 사람 편집, cold·보관 정책(§0.3)은 그대로 따릅니다.
 
 engram 매니페스트에는 지금 `spawn` 능력이 없습니다. 저장소에서 `spawn`을 선언한 플러그인은 s2-engine뿐입니다.
+
+**구현(2026-11-08)**: `unverified`·`ungated` 턴은 `engram_inbox_v1:<workdir>`에 4턴씩 모아 `magi.analyze`를 한 번만 부르고, `magi.search_experience`(유사도 하한 0.78)로 같은 기억이 이미 있으면 새 객체를 만들지 않고 기존 객체의 `evidence`만 CAS로 덧붙이며 2개 세션 이상에서 관측되면 `hypothesis`를 `observed`로 승격합니다(`plugins/engram/init.lua`). 호스트는 대화 압축 완료 때 `context_compacted` 플러그인 이벤트를 발행하고(`internal/app/compact.go`, `cmd/magi/pluginops.go`), 사용자가 30분간 입력도 턴 진행도 없는 조용한 구간을 감지해 `idle` 이벤트를 발행합니다(`internal/adapter/plugin/lua/host.go`). engram은 **세션 압축(`context_compacted`)·25턴 누적(관찰 백로그 3건 이상 및 확정 결과 포함 시에만)·30분 유휴(`idle`)·종료(`shutdown`)·`/engram-reflect`** 시점에 관찰 inbox와 압축 요약, 관련 관리 기억을 모아 단발 `magi.analyze`로 갱신·생성·충돌 표시를 저장소에 반영하되, 진행 중인 세션의 `# Core memory` 시스템 프롬프트 주입은 다음 압축이나 재시작 때까지 지연합니다(연속 3회 실패 시 서킷 브레이커로 자동 실행 중단). `dream`은 **정기 유휴 모드(12시간 경과 + 30분 유휴 + 변경 누적)** 외에도, 코어 티어가 2,400자 상한을 초과하거나 미성찰 백로그가 15건 이상 과적되었을 때 12시간 쿨다운을 바이패스하여 5분 최소 쿨다운과 +200자 히스테리시스 가드로 즉각 발동하는 **긴급 압박(pressure dream) 모드**를 지원합니다. pressure 드림은 2시간 이내 신생 기억을 보호하는 유예 기간(Nursery Grace Period)과 인용·경과일수 기반 퇴출 점수(Eviction Score)를 적용해 오래된 무인용 코어부터 결정론적으로 `reference`로 내리고, 필요 시 원본 세부사항을 `reference`에 무손실 보존(Split & Link)하면서 코어 본문만 1줄 규칙+[ref: id] 포인터로 고밀도 합성하여 최종 코어를 80%(1,920자) 이하로 반드시 수축시킵니다. 또한 오프라인 폴백 및 하이브리드 검색을 위해 CamelCase·경로 분해 서브토크나이저, 한글 Unigram+Bigram 및 조사 스트리퍼, 4글자 이하 기술 영단어 원형 보존 Stop-Stemming, 필드별 가중치(ID 3배, Title 2배, Body 1배)와 b=0.45, k1=1.2를 갖춘 Unified Lexical BM25 엔진을 탑재하여 벡터 임베딩 없이도 고정밀 검색을 보장하며, CAS 충돌 시 3자 의미 화해(Semantic 3-Way Reconcile)로 단일 교훈 합성을 완료합니다.
 
 ### 11.5 순서와 검증
 

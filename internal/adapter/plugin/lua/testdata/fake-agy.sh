@@ -16,6 +16,8 @@ while IFS= read -r line; do
   if [[ "$line" == *CALLME* ]]; then
     echo '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"Sure.\nTOOL_CALL {\"name\":\"list_slides\",\"arguments\":{}}"}}'
     echo '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"\n","usage":{"input_tokens":10,"output_tokens":5,"thinking_tokens":1,"cache_read_tokens":4}}}'
+  elif [[ "$line" == *OTHER_PROVIDER_ANSWER* && "$line" == *OTHER_PROVIDER_ARG* ]]; then
+    echo '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"caught_up_turn'"$n"'","usage":{"input_tokens":10,"output_tokens":2,"thinking_tokens":1,"cache_read_tokens":4}}}'
   else
     echo '{"event":"step_update","step_update":{"conversation_id":"c1","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"hello "}}'
     sleep 0.3

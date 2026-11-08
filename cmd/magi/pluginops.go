@@ -264,6 +264,14 @@ func (o *pluginObserver) WantsTurnFinished() bool {
 	return h != nil && h.HasEventHandlers("turn_finished")
 }
 
+// ContextCompacted notifies plugins listening for context_compacted after a
+// session window fold completes.
+func (o *pluginObserver) ContextCompacted(sid, summary string) {
+	if h := o.host.Load(); h != nil && h.HasEventHandlers("context_compacted") {
+		h.FireEventWith("context_compacted", map[string]string{"session": sid, "summary": summary})
+	}
+}
+
 // runTrustCmd adds this workspace to the trusted list, or takes it off.
 //
 // It prints what the decision covers rather than a bare "ok". Trust is the one setting here whose

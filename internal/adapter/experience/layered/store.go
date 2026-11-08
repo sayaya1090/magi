@@ -165,7 +165,12 @@ func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string
 	add(s.project, "[project]")
 	add(s.team, "[team]")
 	add(s.global, "[global]")
-	expgit.RankCJK(query, mems, func(m port.Memory) string { return m.Text })
+	expgit.RankCJK(query, mems, func(m port.Memory) string {
+		if m.Description != "" {
+			return m.ID + "\n" + m.Description + "\n" + m.Text
+		}
+		return m.ID + "\n" + m.Text
+	})
 	expgit.RankCJK(query, skills, func(k port.Skill) string { return k.Name + "\n" + k.Description + "\n" + k.Body })
 
 	minSim := s.floor()
@@ -223,7 +228,15 @@ func rankWithin[T any](ctx context.Context, emb Embedder, minSim float64, query 
 		var chunks []string
 		var owner []int
 		for i := range xs {
-			for _, c := range embed.Chunks(textOf(xs[i].V)) {
+			var docChunks []string
+			if m, ok := any(xs[i].V).(port.Memory); ok && strings.TrimSpace(m.Description) != "" {
+				docChunks = embed.ChunksWithHeader(m.Description, m.Text)
+			} else if k, ok := any(xs[i].V).(port.Skill); ok && strings.TrimSpace(k.Description) != "" {
+				docChunks = embed.ChunksWithHeader(k.Name+": "+k.Description, k.Body)
+			} else {
+				docChunks = embed.Chunks(textOf(xs[i].V))
+			}
+			for _, c := range docChunks {
 				chunks = append(chunks, c)
 				owner = append(owner, i)
 			}
@@ -427,6 +440,20 @@ func (s *Store) ImportLegacySkill(ctx context.Context, skill port.Skill) error {
 		return fmt.Errorf("project experience unavailable")
 	}
 	return s.project.ImportLegacySkill(ctx, skill)
+}
+
+func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string, minSim float64, limit int) ([]port.ManagedRecordSummary, error) {
+	if s.project == nil {
+		return nil, nil
+	}
+	return s.project.SearchManagedExperience(ctx, query, kind, minSim, limit)
+}
+
+func (s *Store) CoreMemories(ctx context.Context, maxChars int) ([]port.Memory, error) {
+	if s.project == nil {
+		return nil, nil
+	}
+	return s.project.CoreMemories(ctx, maxChars)
 }
 
 // excerptRunes bounds a recall excerpt. Five memories at this size are about 3,000 characters, the

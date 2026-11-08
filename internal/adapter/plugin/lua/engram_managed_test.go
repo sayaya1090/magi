@@ -376,3 +376,301 @@ func TestEngramPublicationSnapshotsMatchSavedArtifacts(t *testing.T) {
 		}
 	}
 }
+
+// TestEngramManagedConflictSemanticReconciliation tests that when a revision conflict
+// occurs (concurrent updates without git), engram uses magi.analyze (sidecar LLM)
+// to perform semantic 3-way reconciliation and successfully commits the merged result.
+func TestEngramManagedConflictSemanticReconciliation(t *testing.T) {
+	wd := t.TempDir()
+	store := expgit.New(t.TempDir())
+	ctx := context.Background()
+
+	// 1. Pre-commit a record into the store with rev1.
+	receipt1, err := store.ApplyExperience(ctx, port.ExperienceChange{
+		ObjectID:      "port_rule",
+		Owner:         "plugin:engram",
+		Source:        "plugin:engram",
+		Kind:          "memory",
+		State:         "active",
+		HostOutcome:   "verified",
+		OperationID:   "op_initial",
+		ObservationID: "obs_initial",
+		Memory: &port.Memory{
+			Text: "기존 원격 기억: 포트 충돌 시 lsof로 확인한다",
+			Evidence: []port.MemoryEvidence{
+				{Session: "s_remote", Turn: 1, Outcome: "verified"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed initial apply: %v", err)
+	}
+
+	// 2. Set up fake analyzer to return a synthesized 3-way merged text.
+	synthesizedText := "합성된 기억: 포트 충돌 시 lsof 및 netstat으로 프로세스를 확인한다"
+	fa := &fakeAnalyzer{
+		replies: []string{synthesizedText},
+	}
+
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   fa,
+		Experience: store,
+		DataDir:    t.TempDir(),
+		Runtime:    RuntimeInfo{Workdir: wd},
+		Logf:       func(msg string) { t.Log(msg) },
+	})
+	if _, err := h.Load(ctx, filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+
+	p := h.plugins["engram"]
+	if p == nil {
+		t.Fatal("engram plugin not loaded")
+	}
+
+	// 3. Inject a stale outbox state into managed_experience_v1 store.
+	// It carries expected_revision = "stale_rev_000" which WILL trigger a revision conflict against receipt1.Revision.
+	staleQueue := fmt.Sprintf(`{
+		"links": {"port_rule": "port_rule"},
+		"objects": {"port_rule": {"revision": "stale_rev_000"}},
+		"queue": [{
+			"object_id": "port_rule",
+			"operation_id": "op_local_conflict",
+			"observation_id": "obs_local_1",
+			"expected_revision": "stale_rev_000",
+			"kind": "memory",
+			"state": "active",
+			"text": "로컬 변경 기억: 포트 점유 시 netstat 사용",
+			"evidence": [{"session": "s_local", "turn": 2, "outcome": "verified"}]
+		}]
+	}`)
+	key := "managed_experience_v1:" + wd
+	if err := p.writeStoreValue(key, staleQueue, nil); err != nil {
+		t.Fatalf("write store: %v", err)
+	}
+
+	// 4. Fire user_message to trigger flush_managed().
+	h.FireEventWith("user_message", map[string]string{"session": "s_test", "text": "start turn"})
+	h.DrainEvents(5 * time.Second)
+
+	// 5. Verify the conflict was resolved and the merged text was applied.
+	items, err := store.SearchManagedExperience(ctx, "port_rule", "memory", 0, 1)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("expected managed record in store, got: %v (err=%v)", items, err)
+	}
+	if items[0].Revision == receipt1.Revision {
+		t.Fatalf("expected record revision to advance past rev1, got: %s", items[0].Revision)
+	}
+	if items[0].Memory == nil || items[0].Memory.Text != synthesizedText {
+		t.Fatalf("expected synthesized text %q, got: %q", synthesizedText, items[0].Memory.Text)
+	}
+
+	// 6. Verify evidence was also merged (both s_remote and s_local present).
+	if len(items[0].Memory.Evidence) != 2 {
+		t.Fatalf("expected 2 merged evidence records, got: %+v", items[0].Memory.Evidence)
+	}
+
+	// 7. Verify outbox queue is now empty.
+	rawQueue, _ := p.readStore()[key].(string)
+	var state struct {
+		Queue []any `json:"queue"`
+	}
+	_ = json.Unmarshal([]byte(rawQueue), &state)
+	if len(state.Queue) != 0 {
+		t.Fatalf("expected outbox queue to be empty after resolution, got: %d items", len(state.Queue))
+	}
+}
+
+// TestEngramManagedConflictFallbackPreservesEvidence tests that if magi.analyze fails,
+// conflict reconciliation safely falls back to preserving the remote text while
+// merging evidence from both updates without dropping either turn's outcome.
+func TestEngramManagedConflictFallbackPreservesEvidence(t *testing.T) {
+	wd := t.TempDir()
+	store := expgit.New(t.TempDir())
+	ctx := context.Background()
+
+	initialText := "기존 원격 기억: 포트 충돌 시 lsof로 확인한다"
+	receipt1, err := store.ApplyExperience(ctx, port.ExperienceChange{
+		ObjectID:      "port_rule_fallback",
+		Owner:         "plugin:engram",
+		Source:        "plugin:engram",
+		Kind:          "memory",
+		State:         "active",
+		HostOutcome:   "verified",
+		OperationID:   "op_init_fb",
+		ObservationID: "obs_init_fb",
+		Memory: &port.Memory{
+			Text: initialText,
+			Evidence: []port.MemoryEvidence{
+				{Session: "s_remote", Turn: 1, Outcome: "verified"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed initial apply: %v", err)
+	}
+
+	// Analyzer fails (offline/error).
+	fa := &fakeAnalyzer{
+		err: fmt.Errorf("llm provider unavailable"),
+	}
+
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   fa,
+		Experience: store,
+		DataDir:    t.TempDir(),
+		Runtime:    RuntimeInfo{Workdir: wd},
+	})
+	if _, err := h.Load(ctx, filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+
+	p := h.plugins["engram"]
+	if p == nil {
+		t.Fatal("engram plugin not loaded")
+	}
+
+	staleQueue := fmt.Sprintf(`{
+		"links": {"port_rule_fallback": "port_rule_fallback"},
+		"objects": {"port_rule_fallback": {"revision": "stale_rev_fallback"}},
+		"queue": [{
+			"object_id": "port_rule_fallback",
+			"operation_id": "op_local_fb",
+			"observation_id": "obs_local_fb",
+			"expected_revision": "stale_rev_fallback",
+			"kind": "memory",
+			"state": "active",
+			"text": "로컬 미반영 기억: 포트 점유 시 netstat 사용",
+			"evidence": [{"session": "s_local_fb", "turn": 5, "outcome": "verified"}]
+		}]
+	}`)
+	key := "managed_experience_v1:" + wd
+	if err := p.writeStoreValue(key, staleQueue, nil); err != nil {
+		t.Fatalf("write store: %v", err)
+	}
+
+	h.FireEventWith("user_message", map[string]string{"session": "s_test", "text": "start turn"})
+	h.DrainEvents(5 * time.Second)
+
+	items, err := store.SearchManagedExperience(ctx, "port_rule_fallback", "memory", 0, 1)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("expected managed record in store, got: %v (err=%v)", items, err)
+	}
+	if items[0].Revision == receipt1.Revision {
+		t.Fatalf("expected record revision to advance past rev1, got: %s", items[0].Revision)
+	}
+	// Fallback preserves remoteText and flags conflicted for deferred dream reconcile.
+	if items[0].Memory == nil || items[0].Memory.Text != initialText {
+		t.Fatalf("expected fallback to preserve initial text %q, got: %q", initialText, items[0].Memory.Text)
+	}
+	if items[0].Memory.Status != "conflicted" {
+		t.Fatalf("expected status to be 'conflicted' for deferred reconciliation, got: %q", items[0].Memory.Status)
+	}
+	if !strings.Contains(items[0].Memory.Description, "deferred_reconcile") {
+		t.Fatalf("expected description to contain deferred_reconcile pointer, got: %q", items[0].Memory.Description)
+	}
+	// Both evidences merged
+	if len(items[0].Memory.Evidence) != 2 {
+		t.Fatalf("expected 2 merged evidence records, got: %+v", items[0].Memory.Evidence)
+	}
+}
+
+// TestEngramManagedConflictFastPathIdenticalContent tests that when two updates carry
+// identical text, reconciliation bypasses LLM analysis entirely and advances the revision.
+func TestEngramManagedConflictFastPathIdenticalContent(t *testing.T) {
+	wd := t.TempDir()
+	store := expgit.New(t.TempDir())
+	ctx := context.Background()
+
+	sameText := "동일한 내용의 기억: 포트 충돌 시 lsof로 확인한다"
+	receipt1, err := store.ApplyExperience(ctx, port.ExperienceChange{
+		ObjectID:      "port_rule_same",
+		Owner:         "plugin:engram",
+		Source:        "plugin:engram",
+		Kind:          "memory",
+		State:         "active",
+		HostOutcome:   "verified",
+		OperationID:   "op_init_same",
+		ObservationID: "obs_init_same",
+		Memory: &port.Memory{
+			Text: sameText,
+			Evidence: []port.MemoryEvidence{
+				{Session: "s_remote", Turn: 1, Outcome: "verified"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed initial apply: %v", err)
+	}
+
+	// Analyzer should NOT be called at all.
+	fa := &fakeAnalyzer{}
+
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   fa,
+		Experience: store,
+		DataDir:    t.TempDir(),
+		Runtime:    RuntimeInfo{Workdir: wd},
+	})
+	if _, err := h.Load(ctx, filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+
+	p := h.plugins["engram"]
+	if p == nil {
+		t.Fatal("engram plugin not loaded")
+	}
+
+	staleQueue := fmt.Sprintf(`{
+		"links": {"port_rule_same": "port_rule_same"},
+		"objects": {"port_rule_same": {"revision": "stale_rev_same"}},
+		"queue": [{
+			"object_id": "port_rule_same",
+			"operation_id": "op_local_same",
+			"observation_id": "obs_local_same",
+			"expected_revision": "stale_rev_same",
+			"kind": "memory",
+			"state": "active",
+			"text": %q,
+			"evidence": [{"session": "s_local_same", "turn": 3, "outcome": "verified"}]
+		}]
+	}`, sameText)
+	key := "managed_experience_v1:" + wd
+	if err := p.writeStoreValue(key, staleQueue, nil); err != nil {
+		t.Fatalf("write store: %v", err)
+	}
+
+	h.FireEventWith("user_message", map[string]string{"session": "s_test", "text": "start turn"})
+	h.DrainEvents(5 * time.Second)
+
+	items, err := store.SearchManagedExperience(ctx, "port_rule_same", "memory", 0, 1)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("expected managed record in store, got: %v (err=%v)", items, err)
+	}
+	if items[0].Revision == receipt1.Revision {
+		t.Fatalf("expected record revision to advance past rev1, got: %s", items[0].Revision)
+	}
+	if items[0].Memory == nil || items[0].Memory.Text != sameText {
+		t.Fatalf("expected text %q, got: %q", sameText, items[0].Memory.Text)
+	}
+	// Fast-path did not invoke analyzer (fa.calls == 0)
+	if fa.calls != 0 {
+		t.Fatalf("expected 0 analyzer calls on identical text fast-path, got: %d", fa.calls)
+	}
+	// Both evidences merged
+	if len(items[0].Memory.Evidence) != 2 {
+		t.Fatalf("expected 2 merged evidence records, got: %+v", items[0].Memory.Evidence)
+	}
+}
+
+
+

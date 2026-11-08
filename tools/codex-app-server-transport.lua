@@ -1,6 +1,8 @@
 -- Inlined into the optional local Codex plugin by update-codex-transport.py.
 -- Protocol: Codex app-server v2 (CLI 0.163.0). No MCP server is registered.
 local appTurnSubmitted = false
+local appTurnOverflow = nil  -- the TurnError message of a contextWindowExceeded turn
+local appTurnError = nil     -- the concrete failure reason if turn was submitted
 local function appSend(method, params)
   mcp.rpc = mcp.rpc + 1
   local id = mcp.rpc
@@ -30,7 +32,14 @@ local function appReply(id, cap, capture)
     local d, err = appRead(cap)
     if not d then return nil, err end
     if d.id == id then
-      if d.error then return nil, tostring(d.error.message or 'app-server error') end
+      if d.error then
+        local emsg = tostring(d.error.message or 'app-server error')
+        local low = emsg:lower()
+        if low:find('context', 1, true) or low:find('too long', 1, true) or low:find('token', 1, true) then
+          appTurnOverflow = emsg
+        end
+        return nil, emsg
+      end
       if type(d.result) ~= 'table' then return nil, 'missing app-server result' end
       return d.result
     elseif capture and d.method then
@@ -59,6 +68,8 @@ end
 
 local function liveCall(name, argsJSON, silenceCap)
   appTurnSubmitted = false
+  appTurnOverflow = nil
+  appTurnError = nil
   local a = magi.json_decode(argsJSON)
   if type(a) ~= 'table' then return nil, 'invalid live arguments' end
   local thread = a.threadId
@@ -109,7 +120,20 @@ local function liveCall(name, argsJSON, silenceCap)
         end
       elseif d.method == 'turn/completed' then
         if type(p.turn) ~= 'table' then return nil, 'malformed turn completion' end
-        if p.turn.status ~= 'completed' then return nil, 'Codex turn ' .. tostring(p.turn.status) end
+        if p.turn.status ~= 'completed' then
+          -- Keep the reason. TurnError{message, codexErrorInfo} (app-server v2, codex 0.164.0 schema)
+          -- says WHY; dropping it turned a size refusal into the generic 409 below, which magi
+          -- cannot tell from any other failure — so it never compacted and retried.
+          local e = type(p.turn.error) == 'table' and p.turn.error or {}
+          local msg = type(e.message) == 'string' and e.message or ''
+          local low = (msg .. ' ' .. tostring(e.codexErrorInfo or '')):lower()
+          if e.codexErrorInfo == 'contextWindowExceeded' or low:find('context', 1, true)
+            or low:find('too long', 1, true) or low:find('token', 1, true)
+            or low:find('reduce', 1, true) or low:find('exceed', 1, true) then
+            appTurnOverflow = msg ~= '' and msg or 'context window exceeded'
+          end
+          return nil, 'Codex turn ' .. tostring(p.turn.status) .. (msg ~= '' and (': ' .. msg) or '')
+        end
         if total then mcp.totals[thread] = total end
         if #chunks == 0 then return nil, 'completed turn carried no text' end
         return { text = table.concat(chunks, '\n'), thread = thread, usage = usage }
