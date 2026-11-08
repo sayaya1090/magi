@@ -2,6 +2,8 @@ package lua
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -411,6 +413,352 @@ func TestEngramPressureDreamNurseryProtectionAndContract(t *testing.T) {
 	}
 	if freshTier != "core" {
 		t.Fatalf("expected fresh_rule protected in core due to Nursery Grace Period, got %q", freshTier)
+	}
+}
+
+type errorableAnalyzer struct {
+	calls   atomic.Int32
+	replies []string
+	errors  []error
+}
+
+func (a *errorableAnalyzer) Analyze(_ context.Context, _, _ string, _ string) (string, error) {
+	idx := int(a.calls.Add(1)) - 1
+	if idx < len(a.errors) && a.errors[idx] != nil {
+		return "", a.errors[idx]
+	}
+	if idx < len(a.replies) {
+		return a.replies[idx], nil
+	}
+	return `{"actions":[]}`, nil
+}
+
+func readEngramStore(t *testing.T, dataDir string) map[string]any {
+	if t != nil {
+		t.Helper()
+	}
+	p := filepath.Join(dataDir, "plugin-data", "engram.json")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]any{}
+		}
+		if t != nil {
+			t.Fatal(err)
+		}
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		if t != nil {
+			t.Fatal(err)
+		}
+		return map[string]any{}
+	}
+	return m
+}
+
+func writeEngramStore(t *testing.T, dataDir string, m map[string]any) {
+	if t != nil {
+		t.Helper()
+	}
+	p := filepath.Join(dataDir, "plugin-data", "engram.json")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if t != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		if t != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		if t != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+}
+
+func TestEngramSelfHealingReflectionCircuitBreakerAndPoisonPill(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	ctx := context.Background()
+	wd := t.TempDir()
+	dataDir := t.TempDir()
+	store := expgit.New(t.TempDir())
+
+	ea := &errorableAnalyzer{
+		errors: []error{
+			fmt.Errorf("poison pill error 1: 500 safety trigger"),
+			fmt.Errorf("poison pill error 2: 500 safety trigger"),
+		},
+		replies: []string{
+			`{"actions":[]}`,
+		},
+	}
+
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   ea,
+		Experience: store,
+		DataDir:    dataDir,
+		Runtime:    RuntimeInfo{Workdir: wd},
+	})
+	if _, err := h.Load(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Seed inbox with a toxic observation
+	inboxKey := "reflection_inbox_v1:" + wd
+	deadKey := "reflection_dead_letter_v1:" + wd
+	failKey := "reflection_failures_v1:" + wd
+	failEpochKey := "reflection_fail_epoch_v1:" + wd
+
+	inboxItems := []map[string]any{
+		{
+			"session": "sess_poison",
+			"at":      "2026-11-08T10:00:00Z",
+			"outcome": "error",
+			"text":    "POISON_PILL_PAYLOAD",
+		},
+	}
+	inboxJSON, _ := json.Marshal(inboxItems)
+
+	writeEngramStore(t, dataDir, map[string]any{
+		inboxKey: string(inboxJSON),
+	})
+
+	// 2. Trigger idle event: 1st failure -> fail_count becomes 1
+	h.FireEvent("idle")
+
+	m := readEngramStore(t, dataDir)
+	if m[failKey] != "1" {
+		t.Fatalf("expected failures=1, got %v", m[failKey])
+	}
+	var curInbox []map[string]any
+	if raw, ok := m[inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &curInbox)
+	}
+	if len(curInbox) != 1 || curInbox[0]["_fail_count"] != float64(1) {
+		t.Fatalf("expected _fail_count=1 on poison item, got %+v", curInbox)
+	}
+
+	// 3. Trigger idle event again: 2nd failure -> poison pill isolated to dead letter!
+	h.FireEvent("idle")
+
+	m = readEngramStore(t, dataDir)
+	if m[failKey] != "2" {
+		t.Fatalf("expected failures=2, got %v", m[failKey])
+	}
+	if raw, ok := m[inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &curInbox)
+	}
+	if len(curInbox) != 0 {
+		t.Fatalf("expected inbox emptied after poison pill eviction, got %+v", curInbox)
+	}
+	var deadLetters []map[string]any
+	if raw, ok := m[deadKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &deadLetters)
+	}
+	if len(deadLetters) != 1 || deadLetters[0]["text"] != "POISON_PILL_PAYLOAD" {
+		t.Fatalf("expected dead-letter to contain evicted poison pill, got %+v", deadLetters)
+	}
+
+	// 4. Test Circuit Breaker: Trip to limit (3 fails) and test backoff and Half-Open recovery
+	nowEpoch := time.Now().Unix()
+	m[failKey] = "3"
+	m[failEpochKey] = fmt.Sprintf("%d", nowEpoch-100)
+	freshInbox := []map[string]any{
+		{
+			"session": "sess_clean",
+			"at":      "2026-11-08T11:00:00Z",
+			"outcome": "verified",
+			"text":    "CLEAN_OBSERVATION",
+		},
+	}
+	freshJSON, _ := json.Marshal(freshInbox)
+	m[inboxKey] = string(freshJSON)
+	writeEngramStore(t, dataDir, m)
+
+	prevCalls := ea.calls.Load()
+	// Idle event should be skipped due to backoff
+	h.FireEvent("idle")
+	if ea.calls.Load() != prevCalls {
+		t.Fatalf("expected idle reflection skipped during active backoff, but analyzer called")
+	}
+
+	// Now simulate backoff elapsed (e.g. last failure was 400s ago, > 300s backoff)
+	m = readEngramStore(t, dataDir)
+	m[failEpochKey] = fmt.Sprintf("%d", nowEpoch-400)
+	writeEngramStore(t, dataDir, m)
+
+	// Half-open probe should execute! Analyzer reply is valid JSON actions:[]
+	h.FireEvent("idle")
+	if ea.calls.Load() <= prevCalls {
+		t.Fatalf("expected half-open probe to call analyzer after backoff elapsed")
+	}
+
+	// Circuit breaker should reset to "0" on success!
+	m = readEngramStore(t, dataDir)
+	if m[failKey] != "0" {
+		t.Fatalf("expected failures reset to 0 after half-open success, got %v", m[failKey])
+	}
+	if m[failEpochKey] != "0" {
+		t.Fatalf("expected fail epoch reset to 0 after half-open success, got %v", m[failEpochKey])
+	}
+}
+
+func TestEngramDreamAreaDisjointClusteringGuard(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	ctx := context.Background()
+	wd := t.TempDir()
+	dataDir := t.TempDir()
+	store := expgit.New(t.TempDir())
+
+	ca := &countingAnalyzer{
+		replies: []string{
+			`{"merges":[]}`,
+		},
+	}
+
+	// 1. Seed two active memories with DISJOINT areas: Go backend vs TS frontend
+	if _, err := store.ApplyExperience(ctx, port.ExperienceChange{
+		ObjectID: "mem_go", OperationID: "op_go", ObservationID: "obs_go", Owner: "plugin:engram",
+		Kind: "memory", State: "active", HostOutcome: "verified",
+		Memory: &port.Memory{
+			Text:        "Go 채널 및 고루틴 교훈",
+			Description: "동시성 채널 버퍼 관리",
+			Tier:        "core",
+			Status:      "observed",
+			Areas:       []string{"go", "backend"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyExperience(ctx, port.ExperienceChange{
+		ObjectID: "mem_ts", OperationID: "op_ts", ObservationID: "obs_ts", Owner: "plugin:engram",
+		Kind: "memory", State: "active", HostOutcome: "verified",
+		Memory: &port.Memory{
+			Text:        "TypeScript React 훅 교훈",
+			Description: "동시성 리액트 훅 버퍼 관리", // shares similar words but disjoint areas
+			Tier:        "core",
+			Status:      "observed",
+			Areas:       []string{"typescript", "frontend"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   ca,
+		Experience: store,
+		DataDir:    dataDir,
+		Runtime:    RuntimeInfo{Workdir: wd},
+	})
+	if _, err := h.Load(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+
+	handled, out := h.DispatchCommand("/engram-dream", nil)
+	if !handled || out == nil {
+		t.Fatalf("expected /engram-dream command handled, got %v", out)
+	}
+
+	// Disjoint areas prevent clustering: clusters count should be 0, LLM호출=0
+	if !strings.Contains(out.Error(), "LLM호출=0") {
+		t.Fatalf("expected LLM호출=0 because disjoint areas prevent clustering, got %s", out.Error())
+	}
+}
+
+type midRunInjectAnalyzer struct {
+	calls    atomic.Int32
+	dataDir  string
+	inboxKey string
+	itemC    map[string]any
+}
+
+func (a *midRunInjectAnalyzer) Analyze(_ context.Context, _, _ string, _ string) (string, error) {
+	a.calls.Add(1)
+	// Simulate mid-run arrival during LLM call: another turn finished and pushed item C
+	m := readEngramStore(nil, a.dataDir)
+	var items []map[string]any
+	if raw, ok := m[a.inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &items)
+	}
+	items = append(items, a.itemC)
+	b, _ := json.Marshal(items)
+	m[a.inboxKey] = string(b)
+	writeEngramStore(nil, a.dataDir, m)
+	return `{"actions":[]}`, nil
+}
+
+func TestEngramSelfHealingObservationTruncationAndSetDifferenceDrain(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	ctx := context.Background()
+	wd := t.TempDir()
+	dataDir := t.TempDir()
+	store := expgit.New(t.TempDir())
+
+	inboxKey := "reflection_inbox_v1:" + wd
+	itemA := map[string]any{"session": "s1", "at": "2026-11-08T12:00:00Z", "outcome": "verified", "text": "obs A"}
+	itemB := map[string]any{"session": "s2", "at": "2026-11-08T12:01:00Z", "outcome": "verified", "text": "obs B"}
+	itemC := map[string]any{"session": "s3", "at": "2026-11-08T12:02:00Z", "outcome": "verified", "text": "obs C (mid-run arrival)"}
+
+	analyzer := &midRunInjectAnalyzer{
+		dataDir:  dataDir,
+		inboxKey: inboxKey,
+		itemC:    itemC,
+	}
+
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   analyzer,
+		Experience: store,
+		DataDir:    dataDir,
+		Runtime:    RuntimeInfo{Workdir: wd},
+	})
+	if _, err := h.Load(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Seed inbox with items A and B
+	initJSON, _ := json.Marshal([]map[string]any{itemA, itemB})
+	writeEngramStore(t, dataDir, map[string]any{
+		inboxKey: string(initJSON),
+	})
+
+	// 2. Trigger idle event: reflection begins with [A, B].
+	// While analyzer is executing, midRunInjectAnalyzer inserts item C.
+	h.FireEvent("idle")
+
+	// 3. Verify that after reflection, set-difference CAS drained only [A, B], preserving item C!
+	m := readEngramStore(t, dataDir)
+	var finalInbox []map[string]any
+	if raw, ok := m[inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &finalInbox)
+	}
+	if len(finalInbox) != 1 {
+		t.Fatalf("expected exactly 1 item (mid-run arrival) preserved in inbox, got %d: %+v", len(finalInbox), finalInbox)
+	}
+	if finalInbox[0]["text"] != "obs C (mid-run arrival)" {
+		t.Fatalf("expected preserved item to be item C, got %+v", finalInbox[0])
 	}
 }
 

@@ -966,6 +966,15 @@ local function build_memory_payload(lesson, host_outcome, text)
   return payload
 end
 
+local OBSERVATION_CHAR_LIMIT = 1500
+local function truncate_observation(txt)
+  txt = tostring(txt or "")
+  if #txt <= OBSERVATION_CHAR_LIMIT then return txt end
+  local head_len = 700
+  local tail_len = 700
+  return string.sub(txt, 1, head_len) .. "\n... [truncated] ...\n" .. string.sub(txt, -tail_len)
+end
+
 local function push_reflection_observation(sid, host_outcome, text)
   if not text or text == "" then return end
   local key = "reflection_inbox_v1:" .. magi.workdir()
@@ -976,7 +985,7 @@ local function push_reflection_observation(sid, host_outcome, text)
     session = tostring(sid or ""),
     at = magi.time(),
     outcome = tostring(host_outcome or ""),
-    text = string.sub(tostring(text), 1, 600),
+    text = truncate_observation(text),
   }
   while #items > 25 do table.remove(items, 1) end
   magi.store_compare_exchange(key, prev, magi.json_encode(items))
@@ -1416,12 +1425,17 @@ JSON 객체 하나로만 응답하라(코드펜스·설명 금지):
 local DREAM_PROMPT = [[당신은 경험 저장소의 백그라운드 재정리(dream) 통합기다.
 입력으로 유사도가 높거나 충돌(conflicted) 상태인 기억 클러스터 목록이 주어진다.
 각 클러스터를 하나의 정본(keep_id)으로 병합하고 나머지(archive_ids)를 보관 처리하라.
+규칙:
+- 도메인/언어/프레임워크가 서로 다른 기억은 억지로 병합하지 말고 분리된 상태를 유지하라.
+- 클러스터 내에 서로 다른 도메인이나 성격이 섞여 있어 단일 정본으로 묶을 수 없다면 해당 항목은 merges에 포함하지 마라.
+- 보존할 가치가 있는 구체적인 수치·명령어·경로는 임의로 삭제하지 마라.
 JSON 객체 하나로만 응답하라(코드펜스·설명 금지):
 {"merges":[{"keep_id":"남길 객체 ID","archive_ids":["보관할 중복 객체 ID"],"description":"200자 이내 트리거 요약","text":"병합된 정본 본문","kind":"lesson|fact|procedure|preference|pitfall","areas":["구현|디버깅|분석|설정|리팩터링|문서"],"tier":"core|reference","status":"observed|conflicted"}]}]]
 
 local DREAM_PRESSURE_PROMPT = [[당신은 경험 저장소의 긴급 압박(pressure dream) 압축기다.
 코어 티어의 예산 초과(2,400자 상한)를 해소하기 위해 고밀도 핵심 규칙으로 압축하라.
 규칙:
+- 도메인/언어/프레임워크가 서로 다른 기억은 억지로 병합하지 마라.
 - 원본의 구체적인 에러 로그, CLI 명령어, 포트 번호, 파일 경로는 절대 임의로 삭제하지 말고 reference 객체에 온전히 보존(Split & Link)하라.
 - 코어 정본(keep_id)에는 한 줄짜리 핵심 트리거 규칙과 [ref: archive_id] 포인터만 남겨라.
 JSON 객체 하나로만 응답하라(코드펜스·설명 금지):
@@ -1509,10 +1523,10 @@ local function enqueue_facts_inbox(sid, hint, user, used_csv, outcome)
     session = tostring(sid or ""),
     at = magi.time(),
     outcome = tostring(outcome or ""),
-    hint = tostring(hint or ""),
+    hint = truncate_observation(hint),
     user = user,
     skills = used_csv,
-    window = window,
+    window = truncate_observation(window),
   }
   while #list > 32 do table.remove(list, 1) end
   magi.store_compare_exchange(key, raw, magi.json_encode(list))
@@ -1522,16 +1536,78 @@ local function enqueue_facts_inbox(sid, hint, user, used_csv, outcome)
   return false
 end
 
+local function reflection_item_sig(it)
+  if type(it) ~= "table" then return "" end
+  return tostring(it.session or "") .. "|" .. tostring(it.at or "") .. "|" .. tostring(it.text or "")
+end
+
+local function isolate_poison_pills(rkey, processed_sigs)
+  local dead_key = "reflection_dead_letter_v1:" .. magi.workdir()
+  for attempt = 1, 3 do
+    local cur_raw = magi.store_get(rkey) or ""
+    local cur_items = magi.json_decode(cur_raw == "" and "[]" or cur_raw)
+    if type(cur_items) ~= "table" then break end
+    local next_items = {}
+    local dead_items = {}
+    local changed = false
+    for _, it in ipairs(cur_items) do
+      if type(it) == "table" then
+        local sig = reflection_item_sig(it)
+        if processed_sigs[sig] then
+          local fc = (tonumber(it._fail_count) or 0) + 1
+          it._fail_count = fc
+          changed = true
+          if fc >= 2 then
+            dead_items[#dead_items + 1] = it
+            magi.log("engram: 독성 페이로드(Poison Pill) 격리 — 2회 연속 실패로 dead-letter로 이동: " .. string.sub(tostring(it.text or ""), 1, 60))
+          else
+            next_items[#next_items + 1] = it
+          end
+        else
+          next_items[#next_items + 1] = it
+        end
+      end
+    end
+    if changed then
+      if #dead_items > 0 then
+        local prev_dead = magi.store_get(dead_key) or ""
+        local dl_list = magi.json_decode(prev_dead == "" and "[]" or prev_dead)
+        if type(dl_list) ~= "table" then dl_list = {} end
+        for _, dit in ipairs(dead_items) do
+          dl_list[#dl_list + 1] = dit
+        end
+        while #dl_list > 50 do table.remove(dl_list, 1) end
+        magi.store_set(dead_key, magi.json_encode(dl_list))
+      end
+      if magi.store_compare_exchange(rkey, cur_raw, magi.json_encode(next_items)) then
+        break
+      end
+    else
+      break
+    end
+  end
+end
+
 local function run_reflection(trigger_reason, explicit, compaction_summary)
   flush_facts_inbox(true, 1)
   local fail_key = "reflection_failures_v1:" .. magi.workdir()
+  local fail_ts_key = "reflection_fail_epoch_v1:" .. magi.workdir()
   local fails = tonumber(magi.store_get(fail_key) or "0") or 0
+  local now_epoch = epoch_of(magi.time()) or 0
+
   if explicit then
     fails = 0
     magi.store_set(fail_key, "0")
+    magi.store_set(fail_ts_key, "0")
   elseif fails >= REFLECT_FAILURE_LIMIT then
-    magi.log("engram: reflection 서킷 브레이커 작동 중 (연속 실패 " .. fails .. "회) — 스킵")
-    return "engram: reflection 서킷 브레이커가 열려 있습니다 (/engram-reflect 로 재시도 가능)."
+    local last_fail_ts = tonumber(magi.store_get(fail_ts_key) or "0") or 0
+    local backoff = math.min(3600, 300 * math.floor(2 ^ math.min(fails - REFLECT_FAILURE_LIMIT, 5)))
+    if last_fail_ts > 0 and (now_epoch - last_fail_ts) < backoff then
+      local remaining = backoff - (now_epoch - last_fail_ts)
+      magi.log("engram: reflection 서킷 브레이커 작동 중 (연속 실패 " .. fails .. "회, 백오프 잔여 " .. remaining .. "초) — 스킵")
+      return "engram: reflection 서킷 브레이커가 열려 있습니다 (백오프 잔여: " .. remaining .. "초, /engram-reflect 로 즉시 재시도 가능)."
+    end
+    magi.log("engram: reflection 서킷 브레이커 half-open 시험 실행 중 (연속 실패 " .. fails .. "회 후 백오프 경과)")
   end
 
   local rkey = "reflection_inbox_v1:" .. magi.workdir()
@@ -1544,8 +1620,11 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
 
   local obs_lines = {}
   local query_parts = {}
+  local processed_sigs = {}
   for i, it in ipairs(items) do
     if type(it) == "table" and it.text then
+      local sig = reflection_item_sig(it)
+      processed_sigs[sig] = true
       obs_lines[#obs_lines + 1] = "(" .. i .. ") [session=" .. tostring(it.session or "") .. " outcome=" .. tostring(it.outcome or "") .. "] " .. tostring(it.text)
       query_parts[#query_parts + 1] = tostring(it.text)
     end
@@ -1595,6 +1674,8 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
   if not raw then
     fails = fails + 1
     magi.store_set(fail_key, tostring(fails))
+    magi.store_set(fail_ts_key, tostring(now_epoch))
+    isolate_poison_pills(rkey, processed_sigs)
     magi.log("engram: reflection 분석 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. "): " .. tostring(err))
     return "engram: reflection 실패 — " .. tostring(err)
   end
@@ -1602,12 +1683,35 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
   if type(parsed) ~= "table" or type(parsed.actions) ~= "table" then
     fails = fails + 1
     magi.store_set(fail_key, tostring(fails))
+    magi.store_set(fail_ts_key, tostring(now_epoch))
+    isolate_poison_pills(rkey, processed_sigs)
     magi.log("engram: reflection 응답 파싱 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. ")")
     return "engram: reflection 응답 형식 오류"
   end
 
   magi.store_set(fail_key, "0")
-  magi.store_compare_exchange(rkey, rraw, "[]")
+  magi.store_set(fail_ts_key, "0")
+
+  -- Set-Difference CAS Drain: 처리 완료된 관찰 항목만 인박스에서 차집합 제거
+  for attempt = 1, 3 do
+    local cur_raw = magi.store_get(rkey) or ""
+    local cur_items = magi.json_decode(cur_raw == "" and "[]" or cur_raw)
+    local remaining = {}
+    if type(cur_items) == "table" then
+      for _, it in ipairs(cur_items) do
+        if type(it) == "table" then
+          local sig = reflection_item_sig(it)
+          if not processed_sigs[sig] then
+            remaining[#remaining + 1] = it
+          end
+        end
+      end
+    end
+    local next_raw = magi.json_encode(remaining)
+    if magi.store_compare_exchange(rkey, cur_raw, next_raw) then
+      break
+    end
+  end
   local applied = 0
   for _, act in ipairs(parsed.actions) do
     if type(act) == "table" then
@@ -1831,6 +1935,23 @@ local function run_dream(origin, reason)
   local visited = {}
   local clusters = {}
 
+  local function have_compatible_areas(a, b)
+    if not a or not b then return true end
+    local areas_a = type(a.areas) == "table" and a.areas or {}
+    local areas_b = type(b.areas) == "table" and b.areas or {}
+    if #areas_a == 0 or #areas_b == 0 then return true end
+    local set_a = {}
+    for _, area in ipairs(areas_a) do
+      local s = string.lower(string.gsub(tostring(area or ""), "^%s*(.-)%s*$", "%1"))
+      if s ~= "" then set_a[s] = true end
+    end
+    for _, area in ipairs(areas_b) do
+      local s = string.lower(string.gsub(tostring(area or ""), "^%s*(.-)%s*$", "%1"))
+      if s ~= "" and set_a[s] then return true end
+    end
+    return false
+  end
+
   if origin == "pressure" and core_chars > CORE_DREAM_TARGET then
     -- Pressure 모드: 남은 코어 항목들을 유사도 기준 또는 인접 클러스터로 묶어 고밀도 축약
     for _, rec in ipairs(active_records) do
@@ -1848,7 +1969,7 @@ local function run_dream(origin, reason)
         if type(sim_hits) == "table" then
           for _, h in ipairs(sim_hits) do
             if type(h) == "table" and h.object_id and h.object_id ~= rec.object_id and not visited[h.object_id] and by_id[h.object_id] then
-              if tostring(by_id[h.object_id].tier or "") == "core" then
+              if tostring(by_id[h.object_id].tier or "") == "core" and have_compatible_areas(rec, by_id[h.object_id]) then
                 visited[h.object_id] = true
                 group[#group + 1] = by_id[h.object_id]
               end
@@ -1876,8 +1997,10 @@ local function run_dream(origin, reason)
         if type(sim_hits) == "table" then
           for _, h in ipairs(sim_hits) do
             if type(h) == "table" and h.object_id and h.object_id ~= rec.object_id and not visited[h.object_id] and by_id[h.object_id] then
-              visited[h.object_id] = true
-              group[#group + 1] = by_id[h.object_id]
+              if have_compatible_areas(rec, by_id[h.object_id]) then
+                visited[h.object_id] = true
+                group[#group + 1] = by_id[h.object_id]
+              end
             end
           end
         end
@@ -2026,6 +2149,7 @@ end
 -- 이전 dream 실행 후 최소 12시간이 지났고 새 관찰(dream_dirty_v1)이 쌓였을 때만 실행한다.
 -- 사람이 작업하는 동안에는 토큰도 시간도 쓰지 않는다.
 local DREAM_INTERVAL_SECONDS = 12 * 3600
+local DREAM_HARD_MAX_INTERVAL_SECONDS = 48 * 3600
 
 local function maybe_idle_dream()
   if not flag("auto_dream", true) or not recordLessons() then return end
@@ -2142,6 +2266,19 @@ magi.on("turn_finished", function(ev)
   local need_pressure, p_reason, p_chars = check_memory_pressure()
   if need_pressure then
     maybe_pressure_dream(p_reason, p_chars)
+  end
+
+  -- 드림 최대 대기 주기(48시간) 초과 시 강제 유휴 드림 방어 (Dream Starvation 방지)
+  local dkey = "dream_dirty_v1:" .. magi.workdir()
+  local ekey = "dream_last_epoch_v1:" .. magi.workdir()
+  local last_epoch = tonumber(magi.store_get(ekey) or "0") or 0
+  local now_epoch = epoch_of(magi.time()) or 0
+  if flag("auto_dream", true) and recordLessons() and (magi.store_get(dkey) or "") == "1" and last_epoch > 0 and (now_epoch - last_epoch) >= DREAM_HARD_MAX_INTERVAL_SECONDS then
+    magi.log("engram: 드림 최대 대기 주기(48시간) 초과 — 턴 종료 시점 유휴 드림 실행")
+    magi.store_set(dkey, "0")
+    magi.store_set(ekey, tostring(now_epoch))
+    magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10))
+    run_dream("idle", "hard_max_interval")
   end
 
   prune_stale() -- archive engram-owned skills unused past the cutoff (count/date only)
