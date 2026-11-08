@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -225,6 +226,11 @@ func matchesManagedID(query, objectID, fullID string) bool {
 	return false
 }
 
+var (
+	rankVecMu    sync.RWMutex
+	rankVecCache = make(map[string][]float32)
+)
+
 // embedForRank returns one vector per chunk followed by the query's.
 // With a warmer embedder, it checks the vector cache without blocking; if any chunk
 // is missing, it warms the cache in the background and avoids stalling the caller.
@@ -250,7 +256,47 @@ func embedForRank(ctx context.Context, emb Same, chunks []string, query string) 
 		}
 		return append(docs, q[0]), nil
 	}
-	return emb.Embed(ctx, append(append([]string{}, chunks...), query))
+
+	allTexts := append(append([]string{}, chunks...), query)
+	results := make([][]float32, len(allTexts))
+	var missingIdx []int
+	var missingTexts []string
+
+	rankVecMu.RLock()
+	for i, txt := range allTexts {
+		if v, ok := rankVecCache[txt]; ok {
+			results[i] = v
+		} else {
+			missingIdx = append(missingIdx, i)
+			missingTexts = append(missingTexts, txt)
+		}
+	}
+	rankVecMu.RUnlock()
+
+	if len(missingTexts) == 0 {
+		return results, nil
+	}
+
+	vecs, err := emb.Embed(ctx, missingTexts)
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) != len(missingTexts) {
+		return nil, fmt.Errorf("asked for %d embeddings and got %d", len(missingTexts), len(vecs))
+	}
+
+	rankVecMu.Lock()
+	if len(rankVecCache) > 10000 {
+		rankVecCache = make(map[string][]float32)
+	}
+	for j, v := range vecs {
+		origIdx := missingIdx[j]
+		results[origIdx] = v
+		rankVecCache[missingTexts[j]] = v
+	}
+	rankVecMu.Unlock()
+
+	return results, nil
 }
 
 // SearchManagedExperience lists or searches active managed records, scoring by
@@ -416,6 +462,8 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 			if minSim > 0 {
 				if hasEmbedder {
 					if minSim >= 0.70 {
+						// Strict semantic gate: when embedder is present, high-similarity deduplication
+						// requires genuine vector similarity. Lexical scores cannot bypass this gate.
 						if it.Similarity >= minSim {
 							filtered = append(filtered, it)
 						}

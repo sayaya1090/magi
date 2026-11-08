@@ -460,7 +460,7 @@ local function reconcile_managed_conflict(request)
         if synthesized and synthesized ~= "" then
           request.text = synthesized
           if type(request.memory) == "table" then request.memory.text = synthesized end
-          request.status = "hypothesis"
+          request.status = "active"
           magi.log("engram: managed conflict resolved via semantic 3-way analysis for " .. request.object_id)
         else
           -- 3. Safe Fallback(LWW): 원격 텍스트를 일단 유지하되, 밀려난 로컬 텍스트를 유실하지 않도록

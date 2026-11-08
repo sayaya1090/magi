@@ -69,6 +69,11 @@ func installBridge(p *plugin) {
 	L.SetField(t, "reload_config", L.NewFunction(p.bridgeReloadConfig))
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
 	L.SetField(t, "time", L.NewFunction(p.bridgeTime))
+	L.SetField(t, "sleep", L.NewFunction(func(L *lua.LState) int {
+		sec := L.CheckNumber(1)
+		time.Sleep(time.Duration(float64(sec) * float64(time.Second)))
+		return 0
+	}))
 	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))
 	L.SetField(t, "in_test", L.NewFunction(func(L *lua.LState) int {
 		inTest := flag.Lookup("test.v") != nil || os.Getenv("GO_TEST") != "" || os.Getenv("MAGI_TEST") != ""

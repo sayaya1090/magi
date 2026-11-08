@@ -130,7 +130,7 @@ func (a *App) startCouncilPreparation(ctx context.Context, s session.Session) *c
 				return
 			case <-w.wake:
 			}
-			timer := time.NewTimer(100 * time.Millisecond)
+			timer := time.NewTimer(1500 * time.Millisecond)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
