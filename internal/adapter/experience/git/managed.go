@@ -483,6 +483,7 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 				}
 			}
 		}
+		covers := lexicalCoverage(q, minSim)
 		filtered := items[:0]
 		for _, it := range items {
 			if minSim > 0 {
@@ -498,7 +499,7 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 						if minSim >= 0.40 {
 							minScore = 1500
 						}
-						if it.Similarity >= minSim || it.Score >= minScore {
+						if it.Similarity >= minSim || (it.Score >= minScore && covers(it.Memory, it.Skill)) {
 							filtered = append(filtered, it)
 						}
 					}
@@ -509,7 +510,7 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 					} else if minSim >= 0.40 {
 						minScore = 1500
 					}
-					if it.Score >= minScore {
+					if it.Score >= minScore && covers(it.Memory, it.Skill) {
 						filtered = append(filtered, it)
 					}
 				}
@@ -643,4 +644,45 @@ func (s *Store) forgetManaged(ctx context.Context, id string) error {
 	c.ObservationID = "local-withdrawal:" + c.OperationID
 	_, err = s.ApplyExperience(ctx, c)
 	return err
+}
+
+// Share of a query's terms a document must hold before words alone can stand in for meaning. BM25
+// grows with query length, so Score cannot judge a whole lesson used as the query. On a real store of
+// 60 memories the closest other memory held 0.34-0.59 of a memory's terms (p50 0.40), a pair written
+// to be near-duplicates held 0.59-0.69, and a repeat holds 1.0. Tentative values from that one sample.
+const (
+	lexicalRepeatCoverage  = 0.6 // the strict gates that decide a lesson repeats a memory
+	lexicalRelatedCoverage = 0.5 // the looser gates that gather candidates
+)
+
+// lexicalCoverage returns the check a lexical match has to pass at minSim.
+func lexicalCoverage(query string, minSim float64) func(*port.Memory, *port.Skill) bool {
+	floor := 0.0
+	if minSim >= 0.70 {
+		floor = lexicalRepeatCoverage
+	} else if minSim >= 0.40 {
+		floor = lexicalRelatedCoverage
+	}
+	if floor == 0 {
+		return func(*port.Memory, *port.Skill) bool { return true }
+	}
+	terms := map[string]bool{}
+	for _, t := range lexical.Terms(query) {
+		terms[t] = true
+	}
+	return func(m *port.Memory, sk *port.Skill) bool {
+		var doc string
+		if m != nil {
+			doc = m.Description + " " + m.Text
+		} else if sk != nil {
+			doc = sk.Name + " " + sk.Description + " " + sk.Body
+		}
+		found := map[string]bool{}
+		for _, t := range lexical.Terms(doc) {
+			if terms[t] {
+				found[t] = true
+			}
+		}
+		return len(terms) > 0 && float64(len(found))/float64(len(terms)) >= floor
+	}
 }

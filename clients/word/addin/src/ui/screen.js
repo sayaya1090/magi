@@ -859,6 +859,11 @@ const TOOL_LABELS = new Map(Object.entries({
   set_tag: '기록 남기기', suggest: '제안 붙이기', drop_suggestion: '제안 떼기', land: '끝 신고',
   // Windows 에서 헬퍼가 COM 으로 하는 것
   export_pdf: 'PDF로 내보내기', proofread: '맞춤법 검사 읽기', document_stats: '문서 통계', compare_documents: '문서 비교',
+  // 문서 밖 — magi 자신의 것
+  websearch: '웹 검색', webfetch: '웹 페이지 읽기', todowrite: '계획 세우기',
+  bash: '셸 명령', read: '파일 읽기', write: '파일 쓰기', edit: '파일 고치기',
+  glob: '파일 찾기', grep: '파일 내용 검색', list: '폴더 보기', remember: '기억해 두기',
+  skill: '스킬 읽기', ask_user: '사람에게 묻기', council: '완료 선언',
 }));
 
 export function toolLabel(name) {
@@ -962,7 +967,7 @@ export function councilButton(on) {
   const state = known ? (pressed ? '지금 켜짐' : '지금 꺼짐') : '지금 상태 모름';
   return {
     pressed,
-    title: `카운슬을 ${verb} — ${state}. 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다(문서는 그대로)`,
+    title: `카운슬을 ${verb} — ${state}. 다음 턴부터 적용합니다. 컨텍스트 일부가 다시 처리될 수 있습니다`,
   };
 }
 

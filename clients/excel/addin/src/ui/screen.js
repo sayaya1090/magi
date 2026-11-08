@@ -977,7 +977,7 @@ export function councilButton(on) {
   const state = known ? (pressed ? '지금 켜짐' : '지금 꺼짐') : '지금 상태 모름';
   return {
     pressed,
-    title: `카운슬을 ${verb} — ${state}. 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다(시트는 그대로)`,
+    title: `카운슬을 ${verb} — ${state}. 다음 턴부터 적용합니다. 컨텍스트 일부가 다시 처리될 수 있습니다`,
   };
 }
 
