@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,5 +155,55 @@ func TestStage3ExactIDRecallExpirationAndCoreMemories(t *testing.T) {
 	mems, _, err := store.Retrieve(ctx, "managed:core_rule_01", nil)
 	if err != nil || len(mems) != 1 || !strings.HasPrefix(mems[0].ID, "managed:core_rule_01") {
 		t.Fatalf("expected exact ObjectID recall for managed:core_rule_01, got %+v (err=%v)", mems, err)
+	}
+}
+
+func TestCoreMemoriesRuneBudgeting(t *testing.T) {
+	ctx := context.Background()
+	store := New(t.TempDir())
+	tomorrow := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+
+	// Add 2 Korean core memories:
+	// Desc 1: "한글 규칙 일" (7 runes, 19 bytes) -> 7 + 4 = 11 rune budget
+	// Desc 2: "한글 규칙 이" (7 runes, 19 bytes) -> 7 + 4 = 11 rune budget
+	for i, desc := range []string{"한글 규칙 일", "한글 규칙 이"} {
+		id := fmt.Sprintf("core_%d", i+1)
+		if _, err := store.ApplyExperience(ctx, port.ExperienceChange{
+			ObjectID:      id,
+			OperationID:   "op_" + id,
+			ObservationID: "obs_" + id,
+			Owner:         "engram",
+			Kind:          "memory",
+			State:         "active",
+			HostOutcome:   "verified",
+			Memory: &port.Memory{
+				Text:        desc,
+				Description: desc,
+				Tier:        "core",
+				Status:      "observed",
+				ValidUntil:  tomorrow,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// With byte counting, memory 1 is 19+4=23 bytes, which exceeds 22.
+	// With rune counting, 11 + 11 = 22 runes <= 22, so both memories fit.
+	cores, err := store.CoreMemories(ctx, 22)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cores) != 2 {
+		t.Fatalf("expected both memories to fit within 22 rune budget, got %d", len(cores))
+	}
+
+	// With budget 21, the second memory exceeds 22 runes and should be dropped.
+	coresShort, err := store.CoreMemories(ctx, 21)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(coresShort) != 1 {
+		t.Fatalf("expected only 1 memory to fit within 21 rune budget, got %d", len(coresShort))
 	}
 }

@@ -245,7 +245,7 @@ func splitVerdicts(vs []council.Verdict) bool {
 
 // rebut runs one rebuttal round: each member sees a compact digest of the OTHER
 // members' verdicts and rationales and may hold or change its vote. Members are
-// re-polled in parallel, each keeping its own lens/prompt; a member whose re-poll
+// re-polled in parallel (or sequentially when sharing a panel backend), each keeping its own lens/prompt; a member whose re-poll
 // fails or is unparseable keeps its round-1 verdict (fail-safe, never lost). The
 // digest is built once from the independent verdicts so no member sees a peer's
 // already-revised vote (simultaneous rebuttal, not sequential anchoring).
@@ -254,6 +254,27 @@ func (c *Council) rebut(ctx context.Context, req port.DeliberationRequest, membe
 	for _, v := range indep {
 		byName[v.Member] = v
 	}
+	out := make([]council.Verdict, len(members))
+
+	// When all members share a panel backend (e.g. local CLI shim), poll sequentially
+	// to avoid hammering child pipes or triggering premature session eviction.
+	// Indep is used for all peer digests so simultaneous rebuttal semantics are preserved.
+	// Each member receives its own memberDeadline budget (bounded by parent ctx).
+	if samePanelBackend(members) {
+		for i, m := range members {
+			prior := byName[m.Name]
+			peers := peerDigest(indep, m.Name)
+			mctx, mcancel := context.WithTimeout(ctx, memberDeadline)
+			rv := c.pollRebut(mctx, req, m, prior, peers)
+			if mctx.Err() != nil || ctx.Err() != nil {
+				rv = prior
+			}
+			mcancel()
+			out[i] = rv
+		}
+		return out
+	}
+
 	// Bounded exactly like the independent round: a member whose backend accepts the rebuttal request
 	// and then goes silent must not wedge Deliberate to the turn's wall clock. Passing the raw turn
 	// ctx here (as it once did) reopened the very hang the round-1 deadline was written to close — the
@@ -261,23 +282,6 @@ func (c *Council) rebut(ctx context.Context, req port.DeliberationRequest, membe
 	// provider. A member cut off keeps the vote it already cast: it revised nothing.
 	rctx, cancel := context.WithTimeout(ctx, memberDeadline)
 	defer cancel()
-	out := make([]council.Verdict, len(members))
-
-	// When all members share a panel backend (e.g. local CLI shim), poll sequentially
-	// to avoid hammering child pipes or triggering premature session eviction.
-	// Indep is used for all peer digests so simultaneous rebuttal semantics are preserved.
-	if samePanelBackend(members) {
-		for i, m := range members {
-			prior := byName[m.Name]
-			peers := peerDigest(indep, m.Name)
-			rv := c.pollRebut(rctx, req, m, prior, peers)
-			if rctx.Err() != nil {
-				rv = prior
-			}
-			out[i] = rv
-		}
-		return out
-	}
 
 	var wg sync.WaitGroup
 	for i, m := range members {

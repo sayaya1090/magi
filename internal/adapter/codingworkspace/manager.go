@@ -556,7 +556,9 @@ func (m *Manager) Remove(ctx context.Context, source, id string) (task.Record, e
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return r, statErr
 		} else {
-			_, _ = git(ctx, r.Source, "worktree", "prune")
+			if _, err := git(ctx, r.Source, "worktree", "prune"); err != nil {
+				// prune is best-effort when worktree directory is already gone
+			}
 			if r.Branch != "" {
 				if branchHead, e := git(ctx, r.Source, "rev-parse", "--verify", "refs/heads/"+r.Branch+"^{commit}"); e == nil {
 					if r.Base == "" || branchHead != r.Base {
@@ -579,7 +581,9 @@ func (m *Manager) Remove(ctx context.Context, source, id string) (task.Record, e
 				continue
 			}
 			if _, e := git(ctx, r.Source, "show-ref", "--verify", "--quiet", "refs/tags/"+tag); e == nil {
-				_, _ = git(ctx, r.Source, "tag", "-d", tag)
+				if _, err := git(ctx, r.Source, "tag", "-d", tag); err != nil {
+					// tag deletion is best-effort
+				}
 			}
 		}
 	} else if r.Mode == "copy" {

@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -304,7 +305,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		}
 	}()
 	delib, err := a.councilFor(s.ID).Deliberate(ctx, port.DeliberationRequest{
-		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: truncateForCouncil(actions, councilDiffCap*3), Changes: changes,
+		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: text.HeadTail(actions, councilDiffCap*3), Changes: changes,
 		EvidencePrefix: councilPrefix(evs),
 		Guidance:       guidance,
 		Declared:       complete,

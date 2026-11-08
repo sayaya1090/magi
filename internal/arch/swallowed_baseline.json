@@ -1,5 +1,5 @@
 {
-  "total": 111,
+  "total": 110,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -49,7 +49,6 @@
     "internal/app/loopmap.go": 1,
     "internal/app/permission.go": 1,
     "internal/app/policy.go": 1,
-    "internal/app/reconstruct.go": 1,
     "internal/app/scratch.go": 3,
     "internal/app/skills.go": 1,
     "internal/app/world_snapshot.go": 2,

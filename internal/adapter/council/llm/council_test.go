@@ -967,6 +967,43 @@ func TestARebuttalRoundDoesNotHangTheTurn(t *testing.T) {
 	}
 }
 
+func TestSequentialRebuttalDoesNotStarveSubsequentMembers(t *testing.T) {
+	was := memberDeadline
+	memberDeadline = 250 * time.Millisecond
+	defer func() { memberDeadline = was }()
+
+	var rebuttalCalls atomic.Int32
+	llm := fakeLLM{reply: func(r port.ChatRequest) string {
+		if strings.Contains(textOf(r), "Council disagreement") {
+			rebuttalCalls.Add(1)
+			time.Sleep(120 * time.Millisecond) // > half of memberDeadline
+			return `{"decision":"done","rationale":"rebuttal convinced me"}`
+		}
+		if isPanel(r) {
+			return `{"verdicts":[` +
+				`{"member":"Melchior","lens":"correctness","decision":"continue","rationale":"looks incomplete"},` +
+				`{"member":"Balthasar","lens":"verification","decision":"done","rationale":"tests pass"},` +
+				`{"member":"Casper","lens":"completeness","decision":"done","rationale":"tests pass"}]}`
+		}
+		return `{"decision":"done","rationale":"tests pass"}`
+	}}
+	c := New(only(llm), "m")
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls := rebuttalCalls.Load(); calls != 3 {
+		t.Fatalf("expected all 3 members to get full rebuttal chance sequentially, got %d calls", calls)
+	}
+	for _, v := range d.Verdicts {
+		if v.Decision != council.Done {
+			t.Fatalf("member %s expected done after sequential rebuttal, got %s", v.Member, v.Decision)
+		}
+	}
+}
+
 type rebuttalHang struct{}
 
 func (rebuttalHang) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {

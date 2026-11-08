@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/core/embed"
@@ -483,10 +484,11 @@ func (s *Store) CoreMemories(ctx context.Context, maxChars int) ([]port.Memory, 
 		if line == "" {
 			continue
 		}
-		if maxChars > 0 && used+len(line)+4 > maxChars && len(out) > 0 {
+		lineChars := utf8.RuneCountInString(line)
+		if maxChars > 0 && used+lineChars+4 > maxChars && len(out) > 0 {
 			break
 		}
-		used += len(line) + 4
+		used += lineChars + 4
 		out = append(out, m)
 	}
 	return out, nil
