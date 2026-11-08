@@ -509,6 +509,7 @@ flowchart LR
 | `--workflow` | `MAGI_WORKFLOW` | (꺼짐) | 결정론적 localize→implement→verify→review 파이프라인으로 구동 |
 | `--verify-cmd` | `MAGI_VERIFY_CMD` | (자동) | 워크플로 검증 명령; 비우면 자동 감지(go/cargo/npm/pytest 마커) |
 | `--http-timeout` | `MAGI_HTTP_TIMEOUT` | `0` (무제한) | LLM 응답 헤더 최대 대기(예: `120s`) |
+| — | `MAGI_PROMPT_CACHE_TTL` | `1h` | 프로바이더에 보내는 `cache_control` 수명입니다. `default`면 필드를 빼서 프로바이더 기본값을 씁니다 |
 | `--no-cache` | `MAGI_NO_CACHE` | (꺼짐) | 프롬프트 `cache_control` 비활성화(기본 켜짐; 백엔드가 거부하면 자동 폴백) |
 | `--list-models` | — | — | 백엔드의 사용 가능 모델 나열 후 종료 |
 | `--doctor` | — | — | 환경 진단 후 종료(§환경 점검) |

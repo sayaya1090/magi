@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"net"
 	"testing"
@@ -128,5 +129,29 @@ func TestKnowledgeDoorSlotsAndTrigger(t *testing.T) {
 	}
 	if len(e.triggered) != 1 || e.triggered[0] != "reflect" {
 		t.Fatalf("expected trigger recorded, got %v", e.triggered)
+	}
+}
+
+type slotFailEngine struct{ slotMockEngine }
+
+func (e *slotFailEngine) TriggerSlotAction(context.Context, string, string) (string, error) {
+	return "", errors.New("dream exploded")
+}
+
+func TestKnowledgeDoorReportsASlotActionsOwnFailure(t *testing.T) {
+	e := &slotFailEngine{slotMockEngine{knowledgeEngine: knowledgeEngine{fakeEngine: &fakeEngine{}}}}
+	r := answerKnowledge(context.Background(), e, Request{Args: json.RawMessage(`{"name":"engram","action":"dream"}`)})
+	if r.OK || r.Err != "dream exploded" {
+		t.Fatalf("the plugin's failure should be the answer, got %+v", r)
+	}
+}
+
+func TestKnowledgeDoorKeepsStoreActionsAwayFromSlots(t *testing.T) {
+	e := &slotMockEngine{knowledgeEngine: knowledgeEngine{fakeEngine: &fakeEngine{}}}
+	for _, a := range []string{"pin", "unpin", "archive", "restore"} {
+		answerKnowledge(context.Background(), e, Request{Args: json.RawMessage(`{"name":"managed:x","revision":"r","action":"` + a + `"}`)})
+	}
+	if len(e.triggered) != 0 {
+		t.Fatalf("store actions reached a slot: %v", e.triggered)
 	}
 }

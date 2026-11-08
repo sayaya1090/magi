@@ -1173,6 +1173,16 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	// follow, and does not — it never opens this stream.
 	const lookEvery = 5
 	look := 0
+	slotChanged := make(chan struct{}, 1)
+	stopFollow := func() {}
+	follow := func(to session.SessionID) {
+		stopFollow()
+		followCtx, cancel := context.WithCancel(r.Context())
+		stopFollow = cancel
+		go s.followSlots(followCtx, in.Socket, to, slotChanged)
+	}
+	follow(sid)
+	defer func() { stopFollow() }()
 	for {
 		if look++; look >= lookEvery {
 			look = 0
@@ -1181,6 +1191,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 				// Everything from the start of the new conversation, in the next frame: the page
 				// draws whatever it is sent, so a reset here IS the redraw.
 				sid, lastSeq = session.SessionID(now.Session), -1
+				follow(sid)
 			}
 		}
 		// Ask before rebuilding. Reconstructing the transcript from the log costs 12ms on a
@@ -1267,6 +1278,13 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			// be a second thing that can drift from the log; at these sizes it is not worth it.
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
+		}
+		// A slot changed: the page asks for slots again, so the frame carries nothing.
+		select {
+		case <-slotChanged:
+			fmt.Fprint(w, "event: slot\ndata: {}\n\n")
+			fl.Flush()
+		default:
 		}
 		// …and the roster, on the same connection, under its own "has it changed" rule.
 		roster(w, fl)

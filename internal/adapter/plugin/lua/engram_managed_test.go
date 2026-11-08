@@ -468,6 +468,11 @@ func TestEngramManagedConflictSemanticReconciliation(t *testing.T) {
 		t.Fatalf("expected synthesized text %q, got: %q", synthesizedText, items[0].Memory.Text)
 	}
 
+	// A synthesis nobody has run yet is a hypothesis: it must not read as observed and reach the core tier.
+	if items[0].Memory.Status != "hypothesis" {
+		t.Fatalf("a reconciled memory should be a hypothesis, got %q", items[0].Memory.Status)
+	}
+
 	// 6. Verify evidence was also merged (both s_remote and s_local present).
 	if len(items[0].Memory.Evidence) != 2 {
 		t.Fatalf("expected 2 merged evidence records, got: %+v", items[0].Memory.Evidence)

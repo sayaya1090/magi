@@ -262,7 +262,9 @@ func (a *App) NotifySlotChanged(target, plugin string) {
 		return
 	}
 	payload, _ := json.Marshal(event.SlotChangedData{Target: target, Plugin: plugin})
-	a.bus.Publish(event.Event{
+	// A slot belongs to the workspace, so every session being watched hears about it. Publish
+	// without a session would reach subscribers of the empty id, which is nobody.
+	a.bus.PublishAll(event.Event{
 		Type:  event.TypeSlotChanged,
 		Actor: event.Actor{Kind: event.ActorSystem},
 		TS:    time.Now(),

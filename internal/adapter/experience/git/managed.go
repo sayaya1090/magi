@@ -257,6 +257,14 @@ func embedForRank(ctx context.Context, emb Same, chunks []string, query string) 
 		return append(docs, q[0]), nil
 	}
 
+	// The endpoint and model can change while running (magi.set_embed_endpoint), and one model's
+	// vector says nothing to another's, so the model is part of the key.
+	model := ""
+	if m, ok := emb.(interface{ CurrentModel() string }); ok {
+		model = m.CurrentModel()
+	}
+	rankKey := func(text string) string { return model + "\x00" + text }
+
 	allTexts := append(append([]string{}, chunks...), query)
 	results := make([][]float32, len(allTexts))
 	var missingIdx []int
@@ -264,7 +272,7 @@ func embedForRank(ctx context.Context, emb Same, chunks []string, query string) 
 
 	rankVecMu.RLock()
 	for i, txt := range allTexts {
-		if v, ok := rankVecCache[txt]; ok {
+		if v, ok := rankVecCache[rankKey(txt)]; ok {
 			results[i] = v
 		} else {
 			missingIdx = append(missingIdx, i)
@@ -292,7 +300,7 @@ func embedForRank(ctx context.Context, emb Same, chunks []string, query string) 
 	for j, v := range vecs {
 		origIdx := missingIdx[j]
 		results[origIdx] = v
-		rankVecCache[missingTexts[j]] = v
+		rankVecCache[rankKey(missingTexts[j])] = v
 	}
 	rankVecMu.Unlock()
 
@@ -431,6 +439,9 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 			items[i].Score = score
 		}
 
+		// compared says this search really had vectors. An embedder that is up but still filling its
+		// cache leaves every similarity at 0, which is "not measured", not "unrelated".
+		compared := false
 		if s.same != nil && s.same.Available() {
 			var chunks []string
 			var owner []int
@@ -448,6 +459,7 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 				}
 			}
 			if vecs, err := embedForRank(ctx, s.same, chunks, q); err == nil && len(vecs) == len(chunks)+1 {
+				compared = true
 				qv := vecs[len(vecs)-1]
 				for j, i := range owner {
 					if c := embed.Cosine(vecs[j], qv); c > items[i].Similarity {
@@ -456,11 +468,10 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 				}
 			}
 		}
-		hasEmbedder := s.same != nil && s.same.Available()
 		filtered := items[:0]
 		for _, it := range items {
 			if minSim > 0 {
-				if hasEmbedder {
+				if compared {
 					if minSim >= 0.70 {
 						// Strict semantic gate: when embedder is present, high-similarity deduplication
 						// requires genuine vector similarity. Lexical scores cannot bypass this gate.

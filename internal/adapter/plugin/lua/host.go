@@ -105,25 +105,25 @@ type UserLabelRegistry interface {
 // Host loads, reloads, and unloads Lua plugins, registering their tools into a
 // shared ToolSink so changes take effect in the running agent (hot reload).
 type Host struct {
-	sink          ToolSink
-	mcpMgr        MCPManager
-	contextReg    ContextProviderRegistry
-	llmReg        LLMHeaderRegistry
-	baseReg       BaseURLRegistry
-	embedReg      EmbedEndpointRegistry
-	modelReg      ModelRegistry
-	userReg       UserLabelRegistry
-	runtime       RuntimeInfo
-	pluginConfigs map[string]map[string]any    // [plugins.<name>] sections from config.toml
-	configPath    string                       // path to the user's config.toml (magi.get/set_config_key)
-	dataDir       string                       // base dir for per-plugin persistent stores
-	prompter      prompt.Prompter              // interactive prompts (magi.ask); nil = unavailable
-	analyzer      Analyzer                     // sidecar LLM analysis (magi.analyze); nil = unavailable
-	experience    port.ExperienceStore         // D13 team store (magi.propose_experience); nil = unavailable
-	notify        func(sessionID, text string) // session note sink (magi.notify); nil = unavailable
-	finish        func(sessionID string)       // turn ender (magi.finish); nil = unavailable
-	slotChangeNotifier func(target, plugin string) // optional: slot observer sink (magi.notify_slot_change)
-	logf          func(string)
+	sink               ToolSink
+	mcpMgr             MCPManager
+	contextReg         ContextProviderRegistry
+	llmReg             LLMHeaderRegistry
+	baseReg            BaseURLRegistry
+	embedReg           EmbedEndpointRegistry
+	modelReg           ModelRegistry
+	userReg            UserLabelRegistry
+	runtime            RuntimeInfo
+	pluginConfigs      map[string]map[string]any    // [plugins.<name>] sections from config.toml
+	configPath         string                       // path to the user's config.toml (magi.get/set_config_key)
+	dataDir            string                       // base dir for per-plugin persistent stores
+	prompter           prompt.Prompter              // interactive prompts (magi.ask); nil = unavailable
+	analyzer           Analyzer                     // sidecar LLM analysis (magi.analyze); nil = unavailable
+	experience         port.ExperienceStore         // D13 team store (magi.propose_experience); nil = unavailable
+	notify             func(sessionID, text string) // session note sink (magi.notify); nil = unavailable
+	finish             func(sessionID string)       // turn ender (magi.finish); nil = unavailable
+	slotChangeNotifier func(target, plugin string)  // optional: slot observer sink (magi.notify_slot_change)
+	logf               func(string)
 
 	mu        sync.Mutex
 	plugins   map[string]*plugin
@@ -201,12 +201,12 @@ type HostConfig struct {
 	// step carried no call, and a model that kept re-calling land never produced one.
 	Finish             func(sessionID string)
 	SlotChangeNotifier func(target, plugin string) // optional: slot change observer
-	PluginConfigs      map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
-	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
-	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
-	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
-	Runtime       RuntimeInfo               // runtime context for plugins
-	Logf          func(string)              // optional: log output
+	PluginConfigs      map[string]map[string]any   // optional: [plugins.<name>] settings, read via magi.store_get
+	ConfigPath         string                      // optional: path to config.toml (enables magi.get/set_config_key)
+	DataDir            string                      // base dir for per-plugin persistent config stores (store_set)
+	Prompter           prompt.Prompter             // optional: enables magi.ask interactive prompts
+	Runtime            RuntimeInfo                 // runtime context for plugins
+	Logf               func(string)                // optional: log output
 	// IdleAfter is the quiet period before the "idle" event fires (default 30m);
 	// IdleTick is how often it is checked (default 1m). Tests shorten both.
 	IdleAfter time.Duration
@@ -225,30 +225,30 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		cfg.IdleTick = time.Minute
 	}
 	return &Host{
-		idleAfter:     cfg.IdleAfter,
-		idleTick:      cfg.IdleTick,
-		lastActivity:  time.Now(),
-		inflight:      map[string]time.Time{},
-		sink:          cfg.ToolSink,
-		mcpMgr:        cfg.MCPMgr,
-		contextReg:    cfg.ContextReg,
-		llmReg:        cfg.LLMReg,
-		baseReg:       cfg.BaseReg,
-		embedReg:      cfg.EmbedReg,
-		modelReg:      cfg.ModelReg,
-		userReg:       cfg.UserReg,
-		runtime:       cfg.Runtime,
-		pluginConfigs: cfg.PluginConfigs,
-		configPath:    cfg.ConfigPath,
-		dataDir:       cfg.DataDir,
-		prompter:      cfg.Prompter,
-		analyzer:      cfg.Analyzer,
-		experience:    cfg.Experience,
-		notify:        cfg.Notify,
-		finish:        cfg.Finish,
+		idleAfter:          cfg.IdleAfter,
+		idleTick:           cfg.IdleTick,
+		lastActivity:       time.Now(),
+		inflight:           map[string]time.Time{},
+		sink:               cfg.ToolSink,
+		mcpMgr:             cfg.MCPMgr,
+		contextReg:         cfg.ContextReg,
+		llmReg:             cfg.LLMReg,
+		baseReg:            cfg.BaseReg,
+		embedReg:           cfg.EmbedReg,
+		modelReg:           cfg.ModelReg,
+		userReg:            cfg.UserReg,
+		runtime:            cfg.Runtime,
+		pluginConfigs:      cfg.PluginConfigs,
+		configPath:         cfg.ConfigPath,
+		dataDir:            cfg.DataDir,
+		prompter:           cfg.Prompter,
+		analyzer:           cfg.Analyzer,
+		experience:         cfg.Experience,
+		notify:             cfg.Notify,
+		finish:             cfg.Finish,
 		slotChangeNotifier: cfg.SlotChangeNotifier,
-		logf:          cfg.Logf,
-		plugins:       map[string]*plugin{},
+		logf:               cfg.Logf,
+		plugins:            map[string]*plugin{},
 	}
 }
 
@@ -541,8 +541,10 @@ func (h *Host) TriggerSlotAction(ctx context.Context, plugin, action string) (st
 			continue
 		}
 		for _, s := range p.slots {
-			targetSlot = s
-			break
+			if s.executeFn != nil {
+				targetSlot = s
+				break
+			}
 		}
 		if targetSlot != nil {
 			break

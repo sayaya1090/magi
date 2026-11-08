@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -96,7 +97,20 @@ type textBlock struct {
 	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
-func ephemeral() *cacheControl { return &cacheControl{Type: "ephemeral", TTL: "1h"} }
+func ephemeral() *cacheControl { return &cacheControl{Type: "ephemeral", TTL: promptCacheTTL()} }
+
+// promptCacheTTL is MAGI_PROMPT_CACHE_TTL: unset means "1h", and "default" leaves the field out so
+// the provider applies its own lifetime.
+func promptCacheTTL() string {
+	switch ttl := os.Getenv("MAGI_PROMPT_CACHE_TTL"); ttl {
+	case "":
+		return "1h"
+	case "default":
+		return ""
+	default:
+		return ttl
+	}
+}
 
 type wireTool struct {
 	Type         string        `json:"type"` // "function"

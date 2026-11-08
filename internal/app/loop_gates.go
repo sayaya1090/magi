@@ -275,7 +275,7 @@ func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string,
 // after a safety classifier block causes an expensive refusal loop.
 func stoppedBySafetyClassifier(s string) bool {
 	trimmed := strings.TrimSpace(s)
-	lower := strings.ToLower(trimmed)
+	lower := strings.TrimRight(strings.ToLower(trimmed), ".!。 \t\r\n")
 	if strings.Contains(lower, "[claudecode: response stopped by backend safety classifier]") {
 		return true
 	}

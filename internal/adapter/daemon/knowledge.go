@@ -23,14 +23,16 @@ func answerKnowledge(ctx context.Context, eng Engine, req Request) Response {
 
 	var doing string
 	sm, hasSlots := eng.(port.SlotManager)
-	if hasSlots && action.Action != "" {
-		// Generic slot action dispatch.
-		// action.Name carries plugin/slot ID if present.
+	if hasSlots && action.Action != "" && !isKnowledgeAction(action.Action) {
+		// Generic slot action dispatch: action.Name carries the plugin. Its failure is the answer —
+		// handing the action on to the knowledge store would replace what went wrong with a
+		// complaint about a managed item nobody selected.
 		out, err := sm.TriggerSlotAction(ctx, action.Name, action.Action)
-		if err == nil && out != "" {
-			doing = out
-			action = port.KnowledgeAction{}
+		if err != nil {
+			return Response{Err: err.Error()}
 		}
+		doing = out
+		action = port.KnowledgeAction{}
 	}
 
 	items, err := host.ManageKnowledge(ctx, action)
@@ -46,4 +48,13 @@ func answerKnowledge(ctx context.Context, eng Engine, req Request) Response {
 		}
 	}
 	return resp
+}
+
+// isKnowledgeAction names what the knowledge store itself does; anything else belongs to a slot.
+func isKnowledgeAction(action string) bool {
+	switch action {
+	case "pin", "unpin", "archive", "restore", "import":
+		return true
+	}
+	return false
 }

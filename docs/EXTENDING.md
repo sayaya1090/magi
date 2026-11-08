@@ -990,6 +990,8 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 | `magi.json_decode(text)` | — | JSON → a Lua table |
 | `magi.json_encode(v)` | — | a Lua value → JSON, **keys sorted**. The ordering is the point: `pairs()` walks a table in hash order, so a hand-written encoder gives the same schema different bytes on every call — and those bytes are the head of a shim's prompt, which is why three bench arms read zero from the prompt cache. One implementation, one test, instead of a rule repeated in every copy |
 | `magi.register_doctor_probes{…}` | — | environment checks folded into `magi -doctor` |
+| `magi.register_slot{target, id?, title?, description?, query?, execute?}` | — | a card on a client screen (`target = "knowledge"`): `query()` returns `{status, items, actions}`, `execute(action_id)` runs a button and returns what to show. An error raised in `execute` reaches the person who pressed it |
+| `magi.notify_slot_change(target?)` | — | tells every watched session that the slots changed, so open screens ask again |
 | `magi.propose_experience{…}` | — | offer a memory or skill to the shared experience store (§2.4) |
 
 ---

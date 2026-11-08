@@ -364,3 +364,18 @@ func TestStoppedBySafetyClassifierUnit(t *testing.T) {
 		t.Fatal("expected false when refusal line is quoted inside prose")
 	}
 }
+
+func TestSafetyClassifierNoticeSurvivesTrailingPunctuation(t *testing.T) {
+	for _, s := range []string{
+		"text\nSafeguards stopped the response above",
+		"text\nSafeguards stopped the response above.\n",
+		"text\nyour response above was stopped by a safety classifier.",
+	} {
+		if !stoppedBySafetyClassifier(s) {
+			t.Errorf("missed %q", s)
+		}
+	}
+	if stoppedBySafetyClassifier("we discussed safeguards stopped the response above in the design doc") {
+		t.Error("a mention in the middle is not the notice")
+	}
+}

@@ -460,7 +460,7 @@ local function reconcile_managed_conflict(request)
         if synthesized and synthesized ~= "" then
           request.text = synthesized
           if type(request.memory) == "table" then request.memory.text = synthesized end
-          request.status = "active"
+          request.status = "hypothesis"
           magi.log("engram: managed conflict resolved via semantic 3-way analysis for " .. request.object_id)
         else
           -- 3. Safe Fallback(LWW): 원격 텍스트를 일단 유지하되, 밀려난 로컬 텍스트를 유실하지 않도록
@@ -1580,15 +1580,19 @@ end
 
 local function is_payload_error(err)
   local s = string.lower(tostring(err or ""))
-  if string.find(s, "bad request", 1, true) or
-     string.find(s, "400", 1, true) or
-     string.find(s, "context length", 1, true) or
-     string.find(s, "too long", 1, true) or
-     string.find(s, "token limit", 1, true) or
-     string.find(s, "safety", 1, true) or
-     string.find(s, "safeguard", 1, true) or
-     string.find(s, "blocked", 1, true) then
-    return true
+  -- Transport and capacity failures say nothing about the observations: keep those in the inbox.
+  -- Checked first, because their messages can contain the words and digits below.
+  for _, word in ipairs{ "timeout", "timed out", "deadline", "connection", "rate limit",
+                         "too many requests", "overloaded", "temporarily", "status 429", "status 5" } do
+    if string.find(s, word, 1, true) then return false end
+  end
+  for _, word in ipairs{ "bad request", "context length", "context_length", "too long", "token limit",
+                         "safety", "safeguard", "blocked" } do
+    if string.find(s, word, 1, true) then return true end
+  end
+  -- A bare "400" also appears in ports, durations and request ids, so it has to be named as a status.
+  for _, label in ipairs{ "status", "http", "code", "returned" } do
+    if string.find(s, label .. "[^%d]*400%D") or string.find(s, label .. "[^%d]*400$") then return true end
   end
   return false
 end
@@ -2247,7 +2251,6 @@ end
 -- 이전 dream 실행 후 최소 12시간이 지났고 새 관찰(dream_dirty_v1)이 쌓였을 때만 실행한다.
 -- 사람이 작업하는 동안에는 토큰도 시간도 쓰지 않는다.
 local DREAM_INTERVAL_SECONDS = 12 * 3600
-local DREAM_HARD_MAX_INTERVAL_SECONDS = 48 * 3600
 
 local function maybe_idle_dream()
   if not flag("auto_dream", true) or not recordLessons() then return end
@@ -2420,25 +2423,19 @@ magi.register_command{
 }
 
 magi.register_command{
-  name = "engram-facts-flush",
-  description = "누적된 팩트(Facts) inbox를 즉시 분석 및 영구 저장소에 반영합니다.",
-  execute = function()
-    local ok = flush_facts_inbox(true, 1)
-    if ok then
-      return "engram: 팩트 inbox 플러시 완료."
-    else
-      return "engram: 플러시할 팩트 inbox가 비어 있습니다."
-    end
-  end,
-}
-
-magi.register_command{
   name = "engram-dream",
   description = "기억 만료·가설 승격·코어 티어 예산 정리 및 중복 클러스터 병합(dream)을 수행합니다.",
   execute = function()
     return run_dream()
   end,
 }
+
+local function load_reflection_inbox()
+  local raw = magi.store_get("reflection_inbox_v1:" .. magi.workdir()) or ""
+  local items = magi.json_decode(raw == "" and "[]" or raw)
+  if type(items) ~= "table" then return {} end
+  return items
+end
 
 magi.register_slot{
   id = "engram",
@@ -2447,7 +2444,7 @@ magi.register_slot{
   description = "단기 관찰 사실과 세션 간 교훈을 관리합니다.",
   query = function()
     local facts_inbox = load_facts_inbox()
-    local refl_inbox = load_inbox()
+    local refl_inbox = load_reflection_inbox()
     local facts_count = (facts_inbox and #facts_inbox) or 0
     local refl_count = (refl_inbox and #refl_inbox) or 0
     local dirty = (magi.store_get("dream_dirty_v1:" .. magi.workdir()) or "0") ~= "0"

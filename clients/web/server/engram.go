@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -57,4 +61,47 @@ func (s *server) slots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, "slot-action", resp)
+}
+
+// slotFollowRetry is how long a slot watch waits before reconnecting to a daemon that went away.
+const slotFollowRetry = 5 * time.Second
+
+// followSlots tells changed whenever the daemon says a slot changed. The transcript half of /events
+// polls the log, and slot.changed is never written there, so this one fact needs the live stream.
+// It starts at the end of the log: everything before that is history with no slot event in it.
+func (s *server) followSlots(ctx context.Context, socket string, sid session.SessionID, changed chan<- struct{}) {
+	for ctx.Err() == nil {
+		head, _, err := s.reader.NewSince(ctx, sid, 0)
+		if err == nil {
+			err = followSlotsOnce(ctx, socket, sid, head, changed)
+		}
+		if err != nil && ctx.Err() == nil {
+			log.Printf("slot watch for %s: %v", sid, err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(slotFollowRetry):
+		}
+	}
+}
+
+func followSlotsOnce(ctx context.Context, socket string, sid session.SessionID, since int64, changed chan<- struct{}) error {
+	cl, err := daemon.Dial(socket)
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+	// Follow blocks on the socket for as long as the stream is quiet; closing it is the only way out.
+	stop := context.AfterFunc(ctx, func() { cl.Close() })
+	defer stop()
+	return cl.Follow(string(sid), since, daemon.Tail{Each: func(ev event.Event) bool {
+		if ev.Type == event.TypeSlotChanged {
+			select {
+			case changed <- struct{}{}:
+			default: // one is already waiting, and it means the same thing
+			}
+		}
+		return ctx.Err() == nil
+	}})
 }

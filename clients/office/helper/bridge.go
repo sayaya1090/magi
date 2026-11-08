@@ -518,7 +518,11 @@ func (b *Bridge) Slots(target string) ([]port.PluginSlot, error) {
 		if !resp.OK && resp.Err != "" {
 			return errors.New(resp.Err)
 		}
-		slots = resp.Slots
+		for _, s := range resp.Slots {
+			if target == "" || s.Target == target {
+				slots = append(slots, s)
+			}
+		}
 		return nil
 	})
 	if slots == nil {

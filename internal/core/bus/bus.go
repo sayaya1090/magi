@@ -64,6 +64,21 @@ func (b *Bus) Publish(ev event.Event) {
 	}
 }
 
+// PublishAll delivers ev to the subscribers of every session, stamped with each one's id. It is for
+// a fact about the workspace rather than a conversation, which no single session id can address.
+func (b *Bus) PublishAll(ev event.Event) {
+	b.mu.RLock()
+	sids := make([]session.SessionID, 0, len(b.subs))
+	for sid := range b.subs {
+		sids = append(sids, sid)
+	}
+	b.mu.RUnlock()
+	for _, sid := range sids {
+		ev.SessionID = sid
+		b.Publish(ev)
+	}
+}
+
 // Subscribe registers a subscriber for events on sid. It returns a receive-only
 // channel and a cancel func; the channel is closed when cancel is called or when
 // ctx is done. Callers must drain or cancel to avoid leaking the goroutine that

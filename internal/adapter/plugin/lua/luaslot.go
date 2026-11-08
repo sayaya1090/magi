@@ -2,7 +2,10 @@ package lua
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
 	lua "github.com/yuin/gopher-lua"
@@ -16,6 +19,45 @@ type luaSlot struct {
 	description string
 	queryFn     *lua.LFunction
 	executeFn   *lua.LFunction
+
+	lastMu sync.Mutex
+	last   *port.PluginSlot // what query last answered, shown while the plugin is busy
+}
+
+// A plugin holds its lock for as long as a handler runs, and a handler can sit in an LLM call for
+// minutes. The knowledge list asks for slots on every read, so it gets a short wait and then the
+// last answer; an action, which somebody pressed a button for, waits longer and then says so.
+const (
+	slotQueryWait  = 300 * time.Millisecond
+	slotActionWait = 30 * time.Second
+	slotLockPoll   = 10 * time.Millisecond
+)
+
+func (s *luaSlot) lockWithin(ctx context.Context, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for !s.plugin.mu.TryLock() {
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(slotLockPoll)
+	}
+	return true
+}
+
+func (s *luaSlot) busy(slot port.PluginSlot) port.PluginSlot {
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+	if s.last != nil {
+		return *s.last
+	}
+	slot.Status = &port.SlotStatus{Label: "busy", Variant: "info"}
+	return slot
+}
+
+func (s *luaSlot) remember(slot port.PluginSlot) {
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+	s.last = &slot
 }
 
 func (s *luaSlot) Query(ctx context.Context) (port.PluginSlot, error) {
@@ -31,8 +73,13 @@ func (s *luaSlot) Query(ctx context.Context) (port.PluginSlot, error) {
 		return slot, nil
 	}
 
-	s.plugin.mu.Lock()
+	if !s.lockWithin(ctx, slotQueryWait) {
+		return s.busy(slot), nil
+	}
 	defer s.plugin.mu.Unlock()
+	prevCtx := s.plugin.callCtx
+	s.plugin.callCtx = ctx
+	defer func() { s.plugin.callCtx = prevCtx }()
 
 	L := s.plugin.L
 	L.Push(s.queryFn)
@@ -118,6 +165,7 @@ func (s *luaSlot) Query(ctx context.Context) (port.PluginSlot, error) {
 		}
 	}
 
+	s.remember(slot)
 	return slot, nil
 }
 
@@ -126,13 +174,27 @@ func (s *luaSlot) Execute(ctx context.Context, actionID string) (string, error) 
 		return "", fmt.Errorf("slot %q does not support actions", s.id)
 	}
 
-	s.plugin.mu.Lock()
+	if !s.lockWithin(ctx, slotActionWait) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return "", errors.New("plugin " + s.plugin.name + " is busy; try again shortly")
+	}
 	defer s.plugin.mu.Unlock()
+	prevCtx := s.plugin.callCtx
+	s.plugin.callCtx = ctx
+	defer func() { s.plugin.callCtx = prevCtx }()
 
 	L := s.plugin.L
 	L.Push(s.executeFn)
 	L.Push(lua.LString(actionID))
 	if err := L.PCall(1, 1, nil); err != nil {
+		// This reaches a person who pressed a button, so it says what the plugin raised and leaves
+		// the Lua stack trace out.
+		var raised *lua.ApiError
+		if errors.As(err, &raised) && raised.Object != lua.LNil {
+			return "", fmt.Errorf("plugin %q action %q: %s", s.plugin.name, actionID, raised.Object.String())
+		}
 		return "", fmt.Errorf("plugin %q slot %q action %q: %w", s.plugin.name, s.id, actionID, err)
 	}
 

@@ -72,8 +72,13 @@ func installBridge(p *plugin) {
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
 	L.SetField(t, "time", L.NewFunction(p.bridgeTime))
 	L.SetField(t, "sleep", L.NewFunction(func(L *lua.LState) int {
-		sec := L.CheckNumber(1)
-		time.Sleep(time.Duration(float64(sec) * float64(time.Second)))
+		// Bounded by the call in flight: this holds the plugin's lock, so it must not outlive a cancel.
+		timer := time.NewTimer(time.Duration(float64(L.CheckNumber(1)) * float64(time.Second)))
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-p.spawnCtx().Done():
+		}
 		return 0
 	}))
 	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))

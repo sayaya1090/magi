@@ -895,6 +895,8 @@ end
 | `magi.json_decode(text)` | — | JSON → Lua 테이블 |
 | `magi.json_encode(v)` | — | Lua 값 → JSON, **키 정렬**. 정렬이 요점입니다 — `pairs()`는 테이블을 해시 순서로 돌아서, 손으로 쓴 인코더는 같은 스키마를 매번 다른 바이트로 만듭니다. 그 바이트가 심 프롬프트의 머리이고, 벤치 arm 셋이 프롬프트 캐시에서 0을 읽은 이유입니다. 복사본마다 반복되는 규칙 대신 구현 하나, 테스트 하나 |
 | `magi.register_doctor_probes{…}` | — | `magi -doctor`에 접히는 환경 점검 |
+| `magi.register_slot{target, id?, title?, description?, query?, execute?}` | — | 클라이언트 화면(`target = "knowledge"`)의 카드입니다. `query()`는 `{status, items, actions}`를 돌려주고, `execute(action_id)`는 단추 동작을 실행해 보여 줄 문구를 돌려줍니다. `execute`에서 낸 오류는 단추를 누른 사람에게 그대로 전달됩니다 |
+| `magi.notify_slot_change(target?)` | — | 슬롯이 바뀌었음을 지켜보는 모든 세션에 알려, 열린 화면이 다시 조회하게 합니다 |
 | `magi.propose_experience{…}` | — | 공유 경험 스토어에 메모리나 스킬을 제안 (§2.4) |
 
 ---

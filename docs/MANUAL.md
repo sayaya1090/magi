@@ -667,6 +667,7 @@ Flags and environment variables (precedence: flag > env > default):
 | `--workflow` | `MAGI_WORKFLOW` | (off) | drive the task through the deterministic localize→implement→verify→review pipeline |
 | `--verify-cmd` | `MAGI_VERIFY_CMD` | (auto) | workflow verification command; auto-detected (go/cargo/npm/pytest markers) when empty |
 | `--http-timeout` | `MAGI_HTTP_TIMEOUT` | `0` (unbounded) | max wait for LLM response headers (e.g. `120s`) |
+| — | `MAGI_PROMPT_CACHE_TTL` | `1h` | `cache_control` lifetime sent to the provider; `default` omits it so the provider applies its own |
 | `--no-cache` | `MAGI_NO_CACHE` | (off) | disable prompt `cache_control` (on by default; auto-falls back if the backend rejects it) |
 | `--list-models` | — | — | list the backend's available models and exit |
 | `--doctor` | — | — | environment diagnostics and exit (see §Environment check) |
