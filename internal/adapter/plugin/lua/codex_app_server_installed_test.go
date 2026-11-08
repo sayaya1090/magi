@@ -17,7 +17,12 @@ import (
 func TestCodexAppServerPatchedPlugin(t *testing.T) {
 	path := os.Getenv("MAGI_CODEX_PLUGIN_UNDER_TEST")
 	if path == "" {
-		t.Skip("optional local plugin path not supplied")
+		p, _ := filepath.Abs(filepath.Join("..", "..", "..", "..", "plugins", "codex", "init.lua"))
+		if _, err := os.Stat(p); err == nil {
+			path = p
+		} else {
+			t.Skip("optional local plugin path not supplied")
+		}
 	}
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX executable fixture")
@@ -79,4 +84,26 @@ func TestCodexAppServerPatchedPlugin(t *testing.T) {
 		t.Fatalf("submitted failure must not replay through exec or a retryable HTTP status: %d %s", status, body)
 	}
 
+	// 4. /props advertises prefill capability
+	propsURL := fmt.Sprintf("http://127.0.0.1:%d/props", port)
+	presp, err := http.Get(propsURL)
+	if err != nil {
+		t.Fatalf("GET /props: %v", err)
+	}
+	pbody, _ := io.ReadAll(presp.Body)
+	presp.Body.Close()
+	if !strings.Contains(string(pbody), `"prefill_endpoint":"/v1/prefill"`) {
+		t.Fatalf("expected prefill_endpoint in /props, got:\n%s", string(pbody))
+	}
+
+	// 5. /v1/prefill pre-warms background session
+	prefillURL := fmt.Sprintf("http://127.0.0.1:%d/v1/prefill", port)
+	pResp, err := http.Post(prefillURL, "application/json", strings.NewReader(`{"model":"test","messages":[{"role":"user","content":"prefill message"}]}`))
+	if err != nil {
+		t.Fatalf("POST /v1/prefill: %v", err)
+	}
+	defer pResp.Body.Close()
+	if pResp.StatusCode != 200 {
+		t.Fatalf("POST /v1/prefill status: %d", pResp.StatusCode)
+	}
 }

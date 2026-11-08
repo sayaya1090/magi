@@ -3,14 +3,15 @@ package lua
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/testenv"
-	"time"
 )
 
 // The antigravity shim, end to end, against a fake `agy` that speaks the stream-json dialect
@@ -147,5 +148,28 @@ func TestAntigravityShimStreamsAndKeepsOneChildPerConversation(t *testing.T) {
 	all5 := joined(f5)
 	if !strings.Contains(all5, `"content":"caught_up_turn3"`) {
 		t.Fatalf("intermediate assistant turns from another provider were lost in renderTail:\n%s", all5)
+	}
+
+	// 7. /props advertises prefill capability for council real-time accumulation.
+	propsURL := fmt.Sprintf("http://127.0.0.1:%d/props", port)
+	presp, err := http.Get(propsURL)
+	if err != nil {
+		t.Fatalf("GET /props: %v", err)
+	}
+	pbody, _ := io.ReadAll(presp.Body)
+	presp.Body.Close()
+	if !strings.Contains(string(pbody), `"prefill_endpoint":"/v1/prefill"`) {
+		t.Fatalf("expected prefill_endpoint in /props, got:\n%s", string(pbody))
+	}
+
+	// 8. /v1/prefill pre-warms background council session.
+	prefillURL := fmt.Sprintf("http://127.0.0.1:%d/v1/prefill", port)
+	pResp, err := http.Post(prefillURL, "application/json", strings.NewReader(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"user","content":"# Chronological turn history\n## 1 Tool result\nfile created"}]}`))
+	if err != nil {
+		t.Fatalf("POST /v1/prefill: %v", err)
+	}
+	defer pResp.Body.Close()
+	if pResp.StatusCode != 200 {
+		t.Fatalf("POST /v1/prefill status: %d", pResp.StatusCode)
 	}
 }
