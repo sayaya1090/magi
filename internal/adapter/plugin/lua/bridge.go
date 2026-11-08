@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,6 +70,11 @@ func installBridge(p *plugin) {
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
 	L.SetField(t, "time", L.NewFunction(p.bridgeTime))
 	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))
+	L.SetField(t, "in_test", L.NewFunction(func(L *lua.LState) int {
+		inTest := flag.Lookup("test.v") != nil || os.Getenv("GO_TEST") != "" || os.Getenv("MAGI_TEST") != ""
+		L.Push(lua.LBool(inTest))
+		return 1
+	}))
 	// Gated capabilities — enforced against the plugin's exec:/net: permissions.
 	L.SetField(t, "exec", L.NewFunction(p.bridgeExec))
 	L.SetField(t, "pipe", L.NewFunction(p.bridgePipe))

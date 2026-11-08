@@ -460,7 +460,7 @@ local function reconcile_managed_conflict(request)
         if synthesized and synthesized ~= "" then
           request.text = synthesized
           if type(request.memory) == "table" then request.memory.text = synthesized end
-          request.status = "active"
+          request.status = "hypothesis"
           magi.log("engram: managed conflict resolved via semantic 3-way analysis for " .. request.object_id)
         else
           -- 3. Safe Fallback(LWW): 원격 텍스트를 일단 유지하되, 밀려난 로컬 텍스트를 유실하지 않도록
@@ -587,28 +587,30 @@ end
 
 local function enqueue_managed_object(id, expected_revision, payload)
   local state = managed_state()
-  if not state then return false end
+  if not state then return false, "" end
   if #state.queue >= 256 then
     magi.log("engram: managed outbox is full; local change requires reconciliation")
-    return false
+    return false, ""
   end
   local object = state.objects[id] or {}
   state.objects[id] = object
-  if expected_revision and expected_revision ~= "" and (not object.revision or object.revision == "") then
-    object.revision = expected_revision
+  local effective_rev = (object.revision and object.revision ~= "") and object.revision or expected_revision
+  if effective_rev and effective_rev ~= "" then
+    object.revision = effective_rev
   end
   object.payload = payload
   local request = {}
   for k, v in pairs(payload) do request[k] = v end
   request.object_id = id
-  if expected_revision and expected_revision ~= "" then
-    request.expected_revision = expected_revision
+  if effective_rev and effective_rev ~= "" then
+    request.expected_revision = effective_rev
   end
   request.operation_id = magi.nonce()
   request.observation_id = magi.nonce()
   state.queue[#state.queue + 1] = request
-  if not persist_managed(state) then return false end
-  return flush_managed()
+  if not persist_managed(state) then return false, "" end
+  local ok = flush_managed()
+  return ok, (object and object.revision) or effective_rev or ""
 end
 
 -- append_lesson lands one lesson row. replaces(행 번호)가 유효하면 그 행을 **제자리 교체**한다:
@@ -967,12 +969,39 @@ local function build_memory_payload(lesson, host_outcome, text)
 end
 
 local OBSERVATION_CHAR_LIMIT = 1500
+
+local function utf8_safe_head(s, max_bytes)
+  if #s <= max_bytes then return s end
+  local i = max_bytes
+  while i > 0 do
+    local b = string.byte(s, i)
+    if b < 128 then
+      return string.sub(s, 1, i)
+    elseif b >= 192 then
+      return string.sub(s, 1, i - 1)
+    end
+    i = i - 1
+  end
+  return ""
+end
+
+local function utf8_safe_tail(s, max_bytes)
+  if #s <= max_bytes then return s end
+  local start = #s - max_bytes + 1
+  while start <= #s do
+    local b = string.byte(s, start)
+    if b < 128 or b >= 192 then break end
+    start = start + 1
+  end
+  return string.sub(s, start)
+end
+
 local function truncate_observation(txt)
   txt = tostring(txt or "")
   if #txt <= OBSERVATION_CHAR_LIMIT then return txt end
-  local head_len = 700
-  local tail_len = 700
-  return string.sub(txt, 1, head_len) .. "\n... [truncated] ...\n" .. string.sub(txt, -tail_len)
+  local head = utf8_safe_head(txt, 700)
+  local tail = utf8_safe_tail(txt, 700)
+  return head .. "\n... [truncated] ...\n" .. tail
 end
 
 local function push_reflection_observation(sid, host_outcome, text)
@@ -1541,6 +1570,21 @@ local function reflection_item_sig(it)
   return tostring(it.session or "") .. "|" .. tostring(it.at or "") .. "|" .. tostring(it.text or "")
 end
 
+local function is_payload_error(err)
+  local s = string.lower(tostring(err or ""))
+  if string.find(s, "bad request", 1, true) or
+     string.find(s, "400", 1, true) or
+     string.find(s, "context length", 1, true) or
+     string.find(s, "too long", 1, true) or
+     string.find(s, "token limit", 1, true) or
+     string.find(s, "safety", 1, true) or
+     string.find(s, "safeguard", 1, true) or
+     string.find(s, "blocked", 1, true) then
+    return true
+  end
+  return false
+end
+
 local function isolate_poison_pills(rkey, processed_sigs)
   local dead_key = "reflection_dead_letter_v1:" .. magi.workdir()
   for attempt = 1, 3 do
@@ -1557,9 +1601,9 @@ local function isolate_poison_pills(rkey, processed_sigs)
           local fc = (tonumber(it._fail_count) or 0) + 1
           it._fail_count = fc
           changed = true
-          if fc >= 2 then
+          if fc >= REFLECT_FAILURE_LIMIT then
             dead_items[#dead_items + 1] = it
-            magi.log("engram: 독성 페이로드(Poison Pill) 격리 — 2회 연속 실패로 dead-letter로 이동: " .. string.sub(tostring(it.text or ""), 1, 60))
+            magi.log("engram: 독성 페이로드(Poison Pill) 격리 — " .. REFLECT_FAILURE_LIMIT .. "회 연속 실패로 dead-letter로 이동: " .. string.sub(tostring(it.text or ""), 1, 60))
           else
             next_items[#next_items + 1] = it
           end
@@ -1570,14 +1614,18 @@ local function isolate_poison_pills(rkey, processed_sigs)
     end
     if changed then
       if #dead_items > 0 then
-        local prev_dead = magi.store_get(dead_key) or ""
-        local dl_list = magi.json_decode(prev_dead == "" and "[]" or prev_dead)
-        if type(dl_list) ~= "table" then dl_list = {} end
-        for _, dit in ipairs(dead_items) do
-          dl_list[#dl_list + 1] = dit
+        for dl_attempt = 1, 3 do
+          local prev_dead = magi.store_get(dead_key) or ""
+          local dl_list = magi.json_decode(prev_dead == "" and "[]" or prev_dead)
+          if type(dl_list) ~= "table" then dl_list = {} end
+          for _, dit in ipairs(dead_items) do
+            dl_list[#dl_list + 1] = dit
+          end
+          while #dl_list > 200 do table.remove(dl_list, 1) end
+          if magi.store_compare_exchange(dead_key, prev_dead, magi.json_encode(dl_list)) then
+            break
+          end
         end
-        while #dl_list > 50 do table.remove(dl_list, 1) end
-        magi.store_set(dead_key, magi.json_encode(dl_list))
       end
       if magi.store_compare_exchange(rkey, cur_raw, magi.json_encode(next_items)) then
         break
@@ -1590,6 +1638,7 @@ end
 
 local function run_reflection(trigger_reason, explicit, compaction_summary)
   flush_facts_inbox(true, 1)
+  local rkey = "reflection_inbox_v1:" .. magi.workdir()
   local fail_key = "reflection_failures_v1:" .. magi.workdir()
   local fail_ts_key = "reflection_fail_epoch_v1:" .. magi.workdir()
   local fails = tonumber(magi.store_get(fail_key) or "0") or 0
@@ -1599,6 +1648,28 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
     fails = 0
     magi.store_set(fail_key, "0")
     magi.store_set(fail_ts_key, "0")
+    -- 수동 /engram-reflect 실행 시 dead-letter에 격리되었던 항목들을 inbox로 복구하여 재평가 기회를 부여
+    local dead_key = "reflection_dead_letter_v1:" .. magi.workdir()
+    local dead_raw = magi.store_get(dead_key) or ""
+    local dead_items = magi.json_decode(dead_raw == "" and "[]" or dead_raw)
+    if type(dead_items) == "table" and #dead_items > 0 then
+      for attempt = 1, 3 do
+        local cur_rraw = magi.store_get(rkey) or ""
+        local cur_inbox = magi.json_decode(cur_rraw == "" and "[]" or cur_rraw)
+        if type(cur_inbox) ~= "table" then cur_inbox = {} end
+        for _, dit in ipairs(dead_items) do
+          if type(dit) == "table" then
+            dit._fail_count = 0
+            cur_inbox[#cur_inbox + 1] = dit
+          end
+        end
+        if magi.store_compare_exchange(rkey, cur_rraw, magi.json_encode(cur_inbox)) then
+          magi.store_set(dead_key, "[]")
+          magi.log("engram: 수동 reflection 실행으로 dead-letter " .. #dead_items .. "건을 inbox로 복원했습니다.")
+          break
+        end
+      end
+    end
   elseif fails >= REFLECT_FAILURE_LIMIT then
     local last_fail_ts = tonumber(magi.store_get(fail_ts_key) or "0") or 0
     local backoff = math.min(3600, 300 * math.floor(2 ^ math.min(fails - REFLECT_FAILURE_LIMIT, 5)))
@@ -1610,10 +1681,12 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
     magi.log("engram: reflection 서킷 브레이커 half-open 시험 실행 중 (연속 실패 " .. fails .. "회 후 백오프 경과)")
   end
 
-  local rkey = "reflection_inbox_v1:" .. magi.workdir()
   local rraw = magi.store_get(rkey) or ""
   local items = magi.json_decode(rraw == "" and "[]" or rraw)
   if type(items) ~= "table" then items = {} end
+  if #items == 0 and (not compaction_summary or compaction_summary == "") then
+    return "engram: 성찰할 새 관찰 항목이 없습니다."
+  end
   if #items == 0 and (not compaction_summary or compaction_summary == "") then
     return "engram: 성찰할 새 관찰 항목이 없습니다."
   end
@@ -1675,7 +1748,11 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
     fails = fails + 1
     magi.store_set(fail_key, tostring(fails))
     magi.store_set(fail_ts_key, tostring(now_epoch))
-    isolate_poison_pills(rkey, processed_sigs)
+    if is_payload_error(err) then
+      isolate_poison_pills(rkey, processed_sigs)
+    else
+      magi.log("engram: 일시적 모델 통신/용량 오류 — inbox 관찰 항목을 보존하고 서킷 브레이커만 갱신합니다: " .. tostring(err))
+    end
     magi.log("engram: reflection 분석 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. "): " .. tostring(err))
     return "engram: reflection 실패 — " .. tostring(err)
   end
@@ -1745,12 +1822,12 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
         local payload = {
           kind = "memory",
           state = "active",
-          host_outcome = "verified",
+          host_outcome = "ungated",
           text = tostring(act.text),
           description = tostring(act.description or ""),
           memory_kind = tostring(act.kind or "lesson"),
-          tier = tostring(act.tier or "reference"),
-          status = tostring(act.status or "observed"),
+          tier = "reference",
+          status = "hypothesis",
           valid_until = tostring(act.valid_until or ""),
         }
         if type(act.areas) == "table" and #act.areas > 0 then payload.areas = act.areas end
@@ -1820,8 +1897,10 @@ local function run_dream(origin, reason)
           evidence = rec.evidence,
           links = rec.links,
         }
-        if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+        local ok, new_rev = enqueue_managed_object(rec.object_id, rec.revision, payload)
+        if ok then
           expired_n = expired_n + 1
+          if new_rev and new_rev ~= "" then rec.revision = new_rev end
         end
       else
         local sessions = {}
@@ -1851,8 +1930,10 @@ local function run_dream(origin, reason)
             evidence = rec.evidence,
             links = rec.links,
           }
-          if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+          local ok, new_rev = enqueue_managed_object(rec.object_id, rec.revision, payload)
+          if ok then
             promoted_n = promoted_n + 1
+            if new_rev and new_rev ~= "" then rec.revision = new_rev end
           end
         end
         active_records[#active_records + 1] = rec
@@ -1920,9 +2001,11 @@ local function run_dream(origin, reason)
         evidence = rec.evidence,
         links = rec.links,
       }
-      if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+      local ok, new_rev = enqueue_managed_object(rec.object_id, rec.revision, payload)
+      if ok then
         core_chars = core_chars - (rec._core_cost or 0)
         demoted_n = demoted_n + 1
+        if new_rev and new_rev ~= "" then rec.revision = new_rev end
       end
     end
   end
@@ -2045,7 +2128,7 @@ local function run_dream(origin, reason)
                 -- Pressure 모드에서는 원본 디테일이 손실되지 않도록 state="active", tier="reference"로 보존(Split & Link)
                 local archive_state = (origin == "pressure") and "active" or "archived"
                 local archive_tier = "reference"
-                enqueue_managed_object(aid, target.revision, {
+                local ok, new_rev = enqueue_managed_object(aid, target.revision, {
                   kind = "memory",
                   state = archive_state,
                   host_outcome = target.host_outcome,
@@ -2059,6 +2142,7 @@ local function run_dream(origin, reason)
                   evidence = target.evidence,
                   links = { keep.object_id },
                 })
+                if ok and new_rev and new_rev ~= "" then target.revision = new_rev end
               end
             end
           end
@@ -2076,8 +2160,10 @@ local function run_dream(origin, reason)
             evidence = keep.evidence,
             links = links,
           }
-          if enqueue_managed_object(keep.object_id, keep.revision, keep_payload) then
+          local ok, new_rev = enqueue_managed_object(keep.object_id, keep.revision, keep_payload)
+          if ok then
             merged_n = merged_n + 1
+            if new_rev and new_rev ~= "" then keep.revision = new_rev end
           end
         end
       end
@@ -2104,9 +2190,11 @@ local function run_dream(origin, reason)
           evidence = rec.evidence,
           links = rec.links,
         }
-        if enqueue_managed_object(rec.object_id, rec.revision, payload) then
+        local ok, new_rev = enqueue_managed_object(rec.object_id, rec.revision, payload)
+        if ok then
           core_chars = core_chars - (rec._core_cost or 0)
           demoted_n = demoted_n + 1
+          if new_rev and new_rev ~= "" then rec.revision = new_rev end
         end
       end
     end
@@ -2268,19 +2356,6 @@ magi.on("turn_finished", function(ev)
     maybe_pressure_dream(p_reason, p_chars)
   end
 
-  -- 드림 최대 대기 주기(48시간) 초과 시 강제 유휴 드림 방어 (Dream Starvation 방지)
-  local dkey = "dream_dirty_v1:" .. magi.workdir()
-  local ekey = "dream_last_epoch_v1:" .. magi.workdir()
-  local last_epoch = tonumber(magi.store_get(ekey) or "0") or 0
-  local now_epoch = epoch_of(magi.time()) or 0
-  if flag("auto_dream", true) and recordLessons() and (magi.store_get(dkey) or "") == "1" and last_epoch > 0 and (now_epoch - last_epoch) >= DREAM_HARD_MAX_INTERVAL_SECONDS then
-    magi.log("engram: 드림 최대 대기 주기(48시간) 초과 — 턴 종료 시점 유휴 드림 실행")
-    magi.store_set(dkey, "0")
-    magi.store_set(ekey, tostring(now_epoch))
-    magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10))
-    run_dream("idle", "hard_max_interval")
-  end
-
   prune_stale() -- archive engram-owned skills unused past the cutoff (count/date only)
 end)
 
@@ -2382,6 +2457,16 @@ end
 local function user_embed_configured()
   local ok, v = pcall(magi.get_config_key, "embed_model", "")
   return ok and v ~= nil and tostring(v) ~= ""
+end
+
+local function in_test_env()
+  if type(magi.in_test) == "function" and magi.in_test() then
+    return true
+  end
+  if flag("in_test", false) then
+    return true
+  end
+  return false
 end
 
 local function embed_close_pipe()
@@ -2491,6 +2576,9 @@ local function embed_start(explicit)
     return false
   end
   if embed_connect() then return true end
+  if not explicit and in_test_env() and embed_setting("embed_auto_start") ~= "true" then
+    return false
+  end
   if not explicit then
     if embed_setting("embed_url") ~= nil and embed_setting("embed_auto_start") == nil then
       return false
@@ -2642,13 +2730,26 @@ local function embed_lease_release()
   end)
 end
 
+local embed_last_health_check = 0
+
 local function embed_activity()
+  if in_test_env() then return end
   local was_missing = embed_lease_touch()
+  local now = epoch_of(magi.time()) or 0
   -- 처음 붙는 경우(startup)가 아니라 활동 중인데 임대가 사라져 있었다면, 다른 컴패니언이 마지막으로
   -- 끝나며 컨테이너를 멈춘 것이다. 우리가 관리하는 컨테이너면 다시 띄운다.
   if was_missing and embed_state.model and embed_managed_here() then
     embed_state = { why = "다른 컴패니언 종료로 컨테이너가 멈춰 다시 기동합니다" }
     embed_start(false)
+  elseif embed_state.model and embed_managed_here() and (now - embed_last_health_check) >= 60 then
+    embed_last_health_check = now
+    local want = embed_setting("embed_model") or EMBED_DEFAULT_MODEL
+    local id = embed_probe(embed_state.url or embed_target_url(), want)
+    if not id then
+      magi.log("engram: 임베딩 서버 연결 끊김 감지 — 자동 재기동 시도")
+      embed_state = { why = "임베딩 컨테이너 응답 없음(재기동 시도)" }
+      embed_start(false)
+    end
   end
   embed_tick()
 end
@@ -2667,6 +2768,7 @@ magi.on("turn_finished", function()
 end)
 
 magi.on("shutdown", function()
+  if in_test_env() then return end
   embed_close_pipe()
   local others = embed_lease_release()
   if others ~= false then return end -- 다른 컴패니언이 아직 쓰는 중(또는 임대 갱신 실패 → 안전하게 유지)

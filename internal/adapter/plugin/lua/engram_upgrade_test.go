@@ -496,10 +496,13 @@ func TestEngramSelfHealingReflectionCircuitBreakerAndPoisonPill(t *testing.T) {
 
 	ea := &errorableAnalyzer{
 		errors: []error{
-			fmt.Errorf("poison pill error 1: 500 safety trigger"),
-			fmt.Errorf("poison pill error 2: 500 safety trigger"),
+			fmt.Errorf("transient network timeout: 503 Service Unavailable"),
+			fmt.Errorf("poison pill error 1: 400 safety trigger"),
+			fmt.Errorf("poison pill error 2: 400 safety trigger"),
+			fmt.Errorf("poison pill error 3: 400 safety trigger"),
 		},
 		replies: []string{
+			`{"actions":[]}`,
 			`{"actions":[]}`,
 		},
 	}
@@ -536,7 +539,8 @@ func TestEngramSelfHealingReflectionCircuitBreakerAndPoisonPill(t *testing.T) {
 		inboxKey: string(inboxJSON),
 	})
 
-	// 2. Trigger idle event: 1st failure -> fail_count becomes 1
+	// 2. Trigger idle event with transient network error: failures increments to 1,
+	// but inbox _fail_count must NOT increment because it's not a payload error.
 	h.FireEvent("idle")
 
 	m := readEngramStore(t, dataDir)
@@ -547,17 +551,43 @@ func TestEngramSelfHealingReflectionCircuitBreakerAndPoisonPill(t *testing.T) {
 	if raw, ok := m[inboxKey].(string); ok {
 		_ = json.Unmarshal([]byte(raw), &curInbox)
 	}
-	if len(curInbox) != 1 || curInbox[0]["_fail_count"] != float64(1) {
-		t.Fatalf("expected _fail_count=1 on poison item, got %+v", curInbox)
+	if len(curInbox) != 1 || curInbox[0]["_fail_count"] != nil {
+		t.Fatalf("expected transient network error NOT to increment _fail_count, got %+v", curInbox)
 	}
 
-	// 3. Trigger idle event again: 2nd failure -> poison pill isolated to dead letter!
+	// 3. Trigger idle event with payload error 1: _fail_count becomes 1
 	h.FireEvent("idle")
-
 	m = readEngramStore(t, dataDir)
 	if m[failKey] != "2" {
 		t.Fatalf("expected failures=2, got %v", m[failKey])
 	}
+	if raw, ok := m[inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &curInbox)
+	}
+	if len(curInbox) != 1 || curInbox[0]["_fail_count"] != float64(1) {
+		t.Fatalf("expected _fail_count=1 on poison item, got %+v", curInbox)
+	}
+
+	// 4. Trigger idle event with payload error 2: _fail_count becomes 2
+	h.FireEvent("idle")
+	m = readEngramStore(t, dataDir)
+	if m[failKey] != "3" {
+		t.Fatalf("expected failures=3, got %v", m[failKey])
+	}
+	if raw, ok := m[inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &curInbox)
+	}
+	if len(curInbox) != 1 || curInbox[0]["_fail_count"] != float64(2) {
+		t.Fatalf("expected _fail_count=2 on poison item, got %+v", curInbox)
+	}
+
+	// Reset circuit breaker timestamp so 3rd payload error can run immediately
+	m[failEpochKey] = "0"
+	writeEngramStore(t, dataDir, m)
+
+	// 5. Trigger idle event with payload error 3: _fail_count becomes 3 (>= REFLECT_FAILURE_LIMIT) -> isolated to dead-letter!
+	h.FireEvent("idle")
+	m = readEngramStore(t, dataDir)
 	if raw, ok := m[inboxKey].(string); ok {
 		_ = json.Unmarshal([]byte(raw), &curInbox)
 	}
@@ -570,6 +600,19 @@ func TestEngramSelfHealingReflectionCircuitBreakerAndPoisonPill(t *testing.T) {
 	}
 	if len(deadLetters) != 1 || deadLetters[0]["text"] != "POISON_PILL_PAYLOAD" {
 		t.Fatalf("expected dead-letter to contain evicted poison pill, got %+v", deadLetters)
+	}
+
+	// 6. Test manual /engram-reflect reclaims dead-letter back into inbox and successfully reflects it
+	handled, out := h.DispatchCommand("/engram-reflect", nil)
+	if !handled || out == nil || !strings.Contains(out.Error(), "reflection 완료") {
+		t.Fatalf("DispatchCommand /engram-reflect failed: handled=%v out=%v", handled, out)
+	}
+	m = readEngramStore(t, dataDir)
+	if raw, ok := m[deadKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &deadLetters)
+	}
+	if len(deadLetters) != 0 {
+		t.Fatalf("expected dead-letter emptied after manual reclaim, got %+v", deadLetters)
 	}
 
 	// 4. Test Circuit Breaker: Trip to limit (3 fails) and test backoff and Half-Open recovery

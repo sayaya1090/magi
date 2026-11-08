@@ -274,10 +274,14 @@ func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string,
 // notice relayed by the claudecode shim). Forcing a finish declaration or council retry
 // after a safety classifier block causes an expensive refusal loop.
 func stoppedBySafetyClassifier(s string) bool {
-	lower := strings.ToLower(s)
-	return strings.Contains(lower, "[claudecode: response stopped by backend safety classifier]") ||
-		strings.Contains(lower, "your response above was stopped by a safety classifier") ||
-		strings.Contains(lower, "safeguards stopped the response above")
+	trimmed := strings.TrimSpace(s)
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "[claudecode: response stopped by backend safety classifier]") {
+		return true
+	}
+	// Native CLI messages appear as the concluding refusal notification
+	return strings.HasSuffix(lower, "your response above was stopped by a safety classifier") ||
+		strings.HasSuffix(lower, "safeguards stopped the response above")
 }
 
 // requireFinishDeclaration keeps a working turn open until the agent SAYS it is finished and the

@@ -347,3 +347,20 @@ func TestSafetyClassifierStopSkipsDeclarationAndCouncil(t *testing.T) {
 		t.Fatalf("expected turn finish with safety classifier reason, got %+v", ctrl)
 	}
 }
+
+func TestStoppedBySafetyClassifierUnit(t *testing.T) {
+	if !stoppedBySafetyClassifier("[claudecode: response stopped by backend safety classifier]") {
+		t.Fatal("expected true for shim prefix")
+	}
+	if !stoppedBySafetyClassifier("I was stopped.\nYour response above was stopped by a safety classifier") {
+		t.Fatal("expected true when concluding with native refusal")
+	}
+	if !stoppedBySafetyClassifier("safeguards stopped the response above") {
+		t.Fatal("expected true for exact safeguards refusal")
+	}
+	// Quoting or mentioning in middle of prose should NOT trigger refusal loop bypass
+	prose := "The user asked why 'your response above was stopped by a safety classifier' appeared in their log, and I explained the mechanism."
+	if stoppedBySafetyClassifier(prose) {
+		t.Fatal("expected false when refusal line is quoted inside prose")
+	}
+}

@@ -45,6 +45,7 @@ var testRoles []func()
 // 이 시험들은 제 설정 디렉토리를 짓는다. 주변 환경이 그것을 무르게 두면
 // 사람의 진짜 magi 를 읽고 쓰게 된다 — 이유는 testenv 에 있다.
 func TestMain(m *testing.M) {
+	_ = os.Setenv("MAGI_TEST", "1")
 	if code, err := strconv.Atoi(os.Getenv(diesAsEnv)); err == nil {
 		os.Exit(code)
 	}

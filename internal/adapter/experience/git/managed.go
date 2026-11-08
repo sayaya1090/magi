@@ -224,6 +224,34 @@ func matchesManagedID(query, objectID, fullID string) bool {
 	return false
 }
 
+// embedForRank returns one vector per chunk followed by the query's.
+// With a warmer embedder, it checks the vector cache without blocking; if any chunk
+// is missing, it warms the cache in the background and avoids stalling the caller.
+func embedForRank(ctx context.Context, emb Same, chunks []string, query string) ([][]float32, error) {
+	if w, ok := emb.(interface {
+		Peekable() bool
+		Peek(texts []string) ([][]float32, bool)
+		Warm(texts []string)
+	}); ok && w.Peekable() {
+		docs, all := w.Peek(chunks)
+		if !all {
+			w.Warm(chunks)
+			return nil, errors.New("embedding cache is still being filled")
+		}
+		qctx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		q, err := emb.Embed(qctx, []string{query})
+		if err != nil {
+			return nil, err
+		}
+		if len(q) != 1 {
+			return nil, fmt.Errorf("asked for 1 query embedding and got %d", len(q))
+		}
+		return append(docs, q[0]), nil
+	}
+	return emb.Embed(ctx, append(append([]string{}, chunks...), query))
+}
+
 // SearchManagedExperience lists or searches active managed records, scoring by
 // both lexical overlap and best-chunk cosine similarity when an embedder is attached.
 func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string, minSim float64, limit int) ([]port.ManagedRecordSummary, error) {
@@ -372,7 +400,7 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 					}
 				}
 			}
-			if vecs, err := s.same.Embed(ctx, append(chunks, q)); err == nil && len(vecs) == len(chunks)+1 {
+			if vecs, err := embedForRank(ctx, s.same, chunks, q); err == nil && len(vecs) == len(chunks)+1 {
 				qv := vecs[len(vecs)-1]
 				for j, i := range owner {
 					if c := embed.Cosine(vecs[j], qv); c > items[i].Similarity {
@@ -381,17 +409,34 @@ func (s *Store) SearchManagedExperience(ctx context.Context, query, kind string,
 				}
 			}
 		}
+		hasEmbedder := s.same != nil && s.same.Available()
 		filtered := items[:0]
 		for _, it := range items {
 			if minSim > 0 {
-				minScore := 1
-				if minSim >= 0.70 {
-					minScore = 200
-				} else if minSim >= 0.40 {
-					minScore = 100
-				}
-				if it.Similarity >= minSim || (it.Similarity == 0 && it.Score >= minScore) {
-					filtered = append(filtered, it)
+				if hasEmbedder {
+					if minSim >= 0.70 {
+						if it.Similarity >= minSim {
+							filtered = append(filtered, it)
+						}
+					} else {
+						minScore := 200
+						if minSim >= 0.40 {
+							minScore = 1500
+						}
+						if it.Similarity >= minSim || it.Score >= minScore {
+							filtered = append(filtered, it)
+						}
+					}
+				} else {
+					minScore := 200
+					if minSim >= 0.70 {
+						minScore = 3000
+					} else if minSim >= 0.40 {
+						minScore = 1500
+					}
+					if it.Score >= minScore {
+						filtered = append(filtered, it)
+					}
 				}
 			} else if it.Similarity > 0 || it.Score > 0 {
 				filtered = append(filtered, it)
