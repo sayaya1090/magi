@@ -477,7 +477,7 @@ func clipEvidenceForRecord(s string, n int) string {
 	if len(s) <= n || n <= 0 {
 		return s
 	}
-	const marker = "\n…(%d bytes omitted from the middle of this record; the members were given all of it)…\n"
+	const marker = "\n…(%d bytes omitted from the middle of this record; the members were given a larger copy, itself cut past three times this limit)…\n"
 	head, tail := n/2, n-n/2
 	for head > 0 && !utf8.RuneStart(s[head]) {
 		head--

@@ -78,6 +78,10 @@ func TestTheRecordedEvidenceKeepsBothEnds(t *testing.T) {
 	if !strings.Contains(got, "bytes omitted from the middle") {
 		t.Errorf("an unmarked cut reads as the whole record:\n%s", got)
 	}
+	// The members get HeadTail(actions, councilDiffCap*3), which cuts too, so the record cannot promise they saw it all.
+	if strings.Contains(got, "given all of it") {
+		t.Errorf("the marker promises more than the members were given:\n%s", got)
+	}
 	// And it must not claim to be a diff: this block is not one, and the marker used to say so.
 	if strings.Contains(got, "diff truncated") {
 		t.Errorf("the actions block is not a diff:\n%s", got)
