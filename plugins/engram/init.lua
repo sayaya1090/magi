@@ -2550,7 +2550,7 @@ magi.register_command{
 
 -- 로컬 임베딩 서버 연결 및 백그라운드 컨테이너/모델 프로비저닝.
 -- 이미 떠 있는 루프백 서버가 있으면 즉시 연결하고(magi.set_embed_endpoint), 없으면 docker/podman 으로
--- magi-engram-embed(ollama/ollama) 컨테이너 기동과 bge-m3 모델 내려받기를 백그라운드 파이프(magi.pipe)로
+-- magi-engram-embed 컨테이너(amd64는 TEI, arm64는 ollama/ollama) 기동과 bge-m3 모델 내려받기를 백그라운드 파이프(magi.pipe)로
 -- 진행한다. 준비가 끝날 때까지 회상은 어휘 검색으로 동작하며 턴을 블로킹하지 않는다.
 -- config.toml 에 embed_model 을 직접 둔 사용자는 그 설정을 존중해 손대지 않는다.
 local EMBED_DEFAULT_URL = "http://127.0.0.1:11434/v1"
@@ -2559,6 +2559,10 @@ local EMBED_DEFAULT_MODEL = "bge-m3"
 local EMBED_CONTAINER = "magi-engram-embed"
 local EMBED_VOLUME = "magi-engram-ollama:/root/.ollama"
 local EMBED_IMAGE = "ollama/ollama"
+local EMBED_TEI_IMAGE = "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4"
+local EMBED_TEI_VOLUME = "magi-engram-tei:/data"
+local EMBED_TEI_MODEL = "BAAI/bge-m3"
+local EMBED_TEI_REVISION = "5617a9f61b028005a4858fdac845db406aefb181"
 local embed_state = { why = "아직 확인하지 않았습니다" }
 local embed_bg = { pipe = nil, stage = nil, rt = nil, arch = nil, want = nil, url = nil }
 
@@ -2597,6 +2601,17 @@ local function embed_close_pipe()
   end
 end
 
+-- 서버 아키텍처로 이미지를 한 번에 정한다(docs/ENGRAM_MEMORY §11.2). 차례로 시도하는 폴백은 없다.
+local function embed_image_for(arch)
+  if arch == "amd64" then return EMBED_TEI_IMAGE end
+  if arch == "arm64" then return EMBED_IMAGE end
+  return nil
+end
+
+local function embed_is_tei(img)
+  return img ~= nil and img:find("text-embeddings-inference", 1, true) ~= nil
+end
+
 -- 컨테이너 런타임(docker -> podman)과 데몬 아키텍처(Server.Arch)를 감지해 캐시한다.
 local function embed_select_runtime(force)
   if force then
@@ -2610,9 +2625,10 @@ local function embed_select_runtime(force)
     if r and r.code == 0 then
       local arch = (r.stdout or ""):gsub("%s+", "")
       if arch == "" then arch = "unknown" end
-      local img = embed_setting("embed_image") or EMBED_IMAGE
+      -- 기록된 값을 믿지 않는다. TEI 이전 판은 아키텍처와 무관하게 ollama/ollama 를 기록했다.
+      local img = embed_image_for(arch)
       magi.store_set("embed_arch", arch)
-      magi.store_set("embed_image", img)
+      magi.store_set("embed_image", img or "")
       return cached_rt, arch, img
     end
   end
@@ -2623,11 +2639,24 @@ local function embed_select_runtime(force)
       if arch == "" then arch = "unknown" end
       magi.store_set("embed_runtime", cand)
       magi.store_set("embed_arch", arch)
-      magi.store_set("embed_image", EMBED_IMAGE)
-      return cand, arch, EMBED_IMAGE
+      local img = embed_image_for(arch)
+      magi.store_set("embed_image", img or "")
+      return cand, arch, img
     end
   end
   return nil, nil, nil
+end
+
+-- TEI 는 /models 가 없고(404) /info 의 model_id 가 모델을 말한다(cpu-1.9.4 실측).
+local function embed_probe_info(base, want)
+  local root = base:gsub("/+$", ""):gsub("/v1$", "")
+  local r = magi.http{ url = root .. "/info", timeout = "2s" }
+  if not r or r.status ~= 200 then return nil end
+  local doc = magi.json_decode(r.body or "")
+  local id = type(doc) == "table" and doc.model_id
+  if type(id) ~= "string" then return nil end
+  if id == want or id:match("[^/]+$") == want then return id end
+  return nil
 end
 
 -- base 의 /models 에서 want 모델(태그 포함, 예: bge-m3:latest)을 찾아 그 id 를 돌려준다.
@@ -2636,7 +2665,11 @@ local function embed_probe(base, want)
   -- This runs on the user_message and turn_finished paths with the plugin lock held.
   local r, err = magi.http{ url = (base:gsub("/+$", "")) .. "/models", timeout = "2s" }
   if not r then return nil, tostring(err) end
-  if r.status ~= 200 then return nil, "HTTP " .. tostring(r.status) end
+  if r.status ~= 200 then
+    local info_id = embed_probe_info(base, want)
+    if info_id then return info_id end
+    return nil, "HTTP " .. tostring(r.status)
+  end
   local doc = magi.json_decode(r.body or "")
   if type(doc) ~= "table" or (type(doc.data) ~= "table" and doc.object ~= "list") then
     return nil, "모델 목록 형식이 아닙니다"
@@ -2680,6 +2713,13 @@ end
 
 local function embed_launch_pull(rt, arch, url, want)
   embed_close_pipe()
+  local cur = magi.exec(rt, { "inspect", "--format", "{{.Config.Image}}", EMBED_CONTAINER }, { timeout = "5s" })
+  if embed_is_tei(cur and cur.code == 0 and cur.stdout or embed_setting("embed_image")) then
+    -- TEI 는 기동 인자로 모델을 받는다. 이 주소의 서버가 TEI 가 아니라는 뜻이므로 받을 곳이 없다.
+    embed_bg.stage = nil
+    embed_state = { url = url, why = want .. " 모델이 없습니다 (이 주소의 서버는 임베딩 컨테이너가 아닙니다)" }
+    return false
+  end
   local p, err = magi.pipe(rt, { "exec", EMBED_CONTAINER, "ollama", "pull", want }, { idle = "10m" })
   if not p then
     embed_bg.stage = nil
@@ -2719,6 +2759,10 @@ local function embed_start(explicit)
     embed_state = { url = url, why = tostring(embed_state.why or "연결 실패") .. " (docker/podman 런타임을 찾지 못함)" }
     return false
   end
+  if not img then
+    embed_state = { url = url, why = "서버 아키텍처 " .. tostring(arch) .. " 에 맞는 임베딩 이미지가 없습니다. 어휘 검색으로 회상합니다" }
+    return false
+  end
   local ins = magi.exec(rt, { "inspect", "--format", "{{.State.Running}}", EMBED_CONTAINER }, { timeout = "5s" })
   if ins and ins.code == 0 then
     local running = (ins.stdout or ""):gsub("%s+", "") == "true"
@@ -2741,12 +2785,20 @@ local function embed_start(explicit)
     magi.store_set("embed_managed_url", url)
   end
   local port = url:match("^https?://[^:/]+:(%d+)") or "11434"
-  local p, err = magi.pipe(rt, {
+  local tei = embed_is_tei(img)
+  local run_args = {
     "run", "-d", "--name", EMBED_CONTAINER,
-    "-p", "127.0.0.1:" .. port .. ":11434",
-    "-v", EMBED_VOLUME,
+    "-p", "127.0.0.1:" .. port .. ":" .. (tei and "80" or "11434"),
+    "-v", tei and EMBED_TEI_VOLUME or EMBED_VOLUME,
     img,
-  }, { idle = "10m" })
+  }
+  if tei then
+    run_args[#run_args + 1] = "--model-id"
+    run_args[#run_args + 1] = EMBED_TEI_MODEL
+    run_args[#run_args + 1] = "--revision"
+    run_args[#run_args + 1] = EMBED_TEI_REVISION
+  end
+  local p, err = magi.pipe(rt, run_args, { idle = "10m" })
   if not p then
     embed_state = { url = url, why = "컨테이너 실행 실패: " .. tostring(err) }
     return false
@@ -2924,7 +2976,21 @@ magi.register_command{
       if not rt then
         return "engram: 컨테이너 런타임(docker/podman)을 찾지 못했습니다."
       end
-      return "engram: 컨테이너 런타임 재선택 완료 — " .. rt .. " (arch=" .. arch .. ", image=" .. img .. ")"
+      local done = "engram: 컨테이너 런타임 재선택 완료 — " .. rt .. " (arch=" .. arch .. ", image=" .. tostring(img) .. ")"
+      -- 이름이 고정이라 이미지가 다른 컨테이너가 남아 있으면 새 이미지로 뜰 수 없다. 볼륨은 남긴다.
+      local cur = magi.exec(rt, { "inspect", "--format", "{{.Config.Image}}", EMBED_CONTAINER }, { timeout = "5s" })
+      local cur_img = cur and cur.code == 0 and (cur.stdout or ""):gsub("%s+", "") or ""
+      if img and cur_img ~= "" and not cur_img:find(img, 1, true) then
+        local rm = magi.exec(rt, { "rm", "-f", EMBED_CONTAINER }, { timeout = "20s" })
+        if not rm or rm.code ~= 0 then
+          return done .. "\n이미지가 다른 기존 컨테이너(" .. cur_img .. ")를 지우지 못했습니다."
+        end
+        embed_close_pipe()
+        embed_bg = { pipe = nil, stage = nil, rt = nil, arch = nil, want = nil, url = nil }
+        embed_state = { why = "이미지를 바꿔 컨테이너를 지웠습니다" }
+        return done .. "\n이미지가 다른 기존 컨테이너(" .. cur_img .. ")를 지웠습니다. `/engram-embed start` 로 새로 띄웁니다."
+      end
+      return done
     end
     return "engram: 사용법 /engram-embed [status|connect|start|reselect]"
   end,

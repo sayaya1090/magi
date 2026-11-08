@@ -119,6 +119,10 @@ case "$1" in
     exit 0
     ;;
   inspect)
+    if [ "$3" = "{{.Config.Image}}" ]; then
+      cat "` + stateDir + `/image" 2>/dev/null
+      exit 0
+    fi
     if [ -f "` + stateDir + `/container_running" ]; then
       echo "true"
       exit 0
@@ -255,4 +259,195 @@ func TestEngramStartsContainerPullsModelInBackgroundAndConnects(t *testing.T) {
 	if !strings.Contains(err.Error(), "docker (arch=arm64, image=ollama/ollama)") {
 		t.Fatalf("unexpected reselect output: %q", err.Error())
 	}
+}
+
+// On amd64 the server is TEI, per docs/ENGRAM_MEMORY §11.2. Measured on cpu-1.9.4: /models and
+// /v1/models answer 404, /info names the model, and the model comes from the start arguments, so
+// there is nothing to pull.
+func TestEngramStartsTEIOnAmd64AndConnectsThroughInfo(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	binDir := t.TempDir()
+	stateDir := t.TempDir()
+	logPath := writeFakeDocker(t, binDir, stateDir, "amd64")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/info" {
+			http.NotFound(w, r)
+			return
+		}
+		if _, err := os.Stat(filepath.Join(stateDir, "container_running")); err != nil {
+			http.Error(w, "server down", http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := w.Write([]byte(`{"model_id":"BAAI/bge-m3","model_sha":"5617a9f61b028005a4858fdac845db406aefb181"}`)); err != nil {
+			t.Log(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg := &stubEmbedReg{}
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		EmbedReg:   reg,
+		PluginConfigs: map[string]map[string]any{
+			"engram": {"embed_url": srv.URL + "/v1", "embed_auto_start": "true"},
+		},
+		ConfigPath: cfgPath,
+		DataDir:    t.TempDir(),
+		Runtime:    RuntimeInfo{Workdir: t.TempDir()},
+	})
+	if _, err := h.Load(context.Background(), src); err != nil {
+		t.Fatalf("load engram: %v", err)
+	}
+	h.FireEvent("startup")
+
+	var statusOut string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && reg.calls == 0 {
+		handled, err := h.DispatchCommand("/engram-embed", []string{"status"})
+		if !handled || err == nil {
+			t.Fatalf("/engram-embed status: handled=%v err=%v", handled, err)
+		}
+		statusOut = err.Error()
+		time.Sleep(25 * time.Millisecond)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	logText := string(logBytes)
+	if reg.url != srv.URL+"/v1" || reg.model != "BAAI/bge-m3" {
+		t.Fatalf("want %s/v1 (BAAI/bge-m3), got %q (%q); status=%q\n%s", srv.URL, reg.url, reg.model, statusOut, logText)
+	}
+	for _, want := range []string{
+		"ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4",
+		"--model-id BAAI/bge-m3",
+		"--revision 5617a9f61b028005a4858fdac845db406aefb181",
+		"magi-engram-tei:/data",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Errorf("docker run lacks %q:\n%s", want, logText)
+		}
+	}
+	if !strings.Contains(logText, ":80 ") {
+		t.Errorf("TEI listens on 80, the published port should map to it:\n%s", logText)
+	}
+	if strings.Contains(logText, "ollama") {
+		t.Errorf("amd64 must not touch ollama:\n%s", logText)
+	}
+
+	// Reselect leaves a container already on the chosen image, and clears one on another image:
+	// the name is fixed, so the new image could not start beside it.
+	reselect := func(image string) string {
+		if err := os.WriteFile(filepath.Join(stateDir, "image"), []byte(image+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		handled, err := h.DispatchCommand("/engram-embed", []string{"reselect"})
+		if !handled || err == nil {
+			t.Fatalf("/engram-embed reselect: handled=%v err=%v", handled, err)
+		}
+		b, rerr := os.ReadFile(logPath)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		return string(b)
+	}
+	if got := reselect("ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4"); strings.Contains(got, "rm -f") {
+		t.Errorf("reselect removed a container already on the chosen image:\n%s", got)
+	}
+	if got := reselect("docker.io/ollama/ollama:latest"); !strings.Contains(got, "rm -f magi-engram-embed") || strings.Contains(got, "volume") {
+		t.Errorf("reselect should remove only the container on the old image:\n%s", got)
+	}
+}
+
+// Before TEI every architecture recorded ollama/ollama, so a recorded image says nothing about the
+// rule in §11.2. An amd64 machine carrying that record still starts TEI, and a container left over
+// from it can still fetch its model until /engram-embed reselect replaces it.
+func TestEngramAmd64WithTheOldRecordedImage(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	start := func(t *testing.T, leftover bool, want string) string {
+		t.Helper()
+		binDir := t.TempDir()
+		stateDir := t.TempDir()
+		logPath := writeFakeDocker(t, binDir, stateDir, "amd64")
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if leftover {
+			for name, body := range map[string]string{"container_running": "", "image": "docker.io/ollama/ollama:latest\n"} {
+				if err := os.WriteFile(filepath.Join(stateDir, name), []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/v1/models" {
+				http.NotFound(w, r)
+				return
+			}
+			if _, err := w.Write([]byte(`{"object":"list","data":null}`)); err != nil {
+				t.Log(err)
+			}
+		}))
+		t.Cleanup(srv.Close)
+		cfgPath := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(cfgPath, []byte(""), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		h := NewHostWithConfig(HostConfig{
+			ToolSink:   builtin.NewRegistry(),
+			ContextReg: &fakeContextReg{},
+			EmbedReg:   &stubEmbedReg{},
+			PluginConfigs: map[string]map[string]any{"engram": {
+				"embed_url": srv.URL + "/v1", "embed_auto_start": "true",
+				"embed_runtime": "docker", "embed_arch": "amd64", "embed_image": "ollama/ollama",
+			}},
+			ConfigPath: cfgPath,
+			DataDir:    t.TempDir(),
+			Runtime:    RuntimeInfo{Workdir: t.TempDir()},
+		})
+		if _, err := h.Load(context.Background(), src); err != nil {
+			t.Fatalf("load engram: %v", err)
+		}
+		h.FireEvent("startup")
+		var logText string
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+			if _, err := h.DispatchCommand("/engram-embed", []string{"status"}); err == nil {
+				t.Fatal("status answered nothing")
+			}
+			b, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if logText = string(b); strings.Contains(logText, want) {
+				break
+			}
+		}
+		return logText
+	}
+	t.Run("no container starts TEI", func(t *testing.T) {
+		log := start(t, false, "run -d")
+		if !strings.Contains(log, "text-embeddings-inference") || strings.Contains(log, "ollama") {
+			t.Errorf("want TEI and no ollama:\n%s", log)
+		}
+	})
+	t.Run("leftover ollama still pulls", func(t *testing.T) {
+		log := start(t, true, "ollama pull")
+		if !strings.Contains(log, "ollama pull bge-m3") {
+			t.Errorf("the leftover container should fetch the model:\n%s", log)
+		}
+		if strings.Contains(log, "run -d") || strings.Contains(log, "rm -f") {
+			t.Errorf("a running container is reused until reselect:\n%s", log)
+		}
+	})
 }
