@@ -346,6 +346,11 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 	// thing. A reader taking the conversation once waits for that marker, so a silent omission turns
 	// "we could not name the end" into a read that never returns. It is said out loud below.
 	head, _, headErr := tr.NewSince(ctx, sid, 0)
+	// "live" asks for what happens from now on and none of the log. A client watching for a notice
+	// such as slot.changed would otherwise be sent the whole conversation first and read none of it.
+	if req.Name == "live" && headErr == nil {
+		since = head
+	}
 	// The peer hanging up is the only thing that ends a transcript nothing is happening
 	// in, exactly as for watch: with no reader for the hang-up, a stream whose link died
 	// holds a goroutine until the daemon stops, because there is nothing to write and so

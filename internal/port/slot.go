@@ -41,5 +41,5 @@ type SlotAction struct {
 // SlotManager provides access to plugin UI slots and their actions.
 type SlotManager interface {
 	QuerySlots(ctx context.Context, target string) ([]PluginSlot, error)
-	TriggerSlotAction(ctx context.Context, plugin, action string) (string, error)
+	TriggerSlotAction(ctx context.Context, plugin, slot, action string) (string, error)
 }

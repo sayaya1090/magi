@@ -53,21 +53,18 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
 
     public void reloadSlots() { source.slots(list -> { slots = list; slotsAnswered = true; told(); }); }
 
-    public void triggerSlotAction(String plugin, String action) {
-        source.triggerSlotAction(plugin, action, msg -> {
+    public void triggerSlotAction(String plugin, String slot, String action) {
+        source.triggerSlotAction(plugin, slot, action, msg -> {
             reloadSkills();
             reloadSlots();
             skillsSaid(msg);
         });
     }
 
-    public void triggerEngram(String action) { triggerSlotAction("engram", action); }
-
     public Object skills() { return skills; }
     public Object wiki() { return wiki; }
     public Object mcp() { return mcp; }
     public Object slots() { return slots; }
-    public Object engram() { return slots; }
     public boolean skillsAnswered() { return skillsAnswered; }
     public boolean wikiAnswered() { return wikiAnswered; }
     public boolean mcpAnswered() { return mcpAnswered; }

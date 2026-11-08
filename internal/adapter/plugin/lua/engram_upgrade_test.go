@@ -804,3 +804,51 @@ func TestEngramSelfHealingObservationTruncationAndSetDifferenceDrain(t *testing.
 		t.Fatalf("expected preserved item to be item C, got %+v", finalInbox[0])
 	}
 }
+
+// A restore that stopped before clearing the dead-letter list must not double what it already put back.
+func TestEngramDeadLetterRestoreDoesNotDouble(t *testing.T) {
+	ctx := context.Background()
+	wd, dataDir := t.TempDir(), t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   &errorableAnalyzer{errors: []error{fmt.Errorf("transient network timeout: 503 Service Unavailable")}},
+		Experience: expgit.New(t.TempDir()),
+		ConfigPath: cfg,
+		DataDir:    dataDir,
+		Runtime:    RuntimeInfo{Workdir: wd},
+	})
+	if _, err := h.Load(ctx, filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	inboxKey := "reflection_inbox_v1:" + wd
+	deadKey := "reflection_dead_letter_v1:" + wd
+	item := func(text string) map[string]any {
+		return map[string]any{"session": "s", "at": "2026-11-08T10:00:00Z", "outcome": "error", "text": text}
+	}
+	inbox, _ := json.Marshal([]map[string]any{item("ALREADY_BACK")})
+	dead, _ := json.Marshal([]map[string]any{item("ALREADY_BACK"), item("STILL_DEAD")})
+	writeEngramStore(t, dataDir, map[string]any{inboxKey: string(inbox), deadKey: string(dead)})
+
+	h.DispatchCommand("/engram-reflect", nil)
+
+	m := readEngramStore(t, dataDir)
+	var got []map[string]any
+	if raw, ok := m[inboxKey].(string); ok {
+		_ = json.Unmarshal([]byte(raw), &got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("inbox after restore: %+v, want each item once", got)
+	}
+	var left []map[string]any
+	if raw, ok := m[deadKey].(string); ok && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &left)
+	}
+	if len(left) != 0 {
+		t.Fatalf("dead-letter list after restore: %+v", left)
+	}
+}

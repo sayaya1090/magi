@@ -18,9 +18,9 @@ func (d daemonEngine) QuerySlots(ctx context.Context, target string) ([]port.Plu
 	return d.obs.QuerySlots(ctx, target)
 }
 
-func (d daemonEngine) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+func (d daemonEngine) TriggerSlotAction(ctx context.Context, plugin, slot, action string) (string, error) {
 	if d.obs == nil {
 		return "", fmt.Errorf("plugin observer is unavailable")
 	}
-	return d.obs.TriggerSlotAction(ctx, plugin, action)
+	return d.obs.TriggerSlotAction(ctx, plugin, slot, action)
 }

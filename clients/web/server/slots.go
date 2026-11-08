@@ -12,8 +12,7 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// slots handles GET /slots (and /engram) for querying plugin UI slots,
-// and POST /slots (and /engram) for executing slot actions.
+// slots handles GET /slots for querying plugin UI slots, and POST /slots for executing slot actions.
 func (s *server) slots(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		var slots []port.PluginSlot
@@ -41,6 +40,7 @@ func (s *server) slots(w http.ResponseWriter, r *http.Request) {
 
 	action := r.FormValue("action")
 	plugin := r.FormValue("plugin")
+	slot := r.FormValue("slot")
 	if action == "" {
 		http.Error(w, "action is required", http.StatusBadRequest)
 		return
@@ -49,7 +49,7 @@ func (s *server) slots(w http.ResponseWriter, r *http.Request) {
 	var resp daemon.Response
 	err := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
 		var kerr error
-		resp, kerr = cl.Knowledge(port.KnowledgeAction{Name: plugin, Action: action})
+		resp, kerr = cl.Knowledge(port.KnowledgeAction{Name: plugin, Slot: slot, Action: action})
 		return kerr
 	})
 	if err != nil {

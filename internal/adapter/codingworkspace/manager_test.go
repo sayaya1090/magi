@@ -494,3 +494,79 @@ func TestMeaningfulTaskIDAndBranchNameAndCleanup(t *testing.T) {
 		t.Fatalf("expected 0 remaining tasks, got %d (%v)", len(entries), e)
 	}
 }
+
+// failGitOn puts a git first on PATH that fails any command containing match, and returns the undo.
+func failGitOn(t *testing.T, match string) func() {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not available")
+	}
+	orig := os.Getenv("PATH")
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in *\"" + match + "\"*) echo refused >&2; exit 1;; esac\nexec \"" + real + "\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+orig)
+	return func() { _ = os.Setenv("PATH", orig) }
+}
+
+func TestRemoveReportsAFailedCleanupAndResumes(t *testing.T) {
+	for _, c := range []struct {
+		name, match, want string
+		workspaceGone     bool
+	}{
+		{"tag delete", "tag -d", "delete task tag", false},
+		{"worktree prune", "worktree prune", "prune worktrees", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			source := t.TempDir()
+			put(t, filepath.Join(source, "a"), "data")
+			for _, args := range [][]string{
+				{"init", "-q"}, {"add", "a"},
+				{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init"},
+			} {
+				if _, e := git(ctx, source, args...); e != nil {
+					t.Fatal(e)
+				}
+			}
+			m := New(t.TempDir())
+			r, e := m.Prepare(ctx, source, task.Request{RequestID: "cleanup-fails", Purpose: "cleanup fails"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if _, e := git(ctx, source, "tag", r.ID); e != nil {
+				t.Fatal(e)
+			}
+			if c.workspaceGone {
+				if e := os.RemoveAll(r.Workspace); e != nil {
+					t.Fatal(e)
+				}
+			}
+			undo := failGitOn(t, c.match)
+			_, e = m.Remove(ctx, source, r.ID)
+			undo()
+			if e == nil || !strings.Contains(e.Error(), c.want) {
+				t.Fatalf("failed cleanup reported %v, want %q", e, c.want)
+			}
+			if b, e := os.ReadFile(filepath.Join(source, "a")); e != nil || string(b) != "data" {
+				t.Fatalf("source changed: %q %v", b, e)
+			}
+			if entries, e := m.List(ctx, source); e != nil || len(entries) != 1 {
+				t.Fatalf("the task must stay listed so it can be retried: %d %v", len(entries), e)
+			}
+			removed, e := m.Remove(ctx, source, r.ID)
+			if e != nil || removed.State != "removed" {
+				t.Fatalf("retry: %+v %v", removed, e)
+			}
+			if _, e := git(ctx, source, "show-ref", "--verify", "--quiet", "refs/tags/"+r.ID); e == nil {
+				t.Fatal("the retry left the task tag")
+			}
+			if entries, e := m.List(ctx, source); e != nil || len(entries) != 0 {
+				t.Fatalf("retry left %d tasks: %v", len(entries), e)
+			}
+		})
+	}
+}

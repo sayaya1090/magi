@@ -228,7 +228,7 @@ class Companion(
     fun profileMaintenance(refresh: Boolean = false): Response =
         send(Request(method = "profile-maintenance", session = if (refresh) session else null, name = if (refresh) "refresh" else null))
 
-    fun knowledge(item: dev.sayaya.magi.ide.model.KnowledgeItem? = null, action: String = "", plugin: String = ""): Response =
+    fun knowledge(item: dev.sayaya.magi.ide.model.KnowledgeItem? = null, action: String = "", plugin: String = "", slot: String = ""): Response =
         send(Request(method = "knowledge", args = kotlinx.serialization.json.buildJsonObject {
             if (item != null) {
                 put("name", kotlinx.serialization.json.JsonPrimitive(item.name))
@@ -237,6 +237,9 @@ class Companion(
             } else if (action.isNotEmpty()) {
                 if (plugin.isNotEmpty()) {
                     put("name", kotlinx.serialization.json.JsonPrimitive(plugin))
+                }
+                if (slot.isNotEmpty()) {
+                    put("slot", kotlinx.serialization.json.JsonPrimitive(slot))
                 }
                 put("action", kotlinx.serialization.json.JsonPrimitive(action))
             }

@@ -239,9 +239,9 @@ func (o *pluginObserver) QuerySlots(ctx context.Context, target string) ([]port.
 	return nil, nil
 }
 
-func (o *pluginObserver) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+func (o *pluginObserver) TriggerSlotAction(ctx context.Context, plugin, slot, action string) (string, error) {
 	if h := o.host.Load(); h != nil {
-		return h.TriggerSlotAction(ctx, plugin, action)
+		return h.TriggerSlotAction(ctx, plugin, slot, action)
 	}
 	return "", fmt.Errorf("plugin host not available")
 }

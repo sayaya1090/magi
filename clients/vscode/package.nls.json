@@ -27,9 +27,6 @@
   "magi.rewind.title": "Go back to an earlier point",
   "magi.children.title": "Show child chats",
   "magi.knowledge.title": "Project memory and skills",
-  "magi.engramReflect.title": "Engram: Run Reflection now",
-  "magi.engramDream.title": "Engram: Run Dream now",
-  "magi.engramFactsFlush.title": "Engram: Flush Facts inbox now",
   "magi.profileMaintenance.title": "Internal description session",
   "command.approvals": "Pending approvals and questions"
 }

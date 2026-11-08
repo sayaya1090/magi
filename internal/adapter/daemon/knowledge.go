@@ -27,7 +27,7 @@ func answerKnowledge(ctx context.Context, eng Engine, req Request) Response {
 		// Generic slot action dispatch: action.Name carries the plugin. Its failure is the answer —
 		// handing the action on to the knowledge store would replace what went wrong with a
 		// complaint about a managed item nobody selected.
-		out, err := sm.TriggerSlotAction(ctx, action.Name, action.Action)
+		out, err := sm.TriggerSlotAction(ctx, action.Name, action.Slot, action.Action)
 		if err != nil {
 			return Response{Err: err.Error()}
 		}

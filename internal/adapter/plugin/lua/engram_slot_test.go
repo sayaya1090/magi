@@ -48,12 +48,12 @@ func TestRealEngramSlotAnswers(t *testing.T) {
 func TestRealEngramSlotActionsReturnTheirOwnWords(t *testing.T) {
 	h := loadRealEngram(t)
 	for _, a := range []string{"reflect", "flush_facts"} {
-		out, err := h.TriggerSlotAction(context.Background(), "engram", a)
+		out, err := h.TriggerSlotAction(context.Background(), "engram", "", a)
 		if err != nil || out == "" {
 			t.Fatalf("%s: out=%q err=%v", a, out, err)
 		}
 	}
-	_, err := h.TriggerSlotAction(context.Background(), "engram", "nope")
+	_, err := h.TriggerSlotAction(context.Background(), "engram", "", "nope")
 	if err == nil {
 		t.Fatal("an unknown action must be an error")
 	}

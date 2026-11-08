@@ -159,6 +159,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `OutgoingHandoffTest` | 같은 컴패니언에게 보낸 두 질문의 접수 번호와 질문 내용을 구분하고, 구형 데몬의 누락 필드를 허용하는지 확인합니다 |
 | `WireConformanceTest` | **데몬 필드명 정합성:** `ignoreUnknownKeys` 설정 환경에서 필드명 오탈자가 기본값으로 조용히 누락되는 현상을 방지하기 위해 Go 소스 DTO와 필드 목록을 상호 대조하고, 미선언 필드는 누락 사유를 명시하도록 강제합니다 |
 | `SchedulesTest` | 예약 편집기 인자 검증 — cron 표현식과 간격 주기 중 단일 방식만 지정하여 전달하는 규칙을 검증합니다 |
+| `SlotWatchTest` | 슬롯 변경 구독 — 재생 없는 `live` 스트림을 열어 `slot.changed` 에만 반응하는지, 연결이 끊기면 다시 붙고 닫으면 멈추는지를 검증합니다 |
 | `PaletteTest` | 화면 색이 TUI 원본(`internal/adapter/tui/styles.go`)과 정확히 일치하는지 대조합니다 |
 | `CoreReleaseTest` | 설정 파일 기반 바이너리 다운로드 경로 파싱, 인증서 검증 토글, 최신 릴리스 버전 판정 로직을 검증합니다 |
 | `OnceAcrossTest` | 다중 창이 동시에 활성화되더라도 코어 다운로드 및 초기화 루틴이 1회만 실행되도록 보장하는 동시성 제어를 검증합니다 |

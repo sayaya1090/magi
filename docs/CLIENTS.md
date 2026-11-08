@@ -419,6 +419,7 @@ contracts this page already states.
    does not grow. A participant keeps two sessions for a meeting, and they are stamped with
    different origins (`meeting`, `minutes`) so a client listing a companion's children can tell
    them apart, or leave both out.
+   A client that only waits for a notice such as `slot.changed` asks with `name: "live"`, which starts at the end of the log and replays nothing.
 
 4. **Action**: steering, interrupting, answering, files and git are methods on that companion's
    own socket; an application that offers tools registers itself with `mcp-attach` (URL only)

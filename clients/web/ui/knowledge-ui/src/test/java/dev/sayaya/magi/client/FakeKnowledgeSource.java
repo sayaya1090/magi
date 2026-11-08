@@ -118,7 +118,7 @@ public class FakeKnowledgeSource implements KnowledgeSource {
     }
 
     @Override
-    public void triggerSlotAction(String plugin, String action, Consumer<String> why) {
+    public void triggerSlotAction(String plugin, String slot, String action, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_engram", action);
         why.accept("");
     }

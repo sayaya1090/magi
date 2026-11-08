@@ -532,30 +532,41 @@ func (h *Host) QuerySlots(ctx context.Context, target string) ([]port.PluginSlot
 	return result, nil
 }
 
-// TriggerSlotAction executes an action on a specific plugin slot.
-func (h *Host) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+// TriggerSlotAction executes an action on the slot a caller named. The plugin is required: an action
+// with no plugin used to run on whichever plugin loaded first. The slot may be left empty only when
+// the plugin has one slot that can act, because picking among several would run the wrong one.
+func (h *Host) TriggerSlotAction(ctx context.Context, plugin, slot, action string) (string, error) {
+	if plugin == "" {
+		return "", fmt.Errorf("slot action %q names no plugin", action)
+	}
 	h.mu.Lock()
-	var targetSlot *luaSlot
+	var candidates []*luaSlot
 	for _, p := range h.snapshot() {
-		if plugin != "" && p.name != plugin {
+		if p.name != plugin {
 			continue
 		}
 		for _, s := range p.slots {
-			if s.executeFn != nil {
-				targetSlot = s
-				break
+			if s.executeFn != nil && (slot == "" || s.id == slot) {
+				candidates = append(candidates, s)
 			}
-		}
-		if targetSlot != nil {
-			break
 		}
 	}
 	h.mu.Unlock()
 
-	if targetSlot == nil {
+	switch len(candidates) {
+	case 0:
+		if slot != "" {
+			return "", fmt.Errorf("plugin %q has no slot %q that can act", plugin, slot)
+		}
 		return "", fmt.Errorf("no slot found for plugin %q", plugin)
+	case 1:
+		return candidates[0].Execute(ctx, action)
 	}
-	return targetSlot.Execute(ctx, action)
+	ids := make([]string, len(candidates))
+	for i, s := range candidates {
+		ids[i] = s.id
+	}
+	return "", fmt.Errorf("plugin %q has %d slots (%s); name one", plugin, len(ids), strings.Join(ids, ", "))
 }
 
 // DispatchCommand runs the plugin command whose name matches (leading slash

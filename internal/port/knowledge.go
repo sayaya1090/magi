@@ -27,6 +27,9 @@ type KnowledgeAction struct {
 	Name     string `json:"name"`
 	Revision string `json:"revision"`
 	Action   string `json:"action"`
+	// Slot names which of the plugin's slots a slot action is for. It may be left out only when the
+	// plugin has one slot that can act.
+	Slot string `json:"slot,omitempty"`
 }
 
 // KnowledgeManager is a user control, deliberately absent from ToolEnv.

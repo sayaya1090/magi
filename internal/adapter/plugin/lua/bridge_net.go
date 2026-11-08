@@ -175,7 +175,7 @@ func (p *plugin) bridgeOpenURL(L *lua.LState) int {
 	return 1
 }
 
-// magi.http{url=, method=, headers={}, body=} -> {status=, body=} | (nil, err)
+// magi.http{url=, method=, headers={}, body=, timeout=} -> {status=, body=} | (nil, err)
 // Requires permission "net:<host>" for the URL's host. http/https only.
 func (p *plugin) bridgeHTTP(L *lua.LState) int {
 	spec := L.CheckTable(1)
@@ -201,7 +201,19 @@ func (p *plugin) bridgeHTTP(L *lua.LState) int {
 		body = bytes.NewReader([]byte(b.String()))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	// A plugin holds its lock across this call, so one on an event path has to be able to give up
+	// sooner than the default. timeout can only shorten it.
+	wait := httpTimeout
+	if v := spec.RawGetString("timeout"); v != lua.LNil {
+		d, err := time.ParseDuration(v.String())
+		if err != nil || d <= 0 {
+			return fail(L, "http: invalid timeout "+v.String())
+		}
+		if d < wait {
+			wait = d
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {

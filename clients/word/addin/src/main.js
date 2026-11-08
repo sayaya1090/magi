@@ -861,7 +861,7 @@ async function boot() {
                 btn.disabled = true;
                 saySlots(`${act.label} 실행 중...`);
                 try {
-                  const res = await api.slotAction(slot.plugin, act.id, slot.target || 'knowledge');
+                  const res = await api.slotAction(slot.plugin, act.id, slot.target || 'knowledge', slot.id);
                   saySlots(res?.doing || `${act.label} 완료`);
                   await drawSlots();
                 } catch (e) {

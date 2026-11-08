@@ -72,6 +72,13 @@ internal class Workspace(private val project: Project) {
      * `{}` 로 버리면 흔적이 없었다). [read] 가 던진 것도 그대로 던진다. 한 번만 재개한다 — 연결을 닫다가
      * 난 오류가 이미 끝난 호출을 다시 깨우지 않게.
      */
+    /** 슬롯 변경 알림을 구독한다. 소켓이나 공표된 세션이 없으면 구독할 곳이 없으므로 null 이다. */
+    fun slotWatch(changed: () -> Unit): java.io.Closeable? {
+        val sock = socket() ?: return null
+        val sid = Published.of(sock)?.session?.takeUnless { it.isBlank() } ?: return null
+        return dev.sayaya.magi.ide.usecase.SlotWatch({ DaemonClient.connect(sock) }, sid).follow(changed)
+    }
+
     suspend fun <T> askWithoutChat(read: (Companion) -> T): T = ask(DaemonClient.PATIENCE_ASK, read)
 
     /** [askWithoutChat] 의 폴링 판 — 짧은 시한([DaemonClient.PATIENCE_POLL]), [onDaemonPolling] 과 같은 이유. */

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -40,5 +41,29 @@ func TestRankCacheDoesNotServeAnotherModelsVectors(t *testing.T) {
 	}
 	if e.calls != 2 || got[0][0] != float32(len(e.model)) {
 		t.Fatalf("a new model got old vectors: calls=%d vec=%v", e.calls, got[0])
+	}
+}
+
+func TestRankCacheAtItsLimitKeepsWhatItCan(t *testing.T) {
+	rankVecMu.Lock()
+	saved := rankVecCache
+	rankVecCache = make(map[string][]float32, rankVecCap)
+	for i := 0; i < rankVecCap; i++ {
+		rankVecCache[fmt.Sprintf("old-%d", i)] = []float32{1}
+	}
+	rankVecMu.Unlock()
+	t.Cleanup(func() {
+		rankVecMu.Lock()
+		rankVecCache = saved
+		rankVecMu.Unlock()
+	})
+	storeRankVecs([]string{"new-a", "new-b"}, [][]float32{{2}, {3}})
+	rankVecMu.RLock()
+	defer rankVecMu.RUnlock()
+	if len(rankVecCache) != rankVecCap {
+		t.Fatalf("cache holds %d, want %d", len(rankVecCache), rankVecCap)
+	}
+	if rankVecCache["new-a"] == nil || rankVecCache["new-b"] == nil {
+		t.Fatal("the new vectors were not stored")
 	}
 }

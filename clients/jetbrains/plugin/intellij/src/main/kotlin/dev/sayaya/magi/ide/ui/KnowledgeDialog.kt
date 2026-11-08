@@ -36,6 +36,7 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
     private var items = emptyList<KnowledgeItem>()
     private var busy = false
     private var alive = true
+    private var watch: java.io.Closeable? = null
     private val requests = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
@@ -54,10 +55,9 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         }
         reload.addActionListener { request() }
         request()
-        // Observer loop: live sync slot counts while dialog is open
-        requests.launch {
-            while (alive) {
-                kotlinx.coroutines.delay(3000)
+        // 다이얼로그가 열린 동안 슬롯 변경 알림이 오면 슬롯 요약을 다시 읽는다.
+        watch = workspace.slotWatch {
+            requests.launch {
                 if (!busy && alive) {
                     val res = runCatching { workspace.askWithoutChat { it.knowledge() } }.getOrNull()
                     if (res?.ok == true && alive) {
@@ -99,13 +99,13 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         details.toolTipText = details.text
     }
     private fun change(action: String) { selected()?.let { request(it, action) } }
-    private fun request(item: KnowledgeItem? = null, action: String = "", plugin: String = "") {
+    private fun request(item: KnowledgeItem? = null, action: String = "", plugin: String = "", slot: String = "") {
         if (busy || !alive) return
         busy = true
         notice.text = MagiBundle.msg("knowledge.loading")
         updateSelection()
         requests.launch {
-            val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action, plugin) } }
+            val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action, plugin, slot) } }
             // Always reload after mutation, including stale revision or lost acknowledgement.
             val inventory = if (item != null) runCatching { workspace.askWithoutChat { it.knowledge() } } else result
             managementUiLater {
@@ -139,7 +139,7 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
                         val btn = JButton(act.label).apply {
                             toolTipText = act.description
                             isEnabled = !busy
-                            addActionListener { request(action = act.id, plugin = slot.plugin) }
+                            addActionListener { request(action = act.id, plugin = slot.plugin, slot = slot.id) }
                         }
                         slotButtons.add(btn)
                     }
@@ -180,5 +180,5 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
         }, BorderLayout.SOUTH)
     }
     override fun createActions() = arrayOf(cancelAction)
-    override fun dispose() { alive = false; requests.cancel(); super.dispose() }
+    override fun dispose() { alive = false; watch?.close(); requests.cancel(); super.dispose() }
 }

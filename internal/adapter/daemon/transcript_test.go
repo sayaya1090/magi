@@ -796,3 +796,27 @@ func TestOnlyExplicitInteractiveStreamsNotifyStartupIntroduction(t *testing.T) {
 		}
 	}
 }
+
+// A client watching for a notice reads none of the log, so it must not be sent the log.
+func TestLiveStreamStartsAtTheEndOfTheLog(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader, writer := io.Pipe()
+	e := &transcriptEngine{fakeEngine: &fakeEngine{}, log: []event.Event{{Seq: 1}, {Seq: 2}, {Seq: 3}}}
+	done := make(chan struct{})
+	go func() {
+		streamTranscript(ctx, e, Request{Method: "transcript", Session: "s1", Name: "live"}, wire{enc: json.NewEncoder(io.Discard), sc: bufio.NewScanner(reader)})
+		close(done)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for len(e.cursors()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	writer.Close()
+	reader.Close()
+	<-done
+	if got := e.cursors(); len(got) != 1 || got[0] != 3 {
+		t.Fatalf("live stream subscribed from %v, want the log's end [3]", got)
+	}
+}

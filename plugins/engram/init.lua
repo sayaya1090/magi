@@ -1626,17 +1626,27 @@ local function isolate_poison_pills(rkey, processed_sigs)
     end
     if changed then
       if #dead_items > 0 then
+        local dead_written = false
         for dl_attempt = 1, 3 do
           local prev_dead = magi.store_get(dead_key) or ""
           local dl_list = magi.json_decode(prev_dead == "" and "[]" or prev_dead)
           if type(dl_list) ~= "table" then dl_list = {} end
+          -- This loop reruns when the inbox write below loses a race, so an item may already be here.
+          local present = {}
+          for _, dit in ipairs(dl_list) do present[reflection_item_sig(dit)] = true end
           for _, dit in ipairs(dead_items) do
-            dl_list[#dl_list + 1] = dit
+            if not present[reflection_item_sig(dit)] then dl_list[#dl_list + 1] = dit end
           end
           while #dl_list > 200 do table.remove(dl_list, 1) end
           if magi.store_compare_exchange(dead_key, prev_dead, magi.json_encode(dl_list)) then
+            dead_written = true
             break
           end
+        end
+        -- Taking items out of the inbox with nowhere recorded to hold them would lose them.
+        if not dead_written then
+          magi.log("engram: dead-letter write lost its race; items stay in the inbox")
+          break
         end
       end
       if magi.store_compare_exchange(rkey, cur_raw, magi.json_encode(next_items)) then
@@ -1646,6 +1656,21 @@ local function isolate_poison_pills(rkey, processed_sigs)
       break
     end
   end
+end
+
+-- Takes out only what was restored: another companion may have isolated more since it was read.
+local function remove_dead_letters(dead_key, restored)
+  for _ = 1, 3 do
+    local raw = magi.store_get(dead_key) or ""
+    local list = magi.json_decode(raw == "" and "[]" or raw)
+    if type(list) ~= "table" then return end
+    local kept = {}
+    for _, it in ipairs(list) do
+      if not restored[reflection_item_sig(it)] then kept[#kept + 1] = it end
+    end
+    if magi.store_compare_exchange(dead_key, raw, magi.json_encode(kept)) then return end
+  end
+  magi.log("engram: could not clear restored dead-letter items; the next restore skips them")
 end
 
 local function run_reflection(trigger_reason, explicit, compaction_summary)
@@ -1669,14 +1694,22 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
         local cur_rraw = magi.store_get(rkey) or ""
         local cur_inbox = magi.json_decode(cur_rraw == "" and "[]" or cur_rraw)
         if type(cur_inbox) ~= "table" then cur_inbox = {} end
+        -- An earlier restore that stopped before clearing the dead-letter list must not double items.
+        local present, restored = {}, {}
+        for _, it in ipairs(cur_inbox) do present[reflection_item_sig(it)] = true end
         for _, dit in ipairs(dead_items) do
           if type(dit) == "table" then
-            dit._fail_count = 0
-            cur_inbox[#cur_inbox + 1] = dit
+            local sig = reflection_item_sig(dit)
+            restored[sig] = true
+            if not present[sig] then
+              present[sig] = true
+              dit._fail_count = 0
+              cur_inbox[#cur_inbox + 1] = dit
+            end
           end
         end
         if magi.store_compare_exchange(rkey, cur_rraw, magi.json_encode(cur_inbox)) then
-          magi.store_set(dead_key, "[]")
+          remove_dead_letters(dead_key, restored)
           magi.log("engram: 수동 reflection 실행으로 dead-letter " .. #dead_items .. "건을 inbox로 복원했습니다.")
           break
         end
@@ -2600,7 +2633,8 @@ end
 -- base 의 /models 에서 want 모델(태그 포함, 예: bge-m3:latest)을 찾아 그 id 를 돌려준다.
 -- Ollama 는 설치된 모델이 0개일 때 {"object":"list","data":null} 을 반환하므로 이를 빈 목록으로 처리한다.
 local function embed_probe(base, want)
-  local r, err = magi.http{ url = (base:gsub("/+$", "")) .. "/models" }
+  -- This runs on the user_message and turn_finished paths with the plugin lock held.
+  local r, err = magi.http{ url = (base:gsub("/+$", "")) .. "/models", timeout = "2s" }
   if not r then return nil, tostring(err) end
   if r.status ~= 200 then return nil, "HTTP " .. tostring(r.status) end
   local doc = magi.json_decode(r.body or "")

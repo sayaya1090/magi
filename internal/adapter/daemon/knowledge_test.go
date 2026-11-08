@@ -107,7 +107,7 @@ func (e *slotMockEngine) QuerySlots(ctx context.Context, target string) ([]port.
 	}, nil
 }
 
-func (e *slotMockEngine) TriggerSlotAction(ctx context.Context, plugin, action string) (string, error) {
+func (e *slotMockEngine) TriggerSlotAction(ctx context.Context, plugin, _, action string) (string, error) {
 	e.triggered = append(e.triggered, action)
 	return "slot: " + action + " done", nil
 }
@@ -134,7 +134,7 @@ func TestKnowledgeDoorSlotsAndTrigger(t *testing.T) {
 
 type slotFailEngine struct{ slotMockEngine }
 
-func (e *slotFailEngine) TriggerSlotAction(context.Context, string, string) (string, error) {
+func (e *slotFailEngine) TriggerSlotAction(context.Context, string, string, string) (string, error) {
 	return "", errors.New("dream exploded")
 }
 

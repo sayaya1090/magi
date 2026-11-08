@@ -532,11 +532,11 @@ func (b *Bridge) Slots(target string) ([]port.PluginSlot, error) {
 }
 
 // SlotAction triggers an action on a plugin slot and returns updated slots.
-func (b *Bridge) SlotAction(plugin, action string) (string, []port.PluginSlot, error) {
+func (b *Bridge) SlotAction(plugin, slot, action string) (string, []port.PluginSlot, error) {
 	var doing string
 	var slots []port.PluginSlot
 	err := b.call(func(cl *daemon.Client) error {
-		resp, err := cl.Knowledge(port.KnowledgeAction{Name: plugin, Action: action})
+		resp, err := cl.Knowledge(port.KnowledgeAction{Name: plugin, Slot: slot, Action: action})
 		if err != nil {
 			return err
 		}

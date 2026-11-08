@@ -354,6 +354,7 @@ public class KnowledgeElement {
         for (int i = 0; i < arr.length; i++) {
             JsPropertyMap<Object> slot = Js.asPropertyMap(arr.getAt(i));
             String plugin = String.valueOf(slot.get("plugin"));
+            String slotId = String.valueOf(slot.get("id"));
             String title = String.valueOf(slot.get("title"));
 
             HTMLElement box = cell("engram-box slot-box");
@@ -406,7 +407,7 @@ public class KnowledgeElement {
 
                     HTMLElement btn = button(cls, actLabel, null);
                     btn.textContent = actLabel;
-                    btn.addEventListener("click", evt -> store.triggerSlotAction(plugin, actId));
+                    btn.addEventListener("click", evt -> store.triggerSlotAction(plugin, slotId, actId));
                     actions.append(btn);
                 }
                 box.append(actions);

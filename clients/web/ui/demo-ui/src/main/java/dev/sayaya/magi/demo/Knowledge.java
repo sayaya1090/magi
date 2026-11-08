@@ -24,7 +24,6 @@ final class Knowledge {
         switch (path) {
             case "/skills": return Mock.json(Global.JSON.stringify(skills()));
             case "/slots":
-            case "/engram":
                 if (Mock.wrote(init)) return Mock.took(path, init);
                 return Mock.json("[{\"id\":\"engram\",\"plugin\":\"engram\",\"title\":\"🧠 Engram Memory Engine\",\"status\":{\"label\":\"최신\",\"badge\":0},\"items\":[{\"id\":\"facts\",\"label\":\"Facts\",\"value\":\"0 pending\"}],\"actions\":[{\"id\":\"reflect\",\"label\":\"Reflection\"},{\"id\":\"dream\",\"label\":\"Dream\"},{\"id\":\"flush_facts\",\"label\":\"Flush Facts\"}]}]");
             case "/wiki": return Mock.json(Global.JSON.stringify(wiki()));

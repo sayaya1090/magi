@@ -149,8 +149,8 @@ export class HelperApi {
   }
 
   /** 플러그인 슬롯 액션을 실행한다. */
-  slotAction(plugin, action, target = 'knowledge') {
-    return this.#send('/api/slots/action', { body: { plugin, action, target } });
+  slotAction(plugin, action, target = 'knowledge', slot = '') {
+    return this.#send('/api/slots/action', { body: { plugin, slot, action, target } });
   }
 
   /** 조작의 답을 올려 보낸다. 기다리는 사람이 없으면 헬퍼가 **410 으로 말한다**. */

@@ -231,6 +231,25 @@ var (
 	rankVecCache = make(map[string][]float32)
 )
 
+// rankVecCap bounds the process-wide cache of ranking vectors.
+const rankVecCap = 10000
+
+// storeRankVecs makes only the room it needs. Emptying the cache at the limit would send every
+// chunk back to the embedding server on the next search.
+func storeRankVecs(keys []string, vecs [][]float32) {
+	rankVecMu.Lock()
+	defer rankVecMu.Unlock()
+	for k := range rankVecCache {
+		if len(rankVecCache)+len(keys) <= rankVecCap {
+			break
+		}
+		delete(rankVecCache, k)
+	}
+	for i, k := range keys {
+		rankVecCache[k] = vecs[i]
+	}
+}
+
 // embedForRank returns one vector per chunk followed by the query's.
 // With a warmer embedder, it checks the vector cache without blocking; if any chunk
 // is missing, it warms the cache in the background and avoids stalling the caller.
@@ -293,16 +312,12 @@ func embedForRank(ctx context.Context, emb Same, chunks []string, query string) 
 		return nil, fmt.Errorf("asked for %d embeddings and got %d", len(missingTexts), len(vecs))
 	}
 
-	rankVecMu.Lock()
-	if len(rankVecCache) > 10000 {
-		rankVecCache = make(map[string][]float32)
-	}
+	keys := make([]string, len(vecs))
 	for j, v := range vecs {
-		origIdx := missingIdx[j]
-		results[origIdx] = v
-		rankVecCache[rankKey(missingTexts[j])] = v
+		results[missingIdx[j]] = v
+		keys[j] = rankKey(missingTexts[j])
 	}
-	rankVecMu.Unlock()
+	storeRankVecs(keys, vecs)
 
 	return results, nil
 }

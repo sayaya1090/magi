@@ -109,6 +109,23 @@ export class Companion implements vscode.Disposable {
     return this.capsSeen;
   }
 
+  /**
+   * Call `changed` whenever a plugin says its UI slots changed, until disposed.
+   *
+   * This takes a connection of its own: a stream owns its socket, and `ask` shares one. `live` skips
+   * the replay, since the notice is all this reads and it is never in the log.
+   */
+  async watchSlots(changed: () => void): Promise<vscode.Disposable> {
+    const sid = this.session || (await this.ask('sessions'))?.sessions?.[0]?.id;
+    if (!sid) return { dispose() {} };
+    let d: Daemon;
+    try { d = await Daemon.connect(this.socket); } catch { return { dispose() {} }; }
+    d.stream({ method: 'transcript', session: sid, name: 'live' }, (r) => {
+      if (r.event?.type === 'slot.changed') changed();
+    });
+    return { dispose: () => d.close() };
+  }
+
   /** Ask one question. Null when we could not ask at all — never a fabricated answer. */
   async ask(method: string, extra: Record<string, unknown> = {}): Promise<Response | null> {
     const d = await this.reach();

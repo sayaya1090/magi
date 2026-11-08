@@ -2,21 +2,17 @@ import * as vscode from 'vscode';
 import { Companion } from './workspace';
 import { KnowledgeItem } from '../core/protocol';
 
-export async function runSlotAction(companion: Companion, plugin: string, action: string, title?: string): Promise<void> {
+export async function runSlotAction(companion: Companion, plugin: string, action: string, title?: string, slot?: string): Promise<void> {
   const t = vscode.l10n.t;
   const result = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: title || t('Executing action…') },
-    () => companion.ask('knowledge', { args: { name: plugin, action } })
+    () => companion.ask('knowledge', { args: { name: plugin, action, ...(slot ? { slot } : {}) } })
   );
   if (!result?.ok) {
     await vscode.window.showWarningMessage(result?.error || t('Operation failed.'));
   } else {
     await vscode.window.showInformationMessage(result?.doing || t('Operation completed.'));
   }
-}
-
-export function runEngramAction(companion: Companion, action: string): Promise<void> {
-  return runSlotAction(companion, 'engram', action);
 }
 
 /** Native, project-scoped management. Every action carries the displayed revision. */
@@ -35,7 +31,7 @@ export async function manageKnowledge(companion: Companion): Promise<void> {
       description?: string;
       detail?: string;
       item?: KnowledgeItem;
-      slotAction?: { plugin: string; action: string; title: string };
+      slotAction?: { plugin: string; slot: string; action: string; title: string };
       kind?: vscode.QuickPickItemKind;
     }> = items.map(item => ({
       label: item.description || item.name,
@@ -69,20 +65,32 @@ export async function manageKnowledge(companion: Companion): Promise<void> {
           quickPickItems.push({
             label: `${icon} ${act.label}`,
             description: act.description,
-            slotAction: { plugin: slot.plugin, action: act.id, title: act.label },
+            slotAction: { plugin: slot.plugin, slot: slot.id, action: act.id, title: act.label },
           });
         }
       }
     }
 
-    const selected = await vscode.window.showQuickPick(quickPickItems, {
-      title: t('Project memory and skills'),
-      matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true
-    });
+    // A quick pick's rows cannot be replaced once it is open, so a slot change closes it and the
+    // loop opens it again with fresh values.
+    let stale = false;
+    const closing = new vscode.CancellationTokenSource();
+    const watching = await companion.watchSlots(() => { stale = true; closing.cancel(); });
+    let selected: (typeof quickPickItems)[number] | undefined;
+    try {
+      selected = await vscode.window.showQuickPick(quickPickItems, {
+        title: t('Project memory and skills'),
+        matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true
+      }, closing.token);
+    } finally {
+      watching.dispose();
+      closing.dispose();
+    }
+    if (!selected && stale) continue;
     if (!selected) return;
 
     if (selected.slotAction) {
-      await runSlotAction(companion, selected.slotAction.plugin, selected.slotAction.action, selected.slotAction.title);
+      await runSlotAction(companion, selected.slotAction.plugin, selected.slotAction.action, selected.slotAction.title, selected.slotAction.slot);
       continue;
     }
 

@@ -85,7 +85,6 @@ var mayWrite = map[string]auth.Capability{
 	// What it learns from.
 	"/skills":        auth.Curate,
 	"/slots":         auth.Curate,
-	"/engram":        auth.Curate,
 	"/retention":     auth.Curate,
 	"/wiki":          auth.Curate,
 	"/forget":        auth.Curate,
@@ -139,7 +138,7 @@ var mayRead = map[string]auth.Capability{
 var openToRead = map[string]bool{
 	"/fleet": true, "/events": true, "/transcript": true, "/history": true, "/search": true,
 	"/context": true, "/plan": true, "/handoffs": true, "/subagents": true, "/jobs": true,
-	"/council": true, "/loop": true, "/tools": true, "/console": true, "/engram": true, "/slots": true,
+	"/council": true, "/loop": true, "/tools": true, "/console": true, "/slots": true,
 	// The workspace, through the companion's own read-only tools. `read`, and not more: everything
 	// a transcript already shows a reader includes the files the agent read and wrote, so a
 	// capability that grants the transcript and refuses the tree would be drawing a line the

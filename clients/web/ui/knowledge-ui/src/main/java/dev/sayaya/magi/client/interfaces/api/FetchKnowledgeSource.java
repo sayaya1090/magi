@@ -90,9 +90,10 @@ public class FetchKnowledgeSource implements KnowledgeSource {
     }
 
     @Override
-    public void triggerSlotAction(String plugin, String action, Consumer<String> why) {
+    public void triggerSlotAction(String plugin, String slot, String action, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         if (plugin != null && !plugin.isEmpty()) body.set("plugin", plugin);
+        if (slot != null && !slot.isEmpty()) body.set("slot", slot);
         body.set("action", action);
         Console.post("/slots", body, null, null, (ok, w) -> why.accept(Console.why(ok, w)));
     }

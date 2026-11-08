@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // loadOut loads a plugin and returns whatever it logged via magi.log, so a
@@ -121,5 +122,34 @@ magi.log("denied=" .. tostring(r == nil) .. " err=" .. tostring(e))`,
 	}
 	if !strings.Contains(out, "denied=true") || !strings.Contains(out, "permission denied: exec:open-url") {
 		t.Errorf("open_url should be denied without grant, got: %q", out)
+	}
+}
+
+// A plugin holds its lock across magi.http, so a caller on an event path has to be able to give up early.
+func TestBridgeHTTPTimeoutShortensTheWait(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(10 * time.Second):
+		}
+	}))
+	defer srv.Close()
+	host := strings.SplitN(strings.TrimPrefix(srv.URL, "http://"), ":", 2)[0]
+	start := time.Now()
+	out, err := loadOut(t,
+		`name="x"`+"\n"+`permissions=["net:`+host+`"]`,
+		`local r, e = magi.http{ url = "`+srv.URL+`", timeout = "200ms" }
+magi.log("gaveup=" .. tostring(r == nil) .. " err=" .. tostring(e))
+local r2, e2 = magi.http{ url = "`+srv.URL+`", timeout = "soon" }
+magi.log("bad=" .. tostring(r2 == nil) .. " err=" .. tostring(e2))`,
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("the call waited %v", took)
+	}
+	if !strings.Contains(out, "gaveup=true") || !strings.Contains(out, "bad=true") || !strings.Contains(out, "invalid timeout soon") {
+		t.Errorf("unexpected log: %q", out)
 	}
 }

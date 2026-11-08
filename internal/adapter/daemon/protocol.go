@@ -662,7 +662,8 @@ type Request struct {
 	// Name and N carry the control methods' one argument each: a model id, a permission policy, a
 	// number of turns to rewind, the label above a handed-over request, the receipt for one.
 	// Named generically because the alternative is a field per method and a wire format that grows
-	// a column every time the engine gains a knob.
+	// a column every time the engine gains a knob. On `transcript` it selects the stream's shape:
+	// "interactive" is a person's chat, and "live" starts at the log's end and replays nothing.
 	Name string `json:"name,omitempty"`
 	// Paths is the files a git-msg draft is about, when the asker knows them: an IDE commit window
 	// picks files with checkboxes and stages them only as it commits, so "what is staged" is empty

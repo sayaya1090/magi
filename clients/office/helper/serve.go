@@ -1229,6 +1229,7 @@ func (a *API) slotAction(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Target string `json:"target"`
 		Plugin string `json:"plugin"`
+		Slot   string `json:"slot"`
 		Action string `json:"action"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -1244,7 +1245,7 @@ func (a *API) slotAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "컴패니언에 연결되어 있지 않습니다", http.StatusBadGateway)
 		return
 	}
-	doing, slots, err := b.SlotAction(in.Plugin, in.Action)
+	doing, slots, err := b.SlotAction(in.Plugin, in.Slot, in.Action)
 	if err != nil {
 		writeStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
