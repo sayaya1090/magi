@@ -262,6 +262,23 @@ func (c *Council) rebut(ctx context.Context, req port.DeliberationRequest, membe
 	rctx, cancel := context.WithTimeout(ctx, memberDeadline)
 	defer cancel()
 	out := make([]council.Verdict, len(members))
+
+	// When all members share a panel backend (e.g. local CLI shim), poll sequentially
+	// to avoid hammering child pipes or triggering premature session eviction.
+	// Indep is used for all peer digests so simultaneous rebuttal semantics are preserved.
+	if samePanelBackend(members) {
+		for i, m := range members {
+			prior := byName[m.Name]
+			peers := peerDigest(indep, m.Name)
+			rv := c.pollRebut(rctx, req, m, prior, peers)
+			if rctx.Err() != nil {
+				rv = prior
+			}
+			out[i] = rv
+		}
+		return out
+	}
+
 	var wg sync.WaitGroup
 	for i, m := range members {
 		wg.Add(1)

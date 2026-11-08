@@ -304,7 +304,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		}
 	}()
 	delib, err := a.councilFor(s.ID).Deliberate(ctx, port.DeliberationRequest{
-		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
+		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: truncateForCouncil(actions, councilDiffCap*3), Changes: changes,
 		EvidencePrefix: councilPrefix(evs),
 		Guidance:       guidance,
 		Declared:       complete,

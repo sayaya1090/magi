@@ -59,7 +59,7 @@ import (
 const (
 	pipeLineMax      = 1 << 20 // one line; a longer one is truncated rather than buffered forever
 	pipeQueueMax     = 64      // lines held before the drain applies backpressure to the child
-	pipeMaxPerPlugin = 4
+	pipeMaxPerPlugin = 8
 	pipeIdleDefault  = 10 * time.Minute
 	pipeReadDefault  = 60 * time.Second
 	pipeStderrMax    = 64 << 10        // kept only to put a reason in the error when a child dies
