@@ -73,7 +73,7 @@ type sessionState struct {
 	// "not computed yet".
 	lookLang    string
 	lookLangSet bool
-	langDir     string // sticky primacy language directive so short ASCII replies ("ok", "1", commands) never flip position 0 of the system prompt
+	langDir     string         // sticky primacy language directive so short ASCII replies ("ok", "1", commands) never flip position 0 of the system prompt
 	todos       []session.Todo // per-session plan
 	// skillBase is the skill list this session's SYSTEM PROMPT names, frozen the first time that
 	// prompt was built. skillSeen is every skill the session has been told about, including the

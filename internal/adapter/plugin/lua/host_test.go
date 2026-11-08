@@ -314,4 +314,3 @@ func TestHostIdleEvent(t *testing.T) {
 		t.Fatalf("expected count=2 after second quiet period, got: %s", got)
 	}
 }
-

@@ -671,6 +671,3 @@ func TestEngramManagedConflictFastPathIdenticalContent(t *testing.T) {
 		t.Fatalf("expected 2 merged evidence records, got: %+v", items[0].Memory.Evidence)
 	}
 }
-
-
-

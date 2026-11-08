@@ -761,4 +761,3 @@ func TestEngramSelfHealingObservationTruncationAndSetDifferenceDrain(t *testing.
 		t.Fatalf("expected preserved item to be item C, got %+v", finalInbox[0])
 	}
 }
-
