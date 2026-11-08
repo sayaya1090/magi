@@ -211,3 +211,32 @@ func TestAutoPrefillOnlyCallsRecognizedNativeServer(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoPrefillShimEndpoint(t *testing.T) {
+	var probes, prefills atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/props":
+			probes.Add(1)
+			fmt.Fprint(w, `{"total_slots":4,"chat_template":"claudecode","default_generation_settings":{},"prefill_endpoint":"/v1/prefill"}`)
+		case "/v1/prefill":
+			prefills.Add(1)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected endpoint: %s", r.URL.Path)
+			w.WriteHeader(500)
+		}
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL+"/v1", "", WithAutoPrefixPrefill(false))
+	if err := c.PrefillPrefix(context.Background(), prefixRequest()); err != nil {
+		t.Fatalf("shim prefill failed: %v", err)
+	}
+	if probes.Load() != 1 {
+		t.Errorf("expected 1 probe, got %d", probes.Load())
+	}
+	if prefills.Load() != 1 {
+		t.Errorf("expected 1 prefill, got %d", prefills.Load())
+	}
+}

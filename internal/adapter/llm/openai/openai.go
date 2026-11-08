@@ -39,6 +39,7 @@ type Client struct {
 	prefixAuto         bool
 	prefixDetectedBase string
 	prefixDetected     bool
+	prefixShimEndpoint string
 	foreground         int
 	llamaPrefill       bool        // explicitly enabled native zero-generation API
 	cache              bool        // attach cache_control breakpoints (Anthropic via LiteLLM)

@@ -123,4 +123,27 @@ func TestClaudeCodeShimSessionReuseContextCapAndSafetyClassifier(t *testing.T) {
 	if strings.Contains(f4, `"tool_calls"`) {
 		t.Fatalf("aborted partial TOOL_CALL before safety classifier should have been discarded:\n%s", f4)
 	}
+
+	// 7. /props advertises prefill capability for council real-time accumulation.
+	propsURL := fmt.Sprintf("http://127.0.0.1:%d/props", port)
+	presp, err := http.Get(propsURL)
+	if err != nil {
+		t.Fatalf("GET /props: %v", err)
+	}
+	pbody, _ := io.ReadAll(presp.Body)
+	presp.Body.Close()
+	if !strings.Contains(string(pbody), `"prefill_endpoint":"/v1/prefill"`) {
+		t.Fatalf("expected prefill_endpoint in /props, got:\n%s", string(pbody))
+	}
+
+	// 8. /v1/prefill pre-warms background council session.
+	prefillURL := fmt.Sprintf("http://127.0.0.1:%d/v1/prefill", port)
+	pResp, err := http.Post(prefillURL, "application/json", strings.NewReader(`{"model":"opus","messages":[{"role":"user","content":"# Chronological turn history\n## 1 Tool result\nfile created"}]}`))
+	if err != nil {
+		t.Fatalf("POST /v1/prefill: %v", err)
+	}
+	defer pResp.Body.Close()
+	if pResp.StatusCode != 200 {
+		t.Fatalf("POST /v1/prefill status: %d", pResp.StatusCode)
+	}
 }

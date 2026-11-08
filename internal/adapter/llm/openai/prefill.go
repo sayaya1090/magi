@@ -57,9 +57,15 @@ func (c *Client) PrefillPrefix(ctx context.Context, r port.ChatRequest) error {
 	if len(r.Messages) != 1 || len(r.Tools) != 0 {
 		return fmt.Errorf("prefill requires one evidence message and no tools")
 	}
-	// Render through the server's own chat template. Stop inside the evidence user
-	// message, before its end-of-turn/assistant suffix: judging extends this message.
+	c.prefixMu.Lock()
+	shimEndpoint := c.prefixShimEndpoint
+	c.prefixMu.Unlock()
+
 	br := buildRequest(r, false, false, c.reasoningEffort, 0, c.sampling, c.seesImages)
+	if shimEndpoint != "" {
+		return c.prefillPost(ctx, shimEndpoint, br, nil)
+	}
+
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -120,7 +126,10 @@ func (c *Client) prefillPost(ctx context.Context, path string, in, out any) erro
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("prefix prefill %s returned status %d", path, res.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(out)
+	if out != nil {
+		return json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(out)
+	}
+	return nil
 }
 
 func (c *Client) detectPrefixAPI(ctx context.Context) error {
@@ -149,14 +158,20 @@ func (c *Client) detectPrefixAPI(ctx context.Context) error {
 	}
 	defer res.Body.Close()
 	var props struct {
-		Slots    int            `json:"total_slots"`
-		Template string         `json:"chat_template"`
-		Settings map[string]any `json:"default_generation_settings"`
+		Slots           int            `json:"total_slots"`
+		Template        string         `json:"chat_template"`
+		Settings        map[string]any `json:"default_generation_settings"`
+		PrefillEndpoint string         `json:"prefill_endpoint"`
 	}
 	capable = res.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(&props) == nil && props.Slots > 0 && props.Template != "" && props.Settings != nil
 	c.prefixMu.Lock()
 	c.prefixDetectedBase = base
 	c.prefixDetected = capable
+	if capable {
+		c.prefixShimEndpoint = props.PrefillEndpoint
+	} else {
+		c.prefixShimEndpoint = ""
+	}
 	c.prefixMu.Unlock()
 	if !capable {
 		return port.ErrCapabilityAbsent
