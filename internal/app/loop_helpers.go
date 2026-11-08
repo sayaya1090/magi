@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -278,7 +279,7 @@ func experiencePointer(nMem, nSkill int) string {
 func experienceExcerpts(mems []port.Memory) string {
 	var b strings.Builder
 	for _, m := range mems {
-		e := strings.Join(strings.Fields(m.Excerpt), " ")
+		e := excerptStatement(strings.Join(strings.Fields(m.Excerpt), " "))
 		if e == "" {
 			continue
 		}
@@ -514,3 +515,41 @@ func orDefault(s, def string) string {
 	}
 	return s
 }
+
+// excerptStatement keeps the sentences of a recall excerpt that read as statements of fact.
+//
+// An excerpt is reference material about a stored note, injected into every step of a turn, and the
+// agent's own task must stand: a sentence that speaks TO the agent (second person) or orders it (an
+// imperative opening, a Korean request or command ending) is dropped, the way oh-my-openagent's
+// recall gate rejects such hints. An excerpt that looks like it carries a secret is dropped whole;
+// recall_memory still returns the full text on request. Returns "" when nothing is left.
+func excerptStatement(e string) string {
+	if e == "" || excerptSecret.MatchString(e) {
+		return ""
+	}
+	var sentences []string
+	start := 0
+	for _, m := range excerptSentenceEnd.FindAllStringIndex(e, -1) {
+		sentences = append(sentences, e[start:m[1]])
+		start = m[1]
+	}
+	sentences = append(sentences, e[start:])
+	var kept []string
+	for _, s := range sentences {
+		s = strings.TrimSpace(s)
+		if s == "" || excerptSecondPerson.MatchString(s) || excerptImperativeOpening.MatchString(s) || excerptKoreanCommand.MatchString(s) {
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return strings.Join(kept, " ")
+}
+
+var (
+	// A sentence ends at this punctuation and the space after it; the punctuation stays with it.
+	excerptSentenceEnd       = regexp.MustCompile(`[.!?。]\s+`)
+	excerptSecondPerson      = regexp.MustCompile(`(?i)\b(?:you|your|yours|yourself)\b|당신|너는|너의|네가`)
+	excerptImperativeOpening = regexp.MustCompile(`(?i)^[\s"'\x60(]*(?:do\s+not|don't|never|always|make\s+sure|ensure|verify|check|run|use|read|stop|avoid|remember|keep|prefer|skip|consider)\b`)
+	excerptKoreanCommand     = regexp.MustCompile(`(?:세요|십시오|십시요|하라|해라|할\s*것|말\s*것|하지\s*마(?:라|세요)?)\s*[.!]?\s*$`)
+	excerptSecret            = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bsk-[A-Za-z0-9_-]{20,}|\bxox[abpr]-[A-Za-z0-9-]{10,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|(?i)\b(?:password|passwd|secret|api[_-]?key|token)\s*[:=]\s*\S{6,}`)
+)

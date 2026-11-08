@@ -412,7 +412,7 @@ v1 peer에는 v2가 관리하는 객체를 내보내지 않습니다. tombstone�
 
 ## 11. 고도화 설계 (2026-11-07)
 
-oh-my-openagent 메모리 구현(HEAD `38bf4f81c8`)을 코드와 지시문으로 읽고 현재 구현과 대조해 정한 다음 단계입니다. 2026-11-07 현재 구현된 것은 §11.3의 청크 순위, 유사도 하한(`embed_min_similarity`), 최고 청크 발췌 주입, 백그라운드 색인과 질의 시간 예산, §11.2의 로컬 서버 연결(감지·연결만)이고 나머지는 설계입니다. 상대 기능은 실행하지 않았으므로 상대 설계의 효과는 확인되지 않았습니다. 유사도 하한과 `/v1/embeddings` 호환은 §11.6에서 쟀습니다. 하한은 계획한 0.65가 아니라 0.5로 정했고(잠정), 150ms·4턴·25턴은 아직 가정입니다.
+oh-my-openagent 메모리 구현(HEAD `38bf4f81c8`)을 코드와 지시문으로 읽고 현재 구현과 대조해 정한 다음 단계입니다. 2026-11-07 현재 구현된 것은 §11.3의 청크 순위, 유사도 하한(`embed_min_similarity`), 최고 청크 발췌 주입, 백그라운드 색인과 질의 시간 예산, §11.2의 로컬 서버 연결(감지·연결만), §11.3의 발췌 문체 필터이고 나머지는 설계입니다. 상대 기능은 실행하지 않았으므로 상대 설계의 효과는 확인되지 않았습니다. 유사도 하한과 `/v1/embeddings` 호환은 §11.6에서 쟀습니다. 하한은 계획한 0.65가 아니라 0.5로 정했고(잠정), 150ms·4턴·25턴은 아직 가정입니다.
 
 범위에서 뺀 것: 회상된 기억의 유용성 판정(상대의 telemetry model judge), people 카드, soul 파일, 저장 독려(nudge).
 
@@ -468,7 +468,7 @@ engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합
 
 벡터 캐시 키는 백엔드 + 모델 + revision입니다. 같은 bge-m3라도 TEI의 원본 가중치와 Ollama의 GGUF 변환본은 벡터가 다를 수 있기 때문입니다. 같은 이유로 유사도 임계값도 백엔드마다 따로 잽니다.
 
-**구현(2026-11-08)**: 컨테이너를 플러그인이 직접 띄우는 부분은 넣지 않았습니다. 서버는 사람이 띄우고(예: 로컬 Ollama에서 `ollama pull bge-m3`), engram은 `startup` 때 이미 떠 있는 루프백 서버를 확인해 연결만 합니다. `[plugins.engram] embed_url`(기본 `http://127.0.0.1:11434/v1`)의 `/models`에 `embed_model`(기본 `bge-m3`, 태그 포함)이 있으면 `magi.set_embed_endpoint`로 회상용 클라이언트에 연결합니다(`plugins/engram/init.lua`). 매니페스트에는 `net:127.0.0.1`, `net:localhost`, `config:read:embed_model`만 추가했으므로 루프백이 아닌 주소는 연결할 수 없습니다. `config.toml`에 `embed_model`을 직접 둔 사용자는 그 설정을 존중해 연결하지 않습니다. 상태와 실패 원인은 `/engram-embed status`로 보고, 서버를 띄운 뒤 `/engram-embed connect`로 다시 연결합니다. 호스트 쪽은 `embed.Client.SetEndpoint`로 실행 중 주소를 바꾸고, 유사도 하한은 회상할 때마다 현재 모델 기준으로 정합니다(`WithMinSimilarityFunc`). 그래서 플러그인이 나중에 bge-m3를 연결해도 하한 0.5가 적용됩니다.
+**구현(2026-11-08)**: 컨테이너를 플러그인이 직접 띄우는 부분은 넣지 않았습니다. 서버는 사람이 띄우고(예: 로컬 Ollama에서 `ollama pull bge-m3`), engram은 `startup` 때 이미 떠 있는 루프백 서버를 확인해 연결만 합니다. `[plugins.engram] embed_url`(기본 `http://127.0.0.1:11434/v1`)의 `/models`에 `embed_model`(기본 `bge-m3`, 태그 포함)이 있으면 `magi.set_embed_endpoint`로 회상용 클라이언트에 연결합니다(`plugins/engram/init.lua`). 매니페스트에는 `net:127.0.0.1`, `net:localhost`, `config:read:embed_model`만 추가했으므로 루프백이 아닌 주소는 연결할 수 없습니다. `config.toml`에 `embed_model`을 직접 둔 사용자는 그 설정을 존중해 연결하지 않습니다. 상태와 실패 원인은 `/engram-embed status`로 보고, 서버를 띄운 뒤 `/engram-embed connect`로 다시 연결합니다. 호스트 쪽은 `embed.Client.SetEndpoint`로 실행 중 주소를 바꾸고, 유사도 하한은 회상할 때마다 현재 모델 기준으로 정합니다(`WithMinSimilarityFunc`). 그래서 플러그인이 나중에 bge-m3를 연결해도 하한 0.5가 적용됩니다. 실제 서버(`ollama/ollama` 컨테이너, `bge-m3:latest`)로 확인하다가 `magi.http`가 `method`를 생략하면 메서드를 `"nil"`로 보내 405를 받는 호스트 버그를 찾아 고쳤습니다(`bridge_net.go`의 `bridgeHTTP`). 가짜 서버가 메서드를 검사하지 않아 이전 테스트는 통과했었고, 지금은 GET이 아니면 405를 돌려주게 했습니다.
 
 ### 11.3 청크 회상과 주입
 
@@ -479,8 +479,8 @@ engram 플러그인이 켜지면(`startup`) 로컬 임베딩 서버를 준비합
 - **청크**: 메모리 본문, 스킬 설명과 본문, 위키 본문을 1,200자 단위로 자릅니다. 문단 경계가 시작점에서 400자 넘게 떨어져 있으면 그 경계에서 자르고, 이웃 청크와 160자씩 겹칩니다(상대 `memory-core/src/recall/chunks.ts`의 값). 청크마다 `description`을 머리말로 붙입니다.
 - **색인**: 벡터는 저장 직후와 시작 직후에 백그라운드에서 만듭니다. 턴 안에서는 질의 임베딩만 하고 시간 예산(약 150ms)을 넘거나 색인이 덜 됐으면 어휘 순위만 씁니다.
 - **순위**: 문서 점수는 가장 잘 맞은 청크의 코사인입니다. 하한 미만은 버리고 `embed_min_similarity`로 조정합니다. bge-m3의 기본 하한은 0.5입니다(§11.6). 어휘 순위와 RRF(k=60)로 합치는 현재 원칙(`internal/core/embed/embed.go`의 `Fuse`)은 유지합니다. 파일 이름이나 오류 코드 같은 정확한 토큰이 비슷해 보이는 문서에 밀리지 않게 하기 위해서입니다.
-- **주입**: `description` + 가장 잘 맞은 청크 발췌(600자 이하) + 객체 ID를 넣습니다. 원문은 `recall_memory`로 읽습니다. 현재 구현은 객체 ID와 발췌입니다. 의미 순위에서 하한을 넘은 메모리만 `port.Memory.Excerpt`를 받고, 프롬프트의 개수 포인터 아래에 "Matching passages" 목록으로 들어갑니다(`internal/app/loop_helpers.go`의 `experienceExcerpts`). 이 필드는 저장하지 않으므로(`omitempty`) managed 레코드의 JSON과 operation digest는 바뀌지 않습니다. 어휘 순위만으로 뽑힌 메모리는 발췌가 없고 지금처럼 개수만 알립니다. `description` 필드와 문체 필터는 아직입니다. 턴당 메모리 5개·스킬 3개·3,000토큰 예산(§5)은 유지합니다.
-- **세션 원장**: 이미 넣은 `object_id@revision`은 같은 세션에서 다시 넣지 않습니다. 압축이 일어나면 원장을 비웁니다.
+- **주입**: `description` + 가장 잘 맞은 청크 발췌(600자 이하) + 객체 ID를 넣습니다. 원문은 `recall_memory`로 읽습니다. 현재 구현은 객체 ID와 발췌입니다. 의미 순위에서 하한을 넘은 메모리만 `port.Memory.Excerpt`를 받고, 프롬프트의 개수 포인터 아래에 "Matching passages" 목록으로 들어갑니다(`internal/app/loop_helpers.go`의 `experienceExcerpts`). 이 필드는 저장하지 않으므로(`omitempty`) managed 레코드의 JSON과 operation digest는 바뀌지 않습니다. 어휘 순위만으로 뽑힌 메모리는 발췌가 없고 지금처럼 개수만 알립니다. `description` 필드는 아직입니다. 문체 필터는 2026-11-08에 구현했습니다(`internal/app/loop_helpers.go`의 `excerptStatement`). 발췌를 문장 단위로 나눠 2인칭 문장, 영어 명령형으로 시작하는 문장, 한국어 요청·명령 어미(`세요`, `십시오`, `하라`, `할 것`, `말 것`, `하지 마`)로 끝나는 문장을 뺍니다. 개인키 헤더, `AKIA…`, `ghp_…`, `sk-…`, JWT, `password=…` 같은 시크릿 패턴이 있으면 발췌 전체를 넣지 않습니다. 남는 문장이 없으면 발췌를 생략하고 개수 포인터와 `recall_memory`만 남습니다. 턴당 메모리 5개·스킬 3개·3,000토큰 예산(§5)은 유지합니다.
+- **세션 원장(넣지 않음, 2026-11-08)**: 발췌는 `volatileContext`, 즉 단계마다 끝에 붙고 기록에 저장되지 않는 임시 메시지로 들어갑니다(`internal/app/prompt.go`). 상대는 회상 메시지를 대화 기록에 남기므로 중복 억제가 의미가 있지만, 여기서 다음 턴의 재주입을 막으면 모델은 그 발췌를 더 볼 수 없습니다. 같은 질의의 반복은 포인터 캐시(`expPtrQ`)가, 기록에 남는 새 기억 도착 알림의 중복은 `memSeen`이 이미 막습니다.
 - **원장 표 주입 제거**: engram은 지금 교훈 원장 표를 통째로 컨텍스트에 넣습니다. 현재 작업과 무관한 행과 명령조 문장("~하세요")이 함께 들어가므로 위 발췌 주입으로 바꿉니다.
 - **문체**: 회상 발췌는 사실 서술로만 넣습니다. 2인칭, 명령형 어미, 시크릿 패턴이 있는 발췌는 넣지 않습니다(상대 `recall/gate.ts`의 판단과 같습니다).
 - **상주 층 고정**: 상주 층은 세션 시작 때 정한 revision을 유지하고, 세션 중 바뀐 내용은 알림 한 줄로만 알립니다. 턴별 발췌는 지금처럼 `volatileContext`에 넣습니다(`internal/app/prompt.go`).

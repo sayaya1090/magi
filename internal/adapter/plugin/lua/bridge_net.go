@@ -189,8 +189,12 @@ func (p *plugin) bridgeHTTP(L *lua.LState) int {
 	}
 
 	method := "GET"
-	if m := spec.RawGetString("method").String(); m != "" {
-		method = m
+	// An absent key is LNil, whose String() is "nil" -- read as a method name it sent "nil" and a
+	// real server answered 405 to every magi.http call that left method out.
+	if v := spec.RawGetString("method"); v != lua.LNil {
+		if m := v.String(); m != "" {
+			method = m
+		}
 	}
 	var body io.Reader
 	if b := spec.RawGetString("body"); b != lua.LNil {

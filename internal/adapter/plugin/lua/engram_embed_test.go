@@ -15,6 +15,10 @@ import (
 func modelsServer(t *testing.T, ids ...string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
 			return
