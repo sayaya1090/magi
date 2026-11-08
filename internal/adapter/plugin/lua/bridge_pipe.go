@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -222,12 +223,18 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 		})
 	}
 	neutral, idle := false, pipeIdleDefault
+	var customEnv []string
 	if opts, ok := L.Get(3).(*lua.LTable); ok {
 		neutral = lua.LVAsBool(opts.RawGetString("neutral_dir"))
 		if raw, ok := opts.RawGetString("idle").(lua.LString); ok {
 			if d, err := time.ParseDuration(string(raw)); err == nil && d > 0 {
 				idle = d
 			}
+		}
+		if envTbl, ok := opts.RawGetString("env").(*lua.LTable); ok {
+			envTbl.ForEach(func(k, v lua.LValue) {
+				customEnv = append(customEnv, fmt.Sprintf("%s=%s", k.String(), v.String()))
+			})
 		}
 	}
 
@@ -251,6 +258,9 @@ func (p *plugin) bridgePipe(L *lua.LState) int {
 	// die when that call returned, which is the entire thing this is here to avoid. Its lifetime
 	// is close(), unload, or the idle timer — all of them explicit.
 	c := exec.Command(cmdName, args...)
+	if len(customEnv) > 0 {
+		c.Env = append(os.Environ(), customEnv...)
+	}
 	c.Dir = p.dir
 	if p.host != nil && p.host.runtime.Workdir != "" {
 		c.Dir = p.host.runtime.Workdir

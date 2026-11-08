@@ -168,6 +168,24 @@ magi.log("line=" .. tostring(line) .. " err=" .. tostring(e))`,
 	}
 }
 
+func TestPipeCustomEnvOption(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh")
+	}
+	out, err := loadOut(t,
+		`name="x"`+"\n"+`permissions=["exec:sh"]`,
+		`local ch = magi.pipe("sh", {"-c", "echo val=$MAGI_TEST_CUSTOM_ENV"}, { env = { MAGI_TEST_CUSTOM_ENV = "hello_1h" } })
+local line, e = ch:read({timeout="5s"})
+magi.log("line=" .. tostring(line))`,
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !strings.Contains(out, "line=val=hello_1h") {
+		t.Errorf("expected custom env in child process output, got: %q", out)
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

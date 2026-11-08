@@ -85,7 +85,8 @@ type wireMessage struct {
 
 // cacheControl marks a prompt-cache breakpoint (Anthropic, forwarded by LiteLLM).
 type cacheControl struct {
-	Type string `json:"type"` // "ephemeral"
+	Type string `json:"type"`          // "ephemeral"
+	TTL  string `json:"ttl,omitempty"` // "1h"
 }
 
 // textBlock is an OpenAI content part; cache_control caches the prefix up to here.
@@ -95,7 +96,7 @@ type textBlock struct {
 	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
-func ephemeral() *cacheControl { return &cacheControl{Type: "ephemeral"} }
+func ephemeral() *cacheControl { return &cacheControl{Type: "ephemeral", TTL: "1h"} }
 
 type wireTool struct {
 	Type         string        `json:"type"` // "function"
