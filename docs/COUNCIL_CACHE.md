@@ -47,6 +47,8 @@ These figures come from two days of Claude CLI session files and the magi daemon
 
 The closing call's hits are not reuse between rounds. It continues the panel call's exchange (`panel.go`), and in the four rounds after the 2026-11-09 05:22 restart its reads (38,340, 40,700, 58,112, 28,921) equal what that panel call had just written. Those four panel calls read 0.
 
+Engram facts calls had a low 1.8% cache read ratio because the skill digest took 73–92% of the input and long intervals (13 calls spaced 240+ minutes apart read 0 cache tokens) made caching ineffective. To reduce input bloat, facts calls now send a summary list (name, one-line description, usage tally) for all skills, while inlining full bodies only for top-k relevant skills (skills loaded this turn plus vocabulary overlap with the conversation window, default k=5). Updates to existing skills whose bodies were not provided are rejected to protect human edits.
+
 In measurements taken before the fix, preparation did not reach the judging call on this backend. Counted separately, 32 preparation calls wrote 418,891 tokens and read 494,139, and that read total was not split by session. Of the 31 CLI sessions that received a preparation, 2 went on to judge. The `claudecode` plugin is excluded from this repository (`.git/info/exclude`) and ignores `cache_control`. Two differences are visible in the session files:
 
 - A sampled preparation input starts with `[system]` and the judging input with `[user]`, so they share one leading character.

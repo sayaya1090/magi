@@ -84,8 +84,8 @@ local SIDECAR_PROMPT = [[당신은 개발 대화 로그를 분석하는 전용 �
   · description은 무엇을+언제를 한 문장에 담은 3인칭 트리거 문장으로, 키워드·에러명을 앞쪽에 배치한다.
   · trigger/description에 이번 작업 고유의 파일명·경로·프로젝트명을 넣지 마라 — 일반 조건으로 써라(예: "json_output.py 실행 시" ✗ → "python json.dumps 출력에서 한글이 \uXXXX로 이스케이프될 때" ✓). 단 에러 메시지 원문·라이브러리명·옵션명은 그대로 포함하라(트리거 매칭의 핵심).
   · technique에는 실제 실행돼 검증된 커맨드/코드 조각을 패러프레이즈 없이 그대로 담아라 — 요약하면 정확한 식별자(옵션명·플래그)가 유실된다.
-  · 병합 우선(진화): 입력 끝의 [기존 스킬] 본문이 그 스킬의 현재 최신 상태다(사람이 직접 고쳤을 수 있다). 같은 주제를 다시 다룬다면 그 name을 재사용하고, 기존 본문을 baseline으로 삼아 이번에 새로 확인된 것만 더하거나 다듬어라 — 기존 본문에 이미 담긴 내용(특히 사람이 추가·수정한 지침)을 삭제하거나 되돌리지 마라. 무관한 새 기법일 때만 새 name.
-  · 사용한 스킬 복제 금지(중요): [기존 스킬] 중 **[이번 턴 사용됨]**으로 표시된 것은 이번 작업에서 실제로 로드·적용된 스킬이다. 이번 성공이 그 스킬을 **써서** 난 것이라면, 그것과 사실상 같은 기법을 이름만 바꿔 새 스킬로 만들지 마라 — 그 스킬은 이미 있고 이번에 다시 먹혔음이 확인됐을 뿐이며, 복제는 유사 스킬 난립의 원인이다. 그 스킬에 이번에 새로 다듬을 게 있으면 그 name을 그대로 재사용하고, 딱히 없으면 skill=null. 진짜로 그 스킬과 무관한 별개 기법일 때만 새 스킬을 만들어라.
+  · 병합 우선(진화): [기존 스킬 본문]에 제시된 스킬 본문이 그 스킬의 현재 최신 상태다(사람이 직접 고쳤을 수 있다). 같은 주제를 다룬다면 그 name을 재사용하고, 기존 본문을 baseline으로 삼아 이번에 새로 확인된 것만 더하거나 다듬어라 — 기존 본문에 이미 담긴 내용(특히 사람이 추가·수정한 지침)을 삭제하거나 되돌리지 마라. [기존 스킬 목록]에만 있고 [기존 스킬 본문]에 본문이 제공되지 않은 기존 스킬은 사람의 편집 내용 유실을 막기 위해 갱신이 차단되므로 수정하지 마라. 무관한 새 기법일 때만 새 name.
+  · 사용한 스킬 복제 금지(중요): [기존 스킬 목록] 및 본문 중 **[이번 턴 사용됨]**으로 표시된 것은 이번 작업에서 실제로 로드·적용된 스킬이다. 이번 성공이 그 스킬을 **써서** 난 것이라면, 그것과 사실상 같은 기법을 이름만 바꿔 새 스킬로 만들지 마라 — 그 스킬은 이미 있고 이번에 다시 먹혔음이 확인됐을 뿐이며, 복제는 유사 스킬 난립의 원인이다. 그 스킬에 이번에 새로 다듬을 게 있으면 그 name을 그대로 재사용하고, 딱히 없으면 skill=null. 진짜로 그 스킬과 무관한 별개 기법일 때만 새 스킬을 만들어라.
 
 민감정보 제거(필수, 기록은 git으로 팀 공유됨): 절대경로→상대화, API키/토큰→종류만, IP/도메인/포트→역할, 이메일/실명→역할, 비밀번호/환경변수 값→변수명.]]
 
@@ -182,6 +182,51 @@ end
 -- (including a HUMAN edit) as the baseline to evolve from, not a stale one-line index.
 local SKILL_BODY_CAP = 2000
 
+-- 메타 포맷 및 시스템 구조 단어 (어휘 중복도 계산 시 제외)
+local STOPWORDS = {
+  ["user"] = true, ["assistant"] = true, ["session"] = true,
+  ["outcome"] = true, ["verified"] = true, ["unverified"] = true,
+  ["guard"] = true, ["error"] = true, ["ungated"] = true,
+  ["task"] = true, ["approach"] = true, ["lesson"] = true,
+  ["name"] = true, ["description"] = true, ["skill"] = true,
+  ["skills"] = true, ["true"] = true, ["false"] = true,
+}
+
+-- 결정론적 유사-중복 백스톱 및 관련 스킬 본문 선별용 토크나이저.
+-- (한글 음절 및 영문/숫자/특수문자 단어 분리, 구분선 기호열 제외)
+local function tokenize(s)
+  local set, n = {}, 0
+  for w in string.gmatch(string.lower(tostring(s or "")), "[%w가-힣_%-=]+") do
+    w = string.gsub(w, "^[%-_=]+", "")
+    w = string.gsub(w, "[%-_=]+$", "")
+    if #w >= 2 and string.find(w, "[%w가-힣]") and not set[w] then
+      set[w] = true
+      n = n + 1
+    end
+  end
+  return set, n
+end
+
+-- [plugins.engram] skill_body_k — facts 사이드카에 본문을 실어 보낼 관련 스킬 상위 k개 (기본 5개)
+local DEFAULT_SKILL_BODY_K = 5
+local function skill_body_k()
+  local v = tonumber(magi.store_get("skill_body_k") or "")
+  if v and v >= 0 then return math.floor(v) end
+  return DEFAULT_SKILL_BODY_K
+end
+
+-- 스킬 본문의 YAML frontmatter에서 description을 추출
+local function extract_skill_desc(body, fallback)
+  if not body or body == "" then return fallback or "" end
+  local pdesc = string.match(body, "[\r\n]description:%s*([^\r\n]*)")
+  if pdesc and pdesc ~= "" then
+    pdesc = string.gsub(pdesc, '^%s*["\']', '')
+    pdesc = string.gsub(pdesc, '["\']%s*$', '')
+    return pdesc
+  end
+  return fallback or ""
+end
+
 -- used_now is a set {slug=true} of skills LOADED THIS TURN (from turn_finished ev.skills), so
 -- the digest can mark them [이번 턴 사용됨]. That closes the duplicate-skill loop the user hit:
 -- a turn that SUCCEEDED BY USING skill X is confirmation X works, not grounds to extract an
@@ -207,7 +252,7 @@ local function skill_slugs()
   return out, seen
 end
 
-local function skills_digest(used_now)
+local function skills_digest(used_now, context_text)
   local idx = magi.store_get("skill_index") or ""
   -- 장부의 한 줄 설명을 슬러그로 색인해 둔다(본문을 못 읽을 때의 폴백).
   local desc_of = {}
@@ -222,35 +267,103 @@ local function skills_digest(used_now)
       if not on_disk[n] then slugs[#slugs + 1] = n end
     end
   end
-  if #slugs == 0 then return "" end
+  if #slugs == 0 then return "", {} end
   -- 사용 실적을 병합 판단 근거로 함께 노출(로드/성공/실패).
   local usage = {}
   for line in string.gmatch(magi.store_get("skill_usage") or "", "[^\n]+") do
     local n, l, o, b = string.match(line, "^([^\t]*)\t(%d+)\t(%d+)\t(%d+)$")
     if n then usage[n] = " (로드 " .. l .. "·성공 " .. o .. "·실패 " .. b .. ")" end
   end
-  local blocks = {}
+
+  local bodies = {}
+  local descs = {}
   for _, name in ipairs(slugs) do
-    do
-      local desc = desc_of[name] or ""
-      -- The CURRENT on-disk body is the baseline: a human edit to SKILL.md becomes the
-      -- starting point of the next extraction, so refinement builds on it rather than
-      -- reverting it. Fall back to the one-line index if the file is unreadable.
-      local body = magi.read_file(SKILLS_DIR .. "/" .. name .. "/SKILL.md")
-      local mark = ""
-      if used_now and used_now[name] then mark = " **[이번 턴 사용됨]**" end
-      local header = "### " .. name .. (usage[name] or "") .. mark
-      if body and body ~= "" then
-        if #body > SKILL_BODY_CAP then body = string.sub(body, 1, SKILL_BODY_CAP) .. "\n…(생략)" end
-        blocks[#blocks + 1] = header .. "\n" .. body
-      else
-        blocks[#blocks + 1] = header .. ": " .. desc
+    local body = magi.read_file(SKILLS_DIR .. "/" .. name .. "/SKILL.md") or ""
+    bodies[name] = body
+    descs[name] = extract_skill_desc(body, desc_of[name])
+  end
+
+  local include_body = {}
+  local bodies_sent = {}
+
+  -- 1) 이번 턴 사용된 스킬은 무조건 본문 포함
+  if used_now then
+    for name in pairs(used_now) do
+      if bodies[name] and bodies[name] ~= "" then
+        include_body[name] = true
+        bodies_sent[name] = true
+        bodies_sent[slugify(name)] = true
       end
     end
   end
-  if #blocks == 0 then return "" end
-  return "[기존 스킬] (아래 본문이 현재 최신 상태다 — 이를 baseline으로 개선/병합하되, 이미 담긴 내용을 되돌리지 마라)\n\n"
-    .. table.concat(blocks, "\n\n")
+
+  -- 2) 대화 창과 어휘가 겹치는 상위 k개 선정
+  local k = skill_body_k()
+  if k > 0 and context_text and context_text ~= "" then
+    local c_tokens, c_n = tokenize(context_text)
+    if c_n > 0 then
+      local candidates = {}
+      for _, name in ipairs(slugs) do
+        if not include_body[name] and bodies[name] ~= "" then
+          local b_tokens, b_n = tokenize(name .. " " .. (descs[name] or "") .. " " .. bodies[name])
+          if b_n > 0 then
+            local overlap = 0
+            for w in pairs(c_tokens) do
+              if not STOPWORDS[w] and b_tokens[w] then
+                overlap = overlap + 1
+              end
+            end
+            if overlap > 0 then
+              candidates[#candidates + 1] = { name = name, score = overlap }
+            end
+          end
+        end
+      end
+      table.sort(candidates, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        return a.name < b.name
+      end)
+      for i = 1, math.min(k, #candidates) do
+        local name = candidates[i].name
+        include_body[name] = true
+        bodies_sent[name] = true
+        bodies_sent[slugify(name)] = true
+      end
+    end
+  end
+
+  -- 3-1) [기존 스킬 목록] 요약
+  local list_lines = {}
+  for _, name in ipairs(slugs) do
+    local mark = ""
+    if used_now and used_now[name] then mark = " **[이번 턴 사용됨]**" end
+    local d = descs[name]
+    if not d or d == "" then d = desc_of[name] or "(설명 없음)" end
+    list_lines[#list_lines + 1] = "- **" .. name .. "**" .. (usage[name] or "") .. mark .. ": " .. d
+  end
+
+  -- 3-2) [기존 스킬 본문]
+  local body_blocks = {}
+  for _, name in ipairs(slugs) do
+    if include_body[name] and bodies[name] ~= "" then
+      local body = bodies[name]
+      if #body > SKILL_BODY_CAP then body = string.sub(body, 1, SKILL_BODY_CAP) .. "\n…(생략)" end
+      local mark = ""
+      if used_now and used_now[name] then mark = " **[이번 턴 사용됨]**" end
+      local header = "### " .. name .. (usage[name] or "") .. mark
+      body_blocks[#body_blocks + 1] = header .. "\n" .. body
+    end
+  end
+
+  local out = "[기존 스킬 목록] (중복 생성 방지용 요약 — 이미 존재하는 기법이면 새 스킬을 만들지 말고 아래 본문이 있는 스킬에 병합하라)\n"
+    .. table.concat(list_lines, "\n")
+
+  if #body_blocks > 0 then
+    out = out .. "\n\n[기존 스킬 본문] (선택된 스킬의 현재 최신 본문 — 이를 baseline으로 개선/병합하라. 본문이 없는 기존 스킬은 갱신할 수 없다)\n\n"
+      .. table.concat(body_blocks, "\n\n")
+  end
+
+  return out, bodies_sent
 end
 
 local function index_skill(slug, desc)
@@ -331,15 +444,6 @@ local function lessons_digest()
   return "[기존 교훈] (같은 주제의 정정·뒤집기면 replaces에 그 (n)을 넣어라)\n" .. table.concat(out, "\n")
 end
 
--- 결정론적 유사-중복 백스톱: LLM의 "동일하면 null" 규칙은 소프트해서 뚫린다(실측).
--- 새 교훈의 토큰 집합이 기존 어느 행의 교훈과 과반 이상 겹치면 중복으로 스킵한다.
-local function tokenize(s)
-  local set, n = {}, 0
-  for w in string.gmatch(string.lower(tostring(s or "")), "[%w가-힣_%-=]+") do
-    if #w >= 2 and not set[w] then set[w] = true n = n + 1 end
-  end
-  return set, n
-end
 
 local function lesson_is_duplicate(lesson_text)
   local a, na = tokenize(lesson_text)
@@ -1107,7 +1211,7 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome, overr
     used = {}
     for name in string.gmatch(used_csv, "[^,]+") do used[name] = true end
   end
-  local digest = skills_digest(used)
+  local digest, bodies_sent = skills_digest(used, input)
   if digest ~= "" then input = input .. "\n\n" .. digest end
   local model = magi.store_get("sidecar_model") -- [plugins.engram] sidecar_model 오버라이드
   local raw, err = magi.analyze{ system = SIDECAR_PROMPT, text = input, model = model, label = "facts" }
@@ -1147,6 +1251,15 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome, overr
   if skill and not authorSkills() then
     magi.log("engram: skill authoring is off for this companion ([plugins.engram] author_skills) — lesson only")
     skill = nil
+  end
+  if skill and skill.name and skill.technique then
+    local pslug = slugify(skill.name)
+    local prev_body = magi.read_file(SKILLS_DIR .. "/" .. pslug .. "/SKILL.md") or ""
+    -- 본문이 제공되지 않은 기존 스킬의 갱신 차단 (사람의 편집 내용 유실 방지)
+    if prev_body ~= "" and (not bodies_sent or not bodies_sent[pslug]) then
+      magi.log("engram: skill update rejected (body not provided to analyzer): " .. pslug)
+      skill = nil
+    end
   end
   if skill and skill.name and skill.technique then
     -- 되돌리기 스냅샷은 저장 **전**에 뜬다: 같은 name 재사용(머지·진화) 저장의 취소는
