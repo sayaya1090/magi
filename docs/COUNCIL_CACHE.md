@@ -52,4 +52,6 @@ Preparation does not reach the judging call on this backend. Counted separately,
 - A sampled preparation input starts with `[system]` and the judging input with `[user]`, so they share one leading character.
 - The history grows inside a single user message. The plugin matches sessions per message (`findSession`), so a longer prefix appears to start a new child. This part is inferred from the code and the one-message sessions, not traced at run time.
 
+The `claudecode` plugin addresses this by isolating leading system messages into `--system-prompt`, preserving the raw prefix in the prefilled child, and forwarding only the remainder (the review snapshot and judging instructions) on subsequent judging calls. Diverged prefixes close the stale child, incremental prefixes append, and judging children close immediately upon completion so historical verdicts never contaminate subsequent rounds.
+
 Setting `MAGI_COUNCIL_PREFILL` to any value other than `auto` or `llama.cpp`, such as `off`, turns preparation off. Whether that lowers total token use has not been measured.
