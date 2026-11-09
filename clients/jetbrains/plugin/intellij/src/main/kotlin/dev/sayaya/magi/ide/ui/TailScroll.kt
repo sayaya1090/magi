@@ -18,6 +18,9 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
     private var dragging = false
     private var gesture = 0
     private val bar get() = pane.verticalScrollBar
+
+    /** The view is heading for the end, so the rows to build are the ones there, not the ones it passes. */
+    val followingEnd get() = following && !dragging
     private fun nearEnd() = bar.value.toLong() + bar.visibleAmount >= bar.maximum.toLong() - 48
     private val changed = ChangeListener { contentChanged() }
     private val wheel = MouseWheelListener { e ->

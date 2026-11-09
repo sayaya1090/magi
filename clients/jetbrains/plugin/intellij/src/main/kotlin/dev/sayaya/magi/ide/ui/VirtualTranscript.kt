@@ -14,19 +14,36 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
 
     fun reset() { heights = IntArray(0); offsets = intArrayOf(0) }
 
-    fun range(count: Int, y: Int, extent: Int): IntRange {
+    private fun sized(count: Int) {
         if (count != heights.size) {
             heights = IntArray(count) { heights.getOrElse(it) { 100 } }
             rebuild()
         }
+    }
+
+    private fun at(position: Int): Int {
+        val found = offsets.binarySearch(position.coerceAtLeast(0))
+        return (if (found >= 0) found else -found - 2).coerceIn(0, heights.lastIndex)
+    }
+
+    fun range(count: Int, y: Int, extent: Int): IntRange {
+        sized(count)
         if (count == 0) return IntRange.EMPTY
         if (count <= 30) return 0 until count
         val margin = extent.coerceAtLeast(320)
-        fun at(position: Int): Int {
-            val found = offsets.binarySearch(position.coerceAtLeast(0))
-            return (if (found >= 0) found else -found - 2).coerceIn(0, count - 1)
-        }
         return at(y - margin)..at(y + extent.coerceAtLeast(320) + margin)
+    }
+
+    /** The rows the viewport itself shows at [y], without the margin [range] adds. */
+    fun visible(count: Int, y: Int, extent: Int): IntRange {
+        sized(count)
+        return if (count == 0) IntRange.EMPTY else at(y)..at(y + extent)
+    }
+
+    /** Where the viewport will stand once it reaches the end of [count] rows. */
+    fun endPosition(count: Int, extent: Int): Int {
+        sized(count)
+        return (offsets.last() - extent).coerceAtLeast(0)
     }
 
     fun start(index: Int) { first = index }

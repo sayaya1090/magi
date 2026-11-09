@@ -73,4 +73,91 @@ class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
         } catch (e: Throwable) { e.printStackTrace(); throw e }
         finally { frame.dispose() }
     }
+
+    fun testABrowserForwardsTheWheelBeforeItsPageAndSurvivesLeavingTheRange() {
+        check(java.lang.Boolean.getBoolean("magi.native.surface.test")) { "run with -PnativeMarkdownTest on an interactive desktop" }
+        val content = JPanel(null).apply { preferredSize = java.awt.Dimension(560, 6000) }
+        val pane = javax.swing.JScrollPane(content)
+        val tail = TailScroll(pane)
+        val frame = JFrame("Magi wheel and detach test")
+        frame.glassPane = com.intellij.openapi.wm.impl.IdeGlassPaneImpl(frame.rootPane, false)
+        frame.contentPane = JPanel(BorderLayout()).apply { add(pane, BorderLayout.CENTER) }
+        frame.setSize(600, 750)
+        fun pump(ms: Long, until: () -> Boolean = { false }) {
+            val end = System.currentTimeMillis() + ms
+            while (System.currentTimeMillis() < end && !until()) {
+                com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+                Thread.sleep(20)
+            }
+        }
+        try {
+            frame.isVisible = true
+            val bar = pane.verticalScrollBar
+            // Reading, not following: a following view pins itself to the end and hides what the wheel did.
+            fun readFromTheTop() {
+                TailScroll.forwardWheel(pane, -100000.0)
+                com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+                assertEquals(0, bar.value)
+            }
+            pump(300)
+            readFromTheTop()
+            // The browser is born here and the wheel follows before any event runs, so its page cannot have loaded.
+            val renderer = RichAnswer()
+            renderer.keepOnly(listOf("sample"))
+            val panel = renderer.panel(project, "| a |\n|---|\n| b |", "sample", testRootDisposable, surface = Color.WHITE)
+            assertNotNull("real Markdown provider failed", panel)
+            panel!!.setBounds(0, 0, 560, 600)
+            content.add(panel)
+            val live = renderer.javaClass.getDeclaredField("live").apply { isAccessible = true }.get(renderer) as Map<*, *>
+            val held = live.values.single()!!
+            val browser = held.javaClass.getDeclaredField("panel").apply { isAccessible = true }.get(held) as com.intellij.ui.jcef.JBCefBrowser
+            val target = browser.browserComponent!!
+            println("MAGI_NATIVE_WHEEL target=" + target.javaClass.name + " listeners=" + target.mouseWheelListeners.size)
+            fun wheel() {
+                target.dispatchEvent(java.awt.event.MouseWheelEvent(target, java.awt.event.MouseEvent.MOUSE_WHEEL,
+                    System.currentTimeMillis(), 0, 20, 20, 0, false, java.awt.event.MouseWheelEvent.WHEEL_UNIT_SCROLL, 3, 3))
+            }
+            wheel()
+            pump(100)
+            val early = bar.value
+            println("MAGI_NATIVE_WHEEL early=$early")
+            assertEquals("three notches before the page has loaded move the transcript 60px", 60, early)
+            val measured = renderer.javaClass.getDeclaredField("measured").apply { isAccessible = true }.get(renderer) as Map<*, *>
+            pump(15000) { "sample" in measured }
+            assertTrue("the page script never answered", "sample" in measured)
+            pump(500)
+            // The synthetic event reaches CEF too, so the page forwards it: exactly the page's delta may arrive.
+            val pageDelta = java.util.concurrent.atomic.AtomicReference("")
+            val deltaQuery = com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
+            com.intellij.openapi.util.Disposer.register(testRootDisposable, deltaQuery)
+            deltaQuery.addHandler { value -> pageDelta.set(value); null }
+            browser.cefBrowser.executeJavaScript("document.addEventListener('wheel',function(e){" +
+                deltaQuery.inject("String(e.deltaY)") + "},{capture:true});", browser.cefBrowser.url, 0)
+            pump(500)
+            readFromTheTop()
+            wheel()
+            pump(3000) { pageDelta.get().isNotEmpty() }
+            pump(300)
+            println("MAGI_NATIVE_WHEEL ready page=${pageDelta.get()} moved=${bar.value}")
+            assertTrue("the page never saw the wheel", pageDelta.get().isNotEmpty())
+            assertEquals("once the page forwards the wheel the listener must not forward it again",
+                kotlin.math.round(pageDelta.get().toDouble()).toInt(), bar.value)
+            // Leave the range: the row drops the holder while the browser stays alive.
+            content.remove(panel)
+            content.revalidate()
+            pump(1500)
+            content.add(panel)
+            content.revalidate()
+            pump(500)
+            val said = java.util.concurrent.atomic.AtomicReference("")
+            val query = com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
+            com.intellij.openapi.util.Disposer.register(testRootDisposable, query)
+            query.addHandler { value -> said.set(value); null }
+            browser.cefBrowser.executeJavaScript(query.inject("'alive:' + !!window.__magiMeasure"), browser.cefBrowser.url, 0)
+            pump(5000) { said.get().isNotEmpty() }
+            println("MAGI_NATIVE_REATTACH " + said.get())
+            assertEquals("a browser put back must keep its page", "alive:true", said.get())
+        } catch (e: Throwable) { e.printStackTrace(); throw e }
+        finally { tail.close(); frame.dispose() }
+    }
 }

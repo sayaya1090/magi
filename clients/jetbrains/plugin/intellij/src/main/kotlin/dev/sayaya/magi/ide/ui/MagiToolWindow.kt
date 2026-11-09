@@ -293,6 +293,17 @@ class MagiToolWindow : ToolWindowFactory {
         private data class PaintedRow(val row: Row, val open: Boolean, val rich: Boolean, val session: String?, val user: String?, val panel: JBPanel<JBPanel<*>>)
         private var paintedRows = emptyList<PaintedRow>()
         private fun richRenderKey(r: Row) = RowText.richKey(r) + ":" + (r.outputSeq?.toString() ?: r.text.hashCode().toString())
+        // A replay is drawn once, when it ends. Rows are folded from every event, so the log must be
+        // read from its start, but nothing is on screen for the rows it passes through. A daemon too
+        // old to say caughtUp gets the grace period instead, then draws frame by frame as it used to.
+        @Volatile private var replaying = false
+        private val replayGrace = javax.swing.Timer(1500) { finishReplay() }.apply { isRepeats = false }
+        private fun beginReplay() { replaying = true; replayGrace.restart() }
+        private fun finishReplay() {
+            replayGrace.stop()
+            if (replaying) { replaying = false; redrawLog() }
+        }
+        private val richRecent = RichRecency(RichAnswer.KEEP)
         private val column = VirtualTranscript { redrawLog() }.apply {
             // Keep traversal in transcript order without sorting the entire history by coordinates.
             // A provider lets Tab leave the transcript; a cycle root would trap it here.
@@ -517,6 +528,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 대고 변이를 돌리니 **지워도 아무도 안 울었다**: 아무 일도 안 하는 줄이었다.
                     // 같은 일을 두 자리에서 하면 한쪽만 고치는 날이 온다.
                     mood(Look.success, "●", MagiBundle.msg("chat.link.live"))
+                    finishReplay()
                 }
 
                 override fun frame(e: LogEvent) {
@@ -532,7 +544,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // **먼저 적고 나서 움직인다.** 여기서 곧장 돌아가면 셰이퍼가 이 사실을 못 보고,
                         // 못 따라가는 자리(고정 탭·나중에 다시 연 대화)에서는 전사가 아무 말 없이
                         // 끝난다 — 데몬이 죽은 것과 구별되지 않는 그 읽기다.
-                        if (shaper.feed(e)) redrawLog()
+                        if (shaper.feed(e) && !replaying) redrawLog()
                         // 고정 탭은 안 움직인다 — 이 탭의 존재 이유가 「그 대화를 계속 보기」다.
                         if (pinned != null) return
                         // 낡음 가드(리뷰 실측): 이 사실은 재생마다 온다. 공표된 현재가 지금 따르는
@@ -551,8 +563,8 @@ class MagiToolWindow : ToolWindowFactory {
                     // 스트리밍 델타(`part.delta`)는 새 행을 추가하지 않고 동일 행의 초안을 갱신합니다(설계 문서 §8 타자기 방식).
                     // 토큰마다 전체 뷰를 다시 그리는 부하를 방지하기 위해 초안 갱신은 120ms 디바운스(`redrawSoon`)로 배치 처리합니다.
                     if (e.type == "part.delta") {
-                        if (shaper.feed(e)) redrawSoon()
-                    } else if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
+                        if (shaper.feed(e) && !replaying) redrawSoon()
+                    } else if (!Transcript.echoesFact(e) && shaper.feed(e) && !replaying) redrawLog()
                     refreshDisk() // 컴패니언이 수정한 디스크 변경사항을 IDE VFS에 동기화(사유: Rows.drainDisk)
                     if (e.seq > lastSeq) lastSeq = e.seq // 영속 사실 이벤트만 커서로 추적(과도기 전이 이벤트는 seq == 0)
                     // 지적 사항(Problems)은 트랜스크립트 스트림에서 파생 추출합니다.
@@ -858,6 +870,7 @@ class MagiToolWindow : ToolWindowFactory {
             inputGate.dispose()
             scroll.viewport.removeChangeListener(viewportChanged)
             tailScroll.close()
+            replayGrace.stop()
             runCatching { following?.close() }
             following = null
             runCatching { handRegistration.close() }
@@ -955,6 +968,7 @@ class MagiToolWindow : ToolWindowFactory {
                 callNames.clear()
                 shaper.clear()
                 SwingUtilities.invokeLater { problems.text = "" }
+                beginReplay()
             }
             // 스트림보다 **먼저** 적는다 — 워커의 첫 프레임이 대입보다 빨리 오면 위의 세션
             // 가드가 제 프레임을 남의 것으로 버린다. 실패해도 남는 값은 다음 시도의 lastSeq
@@ -1107,7 +1121,9 @@ class MagiToolWindow : ToolWindowFactory {
                 // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
                 // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
                 val allRows = shaper.list()
-                val range = column.range(allRows.size, scroll.viewport.viewPosition.y, scroll.viewport.extentSize.height)
+                val extent = scroll.viewport.extentSize.height
+                val y = if (tailScroll.followingEnd) column.endPosition(allRows.size, extent) else scroll.viewport.viewPosition.y
+                val range = column.range(allRows.size, y, extent)
                 val rows0 = if (range.isEmpty()) emptyList() else allRows.subList(range.first, range.last + 1)
                 column.start(range.first.coerceAtLeast(0))
                 fun identity(r: Row): String = if (r.msgId.isNotBlank() || r.callId.isNotBlank())
@@ -1115,13 +1131,17 @@ class MagiToolWindow : ToolWindowFactory {
                 val previous = paintedRows.associateBy { identity(it.row) }
                 // Completed rich renderers belong to this view. Drafts do not reload CEF
                 // or evict any completed answer while tokens arrive.
-                if (pinned == null) richAnswers.keepOnly(
-                    rows0.filter { it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text) }
-                        .takeLast(RichAnswer.KEEP).map { richRenderKey(it) },
+                // A browser outlives the range: leaving it and coming back must not reload the page,
+                // lose the measured height, or open a gap where the wheel does nothing.
+                fun richIn(of: List<Row>) = of.filter { it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text) }
+                    .map { richRenderKey(it) }
+                val shown = column.visible(allRows.size, y, extent)
+                val richKeys = if (pinned != null) emptySet() else richRecent.see(
+                    richIn(rows0),
+                    if (shown.isEmpty()) emptyList() else richIn(allRows.subList(shown.first, shown.last + 1)),
                 )
+                if (pinned == null) richAnswers.keepOnly(richKeys.toList())
                 // Delayed row sizing changes geometry, not the user's follow intent.
-                val richKeys = rows0.filter { it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text) }
-                    .takeLast(RichAnswer.KEEP).map { richRenderKey(it) }.toSet()
                 // Rebuild selection bookkeeping while retaining unchanged row components.
                 copying.beginBuild()
                 val rows = rows0

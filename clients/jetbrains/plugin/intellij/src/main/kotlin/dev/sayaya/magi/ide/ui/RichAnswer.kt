@@ -15,9 +15,26 @@ import javax.swing.JComponent
  * JCEF 패널은 개별 렌더러 프로세스를 동반하므로 자원 소모를 최소화하기 위해 다음 규칙을 적용한다:
  * 1. 굵게, 기울임, 인라인 코드, 기본 목록 등 경량 렌더러가 올바르게 표시하는 요소만 있는 응답은 브라우저를 생성하지 않는다 ([needsRich]).
  * 2. 코드 펜스, 마크다운 테이블, 링크, 이미지, 인용 블록 등 복합 서식이 포함된 경우에만 IDE 엔진을 사용한다.
- * 3. 동시에 활성화되는 패널 수는 최근 [KEEP]개로 제한하며, 범위를 벗어난 이전 응답은 경량 렌더러로 복귀시키고 브라우저 리소스를 해제한다.
+ * 3. 동시에 활성화되는 패널 수는 [KEEP]개로 제한한다. 범위를 벗어나도 바로 버리지 않고 최근 본 순서로 유지하며([RichRecency]), 제한을 넘은 가장 오래된 패널만 해제한다.
  */
+internal class RichRecency(private val cap: Int) {
+    private val order = LinkedHashSet<String>()
+
+    /** Records what is in range, the screen last so it is dropped last, and answers who keeps a browser. */
+    fun see(inRange: List<String>, visible: List<String>): Set<String> {
+        (inRange + visible).forEach { order.remove(it); order.add(it) }
+        while (order.size > cap) order.remove(order.first())
+        return order.toSet()
+    }
+}
+
 internal class RichAnswer {
+    // Heights outlive browsers, so a rebuilt one starts where its row already stands.
+    private val measured = object : LinkedHashMap<String, Int>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?) = size > 256
+    }
+    fun remember(key: String, height: Int) { measured[key] = height }
+    fun initialHeight(key: String, md: String): Int = measured[key] ?: height(md)
 
     /**
      * 동시 유지할 최대 IDE 마크다운 렌더 패널 수 (프로세스 리소스 제약).
@@ -82,7 +99,7 @@ internal class RichAnswer {
             // 브라우저 로딩 전 HTML 주입 처리
             htmlPanel.setHtml(html, 0, vf)
             // 브라우저의 실제 렌더링 높이가 확정되기 전까지 사용할 초기 추정 높이 계산
-            val h = height(md)
+            val h = initialHeight(key, md)
             val holder = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>(
                 java.awt.BorderLayout(),
             ).apply {
@@ -94,7 +111,7 @@ internal class RichAnswer {
             }
             // 브라우저에 실제 렌더링 완료 높이(scrollHeight)를 비동기 질의하여 패널 높이를 조정한다.
             val sizing = StreamingHeight(streaming)
-            val measure = measurer(htmlPanel, holder, sizing, surface)
+            val measure = measurer(htmlPanel, holder, sizing, surface, key)
             measure()
             // 패널 폭(가로) 변경 시 텍스트 래핑 변화로 높이가 달라지므로 폭 변경 시에만 높이를 재측정한다.
             // 높이 변경으로 인한 리사이즈 이벤트는 재측정 루프(EDT 포화)를 유발하므로 제외한다 (샌드박스 실측 결함 대응).
@@ -130,7 +147,7 @@ internal class RichAnswer {
      *
      * 렌더링 초기 시점의 지연을 감안하여 다단계 타이머(350ms, 1400ms)와 로드 완료 이벤트([CefLoadHandlerAdapter.onLoadEnd])를 결합한다.
      */
-    private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>, sizing: StreamingHeight, surface: java.awt.Color): () -> Unit {
+    private fun measurer(panel: Any, holder: com.intellij.ui.components.JBPanel<*>, sizing: StreamingHeight, surface: java.awt.Color, key: String): () -> Unit {
         // JBCefJSQuery 생성 (리뷰 F7: setHtml 직후 쿼리를 등록하여 CEF 바이트코드 레벨의 조용한 무응답 방어)
         val browser = panel as? com.intellij.ui.jcef.JBCefBrowser ?: return {}
         browser.component.isOpaque = false
@@ -141,24 +158,38 @@ internal class RichAnswer {
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
         var transientLogged = false
+        val forward = { delta: Double ->
+            javax.swing.SwingUtilities.invokeLater {
+                val scroll = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, holder)
+                    as? javax.swing.JScrollPane
+                scroll?.let { TailScroll.forwardWheel(it, delta) }
+            }
+        }
+        // Until the page has run the script below nothing forwards the wheel, and a box filling the
+        // window leaves the pointer over this browser the whole time.
+        val pageForwardsWheel = java.util.concurrent.atomic.AtomicBoolean(false)
+        browser.browserComponent?.addMouseWheelListener { e ->
+            if (!pageForwardsWheel.get() && !e.isControlDown && !e.isShiftDown && e.preciseWheelRotation != 0.0) {
+                forward(e.preciseWheelRotation * 20)
+            }
+        }
         query.addHandler { said ->
             if (said.startsWith("surface:")) {
                 LOG.info("magi: markdown surface " + said.removePrefix("surface:"))
                 return@addHandler null
             }
+            if (said == "wheel-ready") {
+                pageForwardsWheel.set(true)
+                return@addHandler null
+            }
             if (said.startsWith("wheel:")) {
-                said.removePrefix("wheel:").toDoubleOrNull()?.takeIf { it.isFinite() }?.let { delta ->
-                    javax.swing.SwingUtilities.invokeLater {
-                        val scroll = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, holder)
-                            as? javax.swing.JScrollPane
-                        scroll?.let { TailScroll.forwardWheel(it, delta) }
-                    }
-                }
+                said.removePrefix("wheel:").toDoubleOrNull()?.takeIf { it.isFinite() }?.let { forward(it) }
             } else said.trim().toIntOrNull()?.takeIf { it > 0 }?.let { px ->
                 answered = true
                 val h = (px.toLong() + holder.insets.top + holder.insets.bottom).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 javax.swing.SwingUtilities.invokeLater {
                     val stable = sizing.accept(h, holder.width) ?: return@invokeLater
+                    remember(key, stable)
                     if (stable != h && !transientLogged) {
                         transientLogged = true
                         LOG.info("magi: streaming preview ignored transient height $h; keeping $stable at width ${holder.width}")
@@ -217,6 +248,7 @@ internal class RichAnswer {
                     const delta = e.deltaY * (e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? window.innerHeight : 1);
                     ${query.inject("'wheel:' + String(delta)")}
                 }, {passive:false,capture:true});
+                ${query.inject("'wheel-ready'")}
                 measure();
             })();
         """.trimIndent()
