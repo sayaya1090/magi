@@ -73,6 +73,11 @@ func councilSuiteWalkEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_SUITE
 // the panel prompt; MAGI_COUNCIL_GUIDANCE=1 reenables it.
 func councilGuidanceEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_GUIDANCE", false) }
 
+// councilDeduplicateEnabled gates omitting redundant chronological tool outputs and prior
+// council objections from the snapshot Actions block when they are already present in EvidencePrefix.
+// Default ON; MAGI_COUNCIL_DEDUP=0 restores the duplicate injection into Actions for A/B.
+func councilDeduplicateEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_DEDUP", true) }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the

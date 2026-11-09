@@ -141,10 +141,19 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		task = "The agent asks specifically: " + q + "\n\nThe task it is working on: " + task
 	}
 
+	prefix := councilPrefix(evs)
+	hasPrefixHistory := strings.Contains(prefix, "\n## ")
+
 	// The same evidence the finish gate assembled, in the same order. magi's own record first,
 	// because it is the part nobody wrote: which commands ran, how they really ended, and which
-	// of them it could not determine.
-	actions := turnToolEvidence(evs, councilActionsCap)
+	// of them it could not determine. When EvidencePrefix contains chronological turn history,
+	// tool outputs and prior council objections are already preserved in that cached prefix;
+	// duplicating them into actions bloats the un-cached prompt by 15-20 KB and doubles token
+	// consumption. Deduplication keeps actions focused on fresh world state.
+	actions := ""
+	if !hasPrefixHistory || !councilDeduplicateEnabled() {
+		actions = turnToolEvidence(evs, councilActionsCap)
+	}
 	guidance := ""
 	if councilGuidanceEnabled() {
 		guidance = guidanceRead(evs, councilGuidancePerCap, councilGuidanceCap)
@@ -161,23 +170,43 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// is not there, a file nothing in the record wrote, a server still running, a build that exited
 	// nonzero after the last tool call.
 	if snap := a.worldDiffFor(sid, s.Workdir, lastUserPromptTS(evs)); snap != "" {
-		actions = snap + "\n\n" + actions
+		if strings.TrimSpace(actions) == "" {
+			actions = snap
+		} else {
+			actions = snap + "\n\n" + actions
+		}
 	}
 	if pre := preexistingDirtBanner(a.preexistingDirtOf(sid)); pre != "" {
-		actions = pre + "\n\n" + actions
+		if strings.TrimSpace(actions) == "" {
+			actions = pre
+		} else {
+			actions = pre + "\n\n" + actions
+		}
 	}
 	a.mu.Lock()
 	base := a.stateLocked(sid).worldBase
 	a.mu.Unlock()
 	if made := createdInputsBanner(namedFilesCreatedThisTurn(task, s.Workdir, base)); made != "" {
-		actions = made + "\n\n" + actions
+		if strings.TrimSpace(actions) == "" {
+			actions = made
+		} else {
+			actions = made + "\n\n" + actions
+		}
 	}
 	if jobs := a.liveJobsNow(a.jobsStartedBy(ctx, sid)); jobs != "" {
-		actions = jobs + "\n\n" + actions
+		if strings.TrimSpace(actions) == "" {
+			actions = jobs
+		} else {
+			actions = jobs + "\n\n" + actions
+		}
 	}
 	if gone := missingFromWorld(s.Workdir, a.observe(ctx, sid).changed); len(gone) > 0 {
-		actions = "── RECORDED AS WRITTEN, NOT ON DISK NOW ──\n" + strings.Join(clipEach(gone, 8), ", ") +
-			"\n\n" + actions
+		note := "── RECORDED AS WRITTEN, NOT ON DISK NOW ──\n" + strings.Join(clipEach(gone, 8), ", ")
+		if strings.TrimSpace(actions) == "" {
+			actions = note
+		} else {
+			actions = note + "\n\n" + actions
+		}
 	}
 	// First of all: what this council already said and did not accept. It reached the members only
 	// through turnToolEvidence before, which keeps the most recent results and drops the rest — so
@@ -185,8 +214,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// round that finally accepted had no way to know it had ever been raised. These are facts magi
 	// recorded; handing them back costs nothing and is the difference between judging the work and
 	// judging the last few minutes of it.
-	if prior := priorCouncilObjections(evs, priorObjectionsCap, councilActionCap); prior != "" {
-		actions = prior + "\n\n" + actions
+	if prior := priorCouncilObjections(evs, priorObjectionsCap, councilActionCap); prior != "" && (!hasPrefixHistory || !councilDeduplicateEnabled()) {
+		if strings.TrimSpace(actions) == "" {
+			actions = prior
+		} else {
+			actions = prior + "\n\n" + actions
+		}
 	}
 	// Whether anyone can answer. This is a fact about the RUN — cfg.Interactive is true only when
 	// a human is attached and can respond — and the members were deciding without it.
@@ -201,9 +234,14 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// the members' call. Not gated on the question — an agent can just as well declare itself
 	// finished "pending the user's answer", and that claim needs the same fact behind it.
 	if !a.cfg.Interactive {
-		actions = "── NOBODY CAN ANSWER A QUESTION IN THIS RUN ──\n" +
+		warn := "── NOBODY CAN ANSWER A QUESTION IN THIS RUN ──\n" +
 			"No human is attached to this session. A question put to the user is never read and never " +
-			"answered, and anything left waiting on one is still waiting when the turn ends.\n\n" + actions
+			"answered, and anything left waiting on one is still waiting when the turn ends."
+		if strings.TrimSpace(actions) == "" {
+			actions = warn
+		} else {
+			actions = warn + "\n\n" + actions
+		}
 	}
 	plan := ""
 	if td := a.Todos(sid); len(td) > 0 {
@@ -309,7 +347,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}()
 	delib, err := a.councilFor(s.ID).Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: text.HeadTail(actions, councilDiffCap*3), Changes: changes,
-		EvidencePrefix: councilPrefix(evs),
+		EvidencePrefix: prefix,
 		Guidance:       guidance,
 		Declared:       complete,
 		NoChanges:      strings.TrimSpace(changes) == "",

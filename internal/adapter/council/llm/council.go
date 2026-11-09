@@ -912,7 +912,7 @@ func evidence(req port.DeliberationRequest) string {
 	// if they think to make it — see literals.go for the false done that showed they do not.
 	if literalsEnabled() {
 		section("Identifiers the task names that the work does not contain",
-			literalsSection(req.Task, req.Changes+"\n"+req.Actions))
+			literalsSection(req.Task, req.EvidencePrefix+"\n"+req.Changes+"\n"+req.Actions))
 	}
 	section("What the turn's tools produced (verified tool outputs — real evidence, independent of git: e.g. a write's byte count, a cat showing the file's contents)", req.Actions)
 	section("Changes the agent made this turn (per-file before→after, reconstructed from its own edit tools)", req.Changes)
