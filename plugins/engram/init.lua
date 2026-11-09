@@ -21,6 +21,9 @@ end
 
 local function authorSkills() return flag("author_skills", true) end
 
+-- [plugins.engram] include_skills — 기본 false. true 면 facts 사이드카에 스킬 다이제스트를 포함한다.
+local function includeSkillsInFacts() return flag("include_skills", false) end
+
 -- [plugins.engram] lessons — 기본 true. false 면 턴 끝의 사이드카 분석을 아예 안 돈다: 교훈도 스킬도 없다.
 -- 사이드카 분석은 플러그인 락을 쥔 채 두 분 안팎을 돌고, 그동안 다음 턴의 컨텍스트 제공자가 그 락을
 -- 기다린다 — 실물 2026-09-05(PPT): 턴이 끝난 뒤 큐의 지시가 되살아나기까지 2분이 빈 채였다.
@@ -253,6 +256,7 @@ local function skill_slugs()
 end
 
 local function skills_digest(used_now, context_text)
+  if not includeSkillsInFacts() then return "", {} end
   local idx = magi.store_get("skill_index") or ""
   -- 장부의 한 줄 설명을 슬러그로 색인해 둔다(본문을 못 읽을 때의 폴백).
   local desc_of = {}
@@ -1255,8 +1259,8 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome, overr
   if skill and skill.name and skill.technique then
     local pslug = slugify(skill.name)
     local prev_body = magi.read_file(SKILLS_DIR .. "/" .. pslug .. "/SKILL.md") or ""
-    -- 본문이 제공되지 않은 기존 스킬의 갱신 차단 (사람의 편집 내용 유실 방지)
-    if prev_body ~= "" and (not bodies_sent or not bodies_sent[pslug]) then
+    -- 스킬 다이제스트가 활성화된 경우, 본문이 제공되지 않은 기존 스킬의 갱신 차단 (사람의 편집 내용 유실 방지)
+    if includeSkillsInFacts() and prev_body ~= "" and (not bodies_sent or not bodies_sent[pslug]) then
       magi.log("engram: skill update rejected (body not provided to analyzer): " .. pslug)
       skill = nil
     end

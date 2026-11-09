@@ -11,11 +11,9 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 )
 
-// TestEngramSkillsDigestSeparatesListAndSelectedBodies verifies that:
-// 1. All skills are listed in [기존 스킬 목록] as one-line summaries.
-// 2. Only used skills and high-overlap skills have their full bodies included in [기존 스킬 본문].
-// 3. Unrelated skills have their bodies omitted from [기존 스킬 본문].
-func TestEngramSkillsDigestSeparatesListAndSelectedBodies(t *testing.T) {
+// TestEngramFactsOmitsSkillsByDefault verifies that by default, engram facts sidecar
+// does NOT inject skill digest (neither summary list nor bodies) into the prompt.
+func TestEngramFactsOmitsSkillsByDefault(t *testing.T) {
 	wd := t.TempDir()
 	log := &syncLog{}
 	fa := &fakeAnalyzer{
@@ -26,6 +24,67 @@ func TestEngramSkillsDigestSeparatesListAndSelectedBodies(t *testing.T) {
 		ContextReg: &fakeContextReg{},
 		Analyzer:   fa,
 		DataDir:    t.TempDir(),
+		Runtime:    RuntimeInfo{Workdir: wd},
+		Logf:       log.logf,
+	})
+	if _, err := h.Load(context.Background(), filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+
+	skillsDir := filepath.Join(wd, ".claude", "skills", "sample_skill")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "SKILL.md"), []byte("---\nname: sample_skill\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h.FireEventWith("user_message", map[string]string{
+		"session": "s0",
+		"text":    "run sample task",
+	})
+	h.FireEventWith("turn_finished", map[string]string{
+		"session": "s0",
+		"text":    "sample task complete",
+		"outcome": "verified",
+	})
+	h.DrainEvents(5 * time.Second)
+
+	fa.mu.Lock()
+	analyzedText := fa.text
+	fa.mu.Unlock()
+
+	if strings.Contains(analyzedText, "[기존 스킬 목록]") || strings.Contains(analyzedText, "[기존 스킬 본문]") {
+		t.Fatalf("skills must not be injected by default into facts prompt:\n%s", analyzedText)
+	}
+}
+
+// TestEngramSkillsDigestSeparatesListAndSelectedBodies verifies that when include_skills is enabled:
+// 1. All skills are listed in [기존 스킬 목록] as one-line summaries.
+// 2. Only used skills and high-overlap skills have their full bodies included in [기존 스킬 본문].
+// 3. Unrelated skills have their bodies omitted from [기존 스킬 본문].
+func TestEngramSkillsDigestSeparatesListAndSelectedBodies(t *testing.T) {
+	wd := t.TempDir()
+	dataDir := t.TempDir()
+	// Enable include_skills via plugin store
+	pdata := filepath.Join(dataDir, "plugin-data")
+	if err := os.MkdirAll(pdata, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pdata, "engram.json"), []byte(`{"include_skills":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	log := &syncLog{}
+	fa := &fakeAnalyzer{
+		reply: `{"lesson":null,"skill":null}`,
+	}
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   builtin.NewRegistry(),
+		ContextReg: &fakeContextReg{},
+		Analyzer:   fa,
+		DataDir:    dataDir,
 		Runtime:    RuntimeInfo{Workdir: wd},
 		Logf:       log.logf,
 	})
@@ -109,6 +168,15 @@ func TestEngramSkillsDigestSeparatesListAndSelectedBodies(t *testing.T) {
 // to protect human edits from being lost.
 func TestEngramSkillUpdateRejectedWithoutBody(t *testing.T) {
 	wd := t.TempDir()
+	dataDir := t.TempDir()
+	pdata := filepath.Join(dataDir, "plugin-data")
+	if err := os.MkdirAll(pdata, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pdata, "engram.json"), []byte(`{"include_skills":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	log := &syncLog{}
 	// Analyzer attempts to overwrite an existing skill 'legacy_skill'
 	fa := &fakeAnalyzer{
@@ -118,7 +186,7 @@ func TestEngramSkillUpdateRejectedWithoutBody(t *testing.T) {
 		ToolSink:   builtin.NewRegistry(),
 		ContextReg: &fakeContextReg{},
 		Analyzer:   fa,
-		DataDir:    t.TempDir(),
+		DataDir:    dataDir,
 		Runtime:    RuntimeInfo{Workdir: wd},
 		Logf:       log.logf,
 	})

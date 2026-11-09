@@ -145,7 +145,10 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// because it is the part nobody wrote: which commands ran, how they really ended, and which
 	// of them it could not determine.
 	actions := turnToolEvidence(evs, councilActionsCap)
-	guidance := guidanceRead(evs, councilGuidancePerCap, councilGuidanceCap)
+	guidance := ""
+	if councilGuidanceEnabled() {
+		guidance = guidanceRead(evs, councilGuidancePerCap, councilGuidanceCap)
+	}
 	if rec := a.stopRecord(ctx, sid); rec != "" {
 		if strings.TrimSpace(actions) == "" {
 			actions = rec

@@ -68,6 +68,11 @@ func councilKeepEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_KEEP", tru
 // still the knob the A/B runs on.
 func councilSuiteWalkEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_SUITE_WALK", true) }
 
+// councilGuidanceEnabled gates the injection of skills read during the session into the council
+// deliberation request (req.Guidance). Default OFF to prevent unrelated skills from bloating
+// the panel prompt; MAGI_COUNCIL_GUIDANCE=1 reenables it.
+func councilGuidanceEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_GUIDANCE", false) }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
