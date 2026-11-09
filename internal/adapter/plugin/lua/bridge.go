@@ -1280,7 +1280,7 @@ func (p *plugin) analyze(L *lua.LState, measured bool) int {
 		}
 		return ""
 	}
-	system, text, model := str("system"), str("text"), str("model")
+	system, text, model, label := str("system"), str("text"), str("model"), str("label")
 	if strings.TrimSpace(text) == "" {
 		return fail(L, "analyze: text is required")
 	}
@@ -1290,11 +1290,14 @@ func (p *plugin) analyze(L *lua.LState, measured bool) int {
 	var err error
 	metrics := port.RunMetrics{Calls: 1}
 	started := time.Now()
-	if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); measured && ok {
+	if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); ok {
 		out, metrics, err = analyzer.AnalyzeMeasured(ctx, system, text, model)
 	} else {
 		out, err = p.host.analyzer.Analyze(ctx, system, text, model)
 		metrics.ElapsedMS = time.Since(started).Milliseconds()
+	}
+	if p.host.onAnalyze != nil {
+		p.host.onAnalyze(AnalyzeUsage{Plugin: p.name, Label: label, Metrics: metrics, Err: err})
 	}
 	if measured {
 		result := L.NewTable()

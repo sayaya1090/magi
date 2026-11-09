@@ -1287,6 +1287,7 @@ func startPluginHost(p hostParams, sid *session.SessionID) *pluginlua.Host {
 		DataDir:       p.plat.ConfigDir(),
 		Prompter:      promptFunc(tui.RunPrompt),
 		Analyzer:      sidecarAnalyzer{llm: p.llm, defaultModel: p.modelID},
+		OnAnalyze:     logAnalyzeUsage,
 		Experience:    p.experience,
 		Notify:        func(sid, text string) { p.app.PluginNote(sid, text) },
 		Finish:        func(sid string) { p.app.PluginFinish(sid) },

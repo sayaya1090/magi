@@ -124,6 +124,7 @@ type Host struct {
 	finish             func(sessionID string)       // turn ender (magi.finish); nil = unavailable
 	slotChangeNotifier func(target, plugin string)  // optional: slot observer sink (magi.notify_slot_change)
 	logf               func(string)
+	onAnalyze          func(AnalyzeUsage)
 
 	mu        sync.Mutex
 	plugins   map[string]*plugin
@@ -181,8 +182,19 @@ type MeasuredAnalyzer interface {
 	AnalyzeMeasured(context.Context, string, string, string) (string, port.RunMetrics, error)
 }
 
+// AnalyzeUsage describes one finished magi.analyze call. Label is the plugin's own name for the
+// call ("reflection", "dream"), empty when it gave none. Metrics.TokensKnown is false when the
+// analyzer or the backend reported no usage, which is not the same as zero tokens.
+type AnalyzeUsage struct {
+	Plugin  string
+	Label   string
+	Metrics port.RunMetrics
+	Err     error
+}
+
 // HostConfig configures the plugin host.
 type HostConfig struct {
+	OnAnalyze  func(AnalyzeUsage) // optional: told about every magi.analyze call
 	ToolSink   ToolSink
 	MCPMgr     MCPManager              // optional: enables magi.register_mcp()
 	ContextReg ContextProviderRegistry // optional: enables magi.register_context_provider()
@@ -248,6 +260,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		finish:             cfg.Finish,
 		slotChangeNotifier: cfg.SlotChangeNotifier,
 		logf:               cfg.Logf,
+		onAnalyze:          cfg.OnAnalyze,
 		plugins:            map[string]*plugin{},
 	}
 }

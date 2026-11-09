@@ -982,7 +982,7 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 
 | function | capability | what it does |
 |---|---|---|
-| `magi.analyze{prompt=, system=}` | — | one model round trip with no tools, for a plugin that wants a judgement rather than an agent |
+| `magi.analyze{text=, system=, model=, label=}` | — | one model round trip with no tools, for a plugin that wants a judgement rather than an agent. `text` is required. `label` names the call in the daemon log's `magi: analyze usage` line |
 | `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | workdir-confined file access |
 | `magi.list_files(dir)` | `fs:read` | the names in one directory, no recursion; a directory carries a trailing `/`. Widens no grant — a name is less than the contents `read_file` already returns — and a directory outside the grant is **refused**, never answered with an empty list: "nothing there" and "not allowed to look" lead a caller to opposite actions |
 | `magi.notify(text)` | — | a desktop notification |

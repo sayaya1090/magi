@@ -449,7 +449,7 @@ local function reconcile_managed_conflict(request)
             "3. 모순 해결 기준(Conflict Resolution): 두 내용이 직접 충돌하면 구체적인 실행 결과나 검증 근거(Evidence)가 포함된 쪽을 채택하십시오.\n" ..
             "4. 두 기억의 사실과 유효한 관찰을 모두 포함하는 1~2문장의 단일 교훈으로 작성하십시오.\n" ..
             "5. 서론, 부가 설명, 마크다운 코드블록 없이 오직 합성된 텍스트 본문만 출력하십시오."
-          local res, aerr = magi.analyze{system = sys, text = prompt}
+          local res, aerr = magi.analyze{system = sys, text = prompt, label = "reconcile"}
           if res and type(res) == "string" and string.match(res, "%S") then
             local cleaned = string.gsub(res, "^```%w*\n?", "")
             cleaned = string.gsub(cleaned, "\n?```$", "")
@@ -1110,7 +1110,7 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome, overr
   local digest = skills_digest(used)
   if digest ~= "" then input = input .. "\n\n" .. digest end
   local model = magi.store_get("sidecar_model") -- [plugins.engram] sidecar_model 오버라이드
-  local raw, err = magi.analyze{ system = SIDECAR_PROMPT, text = input, model = model }
+  local raw, err = magi.analyze{ system = SIDECAR_PROMPT, text = input, model = model, label = "facts" }
   if not raw then
     magi.log("engram: 사이드카 실패(무시): " .. tostring(err))
     return
@@ -1788,7 +1788,7 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
   end
 
   local model = magi.store_get("sidecar_model")
-  local raw, err = magi.analyze{ system = REFLECT_PROMPT, text = prompt_text, model = model }
+  local raw, err = magi.analyze{ system = REFLECT_PROMPT, text = prompt_text, model = model, label = "reflection" }
   if not raw then
     fails = fails + 1
     magi.store_set(fail_key, tostring(fails))
@@ -2155,7 +2155,7 @@ local function run_dream(origin, reason)
     end
     local model = magi.store_get("sidecar_model")
     local sys_prompt = (origin == "pressure") and DREAM_PRESSURE_PROMPT or DREAM_PROMPT
-    local raw = magi.analyze{ system = sys_prompt, text = table.concat(cblocks, "\n\n"), model = model }
+    local raw = magi.analyze{ system = sys_prompt, text = table.concat(cblocks, "\n\n"), model = model, label = "dream" }
     local parsed = parse_cortex_json(raw)
     if type(parsed) == "table" and type(parsed.merges) == "table" then
       for _, mg in ipairs(parsed.merges) do
