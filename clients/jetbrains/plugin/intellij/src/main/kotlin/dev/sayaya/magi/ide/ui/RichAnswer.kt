@@ -170,7 +170,7 @@ internal class RichAnswer {
         val pageForwardsWheel = java.util.concurrent.atomic.AtomicBoolean(false)
         browser.browserComponent?.addMouseWheelListener { e ->
             if (!pageForwardsWheel.get() && !e.isControlDown && !e.isShiftDown && e.preciseWheelRotation != 0.0) {
-                forward(e.preciseWheelRotation * 20)
+                forward(TailScroll.wheelPixels(e))
             }
         }
         query.addHandler { said ->

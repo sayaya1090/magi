@@ -153,4 +153,13 @@ class TailScrollTest : BasePlatformTestCase() {
         } finally { com.intellij.openapi.util.Disposer.dispose(view) }
     }
 
+    fun testWheelOverAnAnswerStillLoadingMovesAsFarAsOnceItHasLoaded() {
+        // Measured on JCEF off-screen rendering: the page sees deltaY = 10 px x scrollAmount x rotation.
+        val source = JPanel()
+        fun wheel(amount: Int, precise: Double) = MouseWheelEvent(source, MouseEvent.MOUSE_WHEEL, 0L, 0, 0, 0, 0, 0, 0, false,
+            MouseWheelEvent.WHEEL_UNIT_SCROLL, amount, precise.toInt(), precise)
+        assertEquals(10.0, TailScroll.wheelPixels(wheel(1, 1.0)), 1e-9)
+        assertEquals(30.0, TailScroll.wheelPixels(wheel(3, 1.0)), 1e-9)
+        assertEquals(-1.5, TailScroll.wheelPixels(wheel(1, -0.15)), 1e-9)
+    }
 }

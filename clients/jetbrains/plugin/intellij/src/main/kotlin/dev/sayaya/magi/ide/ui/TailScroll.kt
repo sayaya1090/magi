@@ -102,6 +102,12 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
     companion object {
         private const val PROPERTY = "magi.transcript.tail-scroll"
 
+        /**
+         * How far the page itself will move for this wheel event once its script runs (JCEF hands the page
+         * 10 px a line), so a browser that has not loaded yet scrolls no faster than one that has.
+         */
+        fun wheelPixels(e: java.awt.event.MouseWheelEvent): Double = e.preciseWheelRotation * e.scrollAmount * 10
+
         /** CEF consumes native wheel events; its JS bridge must forward user intent as well as position. */
         fun forwardWheel(pane: JScrollPane, delta: Double) {
             if (!delta.isFinite() || delta == 0.0) return
