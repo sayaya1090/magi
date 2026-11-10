@@ -68,16 +68,7 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
         val anchor = (if (found >= 0) found else -found - 2).coerceIn(0, heights.lastIndex)
         val anchorOffset = beforeY - offsets[anchor]
         try {
-            components.forEachIndexed { local, component ->
-                val index = first + local
-                if (index !in heights.indices) return@forEachIndexed
-                component.setSize(width.coerceAtLeast(1), heights[index])
-                val h = component.preferredSize.height.coerceAtLeast(1)
-                if (heights[index] != h) {
-                    ScrollTrace.note("height", heights[index], h, "row=$index ${component.javaClass.simpleName}")
-                    heights[index] = h; updated = true
-                }
-            }
+            updated = measure(0)
             if (updated) {
                 rebuild()
                 if (viewport != null) {
@@ -96,9 +87,38 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
         if (updated) { revalidate(); changed() }
     }
 
-    override fun getPreferredSize(): Dimension = if (isPreferredSizeSet) super.getPreferredSize()
-        else Dimension(width.coerceAtLeast(1), if (heights.isEmpty())
-            components.maxOfOrNull { it.preferredSize.height } ?: 0 else offsets.last())
+    /** Measures attached rows from [from] on; true when any height changed. */
+    private fun measure(from: Int): Boolean {
+        var updated = false
+        components.forEachIndexed { local, component ->
+            val index = first + local
+            if (index !in heights.indices || index < from) return@forEachIndexed
+            component.setSize(width.coerceAtLeast(1), heights[index])
+            val h = component.preferredSize.height.coerceAtLeast(1)
+            if (heights[index] != h) {
+                ScrollTrace.note("height", heights[index], h, "row=$index ${component.javaClass.simpleName}")
+                heights[index] = h; updated = true
+            }
+        }
+        return updated
+    }
+
+    /**
+     * The viewport sizes itself from this before [doLayout] runs, and the followed end is pulled
+     * there at once. A row that has just landed still counts as the 100px guess at that point, so
+     * the end jumped past it and fell back once it was measured — on every tool row of a turn.
+     * Rows below the top row cannot move what the viewport shows, so they are measured first.
+     */
+    override fun getPreferredSize(): Dimension {
+        if (isPreferredSizeSet) return super.getPreferredSize()
+        if (heights.isEmpty()) return Dimension(width.coerceAtLeast(1), components.maxOfOrNull { it.preferredSize.height } ?: 0)
+        if (!measuring && width > 0) {
+            measuring = true
+            val changed = try { measure(at((parent as? javax.swing.JViewport)?.viewPosition?.y ?: 0) + 1) } finally { measuring = false }
+            if (changed) { rebuild(); changed() }
+        }
+        return Dimension(width.coerceAtLeast(1), offsets.last())
+    }
     override fun getPreferredScrollableViewportSize() = Dimension(480, 320)
     override fun getScrollableTracksViewportWidth() = true
     override fun getScrollableTracksViewportHeight() = false
