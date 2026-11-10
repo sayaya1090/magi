@@ -22,7 +22,14 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
     /** The view is heading for the end, so the rows to build are the ones there, not the ones it passes. */
     val followingEnd get() = following && !dragging
     private fun nearEnd() = bar.value.toLong() + bar.visibleAmount >= bar.maximum.toLong() - 48
-    private val changed = ChangeListener { contentChanged() }
+    private var traced = 0
+    private val changed = ChangeListener {
+        if (bar.value != traced) {
+            ScrollTrace.note("model", traced, bar.value, "max=${bar.maximum} ext=${bar.visibleAmount} following=$following")
+            traced = bar.value
+        }
+        contentChanged()
+    }
     private val wheel = MouseWheelListener { e ->
         if (!e.isShiftDown && e.preciseWheelRotation != 0.0) userNavigation(e.preciseWheelRotation > 0)
     }
@@ -74,7 +81,7 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
             queued = false
             if (!closed && following && !dragging) {
                 val end = (bar.maximum - bar.visibleAmount).coerceAtLeast(bar.minimum)
-                if (bar.value != end) bar.value = end
+                if (bar.value != end) { ScrollTrace.note("tail", bar.value, end); bar.value = end }
             }
         }
     }
@@ -101,6 +108,7 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
             (pane.getClientProperty(PROPERTY) as? TailScroll)?.userNavigation(delta > 0)
             val bar = pane.verticalScrollBar
             val next = bar.value.toLong() + kotlin.math.round(delta).toLong()
+            ScrollTrace.note("cef-wheel", bar.value, next.toInt())
             bar.value = next.coerceIn(bar.minimum.toLong(),
                 (bar.maximum - bar.visibleAmount).coerceAtLeast(bar.minimum).toLong()).toInt()
         }

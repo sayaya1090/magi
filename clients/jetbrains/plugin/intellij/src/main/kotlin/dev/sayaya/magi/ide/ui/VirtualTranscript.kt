@@ -73,13 +73,19 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
                 if (index !in heights.indices) return@forEachIndexed
                 component.setSize(width.coerceAtLeast(1), heights[index])
                 val h = component.preferredSize.height.coerceAtLeast(1)
-                if (heights[index] != h) { heights[index] = h; updated = true }
+                if (heights[index] != h) {
+                    ScrollTrace.note("height", heights[index], h, "row=$index ${component.javaClass.simpleName}")
+                    heights[index] = h; updated = true
+                }
             }
             if (updated) {
                 rebuild()
                 if (viewport != null) {
                     val corrected = (offsets[anchor].toLong() + anchorOffset).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
-                    if (corrected != beforeY) viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, corrected)
+                    if (corrected != beforeY) {
+                        ScrollTrace.note("anchor", beforeY, corrected, "row=$anchor")
+                        viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, corrected)
+                    }
                 }
             }
             components.forEachIndexed { local, component ->

@@ -23,6 +23,31 @@ class StreamingHeightTest : BasePlatformTestCase() {
         assertEquals(3000, sizing.accept(80, 300))
         assertEquals(1500, sizing.accept(1500, 600))
     }
+    fun testSettledAnswerFlippingBetweenTwoHeightsDoesNotShakeTheFollowingView() {
+        // A finished CEF answer can reflow and report two heights in turn at one width;
+        // following them made the view jump up and down as fast as the reports came.
+        val sizing = StreamingHeight(false)
+        val actual = listOf(400, 420, 400, 420, 400).map { sizing.accept(it, 300) }
+        assertEquals(listOf(400, 420, 420, 420, 420), actual)
+        val body = JPanel().apply { preferredSize = Dimension(300, 4000) }
+        val pane = javax.swing.JScrollPane(body).apply { size = Dimension(400, 300) }
+        val tail = TailScroll(pane)
+        val flipping = StreamingHeight(false)
+        try {
+            var previous = 0
+            for (sample in listOf(3600, 3640, 3600, 3640, 3600, 3640)) {
+                body.preferredSize = Dimension(300, 400 + flipping.accept(sample, 300)!!)
+                pane.doLayout(); pane.viewport.doLayout()
+                com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+                assertTrue("scrollbar moved backwards for sample $sample", pane.verticalScrollBar.value >= previous)
+                previous = pane.verticalScrollBar.value
+            }
+        } finally { tail.close() }
+        // a single genuine shrink, and a new width, still apply
+        val once = StreamingHeight(false)
+        assertEquals(900, once.accept(900, 300)); assertEquals(700, once.accept(700, 300))
+        assertEquals(500, once.accept(500, 300)); assertEquals(640, once.accept(640, 600))
+    }
     fun testCaretRevealCannotMoveTranscriptWhenFocusIsInComposer() {
         var focused: Component? = JTextArea()
         val viewport = TranscriptViewport { focused }
