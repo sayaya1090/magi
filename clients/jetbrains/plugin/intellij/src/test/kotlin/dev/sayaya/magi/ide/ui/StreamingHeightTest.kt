@@ -48,6 +48,17 @@ class StreamingHeightTest : BasePlatformTestCase() {
         assertEquals(900, once.accept(900, 300)); assertEquals(700, once.accept(700, 300))
         assertEquals(500, once.accept(500, 300)); assertEquals(640, once.accept(640, 600))
     }
+    fun testSettledAnswerReturningToAnEarlierHeightLaterStillApplies() {
+        // Expanding then collapsing, or zooming in then out, returns to an earlier height
+        // well after the change; only a quick back-and-forth is held.
+        var now = 0L
+        val sizing = StreamingHeight(false) { now }
+        assertEquals(400, sizing.accept(400, 300))
+        now = 100; assertEquals(600, sizing.accept(600, 300))
+        now = 3100; assertEquals("a return seconds later is a real change", 400, sizing.accept(400, 300))
+        now = 3130; assertEquals(600, sizing.accept(600, 300))
+        now = 3160; assertEquals("a return within moments is a reflow flip", 600, sizing.accept(400, 300))
+    }
     fun testCaretRevealCannotMoveTranscriptWhenFocusIsInComposer() {
         var focused: Component? = JTextArea()
         val viewport = TranscriptViewport { focused }
