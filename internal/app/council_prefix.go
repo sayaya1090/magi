@@ -16,13 +16,42 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+// councilPrefixCap is the history cap when the main model's window is unknown.
 const councilPrefixCap = 64 * 1024
+
+// councilFixedReserve leaves room for what a council call carries besides the history
+// (guidance, actions, diff, snapshot). Measured 2026-11-11 over 225 council calls: median
+// 22,472 B, p90 61,107 B.
+const councilFixedReserve = 64 * 1024
+
+// councilPrefixFloor keeps some history even for a small window.
+const councilPrefixFloor = 16 * 1024
+
+// councilPrefixCapFor sizes the history to 80% of the main model's window minus the fixed
+// reserve. Tokens are converted at 2 bytes each: Korean history measured ~0.49 tokens/byte,
+// so the usual 4 bytes/token estimate would overrun the window by about half.
+func councilPrefixCapFor(window int) int {
+	if window <= 0 {
+		return councilPrefixCap
+	}
+	c := window*8/10*2 - councilFixedReserve
+	if c < councilPrefixFloor {
+		return councilPrefixFloor
+	}
+	return c
+}
+
+// councilHistoryCap is the cap for session sid. Prefill and the council call must use the
+// same value, or the prefix they build differs and the cached prefill is thrown away.
+func (a *App) councilHistoryCap(ctx context.Context, sid session.SessionID) int {
+	return councilPrefixCapFor(a.contextWindow(a.sessionInfo(ctx, sid).Model.Model))
+}
 
 // councilPrefix is chronological, not a rolling summary rewritten each round.
 // Reports and previous verdicts keep their identities; neither is tool evidence.
 // Overflow starts a new cache prefix. Current-state evidence is always supplied
 // separately by councilAdvice, so this history never replaces fresh observations.
-func councilPrefix(evs []event.Event) string {
+func councilPrefix(evs []event.Event, limit int) string {
 	start := 0
 	for i, e := range evs {
 		if e.Type == event.TypeTurnFinished {
@@ -85,10 +114,15 @@ func councilPrefix(evs []event.Event) string {
 		line := fmt.Sprintf("\n## %d %s\n%s\n", e.Seq, label, text.HeadTail(body, councilActionCap))
 		entries = append(entries, line)
 		size += len(line)
-		for size > councilPrefixCap && len(entries) > 1 {
-			dropped = true
-			size -= len(entries[0])
-			entries = entries[1:]
+		// Trim to half the cap at once, not one entry per append: the head then stays fixed
+		// for many appends, so a prefill or council call extends the prefix it already cached
+		// instead of rewriting all of it each time the oldest entry slides off.
+		if size > limit {
+			for size > limit/2 && len(entries) > 1 {
+				dropped = true
+				size -= len(entries[0])
+				entries = entries[1:]
+			}
 		}
 	}
 	if dropped {
@@ -141,7 +175,7 @@ func (a *App) startCouncilPreparation(ctx context.Context, s session.Session) *c
 			if err != nil {
 				continue
 			}
-			prefix := councilPrefix(a.taskEvents(s.ID, evs))
+			prefix := councilPrefix(a.taskEvents(s.ID, evs), a.councilHistoryCap(ctx, s.ID))
 			if prefix == last {
 				continue
 			}

@@ -141,7 +141,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		task = "The agent asks specifically: " + q + "\n\nThe task it is working on: " + task
 	}
 
-	prefix := councilPrefix(evs)
+	prefix := councilPrefix(evs, a.councilHistoryCap(ctx, sid))
 	hasPrefixHistory := strings.Contains(prefix, "\n## ")
 
 	// The same evidence the finish gate assembled, in the same order. magi's own record first,

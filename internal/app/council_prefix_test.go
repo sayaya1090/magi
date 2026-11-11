@@ -14,10 +14,10 @@ func prefixPart(seq int64, p session.Part) event.Event {
 }
 func TestCouncilPrefixPreservesHistoryAndJudgment(t *testing.T) {
 	a := []event.Event{prefixPart(1, session.Part{Kind: session.PartText, Text: "initial claim"})}
-	first := councilPrefix(a)
+	first := councilPrefix(a, councilPrefixCap)
 	a = append(a, event.Event{Seq: 2, Type: event.TypeCouncilDecided, Data: json.RawMessage(`{"decision":"continue","feedback":"fix the empty input"}`)})
 	a = append(a, prefixPart(3, session.Part{Kind: session.PartText, Text: "fixed empty input"}))
-	next := councilPrefix(a)
+	next := councilPrefix(a, councilPrefixCap)
 	if !strings.HasPrefix(next, first) {
 		t.Fatal("appended judgment and fixes rewrote the prefix")
 	}
@@ -28,7 +28,7 @@ func TestCouncilPrefixPreservesHistoryAndJudgment(t *testing.T) {
 		t.Fatal("judgment must precede the fix")
 	}
 	a = append(a, event.Event{Seq: 4, Type: event.TypeTurnFinished}, prefixPart(5, session.Part{Kind: session.PartText, Text: "new turn"}))
-	if strings.Contains(councilPrefix(a), "initial claim") {
+	if strings.Contains(councilPrefix(a, councilPrefixCap), "initial claim") {
 		t.Fatal("previous turn leaked")
 	}
 }
