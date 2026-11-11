@@ -119,6 +119,7 @@ data class Row(
 class Rows {
 
     private val rows = mutableListOf<Row>()
+    private companion object { const val FOLD_CALL = "compact" }
 
     /** 열린 턴의 프롬프트 id. null 이면 턴이 닫혀 있다. */
     private var openPrompt: String? = null
@@ -254,7 +255,7 @@ class Rows {
                 }
                 // 턴 완료 시 고아 초안(draft) 행 정리:
                 // 스핀 가드 중단, 프로바이더 에러, 실패한 인터젝션 등으로 인해 잔류할 수 있는 미확정 draft 행을 일괄 소거합니다.
-                sweptDraft = rows.removeAll { it.draft }
+                sweptDraft = rows.removeAll { it.draft || isFoldRow(it) }
                 // 경로를 특정할 수 없는 파일 변경이 발생한 경우 디스크 버퍼 갱신을 예약합니다 ([drainDisk]).
                 if (unknownDisk) { broadPending = true; unknownDisk = false }
                 finished() || sweptDraft
@@ -551,6 +552,15 @@ class Rows {
         return true
     }
 
+    /** 압축 진행 말풍선 — [foldNote] 가 세우고, 끝나면 [foldResult] 가 바꾸고, 결과 없이 턴이 끝나면 걷힌다. */
+    private fun isFoldRow(r: Row) = r.who == Who.System && r.callId == FOLD_CALL
+
+    /** 압축 결과를 진행 말풍선 자리에 세운다. 말풍선이 없으면(기록 재생 등) 끝에 붙인다. */
+    private fun foldResult(row: Row) {
+        val i = rows.indexOfFirst(::isFoldRow)
+        if (i >= 0) rows[i] = row else rows += row
+    }
+
     private fun compaction(e: LogEvent): Boolean {
         // 지우지 않는다. 컴팩션이 접는 것은 모델에게 보낼 창이지 사람의 기록이 아니다 — 사람
         // 뷰를 모델 뷰에서 읽으면 읽던 스크롤백이 제 요약으로 바뀐다(`reconstructWhole` 의 교훈).
@@ -558,7 +568,7 @@ class Rows {
         val summary = d["summary"]?.jsonPrimitive?.content.orEmpty().trim().lowercase()
         if ((summary.startsWith("prompt is too long") && summary.contains("single-exchange conversation cannot be compacted")) ||
             summary.startsWith("[claude: ") || summary == "[claude exited before answering]") {
-            rows += Row(Who.System, "컨텍스트 압축 실패: 요약 대신 제공자 오류를 받았습니다. 원래 대화 기록은 보존되어 있습니다.", at = e.ts)
+            foldResult(Row(Who.System, "컨텍스트 압축 실패: 요약 대신 제공자 오류를 받았습니다. 원래 대화 기록은 보존되어 있습니다.", at = e.ts))
             return true
         }
         val before = d["tokensBefore"]?.jsonPrimitive?.content?.toIntOrNull()
@@ -572,8 +582,8 @@ class Rows {
         // 두는데(「줄인 양」이라는 이름에는 맞다) 그것으로 문장을 지으면 「−0, −0%」가 되어
         // **유일하게 눈에 띌 값이 있는 결과가 숨는다.** 그래서 그 갈래를 먼저 가른다 — 코어의
         // `SizeNote` 가 정확히 그 순서로 되어 있다.
-        rows += Row(Who.System, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
-            (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts)
+        foldResult(Row(Who.System, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
+            (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts))
         return true
     }
 
@@ -664,7 +674,11 @@ class Rows {
             fun n(k: String) = p[k]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
             Progress(done = n("done").toInt(), total = n("total").toInt(), chars = n("chars").toInt(), elapsedMs = n("elapsedMs"))
         }
-        return false
+        // 압축이 시작되면 대화에 진행 말풍선 하나를 세운다(진행 말이 여러 번 와도 하나). 행은 고정이라
+        // 화면은 그 패널을 그대로 두고 문구와 막대만 고친다. 끝나면 [foldResult] 가 그 자리를 결과로 바꾼다.
+        if (rows.any(::isFoldRow)) return false
+        rows += Row(Who.System, "", at = e.ts, callId = FOLD_CALL)
+        return true
     }
 
     /** 한 멤버에게 묻는 중. 행을 만들지 않는다 — 세션의 사실만 갱신한다. */

@@ -2021,6 +2021,8 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 `StreamingHeightTest`는 같은 폭에서 스트리밍 DOM 높이가 1800→72→2200→96→2600으로 보고되어도 표시 높이와 하단 스크롤이 뒤로 움직이지 않는지 검사합니다. 스트리밍 종료와 실제 폭 변경 때는 높이 감소를 허용합니다. 아직 배치되지 않은 폭 0의 측정은 무시합니다.
 
+`FoldBubbleViewTest`는 실제 도구창(`MagiToolWindow.View`)에 압축 진행(`tool.progress`, `name=compact`)을 먹여, 대화에 진행 말풍선 행이 서고 그 안에 가운데 정렬한 진행 문구와 막대가 여백을 두고 그려지는지, 하단에는 막대가 없는지, 압축 결과(`compaction`)가 오면 그 행이 「↯ 컨텍스트를 접었다」로 바뀌는지 확인한다.
+
 `PlanStripViewTest`는 실제 도구창(`MagiToolWindow.View`)에 `todos.changed`를 먹여, 계획 줄이 맨 위(NORTH)에 서고 목록이 접힌 채 시작하며, 줄을 누르면 펼쳐지고 다시 누르면 접히고, 계획이 비면 숨는지를 구동합니다.
 
 `PlanStripTest`는 대화창 맨 위 계획 줄이 몇 단계 중 몇 번째인지와 지금 과정을 바르게 고르는지 검사합니다. 진행 중 표시가 있으면 그 단계를, 없으면 아직 안 끝난 첫 단계를 지금으로 보고, 다 끝났으면 끝났다고 하며, 계획이 없으면 줄을 세우지 않습니다.

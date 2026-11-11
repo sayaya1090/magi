@@ -285,7 +285,29 @@ class MagiToolWindow : ToolWindowFactory {
         private var suggestion: String? = null
         // 압축 막대와 그 갱신 타이머. 하단을 짓는 init 블록이 쓰므로 그보다 먼저 선언한다
         // (그리는 일은 아래 [paintFold]).
-        private val foldBar = javax.swing.JProgressBar(0, 1000).apply { isStringPainted = true; isVisible = false }
+        private val foldBar = javax.swing.JProgressBar(0, 1000)
+        // 진행 문구는 막대 위 가운데 따로 둔다 — 얇은 막대 UI 는 isStringPainted 글자를 그리지 않았다(실물 화면).
+        private val foldLabel = javax.swing.JLabel("", javax.swing.SwingConstants.CENTER).apply { foreground = Look.faint }
+        /** 대화 안의 압축 진행 말풍선: 가운데 문구 + 막대, 사방 여백. [rowPanel] 이 진행 행에 붙인다. */
+        private val foldBubble: javax.swing.JPanel = object : javax.swing.JPanel(BorderLayout(0, JBUI.scale(6))) {
+            override fun paintComponent(g: java.awt.Graphics) {
+                super.paintComponent(g)
+                val canvas = g.create() as java.awt.Graphics2D
+                try {
+                    val c = Look.muted
+                    canvas.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+                    canvas.color = java.awt.Color(c.red, c.green, c.blue, 18)
+                    canvas.fillRoundRect(2, 2, width - 5, height - 5, 12, 12)
+                    canvas.color = java.awt.Color(c.red, c.green, c.blue, 65)
+                    canvas.drawRoundRect(2, 2, width - 5, height - 5, 12, 12)
+                } finally { canvas.dispose() }
+            }
+        }.apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(8, 14, 10, 14)
+            add(foldLabel, BorderLayout.NORTH)
+            add(foldBar, BorderLayout.CENTER)
+        }
         private val foldTick = javax.swing.Timer(500) { paintFold(); paintPlan() }.apply { isRepeats = true }
 
         // 계획 줄 — 대화 맨 위. 계획 창이 오른쪽에 따로 있어 대화를 보는 동안 지금 어디쯤인지가
@@ -830,7 +852,6 @@ class MagiToolWindow : ToolWindowFactory {
             root.add(scroll, BorderLayout.CENTER)
             root.add(javax.swing.JPanel(BorderLayout()).apply {
                 isOpaque = false
-                add(foldBar, BorderLayout.NORTH)
                 add(bottom, BorderLayout.CENTER)
             }, BorderLayout.SOUTH)
             foldTick.start()
@@ -1176,16 +1197,13 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun paintFold() {
-            val p = shaper.foldProgress
-            if (p == null) {
-                if (foldBar.isVisible) { foldBar.isVisible = false; foldBar.parent?.revalidate() }
-                return
-            }
+            // 말풍선은 행이다 — 서고 걷히는 일은 코어 [Rows] 가 한다. 여기서는 문구와 막대만 고친다.
+            val p = shaper.foldProgress ?: return
             val bar = dev.sayaya.magi.ide.usecase.FoldBar.of(p)
             foldBar.isIndeterminate = bar.fraction == null
             bar.fraction?.let { foldBar.value = (it * 1000).toInt() }
-            foldBar.string = foldText(bar)
-            if (!foldBar.isVisible) { foldBar.isVisible = true; foldBar.parent?.revalidate() }
+            val words = foldText(bar)
+            if (foldLabel.text != words) foldLabel.text = words
         }
 
         private fun redrawSoon() {
@@ -1291,6 +1309,12 @@ class MagiToolWindow : ToolWindowFactory {
         private fun renderRow(r: Row): JBPanel<JBPanel<*>> = rowPanel(r)
 
         private fun rowPanel(r: Row): JBPanel<JBPanel<*>> {
+            if (r.who == Who.System && r.callId == "compact") return JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                isOpaque = false
+                border = Look.row()
+                add(foldBubble, BorderLayout.CENTER)
+                paintFold()
+            }
             val surface = when (r.who) {
                 Who.User -> Look.primary
                 Who.Agent -> Look.accent

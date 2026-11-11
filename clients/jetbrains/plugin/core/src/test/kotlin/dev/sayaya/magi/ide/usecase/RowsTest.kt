@@ -580,11 +580,11 @@ class RowsTest {
     }
 
     @Test
-    fun `압축 진행은 행이 아니라 막대의 사실이고 접기가 끝나면 걷힌다`() {
+    fun `압축 진행은 대화에 진행 행 하나를 세우고 접기가 끝나면 걷힌다`() {
         val r = Rows()
         val before = r.list().size
         r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":1,"total":3,"chars":840,"elapsedMs":12500}}"""))
-        assertEquals(before, r.list().size, "진행 말은 행을 만들지 않는다")
+        assertEquals(before + 1, r.list().size, "압축이 시작되면 대화에 진행 행이 선다")
         assertEquals(Progress(1, 3, 840, 12500), r.foldProgress)
         // 다른 도구의 진행 말은 압축 막대를 건드리지 않는다.
         r.feed(ev("tool.progress", """{"name":"wait_for","text":"check 6"}"""))
@@ -595,6 +595,35 @@ class RowsTest {
         r.feed(ev("tool.progress", """{"name":"compact","text":"compacting","progress":{"done":0,"total":1,"chars":10,"elapsedMs":1000}}"""))
         r.feed(ev("turn.finished", """{}"""))
         assertNull(r.foldProgress, "턴이 끝나면 도는 압축은 없다")
+    }
+
+    /**
+     * 압축이 시작되면 진행 말풍선이 서고(진행 말이 여러 번 와도 하나), 끝나면 **그 자리**가
+     * 「↯ 컨텍스트를 접었다」 결과로 바뀐다. 결과 없이 턴이 끝나면 말풍선은 걷힌다.
+     */
+    @Test
+    fun `압축 진행 말풍선은 끝나면 같은 자리에서 접었다 메시지로 바뀐다`() {
+        val r = Rows()
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        val before = r.list().size
+        fun progress(done: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":$done,"total":3,"chars":840,"elapsedMs":12500}}"""))
+        assertTrue(progress(0), "진행 행이 섰으니 다시 그려야 한다")
+        progress(1); progress(2)
+        val rows = r.list()
+        assertEquals(before + 1, rows.size, "진행 말이 여러 번 와도 말풍선은 하나다")
+        val at = rows.size - 1
+        assertEquals(Who.System, rows[at].who)
+        assertEquals("compact", rows[at].callId)
+        r.feed(ev("compaction", """{"summary":"brief","tokensBefore":50868,"tokensAfter":19325}"""))
+        val done = r.list()
+        assertEquals(before + 1, done.size, "결과는 새 행이 아니라 말풍선 자리에 선다")
+        assertTrue(done[at].text.startsWith("↯ 컨텍스트를 접었다: ~50868→19325 tok"), done[at].text)
+        assertTrue(done.none { it.callId == "compact" }, "끝난 뒤에는 진행 말풍선이 없다")
+
+        progress(0)
+        assertEquals(before + 2, r.list().size)
+        r.feed(ev("turn.finished", """{}"""))
+        assertTrue(r.list().none { it.callId == "compact" }, "결과 없이 턴이 끝나면 말풍선은 걷힌다")
     }
 
     @Test
