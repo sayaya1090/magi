@@ -37,6 +37,21 @@ class AgentStatesTest {
         assertEquals("1/1", AgentStates.foldPart(a));
     }
 
+    /** 진행 말이 같아도 센 값이 바뀌면 열쇠가 바뀐다 — 그래야 대화 화면 막대가 따라 움직인다. */
+    @Test void theFoldKeyMovesWithTheCountNotOnlyTheWords() {
+        FleetAgent a = new FleetAgent();
+        assertEquals("", AgentStates.foldKey(a));
+        a.progress = new FleetProgress();
+        a.progress.done = 0;
+        a.progress.total = 2;
+        a.progress.chars = 10;
+        a.progress.elapsedMs = 1000;
+        String first = AgentStates.foldKey(a);
+        a.progress.chars = 30;
+        assertTrue(!first.equals(AgentStates.foldKey(a)), "글자 수가 늘었는데 열쇠가 같다");
+        assertEquals("0/2/30/1000", AgentStates.foldKey(a));
+    }
+
     @Test void goneIsOneTile() {
         assertEquals("gone", AgentStates.groupOf("stopped"));
         assertEquals("gone", AgentStates.groupOf("abandoned"));

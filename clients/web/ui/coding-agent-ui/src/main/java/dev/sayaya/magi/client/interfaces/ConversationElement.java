@@ -58,6 +58,8 @@ public class ConversationElement {
     private final HTMLElement past = el("section");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
     private final HTMLElement field = el("md-outlined-text-field");
+    // 압축 진행 막대 — 컴포저 줄 위. 조준한 컴패니언 행의 센 값(fleet.Agent.Progress)만 그린다.
+    private final HTMLElement foldBar = el("md-linear-progress");
     private final HTMLElement box = el("div");   // form 안쪽의 .composer — 줄을 이루는 것
     private String lastSig = null;
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
@@ -103,6 +105,7 @@ public class ConversationElement {
         store.aimed().subscribe(row -> {
             aimed = row;
             reach();
+            paintFold();
             // 대화가 정해졌으니 그 대화의 초안이 있으면 되살린다 — 열쇠가 세션이라, 이 줄
             // 앞에서는 어느 초안을 되살릴지 알 수가 없다.
             restoreDraft();
@@ -408,6 +411,21 @@ public class ConversationElement {
                 });
     }
 
+    /**
+     * 압축 막대. 조각이 여럿이면 끝난 조각의 비율로 채우고, 하나뿐이면 요약이 얼마나 길어질지
+     * 아무도 모르므로 비율을 지어내지 않고 비결정형으로 돈다. 센 값이 없으면 숨는다.
+     */
+    private void paintFold() {
+        if (aimed == null || aimed.progress == null) { foldBar.setAttribute("hidden", ""); return; }
+        double f = dev.sayaya.magi.bridge.AgentStates.foldFraction(aimed);
+        Js.asPropertyMap(foldBar).set("indeterminate", f < 0);
+        if (f >= 0) Js.asPropertyMap(foldBar).set("value", f);
+        String part = dev.sayaya.magi.bridge.AgentStates.foldPart(aimed);
+        foldBar.setAttribute("aria-label", tr("row.working"));
+        foldBar.title = part;
+        foldBar.removeAttribute("hidden");
+    }
+
     private HTMLElement composer() {
         // 한 번만 짓는다 — 도크 자리는 화면을 다시 찾을 때마다 다시 건네지고, 다시 지으면
         // 같은 폼에 제출 리스너가 겹으로 쌓인다(한 번 보낸 것이 두 번 간다).
@@ -449,7 +467,9 @@ public class ConversationElement {
         hint.className = "sughint";
         hint.setAttribute("hidden", "");
         hint.setAttribute("aria-hidden", "true");
-        form.append(box, hint, note);
+        foldBar.className = "foldbar";
+        foldBar.setAttribute("hidden", "");
+        form.append(foldBar, box, hint, note);
         wireSuggest();
         // 이 상자가 지금 무엇을 하는 자리인지는 부모가 알린다 — 그 사실이 바뀔 때만 옷을 갈아입는다.
         store.listenForAsk(this::answerMode);

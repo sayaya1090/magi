@@ -5446,3 +5446,7 @@
 
 /* 압축 진행 막대 — 명단 행의 진행 말 아래. 값이 없으면 브라우저가 비결정형으로 그린다. */
 progress.fold { display: block; width: 100%; height: 6px; margin-top: 4px; }
+
+/* 대화 화면 압축 막대 — 컴포저 줄 위. value 가 없으면 비결정형. */
+md-linear-progress.foldbar { display: block; margin: 0 0 4px; }
+md-linear-progress.foldbar[hidden] { display: none; }

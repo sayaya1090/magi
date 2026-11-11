@@ -87,9 +87,11 @@ public class CompanionStore implements CompanionSource.Listener {
         // 이름도 그대로다). 빠뜨리면 그 조각이 흐르지 않아, 컴포저는 이미 들어와 있는 대화로
         // "옮겨서 이어가겠다"고 계속 말한다.
         return (a.state + "|" + a.name + "|" + a.doing + "|" + a.user + "|" + a.waiting
-                + "|" + a.handling + "|" + a.live + "|" + a.session)
+                + "|" + a.handling + "|" + a.live + "|" + a.session
+                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(a))
                 .equals(b.state + "|" + b.name + "|" + b.doing + "|" + b.user + "|" + b.waiting
-                + "|" + b.handling + "|" + b.live + "|" + b.session);
+                + "|" + b.handling + "|" + b.live + "|" + b.session
+                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(b));
     }
 
     public void onTurn(BiConsumer<Boolean, Double> o) {

@@ -96,4 +96,14 @@ public final class AgentStates {
         long done = (long) Math.max(0, Math.min(p.done, p.total));
         return Math.min(done + 1, total) + "/" + total;
     }
+
+    /**
+     * 압축 진행의 비교 열쇠. 진행 말이 같아도 센 값(조각·글자·경과)이 바뀌면 다른 열쇠다 — 화면이
+     * 행을 「같다」고 보고 막대를 안 고치는 일을 막는다. 센 값이 없으면 빈 문자열.
+     */
+    public static String foldKey(FleetAgent a) {
+        FleetProgress p = a == null ? null : a.progress;
+        if (p == null) return "";
+        return (long) p.done + "/" + (long) p.total + "/" + (long) p.chars + "/" + (long) p.elapsedMs;
+    }
 }
