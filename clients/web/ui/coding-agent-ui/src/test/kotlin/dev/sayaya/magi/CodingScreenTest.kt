@@ -6,6 +6,7 @@ import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
 import io.kotest.assertions.withClue
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 
@@ -327,6 +328,30 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForCondition { page.locator("#agentdetail[hidden]").count() == 1 }
                 page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
             }
+        }
+        When("압축이 요약 조각 셋 중 하나를 끝냈으면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 1, total: 3, chars: 840, elapsedMs: 12500})")
+            Then("컴포저 위 막대가 보이고 끝난 조각의 비율로 찬다") {
+                page.waitForCondition { page.evaluate("(() => { const b = document.querySelector('#dock md-linear-progress.foldbar'); return !!b && !b.hasAttribute('hidden'); })()") == true }
+                page.evaluate("getComputedStyle(document.querySelector('#dock md-linear-progress.foldbar')).display") shouldNotBe "none"
+                page.evaluate("document.querySelector('#dock md-linear-progress.foldbar').indeterminate") shouldBe false
+                (page.evaluate("Math.round(document.querySelector('#dock md-linear-progress.foldbar').value * 1000)") as Number).toInt() shouldBe 333
+            }
+        }
+        When("조각이 하나뿐이면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 0, total: 1, chars: 120, elapsedMs: 3000})")
+            Then("비율을 지어내지 않고 비결정형으로 돈다") {
+                page.waitForCondition { page.evaluate("document.querySelector('#dock md-linear-progress.foldbar').indeterminate") == true }
+                page.evaluate("document.querySelector('#dock md-linear-progress.foldbar').hasAttribute('hidden')") shouldBe false
+            }
+        }
+        When("압축이 끝나 센 값이 사라지면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now')")
+            Then("막대는 숨는다 — 추가한 CSS 가 [hidden] 을 덮지 않는다") {
+                page.waitForCondition { page.evaluate("document.querySelector('#dock md-linear-progress.foldbar').hasAttribute('hidden')") == true }
+                page.evaluate("getComputedStyle(document.querySelector('#dock md-linear-progress.foldbar')).display") shouldBe "none"
+            }
+            page.evaluate("window.__magi_test_fleet('idle', 's_now')")
         }
         When("컴패니언이 아직 말하고 있는데 다른 세션에 서면") {
             page.evaluate("window.__magi_test_fleet('working', 's_now')")

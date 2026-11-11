@@ -19,10 +19,10 @@
       const roster = [];
       // live는 명단이 <b>따로</b> 싣는 사실이다(명단에 있다 ≠ 답한다). 답이 끊긴 화면과
       // 돌아온 화면은 여기서만 갈릴 수 있어서, 셋째 조각으로 받는다(안 주면 산 것).
-      const fleet = (state, session, live) => {
+      const fleet = (state, session, live, progress) => {
         const list = [{socket: '/tmp/a1.sock', peer: '', name: 'alpha',
                        state: state, live: live === undefined ? true : live,
-                       session: session}];
+                       session: session, progress: progress}];
         roster.forEach(cb => cb(list));
       };
       window.__magi_roster_subscribe = cb => { roster.push(cb); fleet('idle', 's_now'); };
