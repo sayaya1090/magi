@@ -626,6 +626,59 @@ class RowsTest {
         assertTrue(r.list().none { it.callId == "compact" }, "결과 없이 턴이 끝나면 말풍선은 걷힌다")
     }
 
+    /**
+     * 말풍선은 실제 요약(진행 값이 실린 알림) 때만 선다. LLM 없이 툴 결과만 접는 1단계는 한 줄 기록으로,
+     * 요약 실패는 말풍선 자리의 실패 문구로 남는다 — 빈 게이지가 떴다 사라지지 않는다.
+     */
+    @Test
+    fun `진행 값 없는 압축 알림은 말풍선을 세우지 않고 접기·실패는 한 줄로 남는다`() {
+        val r = Rows()
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        val before = r.list().size
+        fun note(text: String) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"$text"}"""))
+
+        note("freed the window by eliding 3 bulky tool result(s) — re-derivable, and already narrated")
+        var rows = r.list()
+        assertTrue(rows.none { it.callId == "compact" }, "툴 결과 접기는 진행 말풍선이 아니다")
+        assertEquals(before + 1, rows.size, "접기는 한 줄로 남는다")
+        assertTrue(rows.last().text.contains("3") && rows.last().text.startsWith("↯"), rows.last().text)
+        assertNull(r.foldProgress)
+
+        note("compacting the conversation — summarising 40 earlier messages")
+        assertEquals(before + 1, r.list().size, "진행 값 없는 시작 알림은 말풍선을 세우지 않는다")
+
+        r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":0,"total":1,"chars":10,"elapsedMs":1000}}"""))
+        rows = r.list()
+        val at = rows.indexOfFirst { it.callId == "compact" }
+        assertTrue(at >= 0, "실제 요약이 시작되면 말풍선이 선다")
+        note("compaction did not produce a summary — keeping the conversation as it is")
+        rows = r.list()
+        assertTrue(rows.none { it.callId == "compact" }, "실패하면 말풍선은 남지 않는다")
+        assertTrue(rows[at].text.startsWith("컨텍스트 압축 실패"), "실패는 말풍선 자리에 선다: ${rows[at].text}")
+        assertNull(r.foldProgress, "실패 뒤에는 도는 압축이 없다")
+    }
+
+    /**
+     * 코어는 결과(`compaction`)를 기록한 **뒤에** 「compacted — A → B tokens」 알림을 낸다(compact.go). 그 알림이
+     * 빈 말풍선을 결과 아래에 새로 세우면 막대가 턴 끝까지 남는다 — 사용자가 본 화면(2026-11-12).
+     */
+    @Test
+    fun `결과 뒤의 compacted 알림은 말풍선을 다시 세우지 않는다`() {
+        val r = Rows()
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        val before = r.list().size
+        fun note(text: String) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"$text"}"""))
+        note("compacting the conversation — summarising 40 earlier messages")
+        r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":0,"total":1,"chars":10,"elapsedMs":1000}}"""))
+        r.feed(ev("compaction", """{"summary":"brief","tokensBefore":50868,"tokensAfter":19325}"""))
+        note("compacted — 50868 → 19325 tokens, 40 messages summarised, 3 topics recallable")
+        val rows = r.list()
+        assertEquals(before + 1, rows.size, "결과 한 줄만 남는다: ${rows.map { it.text }}")
+        assertTrue(rows.none { it.callId == "compact" }, "결과 뒤에 진행 말풍선이 남지 않는다")
+        assertTrue(rows.last().text.startsWith("↯ 컨텍스트를 접었다"), rows.last().text)
+        assertNull(r.foldProgress)
+    }
+
     @Test
     fun `말한 기권과 무응답은 다른 행이다`() {
         // 코어가 둘을 갈라 보낸다(5755dc74): 판정을 안 말한 멤버는 **말한 기권**

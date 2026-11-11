@@ -119,7 +119,17 @@ data class Row(
 class Rows {
 
     private val rows = mutableListOf<Row>()
-    private companion object { const val FOLD_CALL = "compact" }
+    private companion object {
+        const val FOLD_CALL = "compact"
+        /** 코어(compact.go)가 요약 없이 끝날 때 내는 말의 머리 — 이것이 오면 압축은 실패로 끝났다. */
+        val FOLD_FAILED = listOf(
+            "compaction did not produce a summary",
+            "compact: the summarizer was refused",
+            "compact: provider returned an error",
+            "compact: summarizer failed",
+            "compact: no model backend",
+        )
+    }
 
     /** 열린 턴의 프롬프트 id. null 이면 턴이 닫혀 있다. */
     private var openPrompt: String? = null
@@ -670,11 +680,26 @@ class Rows {
     private fun foldNote(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
         if (d["name"]?.jsonPrimitive?.content != "compact") return false
-        foldProgress = (d["progress"] as? kotlinx.serialization.json.JsonObject)?.let { p ->
-            fun n(k: String) = p[k]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
-            Progress(done = n("done").toInt(), total = n("total").toInt(), chars = n("chars").toInt(), elapsedMs = n("elapsedMs"))
+        val p = d["progress"] as? kotlinx.serialization.json.JsonObject
+        val text = d["text"]?.jsonPrimitive?.content.orEmpty()
+        if (p == null) {
+            // 센 값 없는 압축 말은 실제 요약 진행이 아니다 — 말풍선을 세우지 않는다. 결과(`compaction`) 뒤에
+            // 코어가 내는 「compacted — A → B」 알림이 빈 말풍선을 결과 아래에 새로 세워, 막대가 턴 끝까지
+            // 남던 결함(2026-11-12 실물 화면). 툴 결과 접기는 한 줄로, 요약 실패는 말풍선 자리에 남긴다.
+            foldProgress = null
+            Regex("""^freed the window by eliding (\d+)""").find(text)?.let { m ->
+                rows += Row(Who.System, "↯ 툴 결과 ${m.groupValues[1]}개를 접었다 (요약 없음)", at = e.ts)
+                return true
+            }
+            if (FOLD_FAILED.any { text.startsWith(it) }) {
+                foldResult(Row(Who.System, "컨텍스트 압축 실패: 요약을 받지 못해 원래 대화 기록을 그대로 둡니다.", at = e.ts))
+                return true
+            }
+            return false
         }
-        // 압축이 시작되면 대화에 진행 말풍선 하나를 세운다(진행 말이 여러 번 와도 하나). 행은 고정이라
+        fun n(k: String) = p[k]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+        foldProgress = Progress(done = n("done").toInt(), total = n("total").toInt(), chars = n("chars").toInt(), elapsedMs = n("elapsedMs"))
+        // 실제 요약이 시작되면 대화에 진행 말풍선 하나를 세운다(진행 말이 여러 번 와도 하나). 행은 고정이라
         // 화면은 그 패널을 그대로 두고 문구와 막대만 고친다. 끝나면 [foldResult] 가 그 자리를 결과로 바꾼다.
         if (rows.any(::isFoldRow)) return false
         rows += Row(Who.System, "", at = e.ts, callId = FOLD_CALL)
