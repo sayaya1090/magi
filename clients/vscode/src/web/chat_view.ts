@@ -14,6 +14,7 @@ declare const createAnswerState: typeof CreateAnswerState;
 declare const createRecoveryState: typeof CreateRecoveryState;
 declare const createWebviewActionAdapter: typeof Adapter.createWebviewActionAdapter;
 declare const createWebviewInputAdapter: typeof Adapter.createWebviewInputAdapter;
+declare const planStripView: typeof Adapter.planStripView;
 declare const createSuggestController: typeof Adapter.createSuggestController;
 declare const createWebviewReceiveHandlers: typeof Adapter.createWebviewReceiveHandlers;
 declare const parseHostToWebviewMessage: typeof Adapter.parseHostToWebviewMessage;
@@ -81,13 +82,6 @@ const foldEl = document.getElementById('fold') as HTMLElement;
 const planStripEl = document.getElementById('plan-strip') as HTMLElement;
 const planHeadEl = document.getElementById('plan-head') as HTMLButtonElement;
 const planListEl = document.getElementById('plan-list') as HTMLElement;
-let planOpen = false;
-let planText = '';
-/* One click toggles the steps; the open state outlives redraws. */
-planHeadEl?.addEventListener('click', () => {
-  planOpen = !planOpen;
-  paintPlanHead();
-});
 const foldBarEl = document.getElementById('fold-bar') as HTMLProgressElement;
 const foldTextEl = document.getElementById('fold-text') as HTMLElement;
 const emptyNoteEl = document.getElementById('empty-note') as HTMLElement;
@@ -435,27 +429,12 @@ function drawEmptyNote(text: string) {
   emptyNoteEl.hidden = !text;
 }
 
-function paintPlanHead() {
-  if (!planHeadEl || !planListEl) return;
-  planHeadEl.textContent = (planOpen ? '\u25BE ' : '\u25B8 ') + planText;
-  planHeadEl.setAttribute('aria-expanded', String(planOpen));
-  planListEl.hidden = !planOpen;
-}
-
-/* The plan strip. The words are decided in the adapter (planStrip); this draws them and the steps. */
-function drawPlan(strip: { text: string } | null, todos: { content: string; status: string }[]) {
-  if (!planStripEl || !planListEl) return;
-  if (!strip) { planStripEl.hidden = true; return; }
-  planText = strip.text;
-  planListEl.replaceChildren(...todos.map((t) => {
-    const li = document.createElement('li');
-    const mark = t.status === 'completed' ? '\u2713' : t.status === 'in_progress' ? '\u25D0' : '\u25CB';
-    li.textContent = mark + ' ' + t.content;
-    if (t.status === 'completed') li.className = 'done';
-    return li;
-  }));
-  paintPlanHead();
-  planStripEl.hidden = false;
+/* The plan strip. Drawing and the toggle live in the adapter (planStripView) where a test can click
+   them; this hands over the page's elements. */
+const planView = planStripEl && planHeadEl && planListEl
+  ? planStripView({ strip: planStripEl, head: planHeadEl, list: planListEl }, document) : null;
+function drawPlan(_strip: { text: string } | null, todos: { content: string; status: string }[]) {
+  planView?.draw(todos);
 }
 
 /* The compaction bar. Values only: the share and words are decided in the adapter (foldBar). With

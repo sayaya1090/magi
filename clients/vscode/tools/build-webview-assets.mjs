@@ -131,6 +131,7 @@ try {
 const adapterWrapped = `// Auto-generated from src/web/chat_adapter.ts and dependencies for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
+var planStripView;
 var createSuggestController;
 var createWebviewReceiveHandlers;
 var parseHostToWebviewMessage;
@@ -152,6 +153,7 @@ ${bundledCode}
   var exp = typeof MagiAdapter !== 'undefined' ? MagiAdapter : {};
   createWebviewActionAdapter = exp.createWebviewActionAdapter;
   createWebviewInputAdapter = exp.createWebviewInputAdapter;
+  planStripView = exp.planStripView;
   createSuggestController = exp.createSuggestController;
   createWebviewReceiveHandlers = exp.createWebviewReceiveHandlers;
   parseHostToWebviewMessage = exp.parseHostToWebviewMessage;
@@ -170,6 +172,7 @@ ${bundledCode}
   if (typeof window !== 'undefined') {
     window.createWebviewActionAdapter = createWebviewActionAdapter;
     window.createWebviewInputAdapter = createWebviewInputAdapter;
+    window.planStripView = planStripView;
     window.createSuggestController = createSuggestController;
     window.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     window.parseHostToWebviewMessage = parseHostToWebviewMessage;

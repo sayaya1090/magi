@@ -1438,3 +1438,33 @@ export function planStrip(todos: { content: string; status: string }[] | null | 
   return { step: at + 1, total: todos.length, done, current, finished: false,
     text: todos.length + '\ub2e8\uacc4 \uc911 ' + (at + 1) + '\ub2e8\uacc4 \u00b7 ' + current };
 }
+
+/** The three elements of the plan strip: the line, the button that is the line, and the steps. */
+export interface PlanStripEls { strip: HTMLElement; head: HTMLElement; list: HTMLElement; }
+
+/**
+ * The plan strip, drawn. One click on the line shows or hides the steps; the open state outlives
+ * redraws. No plan hides the whole strip. The page hands in its real elements; a test hands in fakes
+ * and clicks them, so what is measured is the code the panel runs.
+ */
+export function planStripView(els: PlanStripEls, doc: Document): { draw(todos: { content: string; status: string }[]): void } {
+  let open = false;
+  let last: { content: string; status: string }[] = [];
+  const render = (): void => {
+    const strip = planStrip(last);
+    if (!strip) { els.strip.hidden = true; return; }
+    els.head.textContent = (open ? '\u25BE ' : '\u25B8 ') + strip.text;
+    els.head.setAttribute('aria-expanded', String(open));
+    els.list.replaceChildren(...last.map((t) => {
+      const li = doc.createElement('li');
+      const mark = t.status === 'completed' ? '\u2713' : t.status === 'in_progress' ? '\u25D0' : '\u25CB';
+      li.textContent = mark + ' ' + t.content;
+      if (t.status === 'completed') li.className = 'done';
+      return li;
+    }));
+    els.list.hidden = !open;
+    els.strip.hidden = false;
+  };
+  els.head.addEventListener('click', () => { open = !open; render(); });
+  return { draw(todos) { last = todos; render(); } };
+}

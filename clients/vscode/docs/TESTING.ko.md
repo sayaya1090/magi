@@ -1530,4 +1530,4 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 
 계획(TodoWrite)은 오른쪽 계획 패널에만 있어서, 대화를 보는 동안에는 지금 어디쯤인지 보이지 않았습니다. 채팅 판 맨 위에 「N단계 중 M단계 · 지금 과정」 한 줄을 세우고, 누르면 단계 목록이 펼쳐지거나 접힙니다. 호스트는 계획 패널에 넘기던 같은 자리에서 웹뷰에 `plan` 메시지를 보냅니다.
 
-- **새 시험**: `planstrip.test.ts` 「the plan strip names the step in progress, or the next one, or says it is all done」 · 「the plan message reaches the webview with only well-formed steps」.
+- **새 시험**: `planstrip.test.ts` 「the plan strip names the step in progress, or the next one, or says it is all done」 · 「the plan message reaches the webview with only well-formed steps」. · 「the strip is drawn at the top, a click shows and hides the steps, and no plan hides it」(그리기·토글은 어댑터의 `planStripView`가 맡고, 시험이 가짜 요소에 클릭을 보내 구동합니다).
