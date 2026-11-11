@@ -30,6 +30,9 @@ public interface CompanionSource {
 
     void start(Listener l);
 
+    /** 이 컴패니언의 계획(/plan) — 대화 맨 위 한 줄과 그 단계 목록. 못 읽으면 null. */
+    default void plan(dev.sayaya.magi.bridge.CompanionContext ctx, java.util.function.Consumer<Object> listOrNull) { listOrNull.accept(null); }
+
     /** 이 컴패니언의 지난 일 목록(/history) — 그 층위를 그리는 것이 이 화면이라 이 화면의 것이다. */
     void history(CompanionContext ctx, java.util.function.Consumer<Object> listOrNull);
 

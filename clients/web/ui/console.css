@@ -5450,3 +5450,10 @@ progress.fold { display: block; width: 100%; height: 6px; margin-top: 4px; }
 /* 대화 화면 압축 막대 — 컴포저 줄 위. value 가 없으면 비결정형. */
 md-linear-progress.foldbar { display: block; margin: 0 0 4px; }
 md-linear-progress.foldbar[hidden] { display: none; }
+
+/* 대화 맨 위 계획 줄 — 한 줄, 누르면 단계 목록이 펼쳐진다. */
+.planstrip { border-bottom: 1px solid var(--md-sys-color-outline-variant); margin: 0 0 6px; }
+.planstrip[hidden], .planlist[hidden] { display: none; }
+.planhead { display: block; width: 100%; text-align: left; padding: 4px 8px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.planlist { margin: 0 0 6px; padding: 0 8px 0 28px; opacity: .85; }
+.planlist li.done { opacity: .6; }

@@ -88,10 +88,10 @@ public class CompanionStore implements CompanionSource.Listener {
         // "옮겨서 이어가겠다"고 계속 말한다.
         return (a.state + "|" + a.name + "|" + a.doing + "|" + a.user + "|" + a.waiting
                 + "|" + a.handling + "|" + a.live + "|" + a.session
-                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(a))
+                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(a) + "|" + a.planDone + "/" + a.planTotal)
                 .equals(b.state + "|" + b.name + "|" + b.doing + "|" + b.user + "|" + b.waiting
                 + "|" + b.handling + "|" + b.live + "|" + b.session
-                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(b));
+                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(b) + "|" + b.planDone + "/" + b.planTotal);
     }
 
     public void onTurn(BiConsumer<Boolean, Double> o) {
@@ -99,6 +99,13 @@ public class CompanionStore implements CompanionSource.Listener {
     }
 
     public CompanionContext context() { return ctx; }
+
+    /** 지금 조준한 컴패니언의 계획을 묻는다. 컴패니언이 없으면 null. */
+    public void plan(Consumer<Object> cb) {
+        if (ctx == null) { cb.accept(null); return; }
+        final CompanionContext asked = ctx;
+        source.plan(asked, list -> { if (ctx == asked) cb.accept(list); });
+    }
 
     /**
      * 상자에 쓴 한 마디를 보낸다 — 지금 답을 기다리는 부름이 있으면 <b>답으로</b>, 아니면 부탁으로.

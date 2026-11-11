@@ -457,6 +457,21 @@ export const NoteMessageSchema = v.object({
   text: v.string(),
 });
 
+/** The plan (TodoWrite) for the strip at the top of the conversation — the whole list, last wins. */
+export const PlanMessageSchema = v.pipe(
+  v.object({
+    kind: v.literal('plan'),
+    todos: v.array(v.unknown()),
+  }),
+  v.transform((m) => ({
+    kind: 'plan' as const,
+    todos: m.todos
+      .map((t) => (t ?? {}) as { content?: unknown; status?: unknown })
+      .filter((t) => typeof t.content === 'string' && t.content)
+      .map((t) => ({ content: String(t.content), status: String(t.status ?? '') })),
+  })),
+);
+
 export const HostToWebviewMessageSchema = v.union([
   RowsMessageSchema,
   ComposeMessageSchema,
@@ -469,6 +484,7 @@ export const HostToWebviewMessageSchema = v.union([
   InfoMessageSchema,
   NoteMessageSchema,
   PromptsMessageSchema,
+  PlanMessageSchema,
 ]);
 
 export type HostToWebviewMessage = v.InferOutput<typeof HostToWebviewMessageSchema>;

@@ -329,6 +329,32 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
             }
         }
+        When("컴패니언이 넷 중 둘을 끝내고 셋째 단계를 하고 있으면") {
+            page.evaluate("window.__magi_test_plan = JSON.stringify([{content:'a',status:'completed'},{content:'b',status:'completed'},{content:'build it',status:'in_progress'},{content:'d',status:'pending'}]); window.__magi_test_fleet('working', 's_now', true, undefined, {done: 2, total: 4})")
+            Then("전사 위에 계획 줄 하나가 서고, 목록은 접혀 있다") {
+                page.waitForCondition { page.evaluate("(() => { const s = document.querySelector('#log').previousElementSibling; return !!s && s.classList.contains('planstrip') && !s.hasAttribute('hidden'); })()") == true }
+                page.evaluate("getComputedStyle(document.querySelector('#log').previousElementSibling).display") shouldNotBe "none"
+                page.evaluate("document.querySelector('#log').previousElementSibling.querySelector('.planlist').hasAttribute('hidden')") shouldBe true
+                page.evaluate("document.querySelector('#log').previousElementSibling.querySelectorAll('.planlist li').length") shouldBe 4
+            }
+            And("줄을 누르면") {
+                page.locator(".planstrip .planhead").click()
+                Then("단계 목록이 펼쳐지고, 다시 누르면 접힌다") {
+                    page.evaluate("document.querySelector('#log').previousElementSibling.querySelector('.planlist').hasAttribute('hidden')") shouldBe false
+                    page.evaluate("document.querySelector('#log').previousElementSibling.querySelector('.planhead').getAttribute('aria-expanded')") shouldBe "true"
+                    page.evaluate("document.querySelector('#log').previousElementSibling.querySelectorAll('.planlist li.done').length") shouldBe 2
+                    page.locator(".planstrip .planhead").click()
+                    page.evaluate("document.querySelector('#log').previousElementSibling.querySelector('.planlist').hasAttribute('hidden')") shouldBe true
+                }
+            }
+        }
+        When("계획이 비면") {
+            page.evaluate("window.__magi_test_plan = '[]'; window.__magi_test_fleet('idle', 's_now')")
+            Then("계획 줄은 숨는다 — 추가한 CSS 가 [hidden] 을 덮지 않는다") {
+                page.waitForCondition { page.evaluate("document.querySelector('#log').previousElementSibling.hasAttribute('hidden')") == true }
+                page.evaluate("getComputedStyle(document.querySelector('#log').previousElementSibling).display") shouldBe "none"
+            }
+        }
         When("압축이 요약 조각 셋 중 하나를 끝냈으면") {
             page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 1, total: 3, chars: 840, elapsedMs: 12500})")
             Then("컴포저 위 막대가 보이고 끝난 조각의 비율로 찬다") {

@@ -190,6 +190,7 @@ export interface HostMessageHandlers {
     webviewId?: string;
   }): void;
   onState?(payload: { state: Activity; note: PanelNoteInfo }): void;
+  onPlan?(payload: { kind: 'plan'; todos: { content: string; status: string }[] }): void;
   onInfo?(payload: {
     kind: 'info';
     state: string;
@@ -267,6 +268,9 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
     return true;
   } else if (m.kind === 'state') {
     handlers.onState?.(m);
+    return true;
+  } else if (m.kind === 'plan') {
+    handlers.onPlan?.(m);
     return true;
   } else if (m.kind === 'info') {
     handlers.onInfo?.(m);
@@ -1133,6 +1137,8 @@ export interface WebviewReceiveAdapterOptions {
   drawAsk: (ask: Ask | null) => void;
   drawRefs: (refs: string[]) => void;
   drawState: (note: PanelNoteInfo) => void;
+  /** The plan strip at the top: one line, and the steps behind it. Null hides it. */
+  drawPlan?: (strip: PlanStrip | null, todos: { content: string; status: string }[]) => void;
   /** The compaction bar: a share and its words, or null to hide it. */
   drawFold?: (bar: FoldBar | null) => void;
   drawEmptyNote: (text: string) => void;
@@ -1258,6 +1264,9 @@ export function createWebviewReceiveHandlers(
       options.drawFold?.(foldBar(m.state?.progress));
       lastActivity = m.state ?? null;
       paintEmptyNote();
+    },
+    onPlan(m) {
+      options.drawPlan?.(planStrip(m.todos), m.todos);
     },
     onInfo(payload) {
       options.drawInfo(payload);
@@ -1400,4 +1409,32 @@ export function foldBar(p: { done: number; total: number; chars: number; elapsed
   const chars = Math.max(0, Math.floor(p.chars) || 0);
   const seconds = Math.floor(Math.max(0, p.elapsedMs || 0) / 1000);
   return { fraction: total > 1 ? done / total : null, text: '압축 중 ' + part + chars + '자 · ' + seconds + '초' };
+}
+
+/** The plan strip: which step of how many, what it is on, and whether it has all been done. */
+export interface PlanStrip {
+  step: number;
+  total: number;
+  done: number;
+  current: string;
+  finished: boolean;
+  text: string;
+}
+
+/**
+ * The one line at the top of the conversation. The step in progress is "now"; with none marked,
+ * the first unfinished step is what comes next; with every step done it says so. No plan, no line.
+ */
+export function planStrip(todos: { content: string; status: string }[] | null | undefined): PlanStrip | null {
+  if (!todos || todos.length === 0) return null;
+  const done = todos.filter((t) => t.status === 'completed').length;
+  let at = todos.findIndex((t) => t.status === 'in_progress');
+  if (at < 0) at = todos.findIndex((t) => t.status !== 'completed');
+  if (at < 0) {
+    return { step: todos.length, total: todos.length, done, current: '', finished: true,
+      text: todos.length + '\ub2e8\uacc4 \ubaa8\ub450 \ub05d\ub0a8' };
+  }
+  const current = todos[at].content.trim();
+  return { step: at + 1, total: todos.length, done, current, finished: false,
+    text: todos.length + '\ub2e8\uacc4 \uc911 ' + (at + 1) + '\ub2e8\uacc4 \u00b7 ' + current };
 }

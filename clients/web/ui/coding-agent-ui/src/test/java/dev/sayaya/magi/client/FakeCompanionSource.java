@@ -95,6 +95,13 @@ public class FakeCompanionSource implements CompanionSource {
     }
 
 
+    /** 계획은 스펙이 창에 적어 둔 것(window.__magi_test_plan, JSON) — 없으면 null. */
+    @Override
+    public void plan(CompanionContext ctx, Consumer<Object> cb) {
+        Object s = Js.asPropertyMap(DomGlobal.window).get("__magi_test_plan");
+        cb.accept(s == null ? null : Global.JSON.parse(String.valueOf(s)));
+    }
+
     @Override
     public void subagents(CompanionContext ctx, Consumer<Object> cb) {
         if (SLOW.equals(ctx.sub)) { heldList = cb; return; }

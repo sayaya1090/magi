@@ -34,6 +34,11 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void plan(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/plan" + q(ctx), cb::accept);
+    }
+
+    @Override
     public void history(CompanionContext ctx, Consumer<Object> cb) {
         Console.fetchList("/history" + q(ctx), cb::accept);
     }

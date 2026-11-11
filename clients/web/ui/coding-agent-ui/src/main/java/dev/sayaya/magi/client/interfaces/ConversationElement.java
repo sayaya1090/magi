@@ -60,6 +60,15 @@ public class ConversationElement {
     private final HTMLElement field = el("md-outlined-text-field");
     // 압축 진행 막대 — 컴포저 줄 위. 조준한 컴패니언 행의 센 값(fleet.Agent.Progress)만 그린다.
     private final HTMLElement foldBar = el("md-linear-progress");
+    // 계획 줄 — 전사 맨 위. 계획은 옆 사실판에만 있어 대화를 보는 동안 지금 어디쯤인지가 안
+    // 보였다. 한 줄로 몇 단계 중 몇 번째·지금 과정을 말하고, 누르면 단계 목록이 펼쳐진다.
+    private final HTMLElement planStrip = el("div");
+    private final HTMLElement planHead = el("button");
+    private final HTMLElement planList = el("ol");
+    private boolean planOpen = false;
+    private Object planNow = null;
+    private String planAsked = null;
+    private Boolean planTurnOpen = null;
     private final HTMLElement box = el("div");   // form 안쪽의 .composer — 줄을 이루는 것
     private String lastSig = null;
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
@@ -88,7 +97,16 @@ public class ConversationElement {
         // display:contents — 있는 셈 치지 않는 상자. 이 요소가 필요한 이유는 mount가 프레임을
         // 통째로 갈아끼우기 때문이고(자식 하나로 다루는 편이 안전하다), 배치에서는 없어야 한다.
         root.style.setProperty("display", "contents");
-        root.append(log, past);
+        planStrip.className = "planstrip";
+        planStrip.setAttribute("hidden", "");
+        planHead.className = "planhead";
+        planHead.setAttribute("type", "button");
+        planHead.setAttribute("aria-expanded", "false");
+        planList.className = "planlist";
+        planList.setAttribute("hidden", "");
+        planHead.addEventListener("click", evt -> { planOpen = !planOpen; paintPlan(); });
+        planStrip.append(planHead, planList);
+        root.append(planStrip, log, past);
     }
 
     public void mount(HTMLElement frame) {
@@ -106,11 +124,16 @@ public class ConversationElement {
             aimed = row;
             reach();
             paintFold();
+            askPlan();
             // 대화가 정해졌으니 그 대화의 초안이 있으면 되살린다 — 열쇠가 세션이라, 이 줄
             // 앞에서는 어느 초안을 되살릴지 알 수가 없다.
             restoreDraft();
         });
         store.onRows(this::paintRows);
+        // 턴이 열리고 닫힐 때도 계획을 다시 묻는다 — 단계 수가 그대로여도 새 계획이 섰을 수 있다.
+        store.onTurn((open, sec) -> {
+            if (!open.equals(planTurnOpen)) { planTurnOpen = open; planAsked = null; askPlan(); }
+        });
         // 데스크톱은 전사 상자, 모바일은 페이지의 스크롤 위치로 표시 범위를 정한다.
         DomGlobal.window.addEventListener("scroll", evt -> reachedUp(), passive());
         log.addEventListener("scroll", evt -> reachedUp(), passive());
@@ -424,6 +447,52 @@ public class ConversationElement {
         foldBar.setAttribute("aria-label", tr("row.working"));
         foldBar.title = part;
         foldBar.removeAttribute("hidden");
+    }
+
+    /** 명단 행의 계획 셈(끝난 수/전체)·세션이 바뀌었을 때만 /plan 을 다시 묻는다. */
+    private void askPlan() {
+        String key = aimed == null ? "" : aimed.socket + "|" + aimed.session + "|" + aimed.planDone + "/" + aimed.planTotal;
+        if (key.equals(planAsked)) return;
+        planAsked = key;
+        store.plan(list -> { planNow = list; paintPlan(); });
+    }
+
+    /**
+     * 계획 줄. 진행 중 표시가 있으면 그 단계가 지금이고, 없으면 아직 안 끝난 첫 단계가 다음이다.
+     * 다 끝났으면 끝났다고 한다. 계획이 없으면 숨는다.
+     */
+    private void paintPlan() {
+        jsinterop.base.JsArrayLike<Object> todos = planNow == null ? null : Js.uncheckedCast(planNow);
+        int n = todos == null ? 0 : todos.getLength();
+        if (n == 0) { planStrip.setAttribute("hidden", ""); return; }
+        int done = 0, at = -1;
+        for (int i = 0; i < n; i++) {
+            String st = str(Js.uncheckedCast(todos.getAt(i)), "status");
+            if ("completed".equals(st)) done++;
+            if (at < 0 && "in_progress".equals(st)) at = i;
+        }
+        if (at < 0) {
+            for (int i = 0; i < n; i++) {
+                if (!"completed".equals(str(Js.uncheckedCast(todos.getAt(i)), "status"))) { at = i; break; }
+            }
+        }
+        String words = at < 0 ? tr("plan.strip.done", "total", String.valueOf(n))
+                : tr("plan.strip", "step", String.valueOf(at + 1), "total", String.valueOf(n),
+                        "now", str(Js.uncheckedCast(todos.getAt(at)), "content").trim());
+        planHead.textContent = (planOpen ? "\u25BE " : "\u25B8 ") + words;
+        planHead.title = tr("plan.strip.tip");
+        planHead.setAttribute("aria-expanded", String.valueOf(planOpen));
+        planList.replaceChildren();
+        for (int i = 0; i < n; i++) {
+            JsPropertyMap<Object> t = Js.uncheckedCast(todos.getAt(i));
+            String st = str(t, "status");
+            HTMLElement li = el("li");
+            li.textContent = ("completed".equals(st) ? "\u2713 " : "in_progress".equals(st) ? "\u25D0 " : "\u25CB ") + str(t, "content");
+            if ("completed".equals(st)) li.className = "done";
+            planList.append(li);
+        }
+        if (planOpen) planList.removeAttribute("hidden"); else planList.setAttribute("hidden", "");
+        planStrip.removeAttribute("hidden");
     }
 
     private HTMLElement composer() {

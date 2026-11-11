@@ -286,7 +286,36 @@ class MagiToolWindow : ToolWindowFactory {
         // 압축 막대와 그 갱신 타이머. 하단을 짓는 init 블록이 쓰므로 그보다 먼저 선언한다
         // (그리는 일은 아래 [paintFold]).
         private val foldBar = javax.swing.JProgressBar(0, 1000).apply { isStringPainted = true; isVisible = false }
-        private val foldTick = javax.swing.Timer(500) { paintFold() }.apply { isRepeats = true }
+        private val foldTick = javax.swing.Timer(500) { paintFold(); paintPlan() }.apply { isRepeats = true }
+
+        // 계획 줄 — 대화 맨 위. 계획 창이 오른쪽에 따로 있어 대화를 보는 동안 지금 어디쯤인지가
+        // 안 보였다. 한 줄로 몇 단계 중 몇 번째·지금 과정을 말하고, 누르면 단계 목록이 펼쳐진다.
+        private var planOpen = false
+        private var planKey = ""
+        private val planHead = com.intellij.ui.components.JBLabel().apply {
+            border = JBUI.Borders.empty(5, 12)
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+        }
+        private val planList = JBPanel<JBPanel<*>>().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(0, 28, 6, 12)
+            isOpaque = false
+            isVisible = false
+        }
+        private val planStrip = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            border = javax.swing.BorderFactory.createMatteBorder(0, 0, 1, 0, com.intellij.ui.JBColor.border())
+            isVisible = false
+            add(planHead, BorderLayout.NORTH)
+            add(planList, BorderLayout.CENTER)
+            val toggle = object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    planOpen = !planOpen
+                    planKey = ""
+                    paintPlan()
+                }
+            }
+            planHead.addMouseListener(toggle)
+        }
         private val debounce = javax.swing.Timer(SuggestCoordinator.DEBOUNCE_DELAY_MS) { askSuggestion() }.apply { isRepeats = false }
 
         /**
@@ -797,6 +826,7 @@ class MagiToolWindow : ToolWindowFactory {
 
             // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
             // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
+            root.add(planStrip, BorderLayout.NORTH)
             root.add(scroll, BorderLayout.CENTER)
             root.add(javax.swing.JPanel(BorderLayout()).apply {
                 isOpaque = false
@@ -1115,6 +1145,35 @@ class MagiToolWindow : ToolWindowFactory {
          * 멈춘 턴과 같다. 코어가 센 값([dev.sayaya.magi.ide.usecase.FoldBar])만 그리고, 조각 수를
          * 모르면 비율을 지어내지 않고 비결정형으로 돈다. 접기가 없으면 숨는다.
          */
+
+        /** 계획 줄을 그린다. 계획이 바뀌거나 펼침이 바뀔 때만 다시 짓는다 — 0.5초 타이머가 부른다. */
+        private fun paintPlan() {
+            val todos = plan()
+            val s = dev.sayaya.magi.ide.usecase.PlanStrip.of(todos)
+            if (s == null) {
+                if (planStrip.isVisible) { planStrip.isVisible = false; planKey = ""; planStrip.parent?.revalidate() }
+                return
+            }
+            val key = planOpen.toString() + "\u0001" + todos!!.joinToString("\u0001") { it.status + ":" + it.content }
+            if (key == planKey && planStrip.isVisible) return
+            planKey = key
+            val words = if (s.finished) MagiBundle.msg("plan.strip.done", s.total)
+                else MagiBundle.msg("plan.strip", s.step, s.total, s.current)
+            planHead.text = (if (planOpen) "\u25BE " else "\u25B8 ") + words
+            planHead.toolTipText = MagiBundle.msg("plan.strip.tip")
+            planList.removeAll()
+            todos.forEach { t ->
+                val glyph = when (t.status) { "completed" -> "\u2713"; "in_progress" -> "\u25D0"; else -> "\u25CB" }
+                planList.add(com.intellij.ui.components.JBLabel("$glyph  ${t.content}").apply {
+                    foreground = if (t.status == "completed") Look.faint else Look.body
+                    border = JBUI.Borders.empty(1, 0)
+                })
+            }
+            planList.isVisible = planOpen
+            planStrip.isVisible = true
+            planStrip.revalidate(); planStrip.repaint()
+            planStrip.parent?.revalidate()
+        }
 
         private fun paintFold() {
             val p = shaper.foldProgress

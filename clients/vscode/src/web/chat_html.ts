@@ -319,6 +319,12 @@ ${idePaletteCss}
   #note:empty, #state-note:empty { display:none; }
   #fold { display:flex; align-items:center; gap:8px; padding:4px 10px; color:var(--vscode-descriptionForeground); font-size:.9em; }
   #fold[hidden] { display:none; }
+  #plan-strip { border-bottom:1px solid var(--vscode-panel-border); font-size:.9em; }
+  #plan-strip[hidden] { display:none; }
+  #plan-head { display:block; width:100%; text-align:left; padding:4px 10px; background:none; border:none; color:var(--vscode-foreground); cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:inherit; }
+  #plan-list { margin:0 0 6px; padding:0 10px 0 30px; color:var(--vscode-descriptionForeground); }
+  #plan-list[hidden] { display:none; }
+  #plan-list li.done { opacity:.6; }
   #fold progress { flex:1; min-width:60px; height:6px; accent-color:var(--vscode-progressBar-background); }
   #hint { padding:0 10px 4px; font-size:.85em; color:var(--vscode-descriptionForeground); font-family:var(--vscode-editor-font-family); }
   #refs { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; }
@@ -352,7 +358,7 @@ ${idePaletteCss}
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false"><svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg></button></header>
 <aside id="info" aria-label="컴패니언 정보" hidden></aside>
-<main id="scroll"><h1 class="sr-only">MAGI Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><p id="empty-note" hidden></p><div id="ask-body" hidden></div></main>
+<div id="plan-strip" hidden><button id="plan-head" type="button" aria-expanded="false" title="눌러서 단계 목록을 펼치거나 접습니다"></button><ol id="plan-list" hidden></ol></div><main id="scroll"><h1 class="sr-only">MAGI Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><p id="empty-note" hidden></p><div id="ask-body" hidden></div></main>
 <section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="fold" role="status" aria-label="압축 진행" hidden><progress id="fold-bar" max="1"></progress><span id="fold-text"></span></div><div id="state-note" role="region" aria-label="컴패니언 상태"></div><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>
 <div id="hint" role="region" aria-label="단축키 힌트"></div>
 <section id="reply-mode" aria-label="답변 모드" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></section>

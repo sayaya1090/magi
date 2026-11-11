@@ -248,7 +248,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     void this.edits.refresh(touched(this.events));
     // The plan rides this same stream. A second connection for it would be a second reader of one
     // fact, and the panel would disagree with the conversation for as long as they were out of step.
-    this.onPlan?.(todos(this.events));
+    const plan = todos(this.events);
+    this.onPlan?.(plan);
+    // And at the top of the conversation itself: which step of how many, and what it is on.
+    this.post({ kind: 'plan', todos: plan });
     // The context meter rides the same stream. The door for it is a capability a daemon may not
     // have, and this number arrives every turn regardless.
     this.onUsage?.(usage(this.events));

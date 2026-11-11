@@ -1525,3 +1525,9 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 
 - **새 시험**: `fold.test.ts` 「the count behind a progress note rides with it, and garbage is not turned into a count」 · 「the webview state message keeps the count, and drops it when there are no words」 · 「the bar fills by finished parts, and never invents a share for a single part」.
 - 진행 값이 없는 `state` 메시지는 예전과 같은 모양을 유지합니다(`progress` 키 자체가 없음). 기존 파서 대조 시험이 이를 지킵니다.
+
+## 대화 맨 위 계획 줄 (2026-11-12)
+
+계획(TodoWrite)은 오른쪽 계획 패널에만 있어서, 대화를 보는 동안에는 지금 어디쯤인지 보이지 않았습니다. 채팅 판 맨 위에 「N단계 중 M단계 · 지금 과정」 한 줄을 세우고, 누르면 단계 목록이 펼쳐지거나 접힙니다. 호스트는 계획 패널에 넘기던 같은 자리에서 웹뷰에 `plan` 메시지를 보냅니다.
+
+- **새 시험**: `planstrip.test.ts` 「the plan strip names the step in progress, or the next one, or says it is all done」 · 「the plan message reaches the webview with only well-formed steps」.
