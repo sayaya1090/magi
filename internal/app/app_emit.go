@@ -169,7 +169,7 @@ func (a *App) noteDoing(sid session.SessionID, callID, text string) {
 	}
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.doing, st.doingCall = text, callID
+	st.doing, st.doingCall, st.doingProgress = text, callID, nil
 	a.mu.Unlock()
 }
 
@@ -181,7 +181,7 @@ func (a *App) noteDoing(sid session.SessionID, callID, text string) {
 func (a *App) clearDoing(sid session.SessionID, callID string) {
 	a.mu.Lock()
 	if st, ok := a.stateIf(sid); ok && st.doingCall == callID {
-		st.doing, st.doingCall = "", ""
+		st.doing, st.doingCall, st.doingProgress = "", "", nil
 	}
 	a.mu.Unlock()
 }
@@ -270,4 +270,31 @@ func (a *App) NotifySlotChanged(target, plugin string) {
 		TS:    time.Now(),
 		Data:  payload,
 	})
+}
+
+// noteProgress is noteDoing with a measured count behind the words, and the same note on the bus.
+// A screen draws the count as a bar; a screen that only reads words still has the sentence.
+func (a *App) noteProgress(sid session.SessionID, actor event.Actor, callID, name, text string, p event.Progress) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	kept := p
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.doing, st.doingCall, st.doingProgress = text, callID, &kept
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.ToolProgressData{CallID: callID, Name: name, Text: text, Progress: &p})
+	a.publishTransient(sid, event.TypeToolProgress, actor, d)
+}
+
+// DoingProgress is the measured count behind Doing, when the current note has one.
+func (a *App) DoingProgress(sid session.SessionID) (event.Progress, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok || st.doing == "" || st.doingProgress == nil {
+		return event.Progress{}, false
+	}
+	return *st.doingProgress, true
 }

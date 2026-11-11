@@ -20,7 +20,14 @@
     </Grid.RowDefinitions>
 
     <!-- What it is doing, in the one word every client uses, decided by the bridge. -->
-    <TextBlock Grid.Row="0" Text="{Binding Label}" FontWeight="Bold" TextWrapping="Wrap" />
+    <StackPanel Grid.Row="0">
+      <TextBlock Text="{Binding Label}" FontWeight="Bold" TextWrapping="Wrap" />
+      <!-- The compaction bar: counted figures only. One summary part leaves it indeterminate rather
+           than inventing a share. Bound to words, not through a converter (see the button below). -->
+      <ProgressBar Height="4" Margin="0,2,0,0" Minimum="0" Maximum="1"
+                   Value="{Binding FoldValue}" IsIndeterminate="{Binding FoldIndeterminate}"
+                   Visibility="{Binding FoldVisibility}" />
+    </StackPanel>
 
     <!-- What it is running on, or why nothing could be asked. Empty most of the time. -->
     <TextBlock Grid.Row="1" Text="{Binding Detail}" TextWrapping="Wrap" Margin="0,2,0,8" Opacity="0.8" />

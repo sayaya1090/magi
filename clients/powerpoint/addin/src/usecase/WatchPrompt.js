@@ -54,6 +54,8 @@ export class WatchPrompt {
      * (`view.doingFresh`).
      */
     this.doing = '';
+    this.progress = null;
+    this.progressKey = '';
     /**
      * 답을 이미 보낸 물음의 id. **보냈다고 물음이 내려가지는 않으므로** 화면에는 단추가
      * 그대로 서 있고, 두 번 누르면 같은 call id 로 답이 두 번 간다. 둘째는 코어가 거절한다
@@ -154,8 +156,13 @@ export class WatchPrompt {
       this.onChange();
     }
 
-    if ((s.doing ?? '') !== this.doing) {
+    // 압축 막대: 문장이 같아도 센 값(조각·글자·경과)이 바뀌면 다시 그린다. 말이 없으면 센 값도 없다.
+    const progress = s.doing ? (s.progress ?? null) : null;
+    const progressKey = progress ? [progress.done, progress.total, progress.chars, progress.elapsedMs].join('/') : '';
+    if ((s.doing ?? '') !== this.doing || progressKey !== this.progressKey) {
       this.doing = s.doing ?? '';
+      this.progress = progress;
+      this.progressKey = progressKey;
       this.onChange();
     }
     return this.view;
@@ -226,6 +233,8 @@ export class WatchPrompt {
         ? null
         : 'magi 에 연결되지 않습니다 — 이 화면은 마지막으로 읽은 것을 보여 줍니다',
       doing: this.doing,
+      /** doing 뒤의 센 값 — 압축 막대가 그린다. 없으면 null. */
+      progress: this.progress,
       /**
        * 붙어 있던 컴패니언이 **다시 떴다.** 닿기는 닿는데 우리 등록은 죽은 프로세스와 같이
        * 사라졌고, 이 창이 든 대화 이름도 남의 생애의 것이다 — 조립 자리가 이걸 보고 고르는

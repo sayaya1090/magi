@@ -283,6 +283,10 @@ class MagiToolWindow : ToolWindowFactory {
         }
         /** 마지막으로 수신된 입력 자동완성 제안. Tab 키 입력 시 적용됩니다. */
         private var suggestion: String? = null
+        // 압축 막대와 그 갱신 타이머. 하단을 짓는 init 블록이 쓰므로 그보다 먼저 선언한다
+        // (그리는 일은 아래 [paintFold]).
+        private val foldBar = javax.swing.JProgressBar(0, 1000).apply { isStringPainted = true; isVisible = false }
+        private val foldTick = javax.swing.Timer(500) { paintFold() }.apply { isRepeats = true }
         private val debounce = javax.swing.Timer(SuggestCoordinator.DEBOUNCE_DELAY_MS) { askSuggestion() }.apply { isRepeats = false }
 
         /**
@@ -794,7 +798,12 @@ class MagiToolWindow : ToolWindowFactory {
             // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
             // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
             root.add(scroll, BorderLayout.CENTER)
-            root.add(bottom, BorderLayout.SOUTH)
+            root.add(javax.swing.JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(foldBar, BorderLayout.NORTH)
+                add(bottom, BorderLayout.CENTER)
+            }, BorderLayout.SOUTH)
+            foldTick.start()
             updateComposerHint()
             // 못 붙으면 **말하고 다시 붙어 본다.** 바로 아래 [offerHand] 는 못 세운 것을
             // 그대로 말하는데 이 줄은 안 했다 — 같은 init 의 두 줄이 실패를 다르게 다뤘다.
@@ -867,6 +876,7 @@ class MagiToolWindow : ToolWindowFactory {
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
             tail.stop()
+            foldTick.stop()
             inputGate.dispose()
             scroll.viewport.removeChangeListener(viewportChanged)
             tailScroll.close()
@@ -1099,6 +1109,25 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private val nextDraw = java.util.concurrent.atomic.AtomicLong(0)
         private val tail = javax.swing.Timer(130) { redrawLog() }.apply { isRepeats = false }
+
+        /**
+         * 압축 막대. 압축은 스텝 사이의 긴 모델 호출이라 그동안 전사가 그냥 멈춘다 — 밖에서 보면
+         * 멈춘 턴과 같다. 코어가 센 값([dev.sayaya.magi.ide.usecase.FoldBar])만 그리고, 조각 수를
+         * 모르면 비율을 지어내지 않고 비결정형으로 돈다. 접기가 없으면 숨는다.
+         */
+
+        private fun paintFold() {
+            val p = shaper.foldProgress
+            if (p == null) {
+                if (foldBar.isVisible) { foldBar.isVisible = false; foldBar.parent?.revalidate() }
+                return
+            }
+            val bar = dev.sayaya.magi.ide.usecase.FoldBar.of(p)
+            foldBar.isIndeterminate = bar.fraction == null
+            bar.fraction?.let { foldBar.value = (it * 1000).toInt() }
+            foldBar.string = foldText(bar)
+            if (!foldBar.isVisible) { foldBar.isVisible = true; foldBar.parent?.revalidate() }
+        }
 
         private fun redrawSoon() {
             if (closing.get() || project.isDisposed) return

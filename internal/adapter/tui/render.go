@@ -286,7 +286,7 @@ func (m *Model) transcript() string {
 		// A long-running tool's live status (wait_for polling). One ephemeral line by
 		// the spinner so the wait is visible; cleared the moment the tool's result lands.
 		b.WriteString("\n")
-		b.WriteString(indent(styleThink.Render("⏳ " + m.liveProgress)))
+		b.WriteString(indent(styleThink.Render("⏳ " + foldGlyph(m.liveCount) + m.liveProgress)))
 		b.WriteString("\n")
 		nl += 2
 	}

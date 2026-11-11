@@ -119,4 +119,19 @@ public class ActivityTests
         Assert.Null(a.Doing);
         Assert.Equal("working", a.Label());
     }
+
+    /// <summary>A panel draws a bar from numbers; the count rides beside the words and only there.</summary>
+    [Fact]
+    public void TheCountRidesBesideTheNoteAndNeverInventsAShare()
+    {
+        var a = Activity.Of(Reply("""{"id":1,"ok":true,"state":"working","doing":"compacting","progress":{"done":1,"total":3,"chars":840,"elapsedMs":12500}}"""));
+        Assert.NotNull(a.Progress);
+        Assert.Equal(840, a.Progress!.Chars);
+        Assert.Equal(1.0 / 3, a.FoldFraction()!.Value, 9);
+        var one = Activity.Of(Reply("""{"id":1,"ok":true,"state":"working","doing":"compacting","progress":{"done":0,"total":1}}"""));
+        Assert.NotNull(one.Progress);
+        Assert.Null(one.FoldFraction());
+        var bare = Activity.Of(Reply("""{"id":1,"ok":true,"state":"working","progress":{"done":0,"total":2}}"""));
+        Assert.Null(bare.Progress);
+    }
 }

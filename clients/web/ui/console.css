@@ -5443,3 +5443,6 @@
 @media (pointer:coarse) { #log .row-actions .copy { width:48px; height:48px; } }
 
 #log .row-actions .copy.done { color:var(--magi-ref-success); }
+
+/* 압축 진행 막대 — 명단 행의 진행 말 아래. 값이 없으면 브라우저가 비결정형으로 그린다. */
+progress.fold { display: block; width: 100%; height: 6px; margin-top: 4px; }

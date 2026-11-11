@@ -108,7 +108,8 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
                 Activity.Waiting -> MagiBundle.msg("status.waiting")
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
-            return "magi: $what" + (f.permission?.let { " · " + Perms.label(it) } ?: "") + turn()
+            return "magi: $what" + (f.permission?.let { " · " + Perms.label(it) } ?: "") +
+                (f.progress?.let { p -> dev.sayaya.magi.ide.usecase.FoldBar.of(p).let { " · " + it.glyph() + " " + foldText(it) } } ?: "") + turn()
         }
 
         /**
@@ -136,3 +137,11 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         }
     }
 }
+
+/**
+ * 압축 진행의 글 — 도구창 막대와 상태 표시줄이 같은 말을 쓴다. 조각 수를 모르면 그 칸을 뺀다.
+ * 숫자는 코어가 센 것뿐이다(조각·받은 글자·경과 초).
+ */
+internal fun foldText(bar: dev.sayaya.magi.ide.usecase.FoldBar): String =
+    if (bar.part.isNotEmpty()) MagiBundle.msg("fold.progress", bar.part, bar.chars, bar.seconds)
+    else MagiBundle.msg("fold.progress.open", bar.chars, bar.seconds)

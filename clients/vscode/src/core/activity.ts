@@ -1,4 +1,5 @@
 import { Response } from './protocol';
+import type { Progress } from './protocol';
 
 /**
  * What the companion is doing, in one word, decided in ONE place.
@@ -44,6 +45,8 @@ export interface Activity {
   asking?: string;
   /** The latest progress note, when a tool has said something. */
   doing?: string;
+  /** The counted figures behind the note, so a screen can draw a bar instead of parsing words. */
+  progress?: Progress;
 }
 
 /** No socket, no daemon, nothing to say. */
@@ -68,7 +71,10 @@ export function of(resp: Response | null): Activity {
     return { state: State.Waiting, asking: resp.waiting.what || resp.waiting.reason || resp.waiting.kind };
   }
   const doing = (resp.doing ?? '').trim();
-  if (doing) return { state: State.Working, doing };
+  if (doing) {
+    const progress = progressOf(resp.progress);
+    return progress ? { state: State.Working, doing, progress } : { state: State.Working, doing };
+  }
   // Say only what is known. Reaching here means it answered and said nothing further — see
   // State.Attached for why that is not "idle".
   return { state: State.Attached };
@@ -235,4 +241,12 @@ export function panelNote(a: Activity | null): { text: string; offerStart: boole
     default:
       return { text: '', offerStart: false };
   }
+}
+
+/** A progress block from the wire, or undefined when it is missing or not numbers. Never invented. */
+export function progressOf(raw: unknown): Progress | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const n = (k: string) => (typeof r[k] === 'number' && Number.isFinite(r[k] as number) ? Math.max(0, Math.floor(r[k] as number)) : 0);
+  return { done: n('done'), total: n('total'), chars: n('chars'), elapsedMs: n('elapsedMs') };
 }

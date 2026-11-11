@@ -30,6 +30,16 @@ public sealed record Activity(string State, string? Asking, string? Doing, strin
     /// </remarks>
     public bool Answered { get; init; }
 
+    /// <summary>The counted figures behind <see cref="Doing"/>, or null. Never beside silence.</summary>
+    public BridgeProgress? Progress { get; init; }
+
+    /// <summary>
+    /// How full the compaction bar is, 0..1 — or null when nobody knows (one summary part: how long
+    /// the summary will run is not known in advance), which draws a bar that only says it is moving.
+    /// </summary>
+    public double? FoldFraction() =>
+        Progress is { Total: > 1 } p ? Math.Clamp((double)p.Done, 0, p.Total) / p.Total : null;
+
     /// <summary>
     /// Read one <c>activity</c> reply.
     /// </summary>
@@ -46,7 +56,11 @@ public sealed record Activity(string State, string? Asking, string? Doing, strin
             return Unknown with { Why = reply?.Error };
         }
         return new Activity(reply.State!, Blank(reply.Asking), Blank(reply.Doing), Blank(reply.Why),
-                            reply.Setup ?? new Dictionary<string, string>()) { Answered = true };
+                            reply.Setup ?? new Dictionary<string, string>())
+        {
+            Answered = true,
+            Progress = Blank(reply.Doing) is null ? null : reply.Progress,
+        };
     }
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;

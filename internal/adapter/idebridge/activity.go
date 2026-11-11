@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/core/event"
 )
 
 // The one word a screen shows for what the companion is doing.
@@ -49,8 +50,11 @@ type activity struct {
 	State  string
 	Asking string
 	Doing  string
-	Why    string
-	Setup  map[string]string
+	// Progress is the counted figures behind Doing, or nil. Only beside a note: a count with no
+	// words is the count of something that ended.
+	Progress *event.Progress
+	Why      string
+	Setup    map[string]string
 }
 
 // activityOf reads one status reply.
@@ -66,7 +70,7 @@ func activityOf(st daemon.Status) activity {
 		return a
 	}
 	if doing := strings.TrimSpace(st.Doing); doing != "" {
-		a.State, a.Doing = Working, doing
+		a.State, a.Doing, a.Progress = Working, doing, st.Progress
 		return a
 	}
 	return a
@@ -137,6 +141,9 @@ func (b *bridge) answerActivity(id int, a activity) {
 		if v != "" {
 			resp[k] = v
 		}
+	}
+	if a.Progress != nil {
+		resp["progress"] = a.Progress
 	}
 	if len(a.Setup) > 0 {
 		resp["setup"] = a.Setup

@@ -513,6 +513,15 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 		}
 	}
 	resp.Doing, _ = eng.Doing(session.SessionID(req.Session))
+	// The count behind the note, when the engine keeps one. Optional so an engine that only speaks
+	// in words still answers the same method.
+	if pe, ok := eng.(interface {
+		DoingProgress(session.SessionID) (event.Progress, bool)
+	}); ok && resp.Doing != "" {
+		if p, ok := pe.DoingProgress(session.SessionID(req.Session)); ok {
+			resp.Progress = &p
+		}
+	}
 	if c, ok := eng.(Controller); ok {
 		resp.Permission = c.Permission()
 		resp.Backend = c.Backend()

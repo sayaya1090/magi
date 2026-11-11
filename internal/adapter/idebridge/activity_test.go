@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/core/event"
 )
 
 // Waiting beats working. A turn blocked on a person IS running, so a rule that checked "is a tool
@@ -197,4 +198,16 @@ func TestBothCopiesSpeakOneVocabulary(t *testing.T) {
 		}
 	}
 	t.Logf("낱말 %d 개를 두 사본에서 견줬다", len(want))
+}
+
+// A panel draws a bar from numbers. The count rides beside the words, and only beside them.
+func TestWorkingCarriesTheCountBehindItsNote(t *testing.T) {
+	p := &event.Progress{Done: 1, Total: 3, Chars: 840, ElapsedMs: 12500}
+	a := activityOf(daemon.Status{Doing: "compacting", Progress: p})
+	if a.State != Working || a.Progress == nil || *a.Progress != *p {
+		t.Fatalf("the count did not ride with the note: %+v", a)
+	}
+	if b := activityOf(daemon.Status{Progress: p}); b.Progress != nil {
+		t.Fatalf("a count with no words survived: %+v", b)
+	}
 }

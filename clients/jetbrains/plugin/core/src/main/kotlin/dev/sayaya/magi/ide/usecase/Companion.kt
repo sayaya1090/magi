@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.model.FileRef
+import dev.sayaya.magi.ide.model.Progress
 import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Waiting
@@ -335,6 +336,8 @@ class Companion(
     fun facts(): Facts = status().let {
         Facts(
             doing = it.doing?.takeIf { d -> d.isNotBlank() },
+            // 말이 없으면 센 값도 없다 — 말 없이 남은 숫자는 끝난 일의 숫자다.
+            progress = it.progress?.takeIf { _ -> !it.doing.isNullOrBlank() },
             permission = it.permission?.takeIf { p -> p.isNotBlank() },
             session = it.session?.takeIf { x -> x.isNotBlank() } ?: session,
             waiting = it.waiting,
@@ -377,6 +380,8 @@ class Companion(
          * 말함). 모름을 「꺼짐」으로 그리지 않으려고 null 을 그대로 나른다.
          */
         val council: Boolean?,
+        /** `doing` 뒤의 센 값. 막대를 그릴 수 있을 때만 있다. */
+        val progress: Progress? = null,
     )
 
     /**

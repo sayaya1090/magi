@@ -1133,6 +1133,8 @@ export interface WebviewReceiveAdapterOptions {
   drawAsk: (ask: Ask | null) => void;
   drawRefs: (refs: string[]) => void;
   drawState: (note: PanelNoteInfo) => void;
+  /** The compaction bar: a share and its words, or null to hide it. */
+  drawFold?: (bar: FoldBar | null) => void;
   drawEmptyNote: (text: string) => void;
   drawInfo: (info: HostToWebviewMessage & { kind: 'info' }) => void;
   setNoteText: (text: string) => void;
@@ -1253,6 +1255,7 @@ export function createWebviewReceiveHandlers(
     },
     onState(m) {
       options.drawState(m.note);
+      options.drawFold?.(foldBar(m.state?.progress));
       lastActivity = m.state ?? null;
       paintEmptyNote();
     },
@@ -1377,3 +1380,24 @@ export function formatChoiceOptions(options?: readonly string[] | null): Formatt
   };
 }
 
+
+/** What the compaction bar draws: a filled share, or null for a bar that only says it is moving. */
+export interface FoldBar {
+  fraction: number | null;
+  text: string;
+}
+
+/**
+ * The bar from the counted figures only. With several summary parts the finished share fills it;
+ * with one part nobody knows how long the summary will run, so no share is invented and the bar is
+ * left indeterminate. The characters received and seconds elapsed say it is moving, not stuck.
+ */
+export function foldBar(p: { done: number; total: number; chars: number; elapsedMs: number } | null | undefined): FoldBar | null {
+  if (!p) return null;
+  const total = Math.max(0, Math.floor(p.total) || 0);
+  const done = Math.min(Math.max(0, Math.floor(p.done) || 0), total);
+  const part = total > 0 ? Math.min(done + 1, total) + '/' + total + ' · ' : '';
+  const chars = Math.max(0, Math.floor(p.chars) || 0);
+  const seconds = Math.floor(Math.max(0, p.elapsedMs || 0) / 1000);
+  return { fraction: total > 1 ? done / total : null, text: '압축 중 ' + part + chars + '자 · ' + seconds + '초' };
+}

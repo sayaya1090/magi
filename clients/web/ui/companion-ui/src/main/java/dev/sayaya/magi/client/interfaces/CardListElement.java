@@ -169,6 +169,19 @@ public class CardListElement {
                 gl.setAttribute("aria-hidden", "true");
                 n.append(gl, DomGlobal.document.createTextNode(" " + a.doing));
                 doing.append(n);
+                // 압축 막대 — 코어가 센 값만 그린다(fleet.Agent.Progress). 조각 수를 모르면 value 를
+                // 안 줘 비결정형으로 돈다: 지어낸 비율보다 정직하다. 글자·초는 위 줄이 말한다.
+                if (a.progress != null) {
+                    elemental2.dom.HTMLProgressElement bar =
+                            jsinterop.base.Js.uncheckedCast(DomGlobal.document.createElement("progress"));
+                    bar.className = "fold";
+                    bar.max = 1;
+                    double f = dev.sayaya.magi.bridge.AgentStates.foldFraction(a);
+                    if (f >= 0) bar.value = f;
+                    String part = dev.sayaya.magi.bridge.AgentStates.foldPart(a);
+                    if (!part.isEmpty()) bar.title = part;
+                    doing.append(bar);
+                }
             }
         }
         row.append(doing);

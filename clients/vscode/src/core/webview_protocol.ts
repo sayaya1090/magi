@@ -1,7 +1,7 @@
 import * as v from 'valibot';
 import { Row } from './transcript';
 import { Ask } from './touched';
-import { Activity } from './activity';
+import { Activity, progressOf } from './activity';
 
 export type PaintedRow = Row & { label: string; speaker?: string; badge?: string };
 
@@ -369,12 +369,19 @@ export const StateMessageSchema = v.pipe(
         state: v.string(),
         asking: v.optional(v.unknown()),
         doing: v.optional(v.unknown()),
+        progress: v.optional(v.unknown()),
       }),
-      v.transform((s): Activity => ({
-        state: s.state as Activity['state'],
-        asking: typeof s.asking === 'string' ? s.asking : undefined,
-        doing: typeof s.doing === 'string' ? s.doing : undefined,
-      })),
+      v.transform((s): Activity => {
+        const a: Activity = {
+          state: s.state as Activity['state'],
+          asking: typeof s.asking === 'string' ? s.asking : undefined,
+          doing: typeof s.doing === 'string' ? s.doing : undefined,
+        };
+        // Only when there is one: a message with no count keeps exactly the shape it always had.
+        const progress = typeof s.doing === 'string' && s.doing ? progressOf(s.progress) : undefined;
+        if (progress) a.progress = progress;
+        return a;
+      }),
     ),
     note: v.pipe(
       v.object({

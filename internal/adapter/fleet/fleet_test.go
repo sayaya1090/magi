@@ -355,8 +355,16 @@ func TestFleetMarksTheLocalDaemon(t *testing.T) {
 
 // askingEngine is a daemon blocked on whatever it is told to be blocked on.
 type askingEngine struct {
-	ask   *app.Ask
-	doing string
+	ask      *app.Ask
+	doing    string
+	progress *event.Progress
+}
+
+func (e *askingEngine) DoingProgress(session.SessionID) (event.Progress, bool) {
+	if e.progress == nil || e.doing == "" {
+		return event.Progress{}, false
+	}
+	return *e.progress, true
 }
 
 func (e *askingEngine) Doing(session.SessionID) (string, bool) { return e.doing, e.doing != "" }
@@ -384,6 +392,11 @@ func (f *fleetFixture) serveAsking(workdir, sid string, ask *app.Ask) string {
 // serveDoing is the same, for a daemon that is not blocked on anybody and is inside a long call.
 func (f *fleetFixture) serveDoing(workdir, sid, doing string) string {
 	return f.serveEngine(workdir, sid, &askingEngine{doing: doing})
+}
+
+// serveProgress is serveDoing with the measured count behind the note.
+func (f *fleetFixture) serveProgress(workdir, sid, doing string, p event.Progress) string {
+	return f.serveEngine(workdir, sid, &askingEngine{doing: doing, progress: &p})
 }
 
 func (f *fleetFixture) serveEngine(workdir, sid string, eng daemon.Engine) string {
@@ -831,6 +844,30 @@ func TestAWorkingDaemonSaysWhatItIsInsideOf(t *testing.T) {
 	}
 	if a.Doing != "check 6, 4m12s elapsed, still running" {
 		t.Errorf("the live note did not reach the listing: %q", a.Doing)
+	}
+}
+
+// A console draws a bar from numbers. The count behind the note rides into the listing beside it,
+// and like the note it is only carried for an agent that is working.
+func TestAWorkingDaemonCarriesTheCountBehindItsNote(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	want := event.Progress{Done: 1, Total: 3, Chars: 840, ElapsedMs: 12500}
+	f.serveProgress(wd, "folding", "compacting the conversation — summary part 2/3", want)
+	f.session("folding", wd, "a long task", 2, false)
+	a := find(t, f.get(), "folding")
+	if a.State != fleet.Working {
+		t.Fatalf("state %q, want working", a.State)
+	}
+	if a.Progress == nil || *a.Progress != want {
+		t.Fatalf("the count did not reach the listing: %+v", a.Progress)
+	}
+
+	wd2 := shortTempDir(t)
+	f.serveProgress(wd2, "folded", "compacting the conversation — summary part 2/3", want)
+	f.session("folded", wd2, "a long task", 2, true)
+	if b := find(t, f.get(), "folded"); b.Progress != nil {
+		t.Errorf("an idle agent carries a count: %+v", b.Progress)
 	}
 }
 

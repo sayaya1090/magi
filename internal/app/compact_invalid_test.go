@@ -119,7 +119,7 @@ func (hardSummaryErrorLLM) StreamChat(context.Context, port.ChatRequest) (<-chan
 }
 func TestHardSummaryErrorNeverBecomesIncompleteMemory(t *testing.T) {
 	a, sid, wd := newWorkflowApp(t, hardSummaryErrorLLM{}, nil, Config{Permission: "allow"})
-	if got := a.askForBrief(context.Background(), a.agentFor(session.Session{ID: sid}), session.Session{ID: sid, Workdir: wd}, "summarize", summaryMessage("history")); got != "" {
+	if got := a.askForBrief(context.Background(), a.agentFor(session.Session{ID: sid}), session.Session{ID: sid, Workdir: wd}, "summarize", summaryMessage("history"), 1, 1); got != "" {
 		t.Fatalf("hard failure accepted: %q", got)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/version"
 )
@@ -236,6 +237,8 @@ type Info struct {
 	// The pair is the whole of "what is happening in there right now": one says it has stopped and
 	// needs a person, the other says it has not.
 	Doing string `json:"-"`
+	// Progress is the measured count behind Doing, from the same dial, or nil.
+	Progress *event.Progress `json:"-"`
 	// Permission is the approval mode it is on now. Not in the file either: the mode changes at
 	// runtime, so a record written at startup would be the mode it USED to be on.
 	Permission string `json:"-"`
@@ -575,7 +578,7 @@ func Probe(out []Info) []Info {
 	var wg sync.WaitGroup
 	for i := range out {
 		s, sid := out[i].Socket, out[i].Session
-		out[i].Live, out[i].Asking, out[i].Doing = false, nil, ""
+		out[i].Live, out[i].Asking, out[i].Doing, out[i].Progress = false, nil, "", nil
 		wg.Add(1)
 		go func(i int, s string, sid string) {
 			defer wg.Done()
@@ -591,7 +594,7 @@ func Probe(out []Info) []Info {
 				return
 			}
 			if st, serr := cl.Status(sid); serr == nil {
-				out[i].Asking, out[i].Doing = st.Asking, st.Doing
+				out[i].Asking, out[i].Doing, out[i].Progress = st.Asking, st.Doing, st.Progress
 				out[i].Permission, out[i].User = st.Permission, st.User
 				out[i].Backend, out[i].Model = st.Backend, st.Model
 			}

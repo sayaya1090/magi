@@ -761,6 +761,10 @@ type Response struct {
 	// making ordinary steady progress has nothing to say beyond the log, and only the tools that
 	// spend minutes inside one call (a wait, a compaction, a stalled stream) speak up.
 	Doing string `json:"doing,omitempty"`
+	// Progress is the measured count behind Doing, when the note has one (a compaction's summary
+	// parts, characters received, time elapsed), so a screen can draw a bar instead of parsing the
+	// sentence. Absent beside a note that is words only.
+	Progress *event.Progress `json:"progress,omitempty"`
 	// Out and Exit answer the shell method. Exit is a pointer so that a zero — which is the answer
 	// a caller most wants to be able to trust — is distinguishable from a reply that carried no
 	// exit code at all.
@@ -1175,6 +1179,8 @@ type Status struct {
 	Asking *Waiting
 	// Doing is what a still-running tool last reported about itself.
 	Doing string
+	// Progress is the measured count behind Doing, or nil.
+	Progress *event.Progress
 	// Permission is the approval mode it is on now.
 	Permission string
 	// Backend is the base URL its LLM requests go to now.

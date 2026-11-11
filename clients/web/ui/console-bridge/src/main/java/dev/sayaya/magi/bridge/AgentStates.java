@@ -76,4 +76,24 @@ public final class AgentStates {
         if (a == null) return "—";
         return turning(a) || a.steps > 0 ? String.valueOf(a.steps) : "—";
     }
+
+    /**
+     * 압축 막대의 채움 비율(0..1). 조각이 하나뿐이거나 센 값이 없으면 -1 — 요약이 얼마나 길어질지
+     * 아무도 모르므로 비율을 지어내지 않고, 화면은 그때 비결정형 막대를 그린다.
+     */
+    public static double foldFraction(FleetAgent a) {
+        FleetProgress p = a == null ? null : a.progress;
+        if (p == null || !(p.total > 1)) return -1;
+        double done = Math.max(0, Math.min(p.done, p.total));
+        return done / p.total;
+    }
+
+    /** 「2/3」 — 몇 번째 조각을 몇 개 중에 쓰는 중인가. 모르면 빈 문자열. */
+    public static String foldPart(FleetAgent a) {
+        FleetProgress p = a == null ? null : a.progress;
+        if (p == null || !(p.total > 0)) return "";
+        long total = (long) p.total;
+        long done = (long) Math.max(0, Math.min(p.done, p.total));
+        return Math.min(done + 1, total) + "/" + total;
+    }
 }

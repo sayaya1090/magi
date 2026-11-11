@@ -77,6 +77,9 @@ const replyTargetEl = document.getElementById('reply-target') as HTMLElement;
 const replyCancelEl = document.getElementById('reply-cancel') as HTMLElement;
 const noteEl = document.getElementById('note') as HTMLElement;
 const stateNoteEl = document.getElementById('state-note') as HTMLElement;
+const foldEl = document.getElementById('fold') as HTMLElement;
+const foldBarEl = document.getElementById('fold-bar') as HTMLProgressElement;
+const foldTextEl = document.getElementById('fold-text') as HTMLElement;
 const emptyNoteEl = document.getElementById('empty-note') as HTMLElement;
 const say = document.getElementById('say') as HTMLTextAreaElement;
 const refsEl = document.getElementById('refs') as HTMLElement;
@@ -422,6 +425,17 @@ function drawEmptyNote(text: string) {
   emptyNoteEl.hidden = !text;
 }
 
+/* The compaction bar. Values only: the share and words are decided in the adapter (foldBar). With
+   no share the value attribute is removed, which is what makes a progress element indeterminate. */
+function drawFold(bar: { fraction: number | null; text: string } | null) {
+  if (!foldEl || !foldBarEl || !foldTextEl) return;
+  if (!bar) { foldEl.hidden = true; return; }
+  if (bar.fraction === null) foldBarEl.removeAttribute('value');
+  else foldBarEl.value = bar.fraction;
+  foldTextEl.textContent = bar.text;
+  foldEl.hidden = false;
+}
+
 function drawState(note: ReceiveOptions['drawState'] extends (n: infer N) => void ? N : never) {
   /* ⚠ **지속 상태는 제 자리에 산다.** 이 함수는 오래 note 칸에 썼고, 같은 칸에 "sending…" 같은
      일시 알림도 살았다. 둘이 한 싱크라 서로를 지웠다: 컴패니언이 죽어 「없습니다」와 시작 단추가
@@ -765,6 +779,7 @@ const receiveHandlers = createWebviewReceiveHandlers({
   drawAsk,
   drawRefs,
   drawState,
+  drawFold,
   drawInfo: (m) => { info = m; drawInfo(); },
   drawEmptyNote,
   setNoteText: (t) => { noteEl.textContent = t; },

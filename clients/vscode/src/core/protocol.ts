@@ -196,6 +196,8 @@ export interface Response {
   waiting?: Waiting;
   /** `status`: the latest progress note from a tool still running. Empty most of the time. */
   doing?: string;
+  /** `status`: the counted figures behind `doing` (a compaction's parts, characters, elapsed), when there are any. */
+  progress?: Progress;
   /**
    * `status`: how this companion is set up right now.
    *
@@ -424,4 +426,15 @@ export interface RosterRow {
   live?: boolean;
   sighting?: boolean;
   ageSeconds?: number;
+}
+
+/**
+ * Counted, never estimated (core `event.Progress`). `total` 0 means the number of parts is unknown,
+ * and a bar must not invent a share then.
+ */
+export interface Progress {
+  done: number;
+  total: number;
+  chars: number;
+  elapsedMs: number;
 }

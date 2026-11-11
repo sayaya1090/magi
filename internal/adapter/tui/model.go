@@ -189,13 +189,14 @@ type Model struct {
 	blocks          []block
 	pendingShell    []shellRun // `!`-run commands+output staged to prepend to the next prompt's context
 	liveText        string
-	liveProgress    string    // latest live progress note from a long-running tool (wait_for); cleared when its result lands
-	liveThink       string    // streaming reasoning ("thinking") for the current turn
-	showThink       bool      // expand ALL reasoning blocks (default collapsed); toggle ctrl+t
-	liveThinkStart  int       // content line where the streaming "thinking" block begins (-1 = not shown); for click-to-toggle
-	blockLineStart  []int     // content line where each cached block begins (for click mapping)
-	lastThoughtAt   time.Time // last thought-toggle click time (to swallow a double-click's 2nd toggle)
-	lastThoughtLine int       // content line of that last thought click
+	liveProgress    string          // latest live progress note from a long-running tool (wait_for); cleared when its result lands
+	liveCount       *event.Progress // the counted figures behind liveProgress (a compaction's parts), or nil
+	liveThink       string          // streaming reasoning ("thinking") for the current turn
+	showThink       bool            // expand ALL reasoning blocks (default collapsed); toggle ctrl+t
+	liveThinkStart  int             // content line where the streaming "thinking" block begins (-1 = not shown); for click-to-toggle
+	blockLineStart  []int           // content line where each cached block begins (for click mapping)
+	lastThoughtAt   time.Time       // last thought-toggle click time (to swallow a double-click's 2nd toggle)
+	lastThoughtLine int             // content line of that last thought click
 	perm            *permReq
 	quest           *questReq // pending ask_user question modal (nil = none)
 	searching       bool      // transcript search bar open (keys captured)
@@ -735,7 +736,7 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	m.history = m.recentHistory(msgs)           // seed ↑/↓ recall + tab completion, across conversations
 	m.histIdx, m.histDraft = len(m.history), "" // a switched session carries no draft
 	m.cache = m.cache[:0]
-	m.liveText, m.liveThink, m.liveProgress, m.running, m.activeAgents = "", "", "", false, nil
+	m.liveText, m.liveThink, m.liveProgress, m.liveCount, m.running, m.activeAgents = "", "", "", nil, false, nil
 	// Two more things belong to the session being LEFT. The council detail is a full-screen panel
 	// carrying another session's verdict and its evidence, and it stayed up over the resumed
 	// transcript with nothing marking it as foreign — the header said the new session, the panel

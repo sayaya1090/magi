@@ -14,21 +14,32 @@ import (
 
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 type fakeEngine struct {
-	mu      sync.Mutex
-	got     []string
-	fail    error
-	waiting *app.Ask // what this engine claims to be blocked on, if anything
-	doing   string   // what this engine claims a running tool last reported
+	mu       sync.Mutex
+	got      []string
+	fail     error
+	waiting  *app.Ask // what this engine claims to be blocked on, if anything
+	doing    string   // what this engine claims a running tool last reported
+	progress *event.Progress
 }
 
 func (f *fakeEngine) Doing(session.SessionID) (string, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.doing, f.doing != ""
+}
+
+func (f *fakeEngine) DoingProgress(session.SessionID) (event.Progress, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.progress == nil || f.doing == "" {
+		return event.Progress{}, false
+	}
+	return *f.progress, true
 }
 
 func (f *fakeEngine) Waiting(session.SessionID) (app.Ask, bool) {
@@ -718,4 +729,33 @@ func shortRoot() string {
 		return "" // os.TempDir(): C:\Users\<user>\AppData\Local\Temp — short enough
 	}
 	return "/tmp"
+}
+
+// A screen draws a bar from numbers, not from a sentence. The count behind a progress note (a
+// compaction's summary parts, characters received, time elapsed) has to cross the socket beside
+// the words, and be absent when the note is words only.
+func TestStatusCarriesTheCountBehindAProgressNote(t *testing.T) {
+	eng := &fakeEngine{doing: "waiting on the build"}
+	c := start(t, eng)
+	st, err := c.Status("s_1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if st.Progress != nil {
+		t.Fatalf("a note with no count crossed with one: %+v", st.Progress)
+	}
+	eng.mu.Lock()
+	eng.doing = "compacting the conversation — summary part 2/3"
+	eng.progress = &event.Progress{Done: 1, Total: 3, Chars: 840, ElapsedMs: 12500}
+	eng.mu.Unlock()
+	st, err = c.Status("s_1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if st.Progress == nil || *st.Progress != (event.Progress{Done: 1, Total: 3, Chars: 840, ElapsedMs: 12500}) {
+		t.Fatalf("the count did not survive the wire: %+v", st.Progress)
+	}
+	if st.Doing == "" {
+		t.Fatal("the words were dropped for the count")
+	}
 }

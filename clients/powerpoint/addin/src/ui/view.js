@@ -22,7 +22,7 @@ import { mdToDom, looksLikeMd } from './md.js';
 import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
-  userBadge, isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
+  userBadge, isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine, foldBar,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, capsQuiet, councilButton, brandState, streamLine, contextMeter, modelPicker,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
@@ -144,7 +144,7 @@ export class View {
     // **붙기 전에는 「못 닿는다」가 아니다**(`askKind`). 그 사실을 뷰가 값에 실어 준다 —
     // 판정은 화면 밖에서 하고, 여기서는 넘기기만 한다.
     const v = { ...this.watchPrompt.view, bound: this.bound };
-    this.renderDoing(v.doing, v.doingFresh);
+    this.renderDoing(v.doing, v.doingFresh, v.progress);
 
     // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다. 무엇이 서명에
     // 들고 무엇이 일부러 빠지는지는 `askSig` 가 안다 — 화면 밖이라야 잰다.
@@ -203,11 +203,28 @@ export class View {
    * 않는다: 마지막으로 뭘 하다 놓쳤는지는 사람이 알아야 할 것이고, 그건 지난 일이라 여전히
    * 참이다. 시제를 바꾸는 것이 곧 그 차이를 적는 일이다.
    */
-  renderDoing(doing, fresh) {
+  renderDoing(doing, fresh, progress) {
     const el = $('#doing');
     const line = doingLine(doing, fresh);
     el.textContent = line.text;
     el.hidden = line.hidden;
+    // 압축 막대 — 지금 읽은 센 값일 때만. 못 닿는 동안의 숫자는 지난 일의 숫자라 막대로 안 세운다.
+    const bar = foldBar(fresh && doing ? progress : null);
+    let pb = document.getElementById('doing-bar');
+    if (!bar) {
+      if (pb) pb.hidden = true;
+      return;
+    }
+    if (!pb) {
+      pb = document.createElement('progress');
+      pb.id = 'doing-bar';
+      pb.max = 1;
+      el.after(pb);
+    }
+    if (bar.fraction === null) pb.removeAttribute('value');
+    else pb.value = bar.fraction;
+    pb.title = bar.part;
+    pb.hidden = false;
   }
 
   lostEl(text) {

@@ -2,6 +2,7 @@ package dev.sayaya.magi.domain;
 
 import dev.sayaya.magi.bridge.AgentStates;
 import dev.sayaya.magi.bridge.FleetAgent;
+import dev.sayaya.magi.bridge.FleetProgress;
 import dev.sayaya.magi.component.Spans;
 import dev.sayaya.magi.client.domain.Versions;
 
@@ -17,6 +18,23 @@ class AgentStatesTest {
         assertTrue(AgentStates.orderOf("working") < AgentStates.orderOf("idle"));
         assertTrue(AgentStates.orderOf("idle") < AgentStates.orderOf("abandoned"));
         assertTrue(AgentStates.orderOf("stopped") < AgentStates.orderOf("remote"));
+    }
+
+    /** 압축 막대는 센 값만 그린다 — 조각이 하나면 남은 양을 모르므로 비율을 지어내지 않는다. */
+    @Test void theFoldBarFillsByFinishedPartsAndNeverInventsAShare() {
+        FleetAgent a = new FleetAgent();
+        a.state = "working";
+        assertEquals(-1, AgentStates.foldFraction(a), 0);
+        assertEquals("", AgentStates.foldPart(a));
+        a.progress = new FleetProgress();
+        a.progress.done = 1;
+        a.progress.total = 3;
+        assertEquals(1.0 / 3, AgentStates.foldFraction(a), 1e-9);
+        assertEquals("2/3", AgentStates.foldPart(a));
+        a.progress.done = 0;
+        a.progress.total = 1;
+        assertEquals(-1, AgentStates.foldFraction(a), 0);
+        assertEquals("1/1", AgentStates.foldPart(a));
     }
 
     @Test void goneIsOneTile() {

@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.model.LogEvent
+import dev.sayaya.magi.ide.model.Progress
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -148,6 +149,16 @@ class Rows {
         private set
 
     /**
+     * 지금 도는 압축의 센 값 — `name=compact` 인 `tool.progress` 가 싣는 것.
+     *
+     * 압축은 스텝 사이의 긴 모델 호출이라 그동안 전사에 아무것도 안 선다. 밖에서 보면 멈춘
+     * 턴과 같다. 행이 아니라 세션의 사실로 들고(심의 중과 같은 이유) 창의 막대가 읽는다.
+     * 압축 사실(`compaction`)·턴 끝·센 값 없는 압축 말이 오면 걷는다.
+     */
+    @Volatile var foldProgress: Progress? = null
+        private set
+
+    /**
      * 에이전트의 계획(TodoWrite). 행이 아니라 세션의 사실이다 — 매번 **전체**가 온다(코어
      * `TodosChangedData`: 델타를 재생하는 독자는 처음부터 틀린다). `todos.changed` 는 사실
      * 타입이라 재생에 실리므로, 다시 붙은 창도 마지막 계획을 안다. 새 문이 필요 없던 이유다.
@@ -223,8 +234,9 @@ class Rows {
             }
             "interjection.answered" -> answered(e)
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
-            "compaction" -> compaction(e)
+            "compaction" -> { foldProgress = null; compaction(e) }
             "turn.finished" -> {
+                foldProgress = null
                 // 실행-증거 게이트 미통과 상태(`unverified`) 처리:
                 // 코어는 산출물 변경 후 독립 검증 실행을 통과하지 못했을 때 `unverified: true` 플래그를 발행합니다
                 // ("labeled UNVERIFIED rather than laundered into a confident success").
@@ -306,6 +318,7 @@ class Rows {
             // 쌓으면 판정보다 시끄러워진다 — 코어도 이것만 transient 로 낸다(영속 안 됨).
             // 세션의 사실로 들고, 표시줄이 읽는다.
             "council.deliberating" -> deliberating(e)
+            "tool.progress" -> foldNote(e)
             "council.verdict" -> verdict(e)
             "council.decided" -> decided(e)
             // 나머지는 전사가 아니라 다른 자리의 사실이다 — 표가 그렇게 정한다.
@@ -641,6 +654,17 @@ class Rows {
             opened = true,
         )
         return true
+    }
+
+    /** 압축의 진행 말. 행을 만들지 않는다 — 막대의 사실만 갱신한다. 다른 도구의 말은 안 건드린다. */
+    private fun foldNote(e: LogEvent): Boolean {
+        val d = e.data?.jsonObject ?: return false
+        if (d["name"]?.jsonPrimitive?.content != "compact") return false
+        foldProgress = (d["progress"] as? kotlinx.serialization.json.JsonObject)?.let { p ->
+            fun n(k: String) = p[k]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+            Progress(done = n("done").toInt(), total = n("total").toInt(), chars = n("chars").toInt(), elapsedMs = n("elapsedMs"))
+        }
+        return false
     }
 
     /** 한 멤버에게 묻는 중. 행을 만들지 않는다 — 세션의 사실만 갱신한다. */

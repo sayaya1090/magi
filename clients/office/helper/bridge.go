@@ -446,6 +446,11 @@ func (b *Bridge) Status() (map[string]any, error) {
 		}
 		out["reachable"] = true
 		out["doing"] = st.Doing
+		// The counted figures behind the note (a compaction's parts, characters, elapsed), so the
+		// task pane can draw a bar instead of parsing the sentence. Absent when the note is words only.
+		if st.Progress != nil {
+			out["progress"] = st.Progress
+		}
 		out["permission"] = st.Permission
 		out["backend"] = st.Backend
 		out["profile"] = st.Profile

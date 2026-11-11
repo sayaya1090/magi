@@ -183,3 +183,13 @@ type Event struct {
 	TS        time.Time         `json:"ts"`
 	Data      json.RawMessage   `json:"data"`
 }
+
+// Progress is counted, never estimated. Done of Total whole units are finished (Total 0 means the
+// number of units is unknown, and a bar must not pretend otherwise); Chars and ElapsedMs only grow
+// while the unit in hand runs.
+type Progress struct {
+	Done      int   `json:"done"`
+	Total     int   `json:"total"`
+	Chars     int   `json:"chars"`
+	ElapsedMs int64 `json:"elapsedMs"`
+}

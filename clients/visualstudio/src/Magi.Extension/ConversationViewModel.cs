@@ -119,6 +119,21 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     [DataMember]
     public string StartVisibility => State == ActivityState.NotRunning ? "Visible" : "Collapsed";
 
+    private bool _folding;
+    private double? _foldFraction;
+
+    /// <summary>The compaction bar. Words, not a converter — the same rule as <see cref="StartVisibility"/>.</summary>
+    [DataMember]
+    public string FoldVisibility => _folding ? "Visible" : "Collapsed";
+
+    /// <summary>One summary part: nobody knows how far along it is, so the bar only says it is moving.</summary>
+    [DataMember]
+    public bool FoldIndeterminate => _foldFraction is null;
+
+    /// <summary>Finished parts over all parts, when there are several.</summary>
+    [DataMember]
+    public double FoldValue => _foldFraction ?? 0;
+
     /// <summary>
     /// The tree this panel speaks for, shown at the head of <see cref="Detail"/>.
     /// </summary>
@@ -144,6 +159,11 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     {
         State = activity.State;
         Label = activity.Label();
+        _folding = activity.Progress is not null;
+        _foldFraction = activity.FoldFraction();
+        RaiseNotifyPropertyChangedEvent(nameof(FoldVisibility));
+        RaiseNotifyPropertyChangedEvent(nameof(FoldIndeterminate));
+        RaiseNotifyPropertyChangedEvent(nameof(FoldValue));
         var setup = activity.Setup;
         var parts = new List<string>();
         foreach (var key in new[] { "model", "backend", "permission" })

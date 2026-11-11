@@ -66,7 +66,7 @@ public class LayeringTests
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
         Assert.Equal(
-            new[] { "Activity", "ActivityState", "BridgeReply", "BridgeRequest", "BridgeSession",
+            new[] { "Activity", "ActivityState", "BridgeProgress", "BridgeReply", "BridgeRequest", "BridgeSession",
                     "Companion", "DaemonInfo", "Locate", "Wire" },
             types);
     }

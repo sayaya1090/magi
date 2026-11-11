@@ -484,6 +484,9 @@ type ToolProgressData struct {
 	CallID string `json:"callId"`
 	Name   string `json:"name"`
 	Text   string `json:"text"`
+	// Progress is the measured count behind Text, when there is one, so a screen can draw a bar
+	// instead of parsing the sentence. Absent for notes that are words only.
+	Progress *Progress `json:"progress,omitempty"`
 }
 
 // ToolArgsJSON is the ONE place that decides what a call's arguments look like on the wire.

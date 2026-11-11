@@ -36,6 +36,8 @@ export class HelperStatus extends StatusPort {
       // 「모름」과 「빈 이름」을 가른다(WatchPrompt: `!== undefined`).
       session: typeof st?.session === 'string' ? st.session : undefined,
       doing: st?.doing ?? '',
+      // 압축의 센 값(조각·글자·경과). 없거나 객체가 아니면 null — 지어내지 않는다.
+      progress: st?.progress && typeof st.progress === 'object' ? st.progress : null,
       why: st?.why ?? '',
       streamLive: st?.streamLive === true,
       // **붙어 있던 컴패니언이 다시 뜬 것과 「닿는다」를 안 뭉갠다.** 소켓 경로는 그대로라

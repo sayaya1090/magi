@@ -166,6 +166,7 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.ToolProgressData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.liveProgress = strings.TrimSpace(d.Text)
+			m.liveCount = d.Progress
 		}
 
 	case event.TypePartAppended:
@@ -455,7 +456,7 @@ func (m *Model) applyEvent(e event.Event) {
 		m.awaitingTurnReqID = false
 		m.liveText = ""
 		m.liveThink = ""
-		m.liveProgress = ""
+		m.liveProgress, m.liveCount = "", nil
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
@@ -545,7 +546,7 @@ func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 			})
 		}
 	case session.PartToolResult:
-		m.liveProgress = "" // the tool that was reporting progress has now returned
+		m.liveProgress, m.liveCount = "", nil // the tool that was reporting progress has now returned
 		if d.Part.ToolResult != nil {
 			m.foldToolResult(d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult),
 				!d.Part.ToolResult.IsError, d.Part.ToolResult.Advisory)
@@ -667,7 +668,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 	m.clearQueuedGlyphs()
 	m.liveText = ""
 	m.liveThink = ""
-	m.liveProgress = ""
+	m.liveProgress, m.liveCount = "", nil
 	m.activeAgents = nil
 	m.councilRound = 0
 	m.councilMember = ""

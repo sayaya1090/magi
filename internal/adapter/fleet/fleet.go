@@ -20,6 +20,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/identity"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/cluster"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
 
@@ -268,6 +269,10 @@ type Agent struct {
 	// for a turn making calls; it answers nothing for a turn that has been inside one call for ten
 	// minutes, which is exactly when somebody starts wondering if it is stuck.
 	Doing string `json:"doing,omitempty"`
+	// Progress is the measured count behind Doing (a compaction's summary parts, characters,
+	// elapsed time), set and cleared with it, so a console can draw a bar. Absent when the note
+	// is words only.
+	Progress *event.Progress `json:"progress,omitempty"`
 	// Permission is the approval mode this companion is on right now — ask, auto, allow or deny.
 	// It changes at runtime and decides both what gets a prompt and how long that prompt waits, so
 	// a console offering to change it has to be able to say what it is changing from.
@@ -370,6 +375,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		case in.Live && isOpen:
 			a.State, a.Steps, a.Task = Working, open.Steps, Clip(theWork(open.Text), 160)
 			a.Doing = Clip(in.Doing, 160)
+			a.Progress = in.Progress
 		case in.Live:
 			a.State = Idle
 		case isOpen:

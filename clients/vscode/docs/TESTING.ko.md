@@ -1518,3 +1518,10 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 `chat_host.test.ts`는 시작 시 데몬이 없었다가 연결되는 경우 최근 대화를 자동으로 열고 스트림을 중복 생성하지 않는지 확인합니다. `plan_host.test.ts`는 드롭다운 값의 허용 목록, 세션 고정, 중복 변경 차단과 프로바이더 API 선택을 검증합니다. Playwright `sidebar_inline_controls_and_locales`는 한국어·영어 패널에서 현재 값, 키보드 스위치, 적용 중 표시, 선택 중 포커스 유지와 320/840px 폭을 확인합니다. 같은 실행에서 각 행의 시각과 복사 버튼의 우측 좌표도 비교합니다.
 
 도구 인자는 펼치면 요약을 숨기고 제목 아래에 원문을 표시합니다. 접으면 원문 대신 요약이 복원됩니다. `diff` 묶음은 제목·원문 좌표와 요약의 표시 전환을 검증합니다. 이번 로컬 검증은 단위·호스트 623 pass / 7 skip, Playwright 정순·역순 각 54개 시나리오(자산 검사 포함 7개 테스트) 통과입니다.
+
+## 압축 진행 막대 (2026-11-11)
+
+압축은 스텝 사이의 긴 모델 호출이라 그동안 전사가 멈춘 것처럼 보였습니다. 데몬이 `status` 의 `doing` 옆에 센 값(`progress`: 끝난 조각·전체 조각·받은 글자·경과 ms)을 싣고, 채팅 판이 상태 줄 위에 `<progress>` 막대로 그립니다. 조각이 하나뿐이면 남은 양을 알 수 없으므로 비율을 지어내지 않고 비결정형 막대로 둡니다.
+
+- **새 시험**: `fold.test.ts` 「the count behind a progress note rides with it, and garbage is not turned into a count」 · 「the webview state message keeps the count, and drops it when there are no words」 · 「the bar fills by finished parts, and never invents a share for a single part」.
+- 진행 값이 없는 `state` 메시지는 예전과 같은 모양을 유지합니다(`progress` 키 자체가 없음). 기존 파서 대조 시험이 이를 지킵니다.

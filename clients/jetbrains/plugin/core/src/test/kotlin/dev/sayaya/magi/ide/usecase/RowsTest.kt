@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.model.Actor
 import dev.sayaya.magi.ide.model.LogEvent
+import dev.sayaya.magi.ide.model.Progress
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -576,6 +577,24 @@ class RowsTest {
         // 답이 오면 「묻는 중」은 걷힌다 — 답이 온 뒤에도 서 있으면 화면이 거짓말을 한다.
         r.feed(ev("council.verdict", """{"round":1,"member":"Melchior","decision":"done","rationale":"ok"}"""))
         assertNull(r.councilAsking, "평결이 온 멤버는 더 이상 묻는 중이 아니다")
+    }
+
+    @Test
+    fun `압축 진행은 행이 아니라 막대의 사실이고 접기가 끝나면 걷힌다`() {
+        val r = Rows()
+        val before = r.list().size
+        r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":1,"total":3,"chars":840,"elapsedMs":12500}}"""))
+        assertEquals(before, r.list().size, "진행 말은 행을 만들지 않는다")
+        assertEquals(Progress(1, 3, 840, 12500), r.foldProgress)
+        // 다른 도구의 진행 말은 압축 막대를 건드리지 않는다.
+        r.feed(ev("tool.progress", """{"name":"wait_for","text":"check 6"}"""))
+        assertEquals(Progress(1, 3, 840, 12500), r.foldProgress)
+        // 센 값 없는 압축 말(「접었다 — A → B」)이 오면 막대는 걷힌다.
+        r.feed(ev("tool.progress", """{"name":"compact","text":"compacted"}"""))
+        assertNull(r.foldProgress)
+        r.feed(ev("tool.progress", """{"name":"compact","text":"compacting","progress":{"done":0,"total":1,"chars":10,"elapsedMs":1000}}"""))
+        r.feed(ev("turn.finished", """{}"""))
+        assertNull(r.foldProgress, "턴이 끝나면 도는 압축은 없다")
     }
 
     @Test

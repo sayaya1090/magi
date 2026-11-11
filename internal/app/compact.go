@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -219,7 +220,7 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 		if looks > 0 {
 			what = fmt.Sprintf("%d narrated, %d old read-only looks that can be taken again", n-looks, looks)
 		}
-		a.emitToolProgress(s.ID, actor, "", "compact",
+		a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
 			fmt.Sprintf("freed the window by eliding %d bulky tool result(s) — %s", n, what))
 	}
 	return n, saved >= overTokens
@@ -293,6 +294,7 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 		return false
 	}
 	boundary = snapped
+	defer a.clearDoing(s.ID, compactDoingCall)
 	// Index the compacted region into recallable topics (deterministic — by file path,
 	// each carrying its tool-action trail as a brief), then write the overall summary.
 	shards := shardBy(older, s.Workdir, topicKeysOf(a.sessionToolSpecs(s.ID, agent)))
@@ -302,7 +304,7 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	// it is the one long pause on this page that had no line to explain it. Tool calls have said
 	// what they are doing all along; this rides the same channel, which is also the only one a
 	// browser in another process can read (noteDoing).
-	a.emitToolProgress(s.ID, actor, "", "compact",
+	a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
 		fmt.Sprintf("compacting the conversation — summarising %d earlier messages", len(older)))
 	// The summary ACCUMULATES. The folded region holds the previous fold's brief as its first
 	// message, and summarising it again with the new turns made every fold a summary of a summary:
@@ -312,14 +314,14 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	prior := priorSummary(evs, boundary)
 	summary := a.summarizeViaLLM(ctx, agent, s, withoutBriefs(older))
 	if summary == "" {
-		a.emitToolProgress(s.ID, actor, "", "compact", "compaction did not produce a summary — keeping the conversation as it is")
+		a.emitToolProgress(s.ID, actor, compactDoingCall, "compact", "compaction did not produce a summary — keeping the conversation as it is")
 		return false
 	}
 	if prior != "" {
 		summary = prior + "\n\n" + summary
 	}
 	if cap := a.briefCapTokens(s); cap > 0 && len(summary)/4 > cap {
-		a.emitToolProgress(s.ID, actor, "", "compact",
+		a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
 			fmt.Sprintf("the running brief outgrew its share (%d tokens over %d) — condensing it", len(summary)/4, cap))
 		if condensed := a.condenseBrief(ctx, agent, s, summary); condensed != "" {
 			summary = condensed
@@ -343,7 +345,7 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	// And say what it cost. The numbers are the ones the fact carries, so the line and the record
 	// cannot disagree — and "what did I just lose" is the question somebody has when they see the
 	// transcript fold underneath them.
-	a.emitToolProgress(s.ID, actor, "", "compact",
+	a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
 		fmt.Sprintf("compacted — %d → %d tokens, %d messages summarised, %d topics recallable",
 			tokensBefore, tokensAfter, len(older), len(shards)))
 	// The real prompt count is now a measurement of a context that no longer exists — and it is
@@ -838,21 +840,25 @@ const summaryMaterialBytes = 128 << 10
 func (a *App) summarizeMaterial(ctx context.Context, agent AgentSpec, s session.Session, system, material string) string {
 	for depth := 0; depth < 8; depth++ {
 		if len(material) <= summaryMaterialBytes {
-			return a.askForBrief(ctx, agent, s, system, summaryMessage(material))
+			return a.askForBrief(ctx, agent, s, system, summaryMessage(material), 1, 1)
 		}
-		var briefs []string
-		remainder := material
-		for len(remainder) > 0 {
-			if ctx.Err() != nil {
-				return ""
-			}
+		// Cut first, ask after: the progress note says "part i of n", and n is only honest if the
+		// cuts are known before the first one is sent.
+		var blocks []string
+		for remainder := material; len(remainder) > 0; {
 			n := min(len(remainder), summaryMaterialBytes)
 			for n < len(remainder) && !utf8.RuneStart(remainder[n]) {
 				n--
 			}
-			block := remainder[:n]
+			blocks = append(blocks, remainder[:n])
 			remainder = remainder[n:]
-			brief := a.askForBrief(ctx, agent, s, system+"\nThis is one consecutive chunk of the source. Preserve its facts; do not invent missing context.", summaryMessage(block))
+		}
+		var briefs []string
+		for i, block := range blocks {
+			if ctx.Err() != nil {
+				return ""
+			}
+			brief := a.askForBrief(ctx, agent, s, system+"\nThis is one consecutive chunk of the source. Preserve its facts; do not invent missing context.", summaryMessage(block), i+1, len(blocks))
 			if brief == "" {
 				return ""
 			}
@@ -902,7 +908,7 @@ func (a *App) condenseBrief(ctx context.Context, agent AgentSpec, s session.Sess
 		system += "\n\n" + d
 	}
 	return a.askForBrief(ctx, agent, s, system,
-		[]session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: brief}}}})
+		[]session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: brief}}}}, 1, 1)
 }
 
 // personsWords is what the person wrote in these messages, joined — the sample the language of the
@@ -925,13 +931,13 @@ func personsWords(msgs []session.Message) string {
 
 // askForBrief is the one model call both briefs go through: the session's provider, the
 // configured summariser model when there is one, and the truncation marking every brief needs.
-func (a *App) askForBrief(ctx context.Context, agent AgentSpec, s session.Session, system string, msgs []session.Message) string {
+func (a *App) askForBrief(ctx context.Context, agent AgentSpec, s session.Session, system string, msgs []session.Message, part, total int) string {
 	prov := a.providerFor(agent)
 	if prov == nil {
 		// The same guard generate_step grew: a reader-only App has no backend, and dereferencing
 		// nil here took the process down. Nothing to summarize on is a failure to report, not a
 		// crash.
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, compactDoingCall, "compact",
 			"compact: no model backend to summarize with, so this fold was skipped")
 		return ""
 	}
@@ -955,24 +961,24 @@ func (a *App) askForBrief(ctx context.Context, agent AgentSpec, s session.Sessio
 		// caller. Left silent, the caller re-tried the same doomed call every step and the turn
 		// died with a raw overflow no one could connect to a failing compaction. Reported, and
 		// still returns "" so the caller keeps the history rather than replacing it with nothing.
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, compactDoingCall, "compact",
 			fmt.Sprintf("compact: the summarizer was refused (%v) — history kept, not folded", err))
 		return ""
 	}
-	text, cut := drainStream(stream)
+	text, cut := a.drainBrief(s.ID, part, total, stream)
 	if event.CompactionSummaryError(text) {
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact", "compact: provider returned an error instead of a summary — history kept, not folded")
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, compactDoingCall, "compact", "compact: provider returned an error instead of a summary — history kept, not folded")
 		return ""
 	}
 	if cut != nil && !errors.Is(cut, port.ErrStreamCut) {
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact", "compact: summarizer failed — history kept, not folded")
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, compactDoingCall, "compact", "compact: summarizer failed — history kept, not folded")
 		return ""
 	}
 	if cut != nil {
 		// This summary BECOMES the session's memory of everything it replaces, so a half-written
 		// one silently discards conversation. Report it; the caller still uses what arrived rather
 		// than losing the region entirely.
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, compactDoingCall, "compact",
 			fmt.Sprintf("compact: the summary was CUT OFF after %d chars — %v (the compacted region is summarized incompletely)", len(text), cut))
 		// …and say it INSIDE the summary. The line above goes to the operator; the reader who
 		// depends on this text is the agent, and for it this paragraph is now the whole of what
@@ -1035,4 +1041,47 @@ func estimateTokens(sys string, msgs []session.Message) int {
 		}
 	}
 	return chars / 4
+}
+
+// compactProgressEvery is how often a running summary says how far it has got.
+var compactProgressEvery = 2 * time.Second
+
+// compactDoingCall files the fold's notes under their own id, so the fold clears what it said when
+// it ends and nothing else's note is wiped by it (the council does the same with its own).
+const compactDoingCall = "compact"
+
+// drainBrief is drainStream that keeps saying how far it has got. A summary is one long model call
+// between steps and nothing else is drawn meanwhile; from outside that looks like a wedged turn.
+// Everything it reports is counted: which part of how many, characters received, seconds elapsed.
+func (a *App) drainBrief(sid session.SessionID, part, total int, stream <-chan port.ProviderEvent) (string, error) {
+	var b strings.Builder
+	var cut error
+	chars := 0
+	started := time.Now()
+	say := func() {
+		el := time.Since(started)
+		a.noteProgress(sid, event.Actor{Kind: event.ActorSystem, ID: "compact"}, compactDoingCall, "compact",
+			fmt.Sprintf("compacting the conversation — summary part %d/%d · %d chars received · %ds elapsed", part, total, chars, int(el.Seconds())),
+			event.Progress{Done: part - 1, Total: total, Chars: chars, ElapsedMs: el.Milliseconds()})
+	}
+	say()
+	tick := time.NewTicker(compactProgressEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case ev, ok := <-stream:
+			if !ok {
+				return b.String(), cut
+			}
+			switch ev.Type {
+			case port.ProviderText:
+				b.WriteString(ev.Text)
+				chars += utf8.RuneCountInString(ev.Text)
+			case port.ProviderError:
+				cut = ev.Err
+			}
+		case <-tick.C:
+			say()
+		}
+	}
 }

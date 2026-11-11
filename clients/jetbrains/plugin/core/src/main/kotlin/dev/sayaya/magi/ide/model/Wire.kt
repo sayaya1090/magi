@@ -126,6 +126,18 @@ data class PluginSlot(
     val actions: List<SlotAction>? = null,
 )
 
+/**
+ * 진행 값 — 코어 `event.Progress`. 센 값이지 어림이 아니다. `total` 이 0 이면 몇 개 중
+ * 몇인지 모른다는 뜻이고, 막대는 그때 비율을 지어내지 않는다.
+ */
+@Serializable
+data class Progress(
+    val done: Int = 0,
+    val total: Int = 0,
+    val chars: Int = 0,
+    val elapsedMs: Long = 0,
+)
+
 @Serializable
 data class Response(
     val knowledge: List<KnowledgeItem>? = null,
@@ -136,6 +148,8 @@ data class Response(
     val error: String? = null,
     val waiting: Waiting? = null,
     val doing: String? = null,
+    /** `doing` 뒤의 센 값(압축의 조각·글자·경과). 막대가 문장을 파싱하지 않고 그린다. */
+    val progress: Progress? = null,
     val out: String? = null,
     val exit: Int? = null,
     val permission: String? = null,

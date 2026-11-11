@@ -1010,3 +1010,18 @@ export function slotsBoard(state) {
     })),
   };
 }
+
+/**
+ * 압축 막대 — 코어가 센 값에서만 만든다. 조각이 여럿이면 끝난 조각의 비율로 채우고, 하나뿐이면
+ * 요약이 얼마나 길어질지 아무도 모르므로 비율을 지어내지 않는다(fraction: null → 비결정형 막대).
+ */
+export function foldBar(p) {
+  if (!p || typeof p !== 'object') return null;
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+  const total = n(p.total);
+  const done = Math.min(n(p.done), total);
+  return {
+    fraction: total > 1 ? done / total : null,
+    part: total > 0 ? `${Math.min(done + 1, total)}/${total}` : '',
+  };
+}

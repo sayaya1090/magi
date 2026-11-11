@@ -90,6 +90,8 @@ public sealed class BridgeReply
     [JsonPropertyName("state")] public string? State { get; set; }
     [JsonPropertyName("asking")] public string? Asking { get; set; }
     [JsonPropertyName("doing")] public string? Doing { get; set; }
+    /// <summary>The counted figures behind <see cref="Doing"/> (a compaction's parts), or null.</summary>
+    [JsonPropertyName("progress")] public BridgeProgress? Progress { get; set; }
     [JsonPropertyName("setup")] public Dictionary<string, string>? Setup { get; set; }
 
     // daemon
@@ -142,4 +144,16 @@ public static class ActivityState
     public const string Working = "working";
     public const string Waiting = "waiting";
     public const string Unknown = "unknown";
+}
+
+/// <summary>
+/// The counted figures behind a progress note — core <c>event.Progress</c>. Never estimated:
+/// <see cref="Total"/> 0 means the number of parts is unknown, and a bar must not invent a share.
+/// </summary>
+public sealed class BridgeProgress
+{
+    [JsonPropertyName("done")] public long Done { get; set; }
+    [JsonPropertyName("total")] public long Total { get; set; }
+    [JsonPropertyName("chars")] public long Chars { get; set; }
+    [JsonPropertyName("elapsedMs")] public long ElapsedMs { get; set; }
 }

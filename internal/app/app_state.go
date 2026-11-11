@@ -180,8 +180,9 @@ type sessionState struct {
 	// this process's bus and nowhere else, so a viewer in another process cannot see it at all —
 	// and "what is it actually doing" is the question somebody has about a turn that has been open
 	// for five minutes. Turn-scoped: last turn's note is not news about this one.
-	doing     string
-	doingCall string
+	doing         string
+	doingCall     string
+	doingProgress *event.Progress
 	// handoffs is the work this session has out with other companions and has not heard back on.
 	// Whole-session rather than turn-scoped: a peer can answer after the turn that asked ends, and
 	// clearing the record at a turn boundary would make the watch still running invisible.
@@ -476,7 +477,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.interjectSeen = keep
 	st.expPtrQ, st.expPtr = "", ""
 	st.turnNotes = nil
-	st.doing, st.doingCall = "", ""
+	st.doing, st.doingCall, st.doingProgress = "", "", nil
 	st.ragDecisions, st.contextDecisions, st.systemDecisions, st.arrivalDecisions = nil, nil, nil, nil
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	st.liveTurnTask = ""
