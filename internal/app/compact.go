@@ -320,12 +320,8 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	if prior != "" {
 		summary = prior + "\n\n" + summary
 	}
-	if cap := a.briefCapTokens(s); cap > 0 && len(summary)/4 > cap {
-		a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
-			fmt.Sprintf("the running brief outgrew its share (%d tokens over %d) — condensing it", len(summary)/4, cap))
-		if condensed := a.condenseBrief(ctx, agent, s, summary); condensed != "" {
-			summary = condensed
-		}
+	if cap := a.briefCapTokens(s); cap > 0 && briefTokens(summary) > cap {
+		summary = a.condenseIfItShrinks(ctx, agent, s, actor, summary, cap)
 	}
 
 	compaction := event.CompactionData{
@@ -720,6 +716,72 @@ func (a *App) briefCapTokens(s session.Session) int {
 
 const briefShare = 0.1
 
+// A condense is taken only when it comes back at most this share of what it was given. Measured
+// live (2026-11-12, oh-my-openagent): the condense rewrote 91–99% of its input, took 6–7 minutes
+// every fold, and was taken anyway — the brief never shrank, so the next fold paid again.
+const condenseKeep = 0.7
+
+// After a condense that did not shrink, the next one waits until the brief has grown this much past
+// the size that failed: on a brief that barely moved, the same model gives the same answer.
+const condenseRetryGrowth = 1.25
+
+// briefTokens estimates a brief's tokens. Bytes/4 is right for English and about half the truth for
+// Korean: measured 0.515–0.528 tokens per byte (0.66–0.70 per character) on these briefs, so the
+// running brief reached roughly twice its cap before anything noticed. ASCII is counted at four
+// bytes a token and any other character at one token, which lands close to that measurement.
+func briefTokens(s string) int {
+	ascii, other := 0, 0
+	for _, r := range s {
+		if r < 0x80 {
+			ascii++
+		} else {
+			other++
+		}
+	}
+	return ascii/4 + other
+}
+
+// condenseIfItShrinks condenses an overgrown brief and takes the result only if it is really
+// shorter. A result that is not, or a brief that has barely grown since one that was not, leaves
+// the brief as it is — the model is not asked again for the same answer.
+func (a *App) condenseIfItShrinks(ctx context.Context, agent AgentSpec, s session.Session, actor event.Actor, brief string, cap int) string {
+	size := briefTokens(brief)
+	if failed := a.condenseFailed(s.ID); failed > 0 && float64(size) < float64(failed)*condenseRetryGrowth {
+		a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
+			fmt.Sprintf("the running brief is over its share (%d tokens over %d), but the last condense did not shrink it — keeping it until it grows", size, cap))
+		return brief
+	}
+	a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
+		fmt.Sprintf("the running brief outgrew its share (%d tokens over %d) — condensing it", size, cap))
+	condensed := a.condenseBrief(ctx, agent, s, brief, cap)
+	if condensed == "" {
+		return brief
+	}
+	if got := briefTokens(condensed); float64(got) > float64(size)*condenseKeep {
+		a.emitToolProgress(s.ID, actor, compactDoingCall, "compact",
+			fmt.Sprintf("the condensed brief came back barely shorter (%d tokens of %d) — keeping the original", got, size))
+		a.setCondenseFailed(s.ID, size)
+		return brief
+	}
+	a.setCondenseFailed(s.ID, 0)
+	return condensed
+}
+
+func (a *App) condenseFailed(sid session.SessionID) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.condenseFailedAt
+	}
+	return 0
+}
+
+func (a *App) setCondenseFailed(sid session.SessionID, size int) {
+	a.mu.Lock()
+	a.stateLocked(sid).condenseFailedAt = size
+	a.mu.Unlock()
+}
+
 // tailBoundary is the seq below which everything is folded so that what remains fits keepTokens:
 // messages are walked from the newest backwards, and the first one that does not fit is folded
 // whole (its last seq is the boundary). 0 when everything fits — then the caller's own floor
@@ -902,8 +964,11 @@ func asMaterial(msgs []session.Message) []session.Message {
 
 // condenseBrief rewrites the running brief, shorter. "" when the model gave nothing — the caller
 // keeps the long one rather than losing it.
-func (a *App) condenseBrief(ctx context.Context, agent AgentSpec, s session.Session, brief string) string {
+func (a *App) condenseBrief(ctx context.Context, agent AgentSpec, s session.Session, brief string, target int) string {
 	system := condensePrompt
+	// A number, not just "shorter": told only to keep every identifier verbatim, the model kept
+	// nearly everything (measured 91–99% of the input written back).
+	system += fmt.Sprintf("\n\nThe brief is about %d tokens. Write at most %d tokens: merge and drop the detail of closed items first, and keep open items and the names in play.", briefTokens(brief), target)
 	if d := langDirective(brief); d != "" {
 		system += "\n\n" + d
 	}

@@ -183,6 +183,10 @@ type sessionState struct {
 	doing         string
 	doingCall     string
 	doingProgress *event.Progress
+	// condenseFailedAt is the size (briefTokens) of the last running brief whose condense came back
+	// barely shorter; 0 when none has. The next fold does not pay for another condense until the
+	// brief has grown past it by condenseRetryGrowth.
+	condenseFailedAt int
 	// handoffs is the work this session has out with other companions and has not heard back on.
 	// Whole-session rather than turn-scoped: a peer can answer after the turn that asked ends, and
 	// clearing the record at a turn boundary would make the watch still running invisible.
