@@ -593,6 +593,23 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Sandbox: port.SandboxSpec{Mode: a.sandboxModeFor(sid), Workdir: workdir, AllowNet: !agent.Trial && a.cfg.Permission == "allow",
 			ReadOnly: trialReadOnlyPaths(a.cfg, workdir, agent.Trial), TempDir: isolatedTemp, StrictWrites: agent.Trial},
 	})
+	// Cut by the process shutting down while it ran: the same uncertainty a crash leaves, so the
+	// same answer startup recovery gives — it may have run, it was not run again, the person decides.
+	// What it returned when stopped is kept below that, for whoever checks its effect.
+	if ctx.Err() != nil && a.cutByShutdown(sid) {
+		got := ""
+		if err != nil {
+			got = err.Error()
+		} else if json.Unmarshal(res.Content, &got) != nil {
+			got = string(res.Content)
+		}
+		a.noteShutdownCut(sid, tc.CallID)
+		resultEmitted = true
+		a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(fmt.Sprintf(
+			"interrupted: magi shut down while %s was running; it may have run, in part or in full. "+
+				"It was not run again — check its effect before continuing.\n\n[what it returned when stopped]\n%s", tc.Name, got)))), true)
+		return
+	}
 	if err != nil {
 		resultEmitted = true
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(err.Error()))), true)

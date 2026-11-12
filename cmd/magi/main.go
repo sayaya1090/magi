@@ -1058,6 +1058,12 @@ func runWithContext(runCtx context.Context) int {
 		return startDetached(daemon.SocketPath(plat.ConfigDir(), wd), os.Args[1:], dialSocket, os.Stderr)
 	}
 
+	// MCP connections close LAST (defers run in reverse): after Shutdown has cancelled the runs and
+	// waited for them, and after the plugins' shutdown. Closed first, a tool call in flight on one of
+	// them failed as a dropped connection before the run was told it was ending, so it was recorded
+	// as an ordinary error rather than as a call a shutdown cut.
+	defer mcpMgr.Close()
+
 	// Plugin host. sid is created just below (CreateSession) and the host needs it now, so it is
 	// passed by pointer — see startPluginHost.
 	var sid session.SessionID
@@ -1087,7 +1093,6 @@ func runWithContext(runCtx context.Context) int {
 			fmt.Fprintf(os.Stderr, "magi: shutdown grace passed; runs still going, left for recovery: %v\n", left)
 		}
 	}()
-	defer mcpMgr.Close()
 	for name, s := range cfg.MCP {
 		var err error
 		if s.URL != "" {

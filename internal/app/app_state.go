@@ -238,6 +238,9 @@ type sessionState struct {
 	// "your newest request runs next" over the top of the request it had just discarded.
 	// Nil means no cancel is in flight; empty-but-non-nil means a cancel with nothing to clear.
 	cancelSweep map[string]bool
+	// shutdownCut lists the tool calls a shutdown cut while they ran: they may have done their work,
+	// so the turn that held them closes as needing the person, not as resumable.
+	shutdownCut []string
 	// bornWait is closed when the in-flight session.created append (bear) finishes. A second
 	// event racing the first through bornStore used to find born already nil, sail past, and win
 	// the store's lock — landing before created and failing "first append must include

@@ -353,8 +353,22 @@ loop-stop-3: fake replies [tool-call]×N, no declaration   ⇒ finish path asks 
 Rule: on ctx cancellation (Interrupt) the running step stops, partial results are kept, and an
 interrupted event is emitted.
 
+Restart rules. A tool records `tool.started` durably before it runs, and a call whose start cannot
+be recorded is answered as not run. A run cut by shutdown rather than by a person closes as
+`error{code:"interrupted"}`: resumable when no tool was running, otherwise not resumable, with the
+cut call answered as "may have run … not run again". The next daemon start closes what a killed
+process left open: an unanswered call with no `tool.started` gets "never started", one with a start
+gets "may have run", and in a log that holds no `tool.started` at all (written before magi recorded
+starts) every unanswered call gets "may have run". Nothing is re-run; a turn with an uncertain call is
+left to the person. Results are written before the interruption and `turn.finished`; if any of them
+cannot be saved the turn stays open for the next start, and an interruption saved without its
+`turn.finished` has the end added then. A turn the person cancelled is not touched.
+
 ```
 loop-int-1: Interrupt during streaming  ⇒ stop immediately, received text persisted as part.appended
+loop-int-2: shutdown cuts a running bash ⇒ its result says "may have run", interrupted, not resumable
+loop-int-3: restart after SIGKILL        ⇒ unanswered calls paired once, turn.finished written once
+loop-int-4: result save refused          ⇒ turn left open; next start pairs it and closes it
 ```
 
 ### F-LOOP-PERMISSION — permission gating

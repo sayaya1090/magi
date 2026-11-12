@@ -21,11 +21,24 @@ var crashActor = event.Actor{Kind: event.ActorUser, ID: "test"}
 // turn.finished. Then it returns a FRESH App over the same store, the way the next start sees it.
 func crashedLog(t *testing.T, started ...string) (*App, *jsonl.Store, session.SessionID, string) {
 	t.Helper()
+	return crashedLogAs(t, false, started...)
+}
+
+// crashedLogAs is crashedLog with the writer's version chosen: a legacy log comes from a magi that
+// never wrote tool.started, so the absence of one says nothing about whether a call ran.
+func crashedLogAs(t *testing.T, legacy bool, started ...string) (*App, *jsonl.Store, session.SessionID, string) {
+	t.Helper()
 	ctx := context.Background()
 	dir, wd := t.TempDir(), t.TempDir()
 	store, _ := jsonl.New(dir)
 	old := New(store, &stuckLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
 	sid, _ := old.CreateSession(ctx, command.CreateSession{Workdir: wd, Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
+	if !legacy { // an earlier turn of a start-recording magi
+		sb, _ := json.Marshal(event.ToolStartedData{CallID: "c_before", Tool: "glob"})
+		if err := old.appendFact(ctx, sid, event.TypeToolStarted, crashActor, sb); err != nil {
+			t.Fatal(err)
+		}
+	}
 	b, _ := json.Marshal(event.PromptSubmittedData{MessageID: "m_user", Parts: []session.Part{{Kind: session.PartText, Text: "do it"}}})
 	if err := old.appendFact(ctx, sid, event.TypePromptSubmitted, crashActor, b); err != nil {
 		t.Fatal(err)
@@ -56,6 +69,7 @@ func resultsByCall(t *testing.T, evs []event.Event) map[string]session.ToolResul
 // A call that started and left no result may have changed the world: recovery pairs it with a
 // result that SAYS so, never runs it again, and closes the turn as needing the person — not as
 // something a "continue" may silently pick up. Run twice, it writes nothing the second time.
+// SPEC F-LOOP-INTERRUPT loop-int-3.
 func TestRecoveryClosesACrashedTurnAndHandsUncertainCallsToThePerson(t *testing.T) {
 	ctx := context.Background()
 	a, store, sid, wd := crashedLog(t, "c_write")

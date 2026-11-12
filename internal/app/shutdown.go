@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -37,10 +39,36 @@ func (a *App) Shutdown(grace time.Duration) []session.SessionID {
 // resumable, the same ending a transient backend failure gets, so the next start (and anyone
 // reading the log) can tell it from a turn the person cancelled.
 func (a *App) noteShutdownInterrupt(ctx context.Context, sid session.SessionID) {
-	b, err := json.Marshal(event.ErrorData{Code: "interrupted", Resumable: true,
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	cut := st.shutdownCut
+	st.shutdownCut = nil
+	a.mu.Unlock()
+	data := event.ErrorData{Code: "interrupted", Resumable: len(cut) == 0,
 		Message: "interrupted: magi shut down mid-turn. Nothing after the last saved step was lost or re-run — " +
-			"send a follow-up such as \"continue\" to pick it up"})
+			"send a follow-up such as \"continue\" to pick it up"}
+	if len(cut) > 0 {
+		data.Message = fmt.Sprintf("interrupted: magi shut down while %d tool call(s) were running (%s); they may have run. "+
+			"Nothing was re-run — check their effect, then say how to continue", len(cut), strings.Join(cut, ", "))
+	}
+	b, err := json.Marshal(data)
 	if err == nil {
 		a.appendBestEffort(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, b)
 	}
+}
+
+// cutByShutdown reports whether sid's run is being ended by the process going away rather than by
+// a person pressing stop.
+func (a *App) cutByShutdown(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.closed && a.stateLocked(sid).cancelSweep == nil
+}
+
+// noteShutdownCut remembers a call a shutdown cut mid-run, for noteShutdownInterrupt.
+func (a *App) noteShutdownCut(sid session.SessionID, callID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	st.shutdownCut = append(st.shutdownCut, callID)
 }

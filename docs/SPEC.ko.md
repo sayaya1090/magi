@@ -287,8 +287,22 @@ loop-stop-3: fake replies [tool-call]×N, no declaration    ⇒ finish path asks
 ### F-LOOP-INTERRUPT — 중단
 규칙: ctx 취소(Interrupt) 시 진행 스텝 중단, 부분 결과 보존, interrupted 이벤트.
 
+재시작 규칙입니다. 도구는 실행 전에 `tool.started`를 디스크에 확정하며, 시작을 기록하지 못한 호출은
+실행하지 않았다는 결과로 짝을 맞춥니다. 사용자가 아니라 종료로 끊긴 실행은 `error{code:"interrupted"}`로
+닫습니다. 실행 중인 도구가 없었으면 재개 가능이고, 있었으면 재개 불가이며 그 호출에는 "may have run … not
+run again" 결과를 붙입니다. 강제로 죽은 프로세스가 열어 둔 턴은 다음 데몬 기동이 닫습니다. `tool.started`가
+없는 미응답 호출에는 "never started"를, 시작 기록이 있는 호출에는 "may have run"을 붙이고, `tool.started`가
+한 줄도 없는 로그(시작을 기록하기 전 버전이 쓴 로그)에서는 모든 미응답 호출에 "may have run"을 붙입니다.
+어떤 것도 다시 실행하지 않으며, 불확실한 호출이 있는 턴은 사용자 판단에 맡깁니다. 결과를 먼저 쓰고
+중단 기록과 `turn.finished`를 뒤에 씁니다. 하나라도 저장하지 못하면 턴을 열어 두어 다음 기동이 마저
+처리하고, 중단 기록만 저장되고 `turn.finished`가 빠진 턴도 그때 끝을 보충합니다. 사용자가 취소한 턴은
+건드리지 않습니다.
+
 ```
 loop-int-1: Interrupt during streaming  ⇒ stop immediately, received text persisted as part.appended
+loop-int-2: shutdown cuts a running bash ⇒ its result says "may have run", interrupted, not resumable
+loop-int-3: restart after SIGKILL        ⇒ unanswered calls paired once, turn.finished written once
+loop-int-4: result save refused          ⇒ turn left open; next start pairs it and closes it
 ```
 
 ### F-LOOP-PERMISSION — 권한 게이팅
