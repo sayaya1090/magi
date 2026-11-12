@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"testing"
 	"time"
 
@@ -62,5 +63,19 @@ func TestClassifyFallsBackToWording(t *testing.T) {
 	}
 	if got := classifyBackend(context.Canceled).Kind; got.Retryable() {
 		t.Errorf("a cancellation is the user's, never retried: kind %s", got)
+	}
+}
+
+// A server that closes the connection before any response header: net/http returns *url.Error
+// wrapping io.EOF. The adapter used to retry it; it is a network failure, judged by structure.
+func TestPreResponseEOFIsANetworkFailure(t *testing.T) {
+	for _, err := range []error{
+		&url.Error{Op: "Post", URL: "http://127.0.0.1:1/v1/chat/completions", Err: io.EOF},
+		fmt.Errorf("llm: %w", &url.Error{Op: "Post", URL: "http://x", Err: io.EOF}),
+		&url.Error{Op: "Post", URL: "http://x", Err: io.ErrUnexpectedEOF},
+	} {
+		if got := classifyBackend(err).Kind; got != port.KindNetwork {
+			t.Errorf("%v: kind %q, want network", err, got)
+		}
 	}
 }

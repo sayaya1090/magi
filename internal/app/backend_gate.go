@@ -30,6 +30,10 @@ type backendGates struct {
 	mu  sync.Mutex
 	now func() time.Time
 	m   map[string]*gateState
+	// seq numbers every recorded transient failure. A ticket remembers the number it was admitted
+	// under, so an answer to a request that was already in flight when a newer refusal arrived does
+	// not clear that refusal: it says how the backend was BEFORE, not after.
+	seq uint64
 }
 
 type gateState struct {
@@ -37,6 +41,7 @@ type gateState struct {
 	kind     port.BackendErrorKind
 	failures int
 	probing  bool
+	gen      uint64 // seq of the last failure recorded here
 }
 
 // gateTicket is one admitted request; done reports how it went. A zero ticket's done is a no-op.
@@ -44,6 +49,7 @@ type gateTicket struct {
 	g     *backendGates
 	key   string
 	probe bool
+	seen  uint64 // g.seq when admitted
 }
 
 func (g *backendGates) clock() time.Time {
@@ -61,7 +67,7 @@ func (g *backendGates) admit(key string) (gateTicket, error) {
 	defer g.mu.Unlock()
 	s := g.m[key]
 	if s == nil {
-		return gateTicket{g: g, key: key}, nil
+		return gateTicket{g: g, key: key, seen: g.seq}, nil
 	}
 	if now := g.clock(); now.Before(s.until) {
 		return gateTicket{}, gateRefusal(s, s.until.Sub(now), "the backend is cooling down after a refusal another request got")
@@ -71,9 +77,9 @@ func (g *backendGates) admit(key string) (gateTicket, error) {
 			return gateTicket{}, gateRefusal(s, gateCooldownBase, "the backend kept failing; one probe request is out and the rest wait for its answer")
 		}
 		s.probing = true
-		return gateTicket{g: g, key: key, probe: true}, nil
+		return gateTicket{g: g, key: key, probe: true, seen: g.seq}, nil
 	}
-	return gateTicket{g: g, key: key}, nil
+	return gateTicket{g: g, key: key, seen: g.seq}, nil
 }
 
 // errGateHeld marks a refusal the gate made itself: the backend was NOT called. The main step waits
@@ -111,6 +117,13 @@ func (t gateTicket) done(err error) {
 	}
 	cls := classifyBackend(err)
 	if err == nil || !cls.Kind.Retryable() {
+		if s != nil && s.gen > t.seen {
+			// a failure was recorded after this request went out: its answer is older news
+			if t.probe {
+				s.probing = false
+			}
+			return
+		}
 		delete(g.m, t.key)
 		return
 	}
@@ -121,6 +134,8 @@ func (t gateTicket) done(err error) {
 		s = &gateState{}
 		g.m[t.key] = s
 	}
+	g.seq++
+	s.gen = g.seq
 	s.failures++
 	s.probing = false
 	s.kind = cls.Kind

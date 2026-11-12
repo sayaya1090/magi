@@ -146,3 +146,45 @@ func TestCooldownIsSharedByEveryCallerOfAProvider(t *testing.T) {
 		}
 	}
 }
+
+// A request admitted BEFORE another caller earned a cooldown says nothing about the backend after
+// that refusal: its success must not clear the newer Retry-After. Reported against 4c5c26bc.
+func TestAStaleSuccessDoesNotClearANewerCooldown(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	g := &backendGates{now: func() time.Time { return now }}
+	a, err := g.admit("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := g.admit("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.done(&port.BackendError{Kind: port.KindRateLimit, Status: 429, RetryAfter: 60 * time.Second, Cause: errors.New("429")})
+	b.done(nil)
+	now = now.Add(10 * time.Second)
+	if _, err := g.admit("k"); err == nil {
+		t.Fatal("a success admitted before the 429 cleared its 60s cooldown; the next request went out after 10s")
+	}
+	// the same for a permanent failure that was already in flight
+	c, _ := g.admit("j")
+	d, _ := g.admit("j")
+	c.done(&port.BackendError{Kind: port.KindRateLimit, Status: 429, RetryAfter: 60 * time.Second, Cause: errors.New("429")})
+	d.done(&port.BackendError{Kind: port.KindInvalidRequest, Status: 400, Cause: errors.New("400")})
+	if _, err := g.admit("j"); err == nil {
+		t.Fatal("a permanent failure admitted before the 429 cleared its cooldown")
+	}
+	// a success admitted AFTER the cooldown still clears it
+	now = now.Add(2 * time.Minute)
+	e, err := g.admit("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.done(nil)
+	g.mu.Lock()
+	_, left := g.m["k"]
+	g.mu.Unlock()
+	if left {
+		t.Fatal("a success admitted after the refusal should reset the gate")
+	}
+}

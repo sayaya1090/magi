@@ -886,7 +886,8 @@ OpenAI 호환 클라이언트 하나가 base URL만으로 Ollama / LiteLLM / vLL
   종류·상태·`Retry-After`(초 또는 HTTP-date, 상한 없음)·요청 ID를 담은 `port.BackendError`로
   돌아가고, 재시도 여부는 하네스가 정합니다(`internal/app/transient.go`, `backend_gate.go`;
   MANUAL "프로바이더 복원력"). `-http-timeout`은 토큰 스트림을 끊지 않으면서 첫 헤더까지의 시간을
-  제한합니다.
+  제한합니다. 응답 헤더 전에 끊긴 연결은 `io.EOF`를 감싼 `*url.Error`로 돌아오고, 하네스는 이를
+  `network`로 읽습니다.
 - `ListModels`(`-list-models`)가 백엔드 `/v1/models` 카탈로그를 가져옵니다.
 
 ---

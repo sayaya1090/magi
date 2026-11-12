@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // stepResponse is one model response for one loop step, with the ids its parts were streamed
@@ -212,9 +213,11 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 			continue
 		}
 		if res.stalled {
-			serr := fmt.Errorf("llm: no response after %d stalled attempt(s) (backend silent ~%s each)", sAttempt+1, firstTokenBound())
-			a.emitError(ctx, sid, agentActor, serr.Error())
-			return stepResponse{}, serr
+			// A backend silent on every try is a transient failure like a 503: it ends in the common
+			// shape (kind timeout, resumable, how to carry on), not as a bare error with no way forward.
+			serr := &port.BackendError{Kind: port.KindTimeout, Cause: fmt.Errorf("llm: no response after %d stalled attempt(s) (backend silent ~%s each)", sAttempt+1, firstTokenBound())}
+			return stepResponse{}, a.stopOnBackend(ctx, sid, agentActor, serr, transientRetries, transientWaited,
+				"the backend stayed silent before its first token on every attempt")
 		}
 		break
 	}

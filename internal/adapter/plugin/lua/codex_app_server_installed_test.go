@@ -47,6 +47,8 @@ func TestCodexAppServerPatchedPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	argvLog := filepath.Join(bin, "argv.log")
+	t.Setenv("FAKE_CODEX_ARGV_LOG", argvLog)
 	h, out := loadHost(t, HostConfig{BaseReg: &stubBaseReg{}, PluginConfigs: map[string]map[string]any{"codex": {"defer_to_claude": false, "model": "test"}}}, string(manifest), string(code))
 	defer h.Unload("codex")
 	port := 0
@@ -74,6 +76,18 @@ func TestCodexAppServerPatchedPlugin(t *testing.T) {
 	status, body := ask(`{"model":"test","messages":[{"role":"user","content":"hi"}]}`)
 	if status != 200 || !strings.Contains(body, "thread-1/turn-1") {
 		t.Fatalf("%d %s", status, body)
+	}
+	// codex's own retries are the harness's to own: the shim asks the app-server which provider it
+	// routes through (config/read) and starts it again with that provider's retries off.
+	rawArgv, err := os.ReadFile(argvLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := strings.Split(strings.TrimSpace(string(rawArgv)), "\n")
+	last := starts[len(starts)-1]
+	if len(starts) != 2 || !strings.Contains(last, `"model_providers.fakep.request_max_retries=0"`) ||
+		!strings.Contains(last, `"model_providers.fakep.stream_max_retries=0"`) {
+		t.Fatalf("the app-server should be restarted once with the provider's CLI retries off; starts:\n%s", rawArgv)
 	}
 	status, body = ask(`{"model":"test","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"first answer"},{"role":"user","content":"again"}]}`)
 	if status != 200 || !strings.Contains(body, "thread-1/turn-2") || !strings.Contains(body, `"cached_tokens":900`) {

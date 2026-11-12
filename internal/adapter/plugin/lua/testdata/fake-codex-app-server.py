@@ -13,6 +13,11 @@ if 'exec' in sys.argv:
     print('unexpected exec fallback', file=sys.stderr)
     raise SystemExit(1)
 
+import os
+if os.environ.get('FAKE_CODEX_ARGV_LOG'):
+    with open(os.environ['FAKE_CODEX_ARGV_LOG'], 'a') as log:
+        log.write(json.dumps(sys.argv[1:]) + '\n')
+
 thread_count = 0
 turn_count = 0
 sessions = {}
@@ -30,6 +35,11 @@ for line in sys.stdin:
     request_id = request.get('id')
     if method == 'initialize':
         emit({'id': request_id, 'result': {'userAgent': 'fake-codex'}})
+    elif method == 'config/read':
+        # the effective configuration, as codex 0.167.2 answers it: a user-defined provider whose
+        # own retries the shim must turn off (the harness is the one layer that retries)
+        emit({'id': request_id, 'result': {'config': {'model_provider': 'fakep', 'model_providers': {
+            'fakep': {'name': 'fake', 'request_max_retries': 4, 'stream_max_retries': 5}}}}})
     elif method == 'thread/start':
         assert params['sandbox'] == 'read-only'
         assert params['approvalPolicy'] == 'never'

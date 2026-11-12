@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -98,6 +100,9 @@ func kindFromText(err error) port.BackendErrorKind {
 	if isContextOverflow(err) {
 		return port.KindContextOverflow
 	}
+	if k, ok := transportKind(err); ok {
+		return k
+	}
 	m := strings.ToLower(err.Error())
 	status := 0
 	if sm := statusRe.FindStringSubmatch(m); sm != nil {
@@ -126,6 +131,30 @@ func kindFromText(err error) port.BackendErrorKind {
 		return port.KindInvalidRequest
 	}
 	return port.KindUnknown
+}
+
+// transportKind reads a failure of the transport itself by its structure, not its wording: the
+// request never got an answer. net/http wraps it in *url.Error — a server closing the connection
+// before any header comes back as io.EOF inside one — and a socket failure is a *net.OpError. A
+// bare io.EOF is NOT read here: outside a *url.Error it is how a stream ends, not a failure.
+func transportKind(err error) (port.BackendErrorKind, bool) {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		if ue.Timeout() {
+			return port.KindTimeout, true
+		}
+		if errors.Is(ue.Err, io.EOF) || errors.Is(ue.Err, io.ErrUnexpectedEOF) {
+			return port.KindNetwork, true
+		}
+	}
+	var oe *net.OpError
+	if errors.As(err, &oe) {
+		if oe.Timeout() {
+			return port.KindTimeout, true
+		}
+		return port.KindNetwork, true
+	}
+	return "", false
 }
 
 // isTransientBackend reports whether err is a backend saying "not now" rather than "no".
@@ -185,9 +214,25 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// shortCause is the first line of err, clipped, for a progress note.
+// secretRes match what a backend may echo back in a refusal that must not reach a progress note
+// or the session log: API keys (sk-...), bearer tokens, and key=value / key: value credentials.
+var secretRes = []*regexp.Regexp{
+	regexp.MustCompile(`sk-[A-Za-z0-9_\-]{8,}`),
+	regexp.MustCompile(`(?i)(bearer)\s+[A-Za-z0-9._~+/=\-]{8,}`),
+	regexp.MustCompile(`(?i)((?:api[_-]?key|access[_-]?token|token|secret|password)\s*[=:]\s*)[^\s,;"']+`),
+}
+
+// redactSecrets replaces credentials in a backend message with [redacted]. The error value itself is
+// left as it is (classification reads it); only what is shown or recorded goes through here.
+func redactSecrets(s string) string {
+	s = secretRes[0].ReplaceAllString(s, "[redacted]")
+	s = secretRes[1].ReplaceAllString(s, "$1 [redacted]")
+	return secretRes[2].ReplaceAllString(s, "${1}[redacted]")
+}
+
+// shortCause is the first line of err, credentials redacted, clipped, for a progress note.
 func shortCause(err error) string {
-	s := strings.TrimSpace(err.Error())
+	s := redactSecrets(strings.TrimSpace(err.Error()))
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
@@ -221,7 +266,7 @@ func (a *App) stopOnBackend(ctx context.Context, sid session.SessionID, actor ev
 		out = fmt.Errorf("%w — %s. Nothing was lost: the conversation and every finished tool result are kept, "+
 			"and no unfinished tool call was run. To carry on from here, send a follow-up such as \"continue\"%s", err, why, when)
 	}
-	d, _ := json.Marshal(event.ErrorData{Message: out.Error(), Code: "provider", Kind: string(cls.Kind), Resumable: resumable,
+	d, _ := json.Marshal(event.ErrorData{Message: redactSecrets(out.Error()), Code: "provider", Kind: string(cls.Kind), Resumable: resumable,
 		Attempts: attempts, WaitedMs: waited.Milliseconds(), RetryAfterMs: cls.RetryAfter.Milliseconds(), RequestID: cls.RequestID})
 	a.appendFact(ctx, sid, event.TypeError, actor, d)
 	return out

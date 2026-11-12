@@ -970,7 +970,8 @@ One OpenAI-compatible client covers Ollama / LiteLLM / vLLM / OpenAI by base URL
   error, 429, 5xx) returns as a `port.BackendError` with its kind, status, `Retry-After` (seconds or
   HTTP-date, uncapped) and request ID; the harness decides whether to retry
   (`internal/app/transient.go`, `backend_gate.go`; MANUAL, "Provider resilience"). `-http-timeout`
-  bounds time-to-first-header without cutting the token stream.
+  bounds time-to-first-header without cutting the token stream. A connection that drops before the
+  response headers comes back as a `*url.Error` wrapping `io.EOF`, which the harness reads as `network`.
 - `ListModels` (`-list-models`) fetches the backend `/v1/models` catalog.
 
 ---
