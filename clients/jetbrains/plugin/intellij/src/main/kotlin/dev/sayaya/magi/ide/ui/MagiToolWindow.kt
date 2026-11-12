@@ -192,7 +192,9 @@ class MagiToolWindow : ToolWindowFactory {
         private var commitResetTimer: javax.swing.Timer? = null
         private val inputGate: ComposerInputGate = ComposerInputGate(
             onScheduleTimer = { delayMs -> scheduleCommitReset(delayMs) },
-            onCancelTimer = { cancelCommitReset() }
+            onCancelTimer = { cancelCommitReset() },
+            // 조합 중에 온 Enter: 확정된 글자가 문서에 들어간 뒤 보낸다
+            onDeferredSend = { javax.swing.SwingUtilities.invokeLater { if (!closing.get()) say() } },
         )
         private fun scheduleCommitReset(delayMs: Long) {
             commitResetTimer?.stop()

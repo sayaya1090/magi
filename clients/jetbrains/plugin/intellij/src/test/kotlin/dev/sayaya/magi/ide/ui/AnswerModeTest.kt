@@ -173,7 +173,7 @@ class AnswerModeTest : BasePlatformTestCase() {
         h.key("magi.send"); h.key("magi.cancelAnswer")
         assertTrue(h.pending.isEmpty()); assertTrue(h.field<JPanel>("answerBar").isVisible)
     }
-    fun testCommitEventDoesNotSubmitOnSameTickButSubmitsOnSubsequentEnter() = check { h ->
+    fun testCommitEventEnterSubmitsOnce() = check { h ->
         h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
         val compText = java.text.AttributedString("한").iterator
         val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, compText, 0, null, null)
@@ -182,14 +182,27 @@ class AnswerModeTest : BasePlatformTestCase() {
         val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
         h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
         h.key("magi.send")
-        assertTrue(h.pending.isEmpty())
-        assertTrue(h.field<JPanel>("answerBar").isVisible)
-        assertEquals("한", h.input.text)
-        com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-        h.key("magi.send")
         assertEquals(1, h.pending.size)
         h.finish(0, true)
         assertEquals(1, h.seen.size)
+        assertEquals("한", h.seen.single().answer)
+    }
+    fun testEnterBeforeCommitSubmitsOnceAfterCommit() = check { h ->
+        h.input.text = "A"; h.question(); h.direct(); h.input.text = "한"
+        val compEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, java.text.AttributedString("한").iterator, 0, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(compEvent) }
+        val enterPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        assertTrue("composing: nothing sent yet", h.pending.isEmpty())
+        val commitEvent = java.awt.event.InputMethodEvent(h.input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, java.text.AttributedString("한").iterator, 1, null, null)
+        h.input.inputMethodListeners.forEach { it.inputMethodTextChanged(commitEvent) }
+        UIUtil.dispatchAllInvocationEvents()
+        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
+        h.key("magi.send")
+        println("IME-ENTER deferred pending=${h.pending.size}")
+        assertEquals("the commit sends the reserved Enter once", 1, h.pending.size)
+        h.finish(0, true)
         assertEquals("한", h.seen.single().answer)
     }
     fun testCommitEventAllowsImmediateButtonClick() = check { h ->
@@ -244,7 +257,7 @@ class AnswerModeTest : BasePlatformTestCase() {
         val enterPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
         h.key("magi.send")
-        assertTrue(h.pending.isEmpty()) // 확정 Enter 전송 차단
+        assertEquals(1, h.pending.size) // 확정 Enter 한 번으로 전송
 
             // 250ms 타이머 만료 콜백을 결정적으로 주입: 키가 여전히 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없음
         val timer = h.field<javax.swing.Timer>("commitResetTimer")
@@ -253,7 +266,7 @@ class AnswerModeTest : BasePlatformTestCase() {
         // 키를 떼지 않고 계속 누르고 있는 상태(auto-repeat) Enter 재발생
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
         h.key("magi.send")
-        assertTrue(h.pending.isEmpty()) // 타이머 만료 후에도 키를 떼기 전 auto-repeat 전송은 차단 유지 (요청 0건)
+        assertEquals(1, h.pending.size) // 타이머 만료 후에도 키를 떼기 전 auto-repeat 는 두 번째 전송이 되지 않음
 
         // Enter release 없는 상태에서 Shift press / release 및 다른 비-Enter 키 입력 발생
         val shiftPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SHIFT, java.awt.event.KeyEvent.CHAR_UNDEFINED)
@@ -267,17 +280,14 @@ class AnswerModeTest : BasePlatformTestCase() {
         // Shift 등 다른 키 입력 후에도 Enter를 떼지 않은 반복 Enter는 요청 0건이어야 함
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
         h.key("magi.send")
-        assertTrue(h.pending.isEmpty()) // 여전히 차단 유지 (요청 0건)
+        assertEquals(1, h.pending.size) // 여전히 두 번째 전송 없음
 
         // Enter 키를 뗌 (keyReleased)
         val enterRelease = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
         h.input.keyListeners.forEach { it.keyReleased(enterRelease) }
 
-        // 별도의 2차 Enter 타건
-        h.input.keyListeners.forEach { it.keyPressed(enterPress) }
-        h.key("magi.send")
-        assertEquals(1, h.pending.size) // 정상 1회 전송
         h.finish(0, true)
+        assertEquals("한", h.seen.single().answer)
     }
 
     fun testExplicitActionWhileEnterHeldPreservesHeldEnterProtection() = check { h ->
@@ -292,8 +302,6 @@ class AnswerModeTest : BasePlatformTestCase() {
         // Enter 키 누름 (확정 Enter)
         val enterPress = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
         h.input.keyListeners.forEach { it.keyPressed(enterPress) }
-        h.key("magi.send")
-        assertTrue(h.pending.isEmpty()) // 확정 Enter 전송 차단
 
         // Enter를 누른 상태에서 마우스로 보내기 버튼 클릭 (독립 액션) -> 1회 전송
         h.field<JButton>("sendButton").doClick(0)

@@ -1256,7 +1256,7 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test 일반 모드에서 한글 IME 조합 확정 Enter는 전송하지 않고 후속 Enter에서 1회 전송된다`() {
+    fun `test 일반 모드에서 한글 IME 조합 확정 Enter 한 번으로 1회 전송된다`() {
         val pendingSends = mutableListOf<PendingSend>()
         var currentSession = "session1"
         val view = MagiToolWindow.View(
@@ -1289,22 +1289,22 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             val commitEvent = java.awt.event.InputMethodEvent(input, java.awt.event.InputMethodEvent.INPUT_METHOD_TEXT_CHANGED, commitText, 1, null, null)
             input.inputMethodListeners.forEach { (it as java.awt.event.InputMethodListener).inputMethodTextChanged(commitEvent) }
 
-            // 3. 동일 틱 첫 Enter는 확정만 수행하고 전송하지 않음
+            // 3. 조합을 확정한 Enter 한 번으로 전송한다
             val enterPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
-            assertTrue(pendingSends.isEmpty())
-            assertEquals("한", input.text)
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(1, pendingSends.size)
 
             // 4. 키를 떼지 않은 상태에서 250ms 타이머 만료 콜백을 결정적으로 주입:
             // 물리 키가 눌려 있는 상태에서는 시간 경과가 물리 키 해제를 대신할 수 없으므로 만료되어도 차단 유지
             val timer = field<javax.swing.Timer?>("commitResetTimer")
             timer?.actionListeners?.forEach { it.actionPerformed(ActionEvent(timer, 0, "")) }
 
-            // 키를 떼지 않은 상태(auto-repeat) Enter 재발생 시에도 전송 차단 (타이머 만료 후에도 요청 0건)
+            // 키를 떼지 않은 상태(auto-repeat) Enter 재발생은 두 번째 전송이 되지 않음 (타이머 만료 후에도)
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
-            assertTrue(pendingSends.isEmpty())
+            assertEquals(1, pendingSends.size)
 
             // Enter release 없는 상태에서 Shift press / release 및 일반 비-Enter 키 입력 발생
             val shiftPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_SHIFT, java.awt.event.KeyEvent.CHAR_UNDEFINED)
@@ -1315,18 +1315,16 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             // 타이머 만료 재주입
             timer?.actionListeners?.forEach { it.actionPerformed(ActionEvent(timer, 0, "")) }
 
-            // Shift 입력 후에도 Enter를 떼지 않은 반복 Enter는 여전히 전송 차단 (요청 0건)
+            // Shift 입력 후에도 Enter를 떼지 않은 반복 Enter는 두 번째 전송이 되지 않음
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
             input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
-            assertTrue(pendingSends.isEmpty())
+            assertEquals(1, pendingSends.size)
 
             // 5. Enter 키 릴리즈
             val enterRelease = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyReleased(enterRelease) }
 
-            // 6. 별도 후속 Enter에서만 1회 전송
-            input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
-            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
+            // 6. 보낸 것은 확정된 마지막 글자까지 담은 첫 전송 하나뿐
             UIUtil.dispatchAllInvocationEvents()
             assertEquals(1, pendingSends.size)
             val pending = pendingSends.single()
@@ -1373,8 +1371,6 @@ class HeadlessIdeTest : BasePlatformTestCase() {
             // 2. 확정 Enter 누름
             val enterPress = java.awt.event.KeyEvent(input, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ENTER, '\n')
             input.keyListeners.forEach { (it as java.awt.event.KeyListener).keyPressed(enterPress) }
-            input.actionMap.get("magi.send").actionPerformed(ActionEvent(input, 0, "magi.send"))
-            assertTrue(pendingSends.isEmpty())
 
             // 3. Enter를 누른 상태에서 마우스 보내기 버튼 클릭 -> 1회 전송
             sendButton.doClick(0)

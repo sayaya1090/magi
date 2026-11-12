@@ -1344,6 +1344,16 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
   - Playwright Transcript Suite: `node clients/vscode/tools/transcript-test.mjs`
     - 결과: 종료 코드 0, **7개 test bundle / 50개 기능 시나리오 전수 통과 (18.2초 소요)**.
 
+#### 7.1 확정 Enter 한 번으로 전송하도록 계약 변경 (2026-11-12)
+
+- **배경**: 사용자가 「한글 칠 때 엔터 두번 쳐야함」을 결함으로 보고했다. §6.35–§6.37의 "확정 Enter 는 전송하지 않고 후속 Enter 에서 1회 전송" 계약을 뒤집는다.
+- **새 계약 (`ComposerInputGate.canSendOnEnter`)**:
+  - 조합을 확정한 Enter 는 그 한 번으로 1회 전송한다. 떼기 전 반복(auto-repeat)은 `commitSent` 로 두 번째 전송을 막는다. 타이머 만료·Shift press/release·버튼 클릭(`onExplicitAction`) 뒤에도 막는 것은 그대로다.
+  - Enter 가 확정 이벤트보다 먼저 와서 조합 중에 `magi.send` 가 불리면 그 자리에서는 보내지 않고 예약한다(`sendAfterCommit`). 확정 이벤트가 오면 `onDeferredSend` 로 한 번 보내며, 도구창은 이를 `invokeLater` 로 미뤄 확정된 마지막 글자가 문서에 들어간 뒤 `say()` 한다. 확정 없이 조합이 끝나면 예약을 버린다.
+- **시험 변경**: `ComposerInputGateTest.testCommitEnterBlocksSend` → `testCommitEnterSendsOnce`, 신규 `testEnterWhileComposingSendsOnceAfterCommit`·`testCancelledCompositionDropsTheReservedSend`; `AnswerModeTest.testCommitEventDoesNotSubmitOnSameTickButSubmitsOnSubsequentEnter` → `testCommitEventEnterSubmitsOnce`, 신규 `testEnterBeforeCommitSubmitsOnceAfterCommit`; `HeadlessIdeTest` 일반 모드 시험 이름을 `test 일반 모드에서 한글 IME 조합 확정 Enter 한 번으로 1회 전송된다` 로 바꿨다. auto-repeat·held Enter 시험은 "요청 0건" 대신 "첫 전송 1건에서 늘지 않음"을 단언한다.
+- **변이 점검**: `onDeferredSend()` 호출 제거 → 2건 실패, `if (commitSent) return false` 제거 → 8건 실패, 확정 Enter 를 옛 `return false` 로 되돌림 → 7건 실패(세 시험 클래스 74건 중). 모두 복원 후 통과.
+- **실물 검증 여부**: 실제 macOS 두벌식 IME 의 이벤트 순서(Enter 와 확정 이벤트 중 무엇이 먼저 오는지)는 헤드리스로 확인할 수 없어 두 순서 모두를 시험으로 고정했다. 실물 타건은 **미검증**.
+
 #### 8. 공통 계약 fixture 도입 및 양 플랫폼 실행기 구축 (§6.38)
 - **배경 및 구조 비교**:
   - JetBrains(`AnswerDrafts`/`SendDrafts`)와 VS Code(`answer_state`/`recovery_state`) 간 초안 보존, 질문 잠금, 세션 격리, 복구 관리의 핵심 불변식을 단일 진실 공급원(Single Source of Truth)으로 유지하기 위해 공통 JSON fixture 체계 구축.

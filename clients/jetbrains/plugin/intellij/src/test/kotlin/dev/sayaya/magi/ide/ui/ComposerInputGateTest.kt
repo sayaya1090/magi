@@ -6,18 +6,21 @@ import org.junit.Test
 class ComposerInputGateTest {
     private var scheduledDelay: Long? = null
     private var timerCancelled: Boolean = false
+    private var deferredSends = 0
 
     private fun createGate(): ComposerInputGate {
         scheduledDelay = null
         timerCancelled = false
+        deferredSends = 0
         return ComposerInputGate(
             onScheduleTimer = { delay -> scheduledDelay = delay },
             onCancelTimer = { timerCancelled = true },
+            onDeferredSend = { deferredSends++ },
         )
     }
 
     @Test
-    fun testCommitEnterBlocksSend() {
+    fun testCommitEnterSendsOnce() {
         val gate = createGate()
 
         // 1. 조합 중
@@ -35,8 +38,48 @@ class ComposerInputGateTest {
         gate.onKeyPressed(isEnter = true)
         assertTrue(gate.enterPressed)
 
-        // 4. magi.send 액션 발생 -> 확정 Enter이므로 차단되어야 함
+        // 4. magi.send 액션 발생 -> 조합을 확정한 Enter 한 번으로 전송한다 (2026-11-12 "한글 칠 때 엔터 두번")
+        assertTrue(gate.canSendOnEnter())
+
+        // 5. 떼지 않은 채 반복된 Enter 는 두 번째 전송이 되지 않는다
+        gate.onKeyPressed(isEnter = true)
         assertFalse(gate.canSendOnEnter())
+    }
+
+    @Test
+    fun testEnterWhileComposingSendsOnceAfterCommit() {
+        val gate = createGate()
+
+        // Enter 가 확정 이벤트보다 먼저 온 경우: 그 자리에서는 보내지 않고(아직 마지막 글자가 문서에 없다) 예약한다
+        gate.onCompositionChanged(isComposing = true, committedCount = 0)
+        gate.onKeyPressed(isEnter = true)
+        assertFalse(gate.canSendOnEnter())
+        assertEquals(0, deferredSends)
+
+        // 확정 이벤트가 오면 예약한 전송을 한 번 한다
+        gate.onCompositionChanged(isComposing = false, committedCount = 1)
+        assertEquals(1, deferredSends)
+
+        // 같은 Enter 의 반복은 다시 보내지 않는다
+        gate.onKeyPressed(isEnter = true)
+        assertFalse(gate.canSendOnEnter())
+        assertEquals(1, deferredSends)
+
+        // 떼고 새로 친 Enter 는 보낸다
+        gate.onKeyReleased(isEnter = true)
+        gate.onKeyPressed(isEnter = true)
+        assertTrue(gate.canSendOnEnter())
+    }
+
+    @Test
+    fun testCancelledCompositionDropsTheReservedSend() {
+        val gate = createGate()
+        gate.onCompositionChanged(isComposing = true, committedCount = 0)
+        gate.onKeyPressed(isEnter = true)
+        assertFalse(gate.canSendOnEnter())
+        // 조합이 확정 없이 끝나면(취소) 예약을 버린다
+        gate.onCompositionChanged(isComposing = false, committedCount = 0)
+        assertEquals(0, deferredSends)
     }
 
     @Test
@@ -47,7 +90,7 @@ class ComposerInputGateTest {
         gate.onCompositionChanged(isComposing = true, committedCount = 0)
         gate.onCompositionChanged(isComposing = false, committedCount = 1)
         gate.onKeyPressed(isEnter = true)
-        assertFalse(gate.canSendOnEnter())
+        assertTrue(gate.canSendOnEnter()) // 확정 Enter 한 번으로 전송
 
         // 2. 키를 떼지 않은 상태(enterPressed == true)에서 타이머 만료 주입
         assertTrue(gate.enterPressed)
@@ -69,7 +112,7 @@ class ComposerInputGateTest {
         gate.onCompositionChanged(isComposing = true, committedCount = 0)
         gate.onCompositionChanged(isComposing = false, committedCount = 1)
         gate.onKeyPressed(isEnter = true)
-        assertFalse(gate.canSendOnEnter())
+        assertTrue(gate.canSendOnEnter()) // 확정 Enter 한 번으로 전송
 
         // 2. 키를 뗌 (keyReleased)
         gate.onKeyReleased(isEnter = true)
@@ -188,7 +231,7 @@ class ComposerInputGateTest {
         gate.onCompositionChanged(isComposing = true, committedCount = 0)
         gate.onCompositionChanged(isComposing = false, committedCount = 1)
         gate.onKeyPressed(isEnter = true)
-        assertFalse(gate.canSendOnEnter())
+        assertTrue(gate.canSendOnEnter()) // 확정 Enter 한 번으로 전송
 
         // 2. Enter를 계속 누르고 있는 상태에서 Shift 등 보조 키 press / release
         gate.onKeyPressed(isEnter = false)
