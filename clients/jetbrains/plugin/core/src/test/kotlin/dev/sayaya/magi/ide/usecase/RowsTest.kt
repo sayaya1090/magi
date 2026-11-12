@@ -679,6 +679,29 @@ class RowsTest {
         assertNull(r.foldProgress)
     }
 
+    /**
+     * 창이 예산 경계에 걸려 있으면 툴 결과 접기는 툴 결과마다 1개씩 다시 돈다(compact.go maybeCompact). 한 턴의
+     * 접기는 처음 선 한 줄에 개수를 더할 뿐 줄을 쌓지 않는다 — 이미 그린 툴 결과는 그대로 둔다. 다음 턴은 새 줄이다.
+     */
+    @Test
+    fun `한 턴의 툴 결과 접기는 한 줄에 개수를 더한다`() {
+        val r = Rows()
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        fun note(n: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"freed the window by eliding $n bulky tool result(s) — re-derivable, and already narrated"}"""))
+        fun elided() = r.list().filter { it.text.startsWith("↯ 이전 툴 결과") }.map { it.text }
+        note(1)
+        val at = r.list().size - 1
+        r.feed(ev("council.verdict", """{"round":1,"member":"Melchior","decision":"approve","rationale":"ok"}"""))
+        note(2)
+        note(1)
+        assertEquals(listOf("↯ 이전 툴 결과 4개를 접었다 (요약 없음)"), elided(), "한 턴의 접기는 한 줄이다")
+        assertEquals("↯ 이전 툴 결과 4개를 접었다 (요약 없음)", r.list()[at].text, "처음 선 자리에서 고쳐진다")
+
+        r.feed(ev("turn.finished", """{}"""))
+        note(2)
+        assertEquals(listOf("↯ 이전 툴 결과 4개를 접었다 (요약 없음)", "↯ 이전 툴 결과 2개를 접었다 (요약 없음)"), elided(), "다음 턴의 접기는 새 줄이다")
+    }
+
     @Test
     fun `말한 기권과 무응답은 다른 행이다`() {
         // 코어가 둘을 갈라 보낸다(5755dc74): 판정을 안 말한 멤버는 **말한 기권**

@@ -119,8 +119,11 @@ data class Row(
 class Rows {
 
     private val rows = mutableListOf<Row>()
+    /** 이번 턴에 툴 결과 접기로 접은 개수 — 한 턴의 접기는 한 줄에 모은다([foldNote]). 턴이 끝나면 0. */
+    private var elidedThisTurn = 0
     private companion object {
         const val FOLD_CALL = "compact"
+        const val ELIDED_HEAD = "↯ 이전 툴 결과"
         /** 코어(compact.go)가 요약 없이 끝날 때 내는 말의 머리 — 이것이 오면 압축은 실패로 끝났다. */
         val FOLD_FAILED = listOf(
             "compaction did not produce a summary",
@@ -248,6 +251,7 @@ class Rows {
             "compaction" -> { foldProgress = null; compaction(e) }
             "turn.finished" -> {
                 foldProgress = null
+                elidedThisTurn = 0
                 // 실행-증거 게이트 미통과 상태(`unverified`) 처리:
                 // 코어는 산출물 변경 후 독립 검증 실행을 통과하지 못했을 때 `unverified: true` 플래그를 발행합니다
                 // ("labeled UNVERIFIED rather than laundered into a confident success").
@@ -688,7 +692,13 @@ class Rows {
             // 남던 결함(2026-11-12 실물 화면). 툴 결과 접기는 한 줄로, 요약 실패는 말풍선 자리에 남긴다.
             foldProgress = null
             Regex("""^freed the window by eliding (\d+)""").find(text)?.let { m ->
-                rows += Row(Who.System, "↯ 툴 결과 ${m.groupValues[1]}개를 접었다 (요약 없음)", at = e.ts)
+                // 창이 예산 경계에 걸려 있으면 코어는 툴 결과가 올 때마다 1개쯤 더 접는다 — 줄을 쌓지 않고, 이번 턴에
+                // 처음 선 한 줄의 개수만 고친다. 이미 그린 툴 결과 행은 건드리지 않는다.
+                val first = elidedThisTurn == 0
+                elidedThisTurn += m.groupValues[1].toInt()
+                val line = "$ELIDED_HEAD ${elidedThisTurn}개를 접었다 (요약 없음)"
+                val i = if (first) -1 else rows.indexOfLast { it.who == Who.System && it.text.startsWith(ELIDED_HEAD) }
+                if (i >= 0) rows[i] = rows[i].copy(text = line) else rows += Row(Who.System, line, at = e.ts)
                 return true
             }
             if (FOLD_FAILED.any { text.startsWith(it) }) {
