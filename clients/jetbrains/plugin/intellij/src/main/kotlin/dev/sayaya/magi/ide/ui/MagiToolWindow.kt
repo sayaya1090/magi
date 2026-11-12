@@ -328,13 +328,11 @@ class MagiToolWindow : ToolWindowFactory {
             isVisible = false
         }
         private val planStrip = JBPanel<JBPanel<*>>(BorderLayout()).apply {
-            // 대화와 눈에 띄게 구분한다: 불투명 primaryContainer 바탕, 왼쪽 primary 띠, 아래 구분선.
+            // 대화와 눈에 띄게 구분한다: 불투명 primaryContainer 바탕, 아래 메시지 영역과 가르는 2px 테두리.
+            // 옛은 구분선 색(JBColor.border)은 이 바탕 아래에서 안 보여 보조 글자색을 쓴다.
             isOpaque = true
             background = Look.primaryContainer
-            border = javax.swing.BorderFactory.createCompoundBorder(
-                javax.swing.BorderFactory.createMatteBorder(0, 0, 1, 0, com.intellij.ui.JBColor.border()),
-                javax.swing.BorderFactory.createMatteBorder(0, JBUI.scale(4), 0, 0, Look.primary),
-            )
+            border = javax.swing.BorderFactory.createMatteBorder(0, 0, JBUI.scale(2), 0, Look.faint)
             isVisible = false
             add(planHead, BorderLayout.NORTH)
             add(planList, BorderLayout.CENTER)
