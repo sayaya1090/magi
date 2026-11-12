@@ -54,6 +54,19 @@ class PlanStripViewTest : BasePlatformTestCase() {
             assertEquals("the outline is as faint as a bubble's", 65, edge.edge.alpha)
             val i = strip.insets
             assertTrue("the outline runs on all four sides: $i", i.top > 0 && i.left > 0 && i.right > 0 && i.bottom > 0)
+            // 실제로 그려 본다: 네 변 각 가운데에서 선이 칠한 픽셀 수 - 말풍선과 같은 1px 이고, 네 변 모두에 선다.
+            val img = java.awt.image.BufferedImage(200, 40, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            val g = img.createGraphics()
+            try { strip.border.paintBorder(strip, g, 0, 0, 200, 40) } finally { g.dispose() }
+            fun inked(x: Int, y: Int) = (img.getRGB(x, y) ushr 24) > 0
+            val sides = mapOf(
+                "left" to (0 until 8).count { inked(it, 20) },
+                "right" to (192 until 200).count { inked(it, 20) },
+                "top" to (0 until 8).count { inked(100, it) },
+                "bottom" to (32 until 40).count { inked(100, it) },
+            )
+            println("PLAN-STRIP-OUTLINE px per side: $sides insets: $i")
+            assertEquals("a 1px outline on every side: $sides", mapOf("left" to 1, "right" to 1, "top" to 1, "bottom" to 1), sides)
             assertTrue("the line is bold", head.font.isBold)
             assertTrue("the line names the step it is on: ${head.text}", head.text.contains("build it"))
             assertTrue("the line says which of how many: ${head.text}", head.text.contains("3") && head.text.contains("4"))

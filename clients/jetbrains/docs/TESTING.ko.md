@@ -2027,7 +2027,7 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 `RowsTest`의 압축 시험은 진행 값이 실린 알림(실제 요약)만 말풍선을 세우는지, 결과 뒤에 오는 「compacted —」 알림이 말풍선을 다시 세우지 않는지, LLM 없이 툴 결과만 접은 경우는 「↯ 이전 툴 결과 N개를 접었다 (요약 없음)」 한 줄로, 요약 실패는 말풍선 자리의 「컨텍스트 압축 실패」로 남는지 확인한다.
 `RowsTest`의 「한 턴의 툴 결과 접기는 한 줄에 개수를 더한다」는 툴 결과마다 다시 오는 접기 알림이 줄을 쌓지 않고 처음 선 한 줄의 개수만 고치는지, 다음 턴은 새 줄로 시작하는지 본다. `turn.finished` 없이 에러로 끝난 턴이나 새 프롬프트 뒤에도 이전 턴 줄을 고치지 않고 새 줄로 서는지 함께 본다.
 
-`PlanStripViewTest`는 실제 도구창(`MagiToolWindow.View`)에 `todos.changed`를 먹여, 계획 줄이 맨 위(NORTH)에 서고 목록이 접힌 채 시작하며, 줄을 누르면 펼쳐지고 다시 누르면 접히고, 계획이 비면 숨는지를 구동합니다. 줄이 불투명한 `primaryContainer` 바탕·대화 말풍선과 같은 1px 옅은 둥근 테두리(네 변, `Look.BubbleBorder`·`Look.bubbleEdge`)·굵은 글씨로 대화와 구분되는지, 접혔을 때는 가운데·펼쳤을 때는 왼쪽(`LEADING`) 정렬인지도 본다.
+`PlanStripViewTest`는 실제 도구창(`MagiToolWindow.View`)에 `todos.changed`를 먹여, 계획 줄이 맨 위(NORTH)에 서고 목록이 접힌 채 시작하며, 줄을 누르면 펼쳐지고 다시 누르면 접히고, 계획이 비면 숨는지를 구동합니다. 줄이 불투명한 `primaryContainer` 바탕·대화 말풍선과 같은 1px 옅은 둥근 테두리(네 변, `Look.BubbleBorder`·`Look.bubbleEdge`)를 실제로 그려 네 변 가운데의 선이 각각 1px인지·굵은 글씨로 대화와 구분되는지, 접혔을 때는 가운데·펼쳤을 때는 왼쪽(`LEADING`) 정렬인지도 본다.
 
 `PlanStripTest`는 대화창 맨 위 계획 줄이 몇 단계 중 몇 번째인지와 지금 과정을 바르게 고르는지 검사합니다. 진행 중 표시가 있으면 그 단계를, 없으면 아직 안 끝난 첫 단계를 지금으로 보고, 다 끝났으면 끝났다고 하며, 계획이 없으면 줄을 세우지 않습니다.
 
