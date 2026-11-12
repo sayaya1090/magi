@@ -627,6 +627,8 @@ class MagiToolWindow : ToolWindowFactory {
                     if (e.type == "part.delta") {
                         if (shaper.feed(e) && !replaying) redrawSoon()
                     } else if (!Transcript.echoesFact(e) && shaper.feed(e) && !replaying) redrawLog()
+                    // 재생 중의 접기 줄에는 지금 구성을 붙이지 않는다 - 그때의 구성이 아니다.
+                    if (replaying) foldAsked = shaper.foldMarks else askFoldContext()
                     refreshDisk() // 컴패니언이 수정한 디스크 변경사항을 IDE VFS에 동기화(사유: Rows.drainDisk)
                     if (e.seq > lastSeq) lastSeq = e.seq // 영속 사실 이벤트만 커서로 추적(과도기 전이 이벤트는 seq == 0)
                     // 지적 사항(Problems)은 트랜스크립트 스트림에서 파생 추출합니다.
@@ -1204,6 +1206,60 @@ class MagiToolWindow : ToolWindowFactory {
             planStrip.parent?.revalidate()
         }
 
+        @Volatile private var foldAsked = 0
+
+        /**
+         * 접기 줄이나 압축 결과 줄이 서거나 고쳐지면 데몬 `context` 문에 그 순간의 구성을 묻고 그 줄에 붙인다.
+         * 스트림의 `context.usage` 는 총량만 실어서, 조각 구성은 문만 답한다(`Rows.Ctx`). 문이 없는 옛 데몬이면 막대 없이 둔다.
+         */
+        private fun askFoldContext() {
+            val mark = shaper.foldMarks
+            if (mark == foldAsked) return
+            foldAsked = mark
+            ApplicationManager.getApplication().executeOnPooledThread {
+                if (closing.get()) return@executeOnPooledThread
+                val sock = socket() ?: return@executeOnPooledThread
+                val got = runCatching { DaemonClient.connect(sock).use { Companion(it, followedSid.orEmpty()).context() } }
+                    .getOrNull()?.takeIf { it.ok }?.context?.takeIf { it.window > 0 } ?: return@executeOnPooledThread
+                // 그 사이 새 접기가 왔으면 그쪽 물음이 붙인다.
+                if (shaper.foldMarks != mark) return@executeOnPooledThread
+                val ctx = Rows.Ctx(got.used, got.window, got.used * 100.0 / got.window, got.parts, got.topics, got.compactions)
+                if (shaper.pinFoldContext(ctx)) redrawLog()
+            }
+        }
+
+        /** 접힌 줄 아래의 컨텍스트 구성 - 좌측바와 같은 띠([Look.GaugeBar])와 조각별 범례(색 점과 몫%). 모르면 null. */
+        private fun foldGauge(r: Row): javax.swing.JComponent? {
+            if (!r.folded) return null
+            val gauge = dev.sayaya.magi.ide.usecase.ContextGauge.of(r.ctx ?: return null) ?: return null
+            if (gauge.segments.isEmpty()) return null
+            val kilo = dev.sayaya.magi.ide.usecase.ContextGauge::kilo
+            val total = kilo(gauge.used) + (if (gauge.window > 0) " / " + kilo(gauge.window) else "") +
+                " " + MagiBundle.msg("plan.usage.tokens") + (gauge.percent?.let { " \u00b7 $it%" } ?: "")
+            val bar = Look.GaugeBar().apply {
+                segments = gauge.segments.map { Look.partColor(it.part) to it.fraction }
+                toolTipText = total
+            }
+            val keys = javax.swing.JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0)).apply { isOpaque = false }
+            gauge.segments.forEach { seg ->
+                keys.add(JBLabel(Look.partName(seg.part) + " " + seg.share + "%", Look.dot(Look.partColor(seg.part)), javax.swing.SwingConstants.LEFT).apply {
+                    foreground = Look.faint
+                    font = com.intellij.util.ui.JBFont.small()
+                    iconTextGap = JBUI.scale(4)
+                })
+            }
+            keys.add(JBLabel(total + " (" + MagiBundle.msg("plan.usage.estimated") + ")").apply {
+                foreground = Look.faint
+                font = com.intellij.util.ui.JBFont.small()
+            })
+            return javax.swing.JPanel(BorderLayout(0, JBUI.scale(4))).apply {
+                isOpaque = false
+                border = JBUI.Borders.empty(4, 14, 2, 8)
+                add(bar, BorderLayout.NORTH)
+                add(keys, BorderLayout.CENTER)
+            }
+        }
+
         private fun paintFold() {
             // 말풍선은 행이다 — 서고 걷히는 일은 코어 [Rows] 가 한다. 여기서는 문구와 막대만 고친다.
             val p = shaper.foldProgress ?: return
@@ -1534,7 +1590,13 @@ class MagiToolWindow : ToolWindowFactory {
                     }
                     p.add(body, BorderLayout.CENTER)
                 }
-                Who.System -> p.add(Look.aside(r.text), BorderLayout.CENTER)
+                Who.System -> p.add(foldGauge(r)?.let { gauge ->
+                    javax.swing.JPanel(BorderLayout()).apply {
+                        isOpaque = false
+                        add(Look.aside(r.text), BorderLayout.NORTH)
+                        add(gauge, BorderLayout.CENTER)
+                    }
+                } ?: Look.aside(r.text), BorderLayout.CENTER)
                 // ⚠ **실패는 색으로 말한다.** 예전에는 이것이 `Info` 였고 글자 앞의 ⚠ 하나가 그
                 // 몫을 겸했다 — 회색 줄 사이의 회색 줄이라, 문제를 찾아 훑는 사람 눈에 안 걸린다.
                 // 무엇인지는 행이 나르고 어떻게 보이는지는 여기가 정한다.

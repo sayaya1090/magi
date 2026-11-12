@@ -1091,13 +1091,7 @@ class PlanToolWindow : ToolWindowFactory {
      * 있으면 센다(`waiting`): 남에게 청한 일이 어디서 기다리는지가 이 판의 절반이다.
      */
     /** 컨텍스트 띠 조각의 이름(Office 와 같은 낱말: 시스템 · 도구 목록 · 대화 · 호출 · 결과). */
-    private fun partName(part: dev.sayaya.magi.ide.usecase.ContextGauge.Part): String = when (part) {
-        dev.sayaya.magi.ide.usecase.ContextGauge.Part.System -> MagiBundle.msg("plan.usage.part.system")
-        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Tools -> MagiBundle.msg("plan.usage.part.tools")
-        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Talk -> MagiBundle.msg("plan.usage.part.talk")
-        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Calls -> MagiBundle.msg("plan.usage.part.calls")
-        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Results -> MagiBundle.msg("plan.usage.part.results")
-    }
+    private fun partName(part: dev.sayaya.magi.ide.usecase.ContextGauge.Part): String = Look.partName(part)
 
     private fun fleetRow(r: RosterRow, crowded: Boolean = false, self: Boolean = false): JBLabel {
         // 번들의 이 조각들은 「 — 작업 중」처럼 앞 공백을 품고 적혀 있지만 `.properties` 는 `=` 뒤의

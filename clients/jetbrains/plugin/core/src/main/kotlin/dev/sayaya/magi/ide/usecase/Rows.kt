@@ -110,6 +110,10 @@ data class Row(
     /** 셰이퍼 내부 짝맞춤 열쇠. 화면은 안 읽는다. */
     val msgId: String = "",
     val callId: String = "",
+    /** 툴 결과 접기 줄이나 압축 결과 줄 - 화면이 그 아래에 그 순간의 컨텍스트 구성을 그린다. */
+    val folded: Boolean = false,
+    /** 접힌 줄에 붙은 그 순간의 구성([Rows.pinFoldContext]). 모르면 null 이고, 화면은 막대를 안 그린다. */
+    val ctx: Rows.Ctx? = null,
 )
 
 /**
@@ -121,6 +125,21 @@ class Rows {
     private val rows = mutableListOf<Row>()
     /** 이번 턴에 툴 결과 접기로 접은 개수 — 한 턴의 접기는 한 줄에 모은다([foldNote]). 턴이 끝나면 0. */
     private var elidedThisTurn = 0
+    private var foldMarksSeen = 0
+
+    /**
+     * 접힌 줄이 서거나 고쳐질 때마다 오른다. 스트림의 `context.usage` 는 총량만 싣고 조각 구성은 데몬 `context` 문만
+     * 답하므로, 화면은 이 값이 바뀌면 문에 묻고 그 답을 [pinFoldContext] 로 그 줄에 붙인다.
+     */
+    val foldMarks: Int get() = synchronized(rows) { foldMarksSeen }
+
+    /** 마지막 접힌 줄에 그 순간의 구성을 붙인다. 접힌 줄이 없으면 false. */
+    fun pinFoldContext(ctx: Ctx): Boolean = synchronized(rows) {
+        val i = rows.indexOfLast { it.folded }
+        if (i < 0) return false
+        rows[i] = rows[i].copy(ctx = ctx)
+        true
+    }
     private companion object {
         const val FOLD_CALL = "compact"
         const val ELIDED_HEAD = "↯ 이전 툴 결과"
@@ -599,7 +618,8 @@ class Rows {
         // **유일하게 눈에 띌 값이 있는 결과가 숨는다.** 그래서 그 갈래를 먼저 가른다 — 코어의
         // `SizeNote` 가 정확히 그 순서로 되어 있다.
         foldResult(Row(Who.System, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
-            (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts))
+            (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts, folded = true))
+        foldMarksSeen++
         return true
     }
 
@@ -700,7 +720,8 @@ class Rows {
                 elidedThisTurn += m.groupValues[1].toInt()
                 val line = "$ELIDED_HEAD ${elidedThisTurn}개를 접었다 (요약 없음)"
                 val i = if (first) -1 else rows.indexOfLast { it.who == Who.System && it.text.startsWith(ELIDED_HEAD) }
-                if (i >= 0) rows[i] = rows[i].copy(text = line) else rows += Row(Who.System, line, at = e.ts)
+                if (i >= 0) rows[i] = rows[i].copy(text = line) else rows += Row(Who.System, line, at = e.ts, folded = true)
+                foldMarksSeen++
                 return true
             }
             if (FOLD_FAILED.any { text.startsWith(it) }) {

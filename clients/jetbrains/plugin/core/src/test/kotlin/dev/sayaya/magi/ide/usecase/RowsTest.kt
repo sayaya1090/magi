@@ -1043,4 +1043,38 @@ class RowsTest {
         assertTrue("압축 실패" in text)
         assertFalse("616869" in text || "100%" in text)
     }
+
+    /**
+     * 툴 결과 접기 줄과 압축 결과 줄은 그 순간의 컨텍스트 구성을 받는다 — 화면이 그 줄 아래에 막대와 범례를 그린다.
+     * 구성은 데몬 \`context\` 문에서 오므로, 줄이 서거나 고쳐질 때마다 [Rows.foldMarks] 가 바뀌어 다시 묻게 한다.
+     */
+    @Test
+    fun `접기·압축 결과 줄은 그 순간의 컨텍스트 구성을 받는다`() {
+        val r = Rows()
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        fun note(n: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"freed the window by eliding $n bulky tool result(s) — re-derivable, and already narrated"}"""))
+        val ctx = Rows.Ctx(30000, 100000, 30.0, dev.sayaya.magi.ide.model.ContextParts(system = 4000, tools = 6000, talk = 8000, calls = 2000, results = 10000))
+        assertFalse(r.pinFoldContext(ctx), "접힌 줄이 없으면 붙일 곳이 없다")
+        val m0 = r.foldMarks
+        note(3)
+        assertTrue(r.foldMarks > m0, "접기 줄이 서면 구성을 물을 때다")
+        assertTrue(r.pinFoldContext(ctx))
+        assertEquals(ctx, r.list().last { it.folded }.ctx, "접기 줄에 구성이 붙는다")
+        val m1 = r.foldMarks
+        note(2)
+        assertTrue(r.foldMarks > m1, "개수가 고쳐져도 다시 물는다")
+        assertEquals(ctx, r.list().last { it.folded }.ctx, "고친 줄은 새 답이 오기 전까지 앞 구성을 지닌다")
+
+        r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":0,"total":1,"chars":0,"elapsedMs":0}}"""))
+        val m2 = r.foldMarks
+        r.feed(ev("compaction", """{"summary":"brief","tokensBefore":50868,"tokensAfter":19325}"""))
+        val result = r.list().last()
+        assertTrue(result.folded && result.text.startsWith("↯ 컨텍스트를 접었다"), "압축 결과 줄도 접힌 줄이다: $result")
+        assertTrue(r.foldMarks > m2)
+        assertNull(result.ctx)
+        val after = ctx.copy(tokens = 19325, percent = 19.3)
+        assertTrue(r.pinFoldContext(after))
+        assertEquals(after, r.list().last().ctx, "구성은 마지막 접힌 줄에 붙는다")
+        assertEquals(ctx, r.list().first { it.folded }.ctx, "앞 줄의 구성은 그대로다")
+    }
 }

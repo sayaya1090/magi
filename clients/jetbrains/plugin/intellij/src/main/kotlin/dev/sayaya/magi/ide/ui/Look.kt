@@ -610,6 +610,15 @@ internal object Look {
         dev.sayaya.magi.ide.usecase.ContextGauge.Part.Results -> of(Palette.partResults)
     }
 
+    /** 컨텍스트 띠 조각의 이름 - 좌측바와 대화 안 접기 줄의 범례가 같이 쓴다. */
+    fun partName(part: dev.sayaya.magi.ide.usecase.ContextGauge.Part): String = when (part) {
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.System -> MagiBundle.msg("plan.usage.part.system")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Tools -> MagiBundle.msg("plan.usage.part.tools")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Talk -> MagiBundle.msg("plan.usage.part.talk")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Calls -> MagiBundle.msg("plan.usage.part.calls")
+        dev.sayaya.magi.ide.usecase.ContextGauge.Part.Results -> MagiBundle.msg("plan.usage.part.results")
+    }
+
     /** 범례의 색 점(지름 8px) — 글자와 같은 줄에 선다. */
     fun dot(color: Color): javax.swing.Icon = object : javax.swing.Icon {
         override fun getIconWidth() = JBUI.scale(8)
