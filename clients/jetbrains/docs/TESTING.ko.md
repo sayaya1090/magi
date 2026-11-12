@@ -164,6 +164,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `CoreReleaseTest` | 설정 파일 기반 바이너리 다운로드 경로 파싱, 인증서 검증 토글, 최신 릴리스 버전 판정 로직을 검증합니다 |
 | `OnceAcrossTest` | 다중 창이 동시에 활성화되더라도 코어 다운로드 및 초기화 루틴이 1회만 실행되도록 보장하는 동시성 제어를 검증합니다 |
 | `BundleFallbackTest`(추가) | 리소스 번들을 거치지 않고 소스 코드에 하드코딩된 한국어 문자열이 영문 환경에 노출되지 않도록 전수 스캔하여 검증합니다 |
+| `CopyingPopupTest` | 대화창 우클릭 메뉴(선택 복사·모두 복사·모두 선택)가 말풍선 위에서도 열리는지 봅니다. 메뉴는 대화 목록에 달려 있는데 Swing 은 우클릭한 컴포넌트에서 메뉴를 찾으므로, 말풍선과 그 안의 글 상자가 `inheritsPopupMenu` 를 켜지 않아 메뉴가 안 열렸습니다. `Copying.install` 을 거친 행 패널·안쪽 패널·글 상자가 모두 목록의 메뉴를 찾는지 단언합니다 |
 | `ReviewSurfaceStripeTest` | 물음 패널(ask_user·승인)의 왼쪽 주황 선이 한 줄인지 봅니다. `ReviewSurface.frame` 이 띠를 칠하는데 안의 글 상자도 `Look.pending` 으로 선을 그어 두 줄이 섰었습니다. 두 호출처가 쓰는 조합 그대로 그려 가운데 줄 왼쪽의 진한 주황 선 개수를 셉니다(고치기 전 `###.....##`, 고친 뒤 `###...`) |
 | `BundleFallbackTest`(core 대화 행) · `RowsTest`(영문 IDE 의 대화 행) | core 는 번들에 닿지 못해 위 가드 밖이었고, 접기·압축·실패·회복·이동 같은 대화 행이 어느 로케일에서나 한국어로 떴습니다. 이제 `Rows` 는 키만 내고 도구창이 `Rows.Words` 로 `MagiBundle` 을 넘깁니다. `Rows.kt` 문자열 리터럴에 한글이 없는지 훑고, 영문 번들로 같은 행을 그려 한글이 없는지 봅니다. `RowsTest` 의 한국어 단언은 실제 `MagiBundle_ko.properties` 를 읽어(`BundleWords`) 번들 문구를 검사합니다 |
 | `RowsTest`(읽기만 한 턴) | 수정 내역이 없는 읽기 전용 턴의 경우 `changes`가 누락된 것이 아니라 정상적인 `noChanges` 상태임을 명확히 구분하여 표기하는지 검증합니다 |

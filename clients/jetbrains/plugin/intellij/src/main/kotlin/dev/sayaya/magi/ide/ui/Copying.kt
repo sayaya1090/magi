@@ -95,6 +95,9 @@ internal class Copying {
         }
         fun arm(c: java.awt.Component) {
             c.addMouseListener(h); c.addMouseMotionListener(h)
+            // 우클릭 메뉴는 대화 목록([popup] 의 target)에 달려 있다. Swing 은 우클릭한 바로 그 컴포넌트에서
+            // 메뉴를 찾으므로, 말풍선과 그 안의 글 상자가 물려받지 않으면 말풍선 위에서는 안 열린다(CopyingPopupTest).
+            if (c is JComponent) c.inheritsPopupMenu = true
             if (c is java.awt.Container) c.components.forEach(::arm)
         }
         arm(panel)
