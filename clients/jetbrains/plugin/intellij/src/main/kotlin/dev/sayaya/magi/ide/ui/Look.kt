@@ -120,10 +120,12 @@ internal object Look {
         border = JBUI.Borders.empty(8, 10)
     }
 
-    /** 답변 대기 중인 항목 좌측에 표시하는 인디케이터 테두리. 웹 콘솔의 `.row.pending .txt` 스타일과 동일하게 좌측 2px primary 테두리를 부여한다. */
-    fun pending(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
-        BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(8, 12)
-    )
+    /**
+     * 답을 기다리는 물음 글 상자의 여백. 이 상자는 늘 [ReviewSurface.frame] 안에 서고, 그 틀이 왼쪽에
+     * 주황 띠를 칠한다 — 여기서 선을 또 그으면 띠가 두 줄이 된다(2026-11-12, `ReviewSurfaceStripeTest`).
+     * 그래서 선은 빼고 예전 선 두께(2px)만큼 왼쪽 여백을 남겨 글자 자리는 그대로 둔다.
+     */
+    fun pending(): javax.swing.border.Border = JBUI.Borders.empty(8, 14, 8, 12)
 
     /** Section title and a theme-colored divider share one row. */
     fun sectionHeading(text: String, action: JComponent? = null, inset: Boolean = true): JComponent = javax.swing.JPanel(java.awt.GridBagLayout()).apply {
