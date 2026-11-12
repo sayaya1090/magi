@@ -437,6 +437,8 @@ func (c *Client) streamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	var lastStatus int
 	var lastBody string
 	var lastErr error
+	var lastHint time.Duration // the server's Retry-After on the last refusal, uncapped
+	var lastReqID string       // the server's request id on the last refusal
 	triedNoTools := false
 	var lastRoleDiag string // role sequence of the most recent request, for 400/422 diagnostics
 	for {
@@ -447,7 +449,7 @@ func (c *Client) streamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 			cancel()
 			return nil, merr
 		}
-		resp, lastStatus, lastBody, lastErr = c.send(streamCtx, body)
+		resp, lastStatus, lastBody, lastHint, lastReqID, lastErr = c.send(streamCtx, body)
 		// Auto-fallback: a cached request rejected as a bad request (400/422) likely
 		// means the backend doesn't accept the cache_control content shape. Retry
 		// once without caching and remember it for the rest of the session, so
@@ -481,7 +483,15 @@ func (c *Client) streamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 			return nil, lastErr // connection-level / context failure
 		}
 		if lastStatus != 0 {
-			return nil, fmt.Errorf("llm: %s (status %d): %s%s", describeStatus(lastStatus), lastStatus, lastBody, diagFor(lastStatus, lastRoleDiag))
+			// A wait the server named outlives these short retries; it rides the error so the loop
+			// can honor it (internal/app transient.go reads "retry after Ns").
+			cause := fmt.Errorf("llm: %s (status %d): %s%s", describeStatus(lastStatus), lastStatus, lastBody, diagFor(lastStatus, lastRoleDiag))
+			if lastHint > 0 {
+				secs := int((lastHint + time.Second - 1) / time.Second)
+				cause = fmt.Errorf("llm: %s (status %d, retry after %ds): %s%s", describeStatus(lastStatus), lastStatus, secs, lastBody, diagFor(lastStatus, lastRoleDiag))
+			}
+			return nil, &port.BackendError{Kind: kindForStatus(lastStatus, lastBody), Status: lastStatus,
+				RetryAfter: lastHint, RequestID: lastReqID, Cause: cause}
 		}
 		return nil, fmt.Errorf("llm: request failed")
 	}
@@ -501,7 +511,9 @@ func (c *Client) streamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 			emit(streamCtx, ch, port.ProviderEvent{
 				Type: port.ProviderError,
-				Err:  fmt.Errorf("llm: %s (status %d): %s%s", describeStatus(resp.StatusCode), resp.StatusCode, strings.TrimSpace(string(msg)), diagFor(resp.StatusCode, lastRoleDiag)),
+				Err: &port.BackendError{Kind: kindForStatus(resp.StatusCode, string(msg)), Status: resp.StatusCode,
+					RetryAfter: parseRetryAfterRaw(resp.Header.Get("Retry-After")), RequestID: requestIDOf(resp.Header),
+					Cause: fmt.Errorf("llm: %s (status %d): %s%s", describeStatus(resp.StatusCode), resp.StatusCode, strings.TrimSpace(string(msg)), diagFor(resp.StatusCode, lastRoleDiag))},
 			})
 			return
 		}
@@ -548,51 +560,36 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// send issues the request with bounded retries on transient failures (connection
-// errors, 429, 5xx) and honored Retry-After. It returns the live response (when
-// the final status is non-retryable), or the last status/body/error for the
-// caller to render.
-func (c *Client) send(ctx context.Context, body []byte) (resp *http.Response, lastStatus int, lastBody string, err error) {
-	const maxAttempts = 3
-	var retryAfter time.Duration
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			d := time.Duration(300*(1<<(attempt-1))) * time.Millisecond
-			if retryAfter > 0 {
-				d = retryAfter
-			}
-			select {
-			case <-time.After(d):
-			case <-ctx.Done():
-				return nil, lastStatus, lastBody, ctx.Err()
-			}
-		}
-		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/chat/completions", bytes.NewReader(body))
-		if rerr != nil {
-			return nil, 0, "", rerr
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "text/event-stream")
-		if c.apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		}
-		c.applyExtraHeaders(req)
-		var doErr error
-		resp, doErr = c.http.Do(req)
-		if doErr == nil && !retryableStatus(resp.StatusCode) {
-			return resp, resp.StatusCode, "", nil // success or non-retryable status
-		}
-		err = doErr
-		if resp != nil {
-			lastStatus = resp.StatusCode
-			b, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024))
-			lastBody = strings.TrimSpace(string(b))
-			retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
-			resp.Body.Close()
-			resp = nil
-		}
+// send issues the request ONCE. A transient refusal (connection error, 429, 5xx) is not retried
+// here: the status, body, server-named wait and request ID go back so the harness
+// (internal/app transient.go), the one layer that retries, decides within its budget and behind the
+// shared cooldown gate. Retrying here too multiplied the harness's ladder (3 x 7 requests a step)
+// and let requests past the gate. It returns the live response when the status is non-retryable.
+func (c *Client) send(ctx context.Context, body []byte) (resp *http.Response, lastStatus int, lastBody string, retryHint time.Duration, reqID string, err error) {
+	req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/chat/completions", bytes.NewReader(body))
+	if rerr != nil {
+		return nil, 0, "", 0, "", rerr
 	}
-	return nil, lastStatus, lastBody, err
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	c.applyExtraHeaders(req)
+	resp, err = c.http.Do(req)
+	if err == nil && !retryableStatus(resp.StatusCode) {
+		return resp, resp.StatusCode, "", 0, "", nil // success or non-retryable status
+	}
+	if resp != nil {
+		lastStatus = resp.StatusCode
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024))
+		lastBody = strings.TrimSpace(string(b))
+		retryHint = parseRetryAfterRaw(resp.Header.Get("Retry-After"))
+		reqID = requestIDOf(resp.Header)
+		resp.Body.Close()
+		resp = nil
+	}
+	return nil, lastStatus, lastBody, retryHint, reqID, err
 }
 
 // errStreamComplete is a sentinel that stops sseEvents once the response is
@@ -647,7 +644,12 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 			if message == "" {
 				message = "backend reported an error"
 			}
-			apiErr = fmt.Errorf("provider stream: %s", message)
+			apiErr = &port.BackendError{
+				Kind:       kindForType(chunk.Error.Type + " " + strings.Trim(string(chunk.Error.Code), `"`)),
+				RetryAfter: time.Duration(chunk.Error.RetryAfter * float64(time.Second)),
+				RequestID:  clipID(chunk.Error.RequestID),
+				Cause:      fmt.Errorf("provider stream: %s", message),
+			}
 			return apiErr
 		}
 		if chunk.Usage != nil {
@@ -769,22 +771,93 @@ func retryableStatus(code int) bool {
 	return false
 }
 
-// parseRetryAfter reads a Retry-After header (delta-seconds form) into a duration,
-// capped so a server can't park the UI for too long. Returns 0 if absent/invalid.
-func parseRetryAfter(v string) time.Duration {
+// parseRetryAfterRaw reads a Retry-After header in either form RFC 9110 allows — delta-seconds or
+// an HTTP-date — uncapped. 0 when absent, invalid, or already past.
+func parseRetryAfterRaw(v string) time.Duration {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return 0
 	}
-	secs, err := strconv.Atoi(v)
-	if err != nil || secs < 0 {
-		return 0
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs < 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
 	}
-	d := time.Duration(secs) * time.Second
-	if d > 15*time.Second {
-		d = 15 * time.Second
+	if at, err := http.ParseTime(v); err == nil {
+		if d := time.Until(at); d > 0 {
+			return d
+		}
 	}
-	return d
+	return 0
+}
+
+// kindForStatus reads an HTTP refusal into the common kinds. 429 is two things — a rate window
+// that clears in seconds, an exhausted quota that does not — and only the body tells them apart.
+func kindForStatus(status int, body string) port.BackendErrorKind {
+	if k := kindForType(body); k == port.KindQuota || k == port.KindContextOverflow {
+		return k
+	}
+	switch {
+	case status == 429:
+		return port.KindRateLimit
+	case status == 401:
+		return port.KindAuth
+	case status == 403:
+		return port.KindPermission
+	case status == 413:
+		return port.KindContextOverflow
+	case status == 408:
+		return port.KindTimeout
+	case status >= 500:
+		return port.KindOverloaded
+	case status >= 400:
+		return port.KindInvalidRequest
+	}
+	return ""
+}
+
+// kindForType reads a backend's own error type/code (OpenAI's error.type/code, Anthropic's
+// error.type) into the common kinds. "" when it names none — the harness then reads the words.
+func kindForType(t string) port.BackendErrorKind {
+	t = strings.ToLower(t)
+	switch {
+	case strings.Contains(t, "quota") || strings.Contains(t, "billing"):
+		return port.KindQuota
+	case strings.Contains(t, "context_length") || strings.Contains(t, "context_window"):
+		return port.KindContextOverflow
+	case strings.Contains(t, "rate_limit"):
+		return port.KindRateLimit
+	case strings.Contains(t, "overloaded"):
+		return port.KindOverloaded
+	case strings.Contains(t, "authentication") || strings.Contains(t, "invalid_api_key"):
+		return port.KindAuth
+	case strings.Contains(t, "permission"):
+		return port.KindPermission
+	case strings.Contains(t, "timeout"):
+		return port.KindTimeout
+	case strings.Contains(t, "invalid_request"):
+		return port.KindInvalidRequest
+	}
+	return ""
+}
+
+// requestIDOf is the backend's request id, the one thing a support ticket needs. Never content.
+func requestIDOf(h http.Header) string {
+	for _, k := range []string{"X-Request-Id", "Request-Id", "Anthropic-Request-Id", "X-Amzn-Requestid"} {
+		if v := h.Get(k); v != "" {
+			return clipID(v)
+		}
+	}
+	return ""
+}
+
+func clipID(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) > 128 {
+		v = v[:128]
+	}
+	return v
 }
 
 // emit sends ev unless ctx is cancelled (avoids blocking on a dropped consumer).

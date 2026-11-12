@@ -882,8 +882,11 @@ OpenAI 호환 클라이언트 하나가 base URL만으로 Ollama / LiteLLM / vLL
   아닌 백엔드에 안전).
 - **에러**: 상태 코드를 원인으로 매핑한다(`describeStatus`: 401 인증, 404 모델/엔드포인트,
   429 레이트 리밋, 502/503 게이트웨이, 504 업스트림 타임아웃).
-- **복원력**: 429/5xx에 Retry-After를 존중하는 경계 잡힌 재시도. `-http-timeout`은 토큰 스트림을
-  끊지 않으면서 첫 헤더까지의 시간을 제한합니다.
+- **복원력**: 어댑터는 요청을 한 번만 보내고 재시도하지 않습니다. 거절(연결 오류, 429, 5xx)은
+  종류·상태·`Retry-After`(초 또는 HTTP-date, 상한 없음)·요청 ID를 담은 `port.BackendError`로
+  돌아가고, 재시도 여부는 하네스가 정합니다(`internal/app/transient.go`, `backend_gate.go`;
+  MANUAL "프로바이더 복원력"). `-http-timeout`은 토큰 스트림을 끊지 않으면서 첫 헤더까지의 시간을
+  제한합니다.
 - `ListModels`(`-list-models`)가 백엔드 `/v1/models` 카탈로그를 가져옵니다.
 
 ---

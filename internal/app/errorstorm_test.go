@@ -27,6 +27,7 @@ func (f *erroringLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-cha
 // A persistent provider error must NOT trigger a re-run storm: the turn ends with
 // one error event, and the loop does not keep re-invoking the failing backend.
 func TestNoRetryStormOnPersistentError(t *testing.T) {
+	fastTransient(t) // a 429 now earns the bounded step ladder (transient.go); shrink its waits
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +48,13 @@ func TestNoRetryStormOnPersistentError(t *testing.T) {
 	}
 	// Give any (buggy) re-run loop a moment to spin.
 	time.Sleep(200 * time.Millisecond)
-	if n := llm.calls.Load(); n > 2 {
-		t.Errorf("LLM called %d times — re-run storm on persistent error (want ~1)", n)
+	// The step's own ladder may ask again, but only up to its bound; nothing above it (app.go's
+	// re-run/triage) may add calls, and the turn records exactly one error, not one per attempt.
+	if n := llm.calls.Load(); n > int64(maxTransientRetries+1) {
+		t.Errorf("LLM called %d times — re-run storm on persistent error (want <= %d)", n, maxTransientRetries+1)
+	}
+	if n := countType(got, event.TypeError); n != 1 {
+		t.Errorf("want exactly 1 error event, got %d; types=%v", n, typesOf(got))
 	}
 }
 
@@ -57,6 +63,7 @@ func TestNoRetryStormOnPersistentError(t *testing.T) {
 // left the asker told "still thinking" forever, its receipt orphaned. The loop writes only a
 // TypeError on that path; the run's retirement adds the finish. Reverting that fails this.
 func TestAProviderErrorStillWritesATurnFinished(t *testing.T) {
+	fastTransient(t)
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

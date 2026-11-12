@@ -966,8 +966,11 @@ One OpenAI-compatible client covers Ollama / LiteLLM / vLLM / OpenAI by base URL
   and sticks to plain for the session (safe for non-Anthropic backends).
 - **Errors**: status mapped to a cause (`describeStatus`: 401 auth, 404 model/endpoint,
   429 rate-limit, 502/503 gateway, 504 upstream timeout).
-- **Resilience**: bounded retries on 429/5xx with Retry-After; `-http-timeout` bounds
-  time-to-first-header without cutting the token stream.
+- **Resilience**: the adapter sends each request once and does not retry. A refusal (connection
+  error, 429, 5xx) returns as a `port.BackendError` with its kind, status, `Retry-After` (seconds or
+  HTTP-date, uncapped) and request ID; the harness decides whether to retry
+  (`internal/app/transient.go`, `backend_gate.go`; MANUAL, "Provider resilience"). `-http-timeout`
+  bounds time-to-first-header without cutting the token stream.
 - `ListModels` (`-list-models`) fetches the backend `/v1/models` catalog.
 
 ---

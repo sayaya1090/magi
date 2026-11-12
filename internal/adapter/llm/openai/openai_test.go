@@ -339,32 +339,24 @@ func TestClearBaseURL(t *testing.T) {
 	}
 }
 
-// Transient 503s are retried, then the request succeeds.
-func TestRetryOnTransient(t *testing.T) {
+// The adapter does not retry: one request, and a transient refusal goes straight back to the harness
+// (internal/app transient.go) with its kind, so a step's attempts are counted in ONE place and every
+// request passes the shared cooldown gate. Retrying here as well multiplied the harness's ladder.
+func TestAdapterLeavesRetriesToTheHarness(t *testing.T) {
 	var n int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n++
-		if n < 3 {
-			http.Error(w, "busy", http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"))
+		http.Error(w, "busy", http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
-	evs := collect(t, New(srv.URL, ""))
-	var text string
-	for _, e := range evs {
-		if e.Type == port.ProviderText {
-			text += e.Text
-		}
+	_, err := New(srv.URL, "").StreamChat(context.Background(), port.ChatRequest{Model: "m"})
+	be, ok := port.AsBackendError(err)
+	if !ok || be.Kind != port.KindOverloaded || be.Status != http.StatusServiceUnavailable {
+		t.Errorf("want an overloaded BackendError with status 503, got %v", err)
 	}
-	if text != "ok" {
-		t.Errorf("text=%q want ok (after retries)", text)
-	}
-	if n != 3 {
-		t.Errorf("attempts=%d want 3", n)
+	if n != 1 {
+		t.Errorf("attempts=%d want 1 (the harness owns retries)", n)
 	}
 }
 
@@ -385,19 +377,48 @@ func TestRetryExhaustedSurfacesStatus(t *testing.T) {
 	if !strings.Contains(err.Error(), "429") || !strings.Contains(err.Error(), "rate limit") {
 		t.Errorf("error should surface the 429 status and body, got: %v", err)
 	}
+	if strings.Contains(err.Error(), "retry after") {
+		t.Errorf("Retry-After 0 names no wait, so none should be carried: %v", err)
+	}
+}
+
+// The wait a server names rides the error so the harness (internal/app transient.go) waits that
+// long before asking again; the adapter itself does not wait or retry.
+func TestRetryExhaustedCarriesRetryAfterHint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, `{"error":{"message":"rate limit exceeded"}}`, http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	_, err := New(srv.URL, "").StreamChat(context.Background(), port.ChatRequest{Model: "m"})
+	if err == nil || !strings.Contains(err.Error(), "retry after 1s") {
+		t.Fatalf("error should carry the server's Retry-After, got: %v", err)
+	}
+}
+
+// Retry-After may be an HTTP-date. The reading is uncapped: the harness compares it with its own
+// wait budget and, when it is longer, stops resumably instead of calling early.
+func TestParseRetryAfterHTTPDate(t *testing.T) {
+	v := time.Now().Add(40 * time.Second).UTC().Format(http.TimeFormat)
+	if d := parseRetryAfterRaw(v); d < 30*time.Second || d > 41*time.Second {
+		t.Errorf("parseRetryAfterRaw(date+40s)=%v want ~40s", d)
+	}
+	if d := parseRetryAfterRaw(time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat)); d != 0 {
+		t.Errorf("a past date names no wait, got %v", d)
+	}
+	if d := parseRetryAfterRaw("999"); d != 999*time.Second {
+		t.Errorf("raw seconds are not capped, got %v", d)
+	}
 }
 
 func TestParseRetryAfter(t *testing.T) {
-	if d := parseRetryAfter("2"); d != 2*time.Second {
-		t.Errorf("parseRetryAfter(2)=%v want 2s", d)
+	if d := parseRetryAfterRaw("2"); d != 2*time.Second {
+		t.Errorf("parseRetryAfterRaw(2)=%v want 2s", d)
 	}
-	if d := parseRetryAfter("999"); d != 15*time.Second {
-		t.Errorf("parseRetryAfter caps at 15s, got %v", d)
+	if d := parseRetryAfterRaw(""); d != 0 {
+		t.Errorf("parseRetryAfterRaw('')=%v want 0", d)
 	}
-	if d := parseRetryAfter(""); d != 0 {
-		t.Errorf("parseRetryAfter('')=%v want 0", d)
-	}
-	if d := parseRetryAfter("garbage"); d != 0 {
-		t.Errorf("parseRetryAfter(garbage)=%v want 0", d)
+	if d := parseRetryAfterRaw("garbage"); d != 0 {
+		t.Errorf("parseRetryAfterRaw(garbage)=%v want 0", d)
 	}
 }

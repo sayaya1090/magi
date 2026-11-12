@@ -39,6 +39,10 @@ type streamStep struct {
 	// request-time compact-and-retry never saw it and the turn ended on it. Not recorded here: the
 	// caller compacts and re-issues, and records it only if that cannot help.
 	overflow error
+	// transient is a busy-backend refusal (429, 5xx, overloaded — see isTransientBackend) that
+	// arrived inside the stream before any output: the shape a plugin backend uses. Not recorded
+	// here: the caller waits and re-issues, and records it only when the retries run out.
+	transient error
 }
 
 // cutByOutputCapNote is injected after a response the provider ended at the output-token cap
@@ -456,6 +460,10 @@ loop:
 			recovered := errors.Is(ev.Err, port.ErrStreamCut) || errors.Is(ev.Err, port.ErrStreamAborted)
 			if !recovered && isContextOverflow(ev.Err) && text.Len() == 0 && reasoning.Len() == 0 && len(res.toolCalls) == 0 {
 				res.overflow = ev.Err
+				break
+			}
+			if !recovered && isTransientBackend(ev.Err) && text.Len() == 0 && reasoning.Len() == 0 && len(res.toolCalls) == 0 {
+				res.transient = ev.Err
 				break
 			}
 			a.emitErrorKind(ctx, sid, agentActor, ev.Err.Error(), recovered)

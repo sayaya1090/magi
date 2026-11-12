@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -119,12 +120,19 @@ func (m *meteredProvider) BaseURL() string {
 // through unchanged and in order — this observes, it never withholds or reorders — so a consumer
 // that already reads usage (the main loop's context meter) is unaffected.
 func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	// The shared gate (backend_gate.go): a backend that refused one caller is not asked by another
+	// before its wait is over. Here because every model request passes this wrapper.
+	ticket, gerr := m.a.gates.admit(m.gateKey(r.Model))
+	if gerr != nil {
+		return nil, gerr
+	}
 	meter := trialMeter(ctx)
 	if meter != nil {
 		meter.start()
 	}
 	in, err := m.inner.StreamChat(ctx, r)
 	if err != nil {
+		ticket.done(err)
 		return nil, err
 	}
 	sid, model := usageSIDFrom(ctx), r.Model
@@ -133,12 +141,29 @@ func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<
 		defer close(out)
 		var observed event.Usage
 		reported := false
+		// The request's outcome for the gate is its first meaningful event: an error frame before
+		// anything else is a refusal (how every plugin reports one); anything else is an answer.
+		settled := false
+		settle := func(e error) {
+			if !settled {
+				settled = true
+				ticket.done(e)
+			}
+		}
+		defer func() { settle(ctx.Err()) }()
 		defer func() {
 			if meter != nil {
 				meter.finish(observed, reported)
 			}
 		}()
 		for ev := range in {
+			switch ev.Type {
+			case port.ProviderError:
+				settle(ev.Err)
+			case port.ProviderUsage:
+			default:
+				settle(nil)
+			}
 			if ev.Type == port.ProviderUsage && ev.Usage != nil {
 				observed = *ev.Usage
 				reported = true
@@ -156,6 +181,15 @@ func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<
 		}
 	}()
 	return out, nil
+}
+
+// gateKey names the backend a request goes to: its endpoint and model.
+func (m *meteredProvider) gateKey(model string) string {
+	base := m.BaseURL()
+	if base == "" {
+		base = fmt.Sprintf("%T", m.inner)
+	}
+	return base + "|" + model
 }
 
 // recordUsage adds one request's tokens to the grand total and, when the context named one, to that

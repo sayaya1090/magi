@@ -126,6 +126,8 @@ type App struct {
 	// from the agent's own stream, a council poll, or any side call. Its own mutex — recordUsage
 	// runs on every model goroutine and must never queue behind the state lock.
 	usage usageLedger
+	// gates is the cooldown/circuit state every caller of a backend shares (backend_gate.go).
+	gates backendGates
 
 	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
 }

@@ -293,6 +293,15 @@ type ErrorData struct {
 	// a failed request" recovery was undone one layer up, and a nearly-finished build-pmars trial
 	// exited 1 three seconds into an otherwise healthy reply (TB 2.1, 2026-08-16).
 	Recovered bool `json:"recovered,omitempty"`
+	// The backend-failure facts (internal/app transient.go), when the error came from a model
+	// backend: what kind of failure it was, how much recovery was already spent on it, and whether
+	// the turn can be picked up again from where the log stands. Never request content.
+	Kind         string `json:"kind,omitempty"`
+	Resumable    bool   `json:"resumable,omitempty"`
+	Attempts     int    `json:"attempts,omitempty"`
+	WaitedMs     int64  `json:"waitedMs,omitempty"`
+	RetryAfterMs int64  `json:"retryAfterMs,omitempty"`
+	RequestID    string `json:"requestId,omitempty"`
 }
 
 // A "diagnostic" event once recorded a reply the run could not parse and recovered from —

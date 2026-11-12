@@ -73,6 +73,56 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		req, evs = a.buildStepRequest(ctx, tc, folded, step, cumOut)
 		return true
 	}
+	// waitTransient answers a busy backend (see transient.go): announce the wait, then sleep it.
+	// false when the ladder is spent or the turn was cancelled during the wait.
+	// The ladder is bounded twice: by count (maxTransientRetries) and by cumulative wait
+	// (transientWaitBudget). transientStop says why it stopped short, for the record.
+	transientRetries := 0
+	var transientWaited time.Duration
+	var transientStop string
+	waitTransient := func(cause error) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		if isGateHeld(cause) {
+			// The shared gate held this request back; nothing reached the backend. Sit out the wait
+			// it named against the wait budget, without spending an attempt.
+			wait, left := classifyBackend(cause).RetryAfter, transientWaitBudget-transientWaited
+			if left <= 0 || wait > left {
+				transientStop = fmt.Sprintf("the backend is cooling down for %s more, longer than the %s left of this step's retry budget",
+					wait.Round(time.Second), left.Round(time.Second))
+				return false
+			}
+			transientWaited += wait
+			a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("backend cooling down \u2014 waiting %s before asking again (stop the turn to cancel)",
+				wait.Round(100*time.Millisecond)))
+			return sleepCtx(ctx, wait)
+		}
+		if transientRetries >= maxTransientRetries {
+			return false
+		}
+		cls := classifyBackend(cause)
+		left := transientWaitBudget - transientWaited
+		if cls.RetryAfter > left {
+			// Never ask earlier than the backend said: stop resumably instead.
+			transientStop = fmt.Sprintf("the backend asked to wait %s, longer than the %s left of this step's retry budget",
+				cls.RetryAfter.Round(time.Second), left.Round(time.Second))
+			return false
+		}
+		if left <= 0 {
+			transientStop = fmt.Sprintf("the %s retry budget is spent", transientWaitBudget.Round(time.Second))
+			return false
+		}
+		d := transientDelay(transientRetries, cls.RetryAfter)
+		if d > left {
+			d = left
+		}
+		transientRetries++
+		transientWaited += d
+		a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("backend %s (%s) — retrying in %s (attempt %d of %d; stop the turn to cancel)",
+			cls.Kind, shortCause(cause), d.Round(100*time.Millisecond), transientRetries, maxTransientRetries))
+		return sleepCtx(ctx, d)
+	}
 	for sAttempt := 0; ; sAttempt++ {
 		// A cancelable child ctx so the reasoning-spin and stall guards can stop a response
 		// mid-stream (see consumeStream). Cancelling streamCtx (not ctx) leaves the turn's context
@@ -106,8 +156,15 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 			if isContextOverflow(err) && compactForRetry(err) {
 				continue
 			}
-			a.emitError(ctx, sid, agentActor, err.Error())
-			return stepResponse{}, err
+			if isTransientBackend(err) {
+				if waitTransient(err) {
+					continue
+				}
+				if ctx.Err() != nil {
+					return stepResponse{}, ctx.Err()
+				}
+			}
+			return stepResponse{}, a.stopOnBackend(ctx, sid, agentActor, err, transientRetries, transientWaited, transientStop)
 		}
 		msgID = "m_" + newID()
 		textPartID = "p_" + newID()
@@ -133,6 +190,16 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 			}
 			a.emitError(ctx, sid, agentActor, res.overflow.Error())
 			return stepResponse{}, res.overflow
+		}
+		// The same busy-backend refusal, delivered inside the stream before any output.
+		if res.transient != nil {
+			if waitTransient(res.transient) {
+				continue
+			}
+			if ctx.Err() != nil {
+				return stepResponse{}, ctx.Err()
+			}
+			return stepResponse{}, a.stopOnBackend(ctx, sid, agentActor, res.transient, transientRetries, transientWaited, transientStop)
 		}
 		// Stall-retry: the stream produced NO output for firstTokenBound() (a hung/silent backend).
 		// Re-issue the SAME request rather than strand the turn until the wall clock — a transient

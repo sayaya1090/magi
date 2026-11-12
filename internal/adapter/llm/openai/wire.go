@@ -141,8 +141,14 @@ type wireFuncCall struct {
 type streamChunk struct {
 	Choices []streamChoice `json:"choices"`
 	Usage   *wireUsage     `json:"usage,omitempty"`
-	Error   *struct {
-		Message string `json:"message"`
+	// Error is an in-stream failure. Only message is required; type/code/retry_after/request_id are
+	// read when a backend states them, and the harness falls back to the words when it does not.
+	Error *struct {
+		Message    string          `json:"message"`
+		Type       string          `json:"type,omitempty"`
+		Code       json.RawMessage `json:"code,omitempty"`
+		RetryAfter float64         `json:"retry_after,omitempty"`
+		RequestID  string          `json:"request_id,omitempty"`
 	} `json:"error,omitempty"`
 }
 
