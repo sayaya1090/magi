@@ -142,6 +142,7 @@ internal class Copying {
             override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent) = Unit
             override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent) = Unit
         })
+        menu.addPopupMenuListener(FocusReturn())
         target.componentPopupMenu = menu
         target.inheritsPopupMenu = true
 
@@ -199,5 +200,27 @@ internal fun textEditMenu(field: javax.swing.text.JTextComponent) {
         override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent) = Unit
         override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent) = Unit
     })
+    menu.addPopupMenuListener(FocusReturn())
     field.componentPopupMenu = menu
+}
+
+/**
+ * 우클릭 메뉴가 열리면 Swing 이 포커스를 메뉴 쪽(JRootPane)으로 옮긴다. 닫힌 뒤 원래 자리로 돌아오지 않으면
+ * 입력창에 커서가 사라진 채 남는다(2026-11-12 보고, FocusReturnTest). 열기 직전의 포커스 주인을 기억했다가
+ * 닫힐 때 한 번만 되돌린다 — 취소로 닫히면 canceled 와 invisible 이 둘 다 오므로 기억을 비워 두 번 부르지 않는다.
+ */
+internal class FocusReturn(
+    private val owner: () -> java.awt.Component? = {
+        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().permanentFocusOwner
+    },
+) : javax.swing.event.PopupMenuListener {
+    private var prev: java.awt.Component? = null
+    override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent) { prev = owner() }
+    override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent) = back()
+    override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent) = back()
+    private fun back() {
+        val c = prev ?: return
+        prev = null
+        javax.swing.SwingUtilities.invokeLater { c.requestFocusInWindow() }
+    }
 }
