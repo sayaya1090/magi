@@ -225,7 +225,8 @@ class Rows {
      */
     fun feed(e: LogEvent): Boolean = synchronized(rows) {
         when (e.type) {
-            "prompt.submitted" -> prompt(e)
+            // 새 프롬프트 뒤의 접기는 새 줄 — 끝을 알리지 못하고 끝난 턴의 줄을 고치지 않는다.
+            "prompt.submitted" -> { elidedThisTurn = 0; prompt(e) }
             "part.delta" -> delta(e)
             "part.appended" -> part(e)
             "tool.background" -> {
@@ -325,6 +326,7 @@ class Rows {
             }
             "error" -> {
                 // 에러로 끝나는 턴은 turn.finished 가 안 올 수 있다 — 여기서도 쓴다.
+                elidedThisTurn = 0 // 다음 턴의 접기가 이 턴 줄을 고치지 않게
                 val swept = rows.removeAll { it.draft }
                 error(e) || swept
             }

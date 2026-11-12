@@ -702,6 +702,26 @@ class RowsTest {
         assertEquals(listOf("↯ 이전 툴 결과 4개를 접었다 (요약 없음)", "↯ 이전 툴 결과 2개를 접었다 (요약 없음)"), elided(), "다음 턴의 접기는 새 줄이다")
     }
 
+    /**
+     * 에러로 끝나는 턴에는 turn.finished 가 안 올 수 있다(Rows 의 "error" 갈래). 그 턴의 접기 누적이 남으면 다음 턴의
+     * 접기가 이미 출력된 이전 턴 줄의 개수를 고친다 — 에러 종료와 새 프롬프트에서도 새 줄로 시작해야 한다.
+     */
+    @Test
+    fun `에러로 끝난 턴이나 새 프롬프트 뒤의 툴 결과 접기는 새 줄이다`() {
+        val r = Rows()
+        fun note(n: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"freed the window by eliding $n bulky tool result(s) — re-derivable, and already narrated"}"""))
+        fun elided() = r.list().filter { it.text.startsWith("↯ 이전 툴 결과") }.map { it.text }
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        note(3)
+        r.feed(ev("error", """{"message":"provider failed"}"""))
+        note(2)
+        assertEquals(listOf("↯ 이전 툴 결과 3개를 접었다 (요약 없음)", "↯ 이전 툴 결과 2개를 접었다 (요약 없음)"), elided(), "에러로 끝난 턴의 줄은 그대로 둔다")
+
+        r.feed(ev("prompt.submitted", """{"msgId":"u2","text":"again"}"""))
+        note(1)
+        assertEquals(listOf("↯ 이전 툴 결과 3개를 접었다 (요약 없음)", "↯ 이전 툴 결과 2개를 접었다 (요약 없음)", "↯ 이전 툴 결과 1개를 접었다 (요약 없음)"), elided(), "새 프롬프트 뒤의 접기는 새 줄이다")
+    }
+
     @Test
     fun `말한 기권과 무응답은 다른 행이다`() {
         // 코어가 둘을 갈라 보낸다(5755dc74): 판정을 안 말한 멤버는 **말한 기권**
