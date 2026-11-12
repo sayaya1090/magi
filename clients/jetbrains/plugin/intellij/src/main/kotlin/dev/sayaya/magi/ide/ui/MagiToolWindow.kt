@@ -315,7 +315,10 @@ class MagiToolWindow : ToolWindowFactory {
         private var planOpen = false
         private var planKey = ""
         private val planHead = com.intellij.ui.components.JBLabel().apply {
-            border = JBUI.Borders.empty(5, 12)
+            border = JBUI.Borders.empty(6, 12)
+            // 접힌 한 줄은 가운데, 펼치면 단계 목록과 맞춰 왼쪽([paintPlan]). 굵게 — 대화와 한눈에 갈린다.
+            horizontalAlignment = javax.swing.SwingConstants.CENTER
+            font = JBUI.Fonts.label().asBold()
             cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
         }
         private val planList = JBPanel<JBPanel<*>>().apply {
@@ -325,7 +328,13 @@ class MagiToolWindow : ToolWindowFactory {
             isVisible = false
         }
         private val planStrip = JBPanel<JBPanel<*>>(BorderLayout()).apply {
-            border = javax.swing.BorderFactory.createMatteBorder(0, 0, 1, 0, com.intellij.ui.JBColor.border())
+            // 대화와 눈에 띄게 구분한다: 불투명 primaryContainer 바탕, 왼쪽 primary 띠, 아래 구분선.
+            isOpaque = true
+            background = Look.primaryContainer
+            border = javax.swing.BorderFactory.createCompoundBorder(
+                javax.swing.BorderFactory.createMatteBorder(0, 0, 1, 0, com.intellij.ui.JBColor.border()),
+                javax.swing.BorderFactory.createMatteBorder(0, JBUI.scale(4), 0, 0, Look.primary),
+            )
             isVisible = false
             add(planHead, BorderLayout.NORTH)
             add(planList, BorderLayout.CENTER)
@@ -1191,6 +1200,7 @@ class MagiToolWindow : ToolWindowFactory {
                 })
             }
             planList.isVisible = planOpen
+            planHead.horizontalAlignment = if (planOpen) javax.swing.SwingConstants.LEADING else javax.swing.SwingConstants.CENTER
             planStrip.isVisible = true
             planStrip.revalidate(); planStrip.repaint()
             planStrip.parent?.revalidate()

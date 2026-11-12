@@ -53,6 +53,8 @@ internal object Look {
 
     /** 클릭 가능한 파일 경로 및 라인 링크 강조 색상. */
     val accent = of(Palette.accent)
+    /** primary 계열의 옅은 바탕 — 대화 위에서 눈에 띄어야 하는 띠(계획 줄)가 깐다. */
+    val primaryContainer = of(Palette.primaryContainer)
 
     /**
      * 일반 본문 텍스트 색상.
