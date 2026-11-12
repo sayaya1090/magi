@@ -120,11 +120,20 @@ data class Row(
  * 이벤트를 먹고 행 목록을 유지한다. [feed] 는 전사 워커 스레드에서, [list] 는 EDT 에서 오므로
  * 목록 접근은 잠근다 — 목록을 **복사해** 내주는 이유이기도 하다(그리는 동안 바뀌면 안 된다).
  */
-class Rows {
+class Rows(private val words: Words) {
+
+    /**
+     * 대화 행 문구를 짓는 손. core 는 번들에 닿지 못하는 모듈이라 키와 인자만 내고, 도구창이
+     * `MagiBundle.msg` 를 넘긴다(`AnswerDrafts.REASON_*` 의 선례). 숫자는 문자열로 넘긴다 —
+     * `MessageFormat` 이 정수에 천 단위 쉼표를 넣는다.
+     */
+    fun interface Words { fun msg(key: String, vararg args: Any): String }
 
     private val rows = mutableListOf<Row>()
     /** 이번 턴에 툴 결과 접기로 접은 개수 — 한 턴의 접기는 한 줄에 모은다([foldNote]). 턴이 끝나면 0. */
     private var elidedThisTurn = 0
+    /** 이번 턴 접기 줄의 지금 문구 — 문구가 언어마다 달라 머리말 대신 이 글자로 같은 줄을 찾는다. */
+    private var elidedText: String? = null
     private var foldMarksSeen = 0
 
     /**
@@ -142,7 +151,6 @@ class Rows {
     }
     private companion object {
         const val FOLD_CALL = "compact"
-        const val ELIDED_HEAD = "↯ 이전 툴 결과"
         /** 코어(compact.go)가 요약 없이 끝날 때 내는 말의 머리 — 이것이 오면 압축은 실패로 끝났다. */
         val FOLD_FAILED = listOf(
             "compaction did not produce a summary",
@@ -283,7 +291,7 @@ class Rows {
                         // 정본 명세(`internal/adapter/idebridge/rows.go`의 `WhoSystem`)에 따라 에러가 아닌 시스템 메시지로 처리합니다.
                         // 실행 검증 미통과는 실행 오류와 구분되는 완료 상태 고지이므로 `Who.System` 타입을 적용합니다.
                         rows += Row(Who.System,
-                            "확인 못 함 — 이 판으로 통과한 실행이 없습니다" +
+                            words.msg("row.unverified") +
                                 (why?.let { ": $it" } ?: ""), at = e.ts)
                     }
                 }
@@ -310,8 +318,7 @@ class Rows {
             "session.moved" -> {
                 val to = str(e, "to")?.takeIf { it.isNotBlank() }
                 rows += Row(Who.System,
-                    "\u21E2 " + (to?.let { "컴패니언이 $it (으)로 옮겨 갔습니다" }
-                        ?: "컴패니언이 다른 대화로 옮겨 갔습니다") + " — 이 대화는 여기서 끝납니다",
+                    to?.let { words.msg("row.moved.to", it) } ?: words.msg("row.moved"),
                     at = e.ts)
                 true
             }
@@ -603,7 +610,7 @@ class Rows {
         val summary = d["summary"]?.jsonPrimitive?.content.orEmpty().trim().lowercase()
         if ((summary.startsWith("prompt is too long") && summary.contains("single-exchange conversation cannot be compacted")) ||
             summary.startsWith("[claude: ") || summary == "[claude exited before answering]") {
-            foldResult(Row(Who.System, "컨텍스트 압축 실패: 요약 대신 제공자 오류를 받았습니다. 원래 대화 기록은 보존되어 있습니다.", at = e.ts))
+            foldResult(Row(Who.System, words.msg("row.fold.providerError"), at = e.ts))
             return true
         }
         val before = d["tokensBefore"]?.jsonPrimitive?.content?.toIntOrNull()
@@ -617,8 +624,8 @@ class Rows {
         // 두는데(「줄인 양」이라는 이름에는 맞다) 그것으로 문장을 지으면 「−0, −0%」가 되어
         // **유일하게 눈에 띌 값이 있는 결과가 숨는다.** 그래서 그 갈래를 먼저 가른다 — 코어의
         // `SizeNote` 가 정확히 그 순서로 되어 있다.
-        foldResult(Row(Who.System, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
-            (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts, folded = true))
+        foldResult(Row(Who.System, words.msg("row.fold.done", before?.toString() ?: "?", after?.toString() ?: "?",
+            sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts, folded = true))
         foldMarksSeen++
         return true
     }
@@ -631,7 +638,7 @@ class Rows {
      */
     internal fun sizeNote(before: Int?, after: Int?): String? {
         if (before == null || after == null) return null
-        if (after > before) return "+${after - before}, 요약이 원본보다 큽니다"
+        if (after > before) return words.msg("row.fold.grew", (after - before).toString())
         val freed = before - after
         val pct = if (before > 0) (freed * 100 + before / 2) / before else 0
         return "−$freed, −$pct%"
@@ -649,7 +656,7 @@ class Rows {
         val msg = d["message"]?.jsonPrimitive?.content.orEmpty()
         // 회복된 에러는 끝이 아니다 — 그렇게 읽은 독자 여섯이 런을 죽였던 결함이 코어에 기록돼
         // 있다. 여기서는 갈래를 글자에 싣는 것까지만 한다.
-        rows += Row(Who.Error, if (recovered) "(회복됨) $msg" else msg, at = e.ts)
+        rows += Row(Who.Error, if (recovered) words.msg("row.error.recovered", msg) else msg, at = e.ts)
         return true
     }
 
@@ -688,7 +695,7 @@ class Rows {
         // 실측(이 기계의 로그 전량, 2026-09-10): 라운드 994 중 374 가 읽기 전용 턴이다 — 흔한 쪽이라
         // 더더욱, 빈 칸으로 두면 흔한 경우가 고장으로 읽힌다.
         val readOnly = d["noChanges"]?.jsonPrimitive?.content == "true"
-        val evidence = listOf(seen, if (readOnly) "고친 파일 없음 — 읽기만 한 턴입니다" else "")
+        val evidence = listOf(seen, if (readOnly) words.msg("row.readOnly") else "")
             .filter { it.isNotBlank() }.joinToString("\n\n")
         rows += Row(
             Who.Council,
@@ -718,14 +725,15 @@ class Rows {
                 // 처음 선 한 줄의 개수만 고친다. 이미 그린 툴 결과 행은 건드리지 않는다.
                 val first = elidedThisTurn == 0
                 elidedThisTurn += m.groupValues[1].toInt()
-                val line = "$ELIDED_HEAD ${elidedThisTurn}개를 접었다 (요약 없음)"
-                val i = if (first) -1 else rows.indexOfLast { it.who == Who.System && it.text.startsWith(ELIDED_HEAD) }
+                val line = words.msg("row.fold.elided", elidedThisTurn.toString())
+                val i = if (first) -1 else rows.indexOfLast { it.who == Who.System && it.text == elidedText }
+                elidedText = line
                 if (i >= 0) rows[i] = rows[i].copy(text = line) else rows += Row(Who.System, line, at = e.ts, folded = true)
                 foldMarksSeen++
                 return true
             }
             if (FOLD_FAILED.any { text.startsWith(it) }) {
-                foldResult(Row(Who.System, "컨텍스트 압축 실패: 요약을 받지 못해 원래 대화 기록을 그대로 둡니다.", at = e.ts))
+                foldResult(Row(Who.System, words.msg("row.fold.failed"), at = e.ts))
                 return true
             }
             return false
@@ -763,7 +771,7 @@ class Rows {
             // 그것이 항상 옳은 본문이고, 낙하 문구는 정말 빈 때만이다. 플래그를 잘못 세우는
             // 생산자가 있어도(데몬 결함 후보로 접수) 이 렌더는 거짓말을 안 한다.
             d["rationale"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                ?: if (silent) "답이 없었다" else "",
+                ?: if (silent) words.msg("row.council.silent") else "",
             at = e.ts,
             member = d["member"]?.jsonPrimitive?.content,
             round = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
@@ -831,7 +839,7 @@ class Rows {
         val counts = if (t == null) "" else listOf(
             "${n("done")} done", "${n("continue")} continue",
             if (said > 0) "$said abstain" else "",
-            if (n("silent") > 0) "${n("silent")} 답 없음" else "",
+            if (n("silent") > 0) words.msg("row.council.silentCount", n("silent").toString()) else "",
         ).filter { it.isNotBlank() }.joinToString(" / ")
         // ⚠ **반박 라운드 옆의 집계는 그 «뒤에» 잰 것이다.**
         //
@@ -929,7 +937,7 @@ class Rows {
         /** 데몬 FlexBool 의 참 모양들(common.go) — 이 밖의 낯선 값도 결손 쪽으로 접는다. */
         private val truthy = setOf("true", "True", "yes", "on", "1")
 
-        fun of(tool: String?, argsJson: String?): Triple<String, String, String>? {
+        fun of(tool: String?, argsJson: String?, untitled: String): Triple<String, String, String>? {
             if (tool != "edit") return null // 별칭 철자는 결손 — 정확한 builtin 이름만
             val o = runCatching {
                 kotlinx.serialization.json.Json.parseToJsonElement(argsJson ?: return null)
@@ -945,7 +953,7 @@ class Rows {
             } }
             val old = prim("old")?.takeIf { it.isString }?.content ?: return null
             val new = prim("new")?.takeIf { it.isString }?.content ?: return null
-            val path = prim("path")?.takeIf { it.isString }?.content?.substringAfterLast('/') ?: "변경"
+            val path = prim("path")?.takeIf { it.isString }?.content?.substringAfterLast('/') ?: untitled
             return Triple(path, old, new)
         }
     }

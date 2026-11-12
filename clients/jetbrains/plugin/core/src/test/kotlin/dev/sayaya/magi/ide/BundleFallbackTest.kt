@@ -111,4 +111,29 @@ class BundleFallbackTest {
             "영어 IDE 에서도 한국어로 뜬다 — MagiBundle 로 옮길 것(EN/KO 둘 다):\n" + offenders.joinToString("\n"),
         )
     }
+
+    /**
+     * core 는 번들이 없는 모듈이라 위 가드가 안 본다. 그래서 대화 행 문구를 짓는 [dev.sayaya.magi.ide.usecase.Rows] 가
+     * 한국어를 직접 들고 있었다(접기·압축·실패·회복·이동 등, 2026-11-12). 행 문구는 키로 내고
+     * 도구창이 `MagiBundle` 로 번역한다(`Rows.Words`) - 이 파일의 문자열 리터럴에 한글이 없어야 한다.
+     */
+    @Test
+    fun `대화 행을 짓는 core 에 박힌 한국어가 없다`() {
+        val f = java.io.File("src/main/kotlin/dev/sayaya/magi/ide/usecase/Rows.kt")
+        assertTrue(f.isFile, "${f.absolutePath} 가 없다 - 이 가드가 아무것도 안 본다")
+        val hangul = Regex("[\uac00-\ud7a3]")
+        val body = f.readText()
+            .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+            .lines().map { it.replace(Regex("//.*$"), "") }
+        val offenders = mutableListOf<String>()
+        var literals = 0
+        for ((i, line) in body.withIndex()) {
+            for (m in Regex("\"((?:[^\"\\\\]|\\\\.)*)\"").findAll(line)) {
+                literals++
+                if (hangul.containsMatchIn(m.groupValues[1])) offenders += "Rows.kt:${i + 1}  ${m.groupValues[1]}"
+            }
+        }
+        assertTrue(literals >= 50, "문자열 리터럴을 $literals 개밖에 못 찾았다 - 스캔이 깨진 것이다")
+        assertEquals(emptyList<String>(), offenders, "대화 행 문구는 키로 내고 MagiBundle 이 번역한다")
+    }
 }

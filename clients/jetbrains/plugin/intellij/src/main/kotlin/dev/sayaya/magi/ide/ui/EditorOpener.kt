@@ -66,7 +66,7 @@ internal class EditorOpener(
         val path = str("path") ?: "변경"
         // 판정은 core 의 한 벌에 위임한다 — 두 벌로 적힌 동안 FlexBool 모양("yes"·1)에서
         // 갈라졌었다(리뷰). 여기 것과 전사 것이 같은 함수를 부르므로 갈라질 자리가 없다.
-        val sides = Rows.EditSides.of(w.what, o?.toString())
+        val sides = Rows.EditSides.of(w.what, o?.toString(), MagiBundle.msg("row.edit.untitled"))
         if (sides != null) {
             val f = DiffContentFactory.getInstance()
             val request = SimpleDiffRequest(

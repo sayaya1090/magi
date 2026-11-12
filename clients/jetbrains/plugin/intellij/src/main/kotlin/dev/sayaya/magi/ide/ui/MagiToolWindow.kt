@@ -399,7 +399,7 @@ class MagiToolWindow : ToolWindowFactory {
         private val tailScroll = TailScroll(scroll)
 
         /** 트랜스크립트 셰이퍼. 이벤트 파싱은 워커 스레드에서 수행하며, 렌더링은 EDT에서 스냅샷 기반으로 실행합니다. */
-        private val shaper = Rows()
+        private val shaper = Rows { key, args -> MagiBundle.msg(key, *args) }
 
         /**
          * 트랜스크립트 연결 수신 이력 플래그. 계획(Plan) 뷰의 "알 수 없음/없음" 상태 분기 판정에 사용됩니다.
@@ -1525,7 +1525,7 @@ class MagiToolWindow : ToolWindowFactory {
                             r.args?.let { add(Look.code(it)) }
                             r.out?.let { add(Look.code(it, Look.error)) }
                             // 파일 수정 도구 호출의 경우 이전/이후 변경 내역을 IDE Diff 뷰어로 확인할 수 있는 버튼을 제공합니다.
-                            RowText.diffSides(r)?.let { (path2, old2, new2) ->
+                            RowText.diffSides(r, MagiBundle.msg("row.edit.untitled"))?.let { (path2, old2, new2) ->
                                 add(JButton(MagiBundle.msg("chat.diff.view")).apply {
                                     addActionListener {
                                         openToolDiff(path2, old2, new2)

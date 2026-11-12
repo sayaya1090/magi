@@ -164,6 +164,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `CoreReleaseTest` | 설정 파일 기반 바이너리 다운로드 경로 파싱, 인증서 검증 토글, 최신 릴리스 버전 판정 로직을 검증합니다 |
 | `OnceAcrossTest` | 다중 창이 동시에 활성화되더라도 코어 다운로드 및 초기화 루틴이 1회만 실행되도록 보장하는 동시성 제어를 검증합니다 |
 | `BundleFallbackTest`(추가) | 리소스 번들을 거치지 않고 소스 코드에 하드코딩된 한국어 문자열이 영문 환경에 노출되지 않도록 전수 스캔하여 검증합니다 |
+| `BundleFallbackTest`(core 대화 행) · `RowsTest`(영문 IDE 의 대화 행) | core 는 번들에 닿지 못해 위 가드 밖이었고, 접기·압축·실패·회복·이동 같은 대화 행이 어느 로케일에서나 한국어로 떴습니다. 이제 `Rows` 는 키만 내고 도구창이 `Rows.Words` 로 `MagiBundle` 을 넘깁니다. `Rows.kt` 문자열 리터럴에 한글이 없는지 훑고, 영문 번들로 같은 행을 그려 한글이 없는지 봅니다. `RowsTest` 의 한국어 단언은 실제 `MagiBundle_ko.properties` 를 읽어(`BundleWords`) 번들 문구를 검사합니다 |
 | `RowsTest`(읽기만 한 턴) | 수정 내역이 없는 읽기 전용 턴의 경우 `changes`가 누락된 것이 아니라 정상적인 `noChanges` 상태임을 명확히 구분하여 표기하는지 검증합니다 |
 | `RowsTest`(확신) · `SourceTextTest`(평결 카드) | 카운슬 평결 행에서 `confidence` 가중치를 누락 없이 파싱하여 화면 및 복사 텍스트에 표출하는지 검증합니다 |
 | `RowsTest`(반박 라운드) | 카운슬 독립 투표 결과가 분할되었을 때 실행되는 반박 라운드의 재집계 결과가 만장일치 표기와 혼동되지 않도록 명시하는지 검증합니다 |

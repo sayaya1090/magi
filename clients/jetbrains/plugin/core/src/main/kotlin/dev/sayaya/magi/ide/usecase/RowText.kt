@@ -267,6 +267,6 @@ object RowText {
      * 이 행이 편집이면 그 양쪽. **성공한 것만** — 실패한 편집은 디스크를 안 바꿨으니 보일
      * 변화가 없고, 그걸 그리면 안 일어난 일을 그리는 것이다.
      */
-    fun diffSides(r: Row): Triple<String, String, String>? =
-        if (r.ok != true) null else Rows.EditSides.of(r.tool, r.args)
+    fun diffSides(r: Row, untitled: String): Triple<String, String, String>? =
+        if (r.ok != true) null else Rows.EditSides.of(r.tool, r.args, untitled)
 }

@@ -47,7 +47,7 @@ class CanonicalFoldTest {
         assertTrue(events.size >= 20, "픽스처에서 사건을 ${events.size} 개밖에 못 읽었다 — 읽기가 깨진 것이다")
         val golden = json.parseToJsonElement(read("fold_rows.json")).jsonArray
 
-        val shaper = Rows()
+        val shaper = Rows(BundleWords.of("ko"))
         events.forEach { shaper.feed(it) }
         val mine = shaper.list()
 
@@ -72,7 +72,7 @@ class CanonicalFoldTest {
     fun `번역되지 않는 칸은 정본과 같다`() {
         val events = json.decodeFromString<List<LogEvent>>(read("fold_events.json"))
         val golden = json.parseToJsonElement(read("fold_rows.json")).jsonArray
-        val shaper = Rows()
+        val shaper = Rows(BundleWords.of("ko"))
         events.forEach { shaper.feed(it) }
         val mine = shaper.list()
 

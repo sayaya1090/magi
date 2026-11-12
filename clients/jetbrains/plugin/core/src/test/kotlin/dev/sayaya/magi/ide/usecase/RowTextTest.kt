@@ -283,9 +283,9 @@ class RowTextTest {
         // 「실패면 null」이 아니라 **아무 args 나 null** 이 되어, 이 시험이 재려던 갈림을
         // 안 재고 통과할 뻔했다. 픽스처가 이름대로가 아니면 시험은 결함 쪽을 지킨다.
         val args = """{"path":"a.txt","old":"x","new":"y"}"""
-        assertNull(RowText.diffSides(row(ok = false, tool = "edit", args = args)), "안 일어난 일을 그리지 않는다")
-        assertNull(RowText.diffSides(row(ok = null, tool = "edit", args = args)), "모르는 것도 그리지 않는다")
-        assertTrue(RowText.diffSides(row(ok = true, tool = "edit", args = args)) != null)
+        assertNull(RowText.diffSides(row(ok = false, tool = "edit", args = args), "변경"), "안 일어난 일을 그리지 않는다")
+        assertNull(RowText.diffSides(row(ok = null, tool = "edit", args = args), "변경"), "모르는 것도 그리지 않는다")
+        assertTrue(RowText.diffSides(row(ok = true, tool = "edit", args = args), "변경") != null)
     }
 
     /**

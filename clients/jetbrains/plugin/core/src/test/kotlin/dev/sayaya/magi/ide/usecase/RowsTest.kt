@@ -18,10 +18,14 @@ import org.junit.jupiter.api.Test
  * 사람이 친 글도 컴패니언의 답도 화면에 없는 채로 — 살아 있는 샌드박스에서 실측한 구멍이다.
  */
 class RowsTest {
+    /** 도구창이 넘기는 것과 같은 한국어 번들 - 아래 한국어 단언들은 번들 문구를 검사한다. */
+    private val ko = BundleWords.of("ko")
+    private fun editSides(tool: String?, args: String?) = Rows.EditSides.of(tool, args, "변경")
+
     @org.junit.jupiter.api.Test
     fun `background launch is not process completion`() {
         for (state in listOf("succeeded", "failed", "killed", "unknown")) {
-            val rows = Rows()
+            val rows = Rows(ko)
             rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"bash","callId":"job"}}}"""))
             rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"job","background":true,"advisory":true,"isError":true,"content":"started"}}}"""))
             org.junit.jupiter.api.Assertions.assertTrue(rows.list().single().background)
@@ -39,7 +43,7 @@ class RowsTest {
 
     @org.junit.jupiter.api.Test
     fun `confirmed output retains source and identifies each result`() {
-        val rows = Rows()
+        val rows = Rows(ko)
         rows.feed(ev("part.appended", """{"messageId":"m","part":{"kind":"text","text":"  hello\n"}}"""))
         org.junit.jupiter.api.Assertions.assertEquals("  hello\n", rows.list().last().outputText)
         org.junit.jupiter.api.Assertions.assertEquals(1L, rows.list().last().outputSeq)
@@ -121,7 +125,7 @@ class RowsTest {
      */
     @Test
     fun `자리의 렌즈와 라운드의 규칙은 다른 칸이다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("고쳐줘", "m1"))
         r.feed(ev("council.convened",
             """{"round":1,"members":["Melchior","Balthasar"],"rule":"majority","task":"t"}"""))
@@ -146,7 +150,7 @@ class RowsTest {
         assertTrue("LARGER than what it replaced" in note,
             "코어가 커진 갈래를 더는 안 가른다 — 이 규칙의 근거가 사라졌으니 다시 읽어라")
 
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("하이", "m1"))
         r.feed(ev("compaction", """{"summary":"s","tokensBefore":1000,"tokensAfter":250}"""))
         val folded = r.list().first { "접었다" in it.text }
@@ -154,7 +158,7 @@ class RowsTest {
         assertTrue("−75%" in folded.text, "몫을 안 적는다: ${folded.text}")
 
         // 커진 경우: 「−0, −0%」로 숨으면 안 된다.
-        val g = Rows()
+        val g = Rows(ko)
         g.feed(user("하이", "m2"))
         g.feed(ev("compaction", """{"summary":"s","tokensBefore":100,"tokensAfter":180}"""))
         val grew = g.list().first { "접었다" in it.text }
@@ -162,8 +166,8 @@ class RowsTest {
         assertFalse("−0" in grew.text, "커진 결과가 「−0」으로 숨었다: ${grew.text}")
 
         // 못 읽은 수는 0이 아니다 — 아무 말도 안 한다.
-        assertNull(Rows().sizeNote(null, 10), "모르는 값을 셈에 넣었다")
-        assertNull(Rows().sizeNote(10, null), "모르는 값을 셈에 넣었다")
+        assertNull(Rows(ko).sizeNote(null, 10), "모르는 값을 셈에 넣었다")
+        assertNull(Rows(ko).sizeNote(10, null), "모르는 값을 셈에 넣었다")
     }
 
     @Test
@@ -174,13 +178,13 @@ class RowsTest {
         assertTrue("""Resolved  bool   `json:"resolved,omitempty"`""" in payload.readText(),
             "와이어가 `resolved` 를 이 규칙이 읽는 모양으로 안 싣는다")
 
-        val parked = Rows()
+        val parked = Rows(ko)
         parked.feed(user("테스트는?", "q1"))
         parked.feed(ev("interjection.deferred", """{"messageId":"q1"}"""))
         assertTrue(parked.list().first { it.msgId == "q1" }.queued,
             "대기하는 말이 대기로 안 보인다 — 흔한 경우가 망가졌다")
 
-        val left = Rows()
+        val left = Rows(ko)
         left.feed(user("테스트는?", "q1"))
         left.feed(ev("interjection.deferred", """{"messageId":"q1"}"""))
         left.feed(ev("interjection.deferred", """{"messageId":"q1","resolved":true}"""))
@@ -188,7 +192,7 @@ class RowsTest {
             "큐를 **떠난** 말이 아직 대기 중으로 적힌다 — 칸을 무시했다")
 
         // 지워진 뒤에 오는 순서 — 이것이 틀린 말을 영구히 만들던 자리다.
-        val after = Rows()
+        val after = Rows(ko)
         after.feed(user("테스트는?", "q1"))
         after.feed(ev("interjection.deferred", """{"messageId":"q1"}"""))
         after.feed(ev("interjection.answered", """{"messageId":"q1"}"""))
@@ -209,13 +213,13 @@ class RowsTest {
         assertTrue("""Unverified bool   `json:"unverified,omitempty"`""" in payload.readText(),
             "와이어가 `unverified` 를 이 규칙이 읽는 모양으로 안 싣는다")
 
-        val ok = Rows()
+        val ok = Rows(ko)
         ok.feed(user("하이", "m1"))
         ok.feed(ev("turn.finished", """{"usage":{"in":1,"out":2}}"""))
         assertTrue(ok.list().none { "확인 못 함" in it.text },
             "평범한 종료가 확인 못 한 것으로 적힌다 — 흔한 경우에 경고가 붙었다")
 
-        val bad = Rows()
+        val bad = Rows(ko)
         bad.feed(user("고쳐줘", "m2"))
         bad.feed(ev("turn.finished",
             """{"usage":{},"unverified":true,"reason":"빌드를 한 번도 안 돌렸다"}"""))
@@ -224,7 +228,7 @@ class RowsTest {
         assertTrue("빌드를 한 번도 안 돌렸다" in said!!.text,
             "사유가 버려졌다 — 무언가 잘못됐다고만 말하고 손잡이를 안 준다")
 
-        val bare = Rows()
+        val bare = Rows(ko)
         bare.feed(user("고쳐줘", "m3"))
         bare.feed(ev("turn.finished", """{"usage":{},"unverified":true}"""))
         assertTrue(bare.list().any { "확인 못 함" in it.text }, "사유 없는 미확인 종료가 조용하다")
@@ -232,7 +236,7 @@ class RowsTest {
 
     @Test
     fun `몸통 — 사람이 친 글과 컴패니언의 답이 행에 있다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("하이", "m1"))
         assertTrue(r.open, "프롬프트가 서면 턴이 열린다")
         assertTrue(r.list().single().pending, "답 없는 물음은 pending 이다")
@@ -246,7 +250,7 @@ class RowsTest {
 
     @Test
     fun `호출과 결과는 한 행 — 병렬이 순서 밖으로 완료돼도 callId 로 짝이 맞는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("part.appended", """{"messageId":"a1","part":{"kind":"tool-call","toolCall":{"callId":"ca","name":"write","args":{"path":"x.go"}}}}"""))
         r.feed(ev("part.appended", """{"messageId":"a1","part":{"kind":"tool-call","toolCall":{"callId":"cb","name":"bash","args":{"cmd":"go test"}}}}"""))
         // cb 가 먼저 실패로, ca 는 나중에 advisory 로 끝난다.
@@ -266,7 +270,7 @@ class RowsTest {
 
     @Test
     fun `재부상·인라인 답·버림은 행을 늘리지 않는다 — 옮기거나 표시한다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("먼저 물은 것", "m1"))
         r.feed(ev("interjection.deferred", """{"messageId":"m1"}"""))
         assertTrue(r.list().single().queued, "미뤄진 물음은 대기 표시를 단다")
@@ -299,7 +303,7 @@ class RowsTest {
      */
     @Test
     fun `한 말의 조각들은 줄바꿈 없이 이어진다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("prompt.submitted",
             """{"messageId":"m1","parts":[{"kind":"text","text":"fix the "},{"kind":"text","text":"failing test"}]}""",
             Actor(kind = "user")))
@@ -311,7 +315,7 @@ class RowsTest {
 
     @Test
     fun `컴팩션은 지우지 않는다 — 접힘 한 줄이 늘 뿐이다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("질문", "m1"))
         r.feed(answer("답"))
         val before = r.list()
@@ -325,7 +329,7 @@ class RowsTest {
 
     @Test
     fun `계획은 행이 아니라 사실이다 — 매번 전체가 갈아끼워진다`() {
-        val r = Rows()
+        val r = Rows(ko)
         val n = r.list().size
         r.feed(ev("todos.changed", """{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_progress"}]}"""))
         assertEquals(n, r.list().size, "계획은 전사에 줄을 안 만든다")
@@ -338,7 +342,7 @@ class RowsTest {
 
     @Test
     fun `계기판의 사실들 — 모델은 재생되고 컨텍스트는 전이라 모른다로 돌아간다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("session.created", """{"workdir":"/w","agent":"a","model":{"provider":"openai","model":"gpt-oss:20b"}}"""))
         assertEquals("gpt-oss:20b", r.model, "session.created 가 심는다")
         r.feed(ev("model.changed", """{"model":"gpt-oss:120b-cloud"}"""))
@@ -351,7 +355,7 @@ class RowsTest {
 
     @Test
     fun `디스크를 고친 사실은 새로고침 대장에 남는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         fun call(id: String, tool: String, args: String) = ev(
             "part.appended",
             """{"messageId":"m","part":{"kind":"tool-call","toolCall":{"callId":"$id","name":"$tool","args":$args}}}""",
@@ -402,7 +406,7 @@ class RowsTest {
      */
     @Test
     fun `답이 없던 표가 무슨 생각을 했는지 싣는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("council.verdict",
             """{"round":1,"member":"Balthasar","lens":"verification","decision":"abstain",""" +
                 """"silent":true,"thought":"보고가 말하는 시험 실행을 못 찾겠다"}"""))
@@ -441,7 +445,7 @@ class RowsTest {
         fun opened() = ev("council.convened",
             """{"round":1,"members":["Melchior","Balthasar"],"rule":"majority"}""")
 
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(opened())
         r.feed(v(0, "Melchior", "done")); r.feed(v(0, "Balthasar", "continue"))
         r.feed(v(11, "Melchior", "done")); r.feed(v(12, "Balthasar", "continue"))
@@ -450,7 +454,7 @@ class RowsTest {
 
         // 사실이 이긴다: 반박 라운드가 표를 움직이므로, 프리뷰를 옆에 남기면 카운슬이 저 자신과
         // 안 맞는 것으로 보인다.
-        val m = Rows()
+        val m = Rows(ko)
         m.feed(opened())
         m.feed(v(0, "Melchior", "continue"))
         m.feed(v(11, "Melchior", "done", "peers are right"))
@@ -460,7 +464,7 @@ class RowsTest {
         assertEquals("peers are right", moved.first().text)
 
         // ⚠ 한 대화의 두 소집은 둘 다 1회차로 열린다. 회차만으로 열쇠를 삼으면 서로에게 내려앉는다.
-        val t = Rows()
+        val t = Rows(ko)
         t.feed(opened()); t.feed(v(11, "Melchior", "done"))
         t.feed(opened()); t.feed(v(21, "Melchior", "continue"))
         val twice = t.list().filter { it.who == Who.Council && !it.opened }
@@ -468,7 +472,7 @@ class RowsTest {
         assertEquals(listOf("done", "continue"), twice.map { it.decision })
 
         // 사실 뒤에 온 프리뷰는 아무것도 못 한다.
-        val l = Rows()
+        val l = Rows(ko)
         l.feed(opened()); l.feed(v(11, "Melchior", "done")); l.feed(v(0, "Melchior", "continue"))
         val late = l.list().filter { it.who == Who.Council && !it.opened }
         assertEquals(1, late.size, "늦은 프리뷰가 행을 하나 더 만들었다")
@@ -480,7 +484,7 @@ class RowsTest {
         // 붙은 창. 그런 흐름은 소집 셈이 0 인 채로 평결을 받으므로, 대화를 갈아탄 뒤 같은 일이
         // 또 일어나면 **같은 열쇠**가 다시 나온다. 자리 기억을 안 지웠다면 그 열쇠가 가리키는
         // 것은 방금 비운 목록의 **없는 칸**이다.
-        val mid = Rows()
+        val mid = Rows(ko)
         mid.feed(v(41, "Melchior", "done"))
         mid.clear()
         mid.feed(v(51, "Melchior", "continue"))
@@ -491,7 +495,7 @@ class RowsTest {
 
     @Test
     fun `카운슬 평결은 실려 온 말을 버리지 않는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         fun verdict(extra: String) = ev(
             "council.verdict",
             """{"round":1,"member":"Melchior","lens":"correctness","decision":"done"$extra}""",
@@ -509,7 +513,7 @@ class RowsTest {
 
     @Test
     fun `조각은 같은 줄을 고쳐 쓰고 사실이 그 자리를 대신한다`() {
-        val r = Rows()
+        val r = Rows(ko)
         fun piece(t: String, kind: String = "text") = ev(
             "part.delta", """{"messageId":"m1","kind":"$kind","text":"$t"}""",
         )
@@ -529,7 +533,7 @@ class RowsTest {
 
     @Test
     fun `사실이 안 오는 턴의 초안은 턴이 끝날 때 쓸린다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("part.delta", """{"messageId":"m9","kind":"text","text":"반쪽"}"""))
         assertEquals(1, r.list().size)
         // 코어가 사실을 안 쓰고 턴을 닫는 길이 여럿이다 — 그때 반쪽 답이 남으면 붙어 있던
@@ -543,7 +547,7 @@ class RowsTest {
         // 심의는 멤버마다 모델을 한 번씩 부른다. 판이 열린 것을 안 그리면 화면은 첫 평결이
         // 올 때까지 수십 초 조용하고, 사람은 멈춘 줄로 읽는다. 코어는 그 사실을 내고 있었고
         // (`council.convened`), 이 셰이퍼가 버리고 있었다.
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("council.convened",
             """{"round":2,"members":["Melchior","Balthasar","Casper"],"rule":"any veto continues",""" +
                 """"task":"add the idempotency key","report":"done, tests pass"}"""))
@@ -567,7 +571,7 @@ class RowsTest {
     fun `심의 중은 행이 아니라 세션의 사실이다`() {
         // 라운드마다 멤버 수만큼 오는 순간의 사실이라(코어도 영속을 안 한다) 전사에 쌓으면
         // 판정보다 시끄러워진다. 표시줄이 읽을 자리에만 남기고 행은 안 만든다.
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("council.convened", """{"round":1,"members":["Melchior"]}"""))
         val before = r.list().size
         r.feed(ev("council.deliberating", """{"round":1,"member":"Melchior","state":"asking"}"""))
@@ -581,7 +585,7 @@ class RowsTest {
 
     @Test
     fun `압축 진행은 대화에 진행 행 하나를 세우고 접기가 끝나면 걷힌다`() {
-        val r = Rows()
+        val r = Rows(ko)
         val before = r.list().size
         r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":1,"total":3,"chars":840,"elapsedMs":12500}}"""))
         assertEquals(before + 1, r.list().size, "압축이 시작되면 대화에 진행 행이 선다")
@@ -603,7 +607,7 @@ class RowsTest {
      */
     @Test
     fun `압축 진행 말풍선은 끝나면 같은 자리에서 접었다 메시지로 바뀐다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
         val before = r.list().size
         fun progress(done: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":$done,"total":3,"chars":840,"elapsedMs":12500}}"""))
@@ -632,7 +636,7 @@ class RowsTest {
      */
     @Test
     fun `진행 값 없는 압축 알림은 말풍선을 세우지 않고 접기·실패는 한 줄로 남는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
         val before = r.list().size
         fun note(text: String) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"$text"}"""))
@@ -664,7 +668,7 @@ class RowsTest {
      */
     @Test
     fun `결과 뒤의 compacted 알림은 말풍선을 다시 세우지 않는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
         val before = r.list().size
         fun note(text: String) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"$text"}"""))
@@ -685,7 +689,7 @@ class RowsTest {
      */
     @Test
     fun `한 턴의 툴 결과 접기는 한 줄에 개수를 더한다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
         fun note(n: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"freed the window by eliding $n bulky tool result(s) — re-derivable, and already narrated"}"""))
         fun elided() = r.list().filter { it.text.startsWith("↯ 이전 툴 결과") }.map { it.text }
@@ -708,7 +712,7 @@ class RowsTest {
      */
     @Test
     fun `에러로 끝난 턴이나 새 프롬프트 뒤의 툴 결과 접기는 새 줄이다`() {
-        val r = Rows()
+        val r = Rows(ko)
         fun note(n: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"freed the window by eliding $n bulky tool result(s) — re-derivable, and already narrated"}"""))
         fun elided() = r.list().filter { it.text.startsWith("↯ 이전 툴 결과") }.map { it.text }
         r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
@@ -727,7 +731,7 @@ class RowsTest {
         // 코어가 둘을 갈라 보낸다(5755dc74): 판정을 안 말한 멤버는 **말한 기권**
         // (abstain, silent 아님)이고, 아무도 안 준 평결만 silent 다. 화면도 갈라야
         // 「일을 보고 판정을 안 한 것」과 「대답이 없던 것」이 안 섞인다.
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("council.verdict",
             """{"round":1,"member":"Melchior","decision":"abstain","rationale":"판정을 말하지 않았다"}"""))
         val spoken = r.list().last()
@@ -747,24 +751,24 @@ class RowsTest {
         fun args(extra: String = "") =
             """{"path":"src/a.kt","old":"x","new":"y"$extra}"""
         // 일반 치환만 참이다.
-        assertEquals(Triple("a.kt", "x", "y"), Rows.EditSides.of("edit", args()))
+        assertEquals(Triple("a.kt", "x", "y"), editSides("edit", args()))
         // 데몬 FlexBool 의 참 모양 전부 — "yes" 가 단일 치환으로 그려지면 금지된 왜곡이다.
         for (v in listOf("\"yes\"", "\"on\"", "\"True\"", "\"1\"", "1", "true")) {
-            assertEquals(null, Rows.EditSides.of("edit", args(""","replaceAll":$v""")),
+            assertEquals(null, editSides("edit", args(""","replaceAll":$v""")),
                 "replaceAll=$v 는 전-출현 치환이다 — 두 면을 그리면 안 된다")
         }
         // 앵커: 문자열이든 숫자든 내용이 있으면 결손(숫자 at 가 isString 게이트로 새던 구멍).
-        assertEquals(null, Rows.EditSides.of("edit", args(""","at":"fun main"""")))
-        assertEquals(null, Rows.EditSides.of("edit", args(""","at":42""")))
+        assertEquals(null, editSides("edit", args(""","at":"fun main"""")))
+        assertEquals(null, editSides("edit", args(""","at":42""")))
         // 별칭 철자·타 도구·필드 결손 — 전부 정직한 미표시.
-        assertEquals(null, Rows.EditSides.of("Edit", args()))
-        assertEquals(null, Rows.EditSides.of("write", args()))
-        assertEquals(null, Rows.EditSides.of("edit", """{"path":"a","old":"x"}"""))
+        assertEquals(null, editSides("Edit", args()))
+        assertEquals(null, editSides("write", args()))
+        assertEquals(null, editSides("edit", """{"path":"a","old":"x"}"""))
     }
 
     @Test
     fun `카운슬은 제자리에 온다 — 스트림이 차례를 이미 안다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("끝났나 봐줘", "m1"))
         r.feed(ev("council.verdict", """{"round":1,"member":"Casper","lens":"correctness","decision":"continue","rationale":"시험이 없다","keep":"2단계 픽스처"}"""))
         assertEquals(1, r.councilRound, "판정이 서면 라운드가 열려 있다 — 상태 표시줄 칩의 원천")
@@ -787,7 +791,7 @@ class RowsTest {
      */
     @Test
     fun `도구가 돌려준 그림과 에러 조각이 행이 된다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("part.appended",
             """{"messageId":"m1","role":"assistant","part":{"kind":"image","image":{"path":"/tmp/shot.png","mime":"image/png"}}}"""))
         r.feed(ev("part.appended",
@@ -808,7 +812,7 @@ class RowsTest {
     /** 가리킬 곳이 없는 그림은 행이 아니다 — 경로가 그 행의 전부다. */
     @Test
     fun `경로 없는 그림은 행을 안 만든다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("part.appended",
             """{"messageId":"m1","role":"assistant","part":{"kind":"image","image":{}}}"""))
         assertTrue(r.list().isEmpty(), "가리킬 곳 없는 그림이 행을 만들었다: ${r.list()}")
@@ -877,7 +881,7 @@ class RowsTest {
      */
     @Test
     fun `옮겨 간 대화는 어디로 갔는지 적는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(user("고쳐줘", "m1"))
         assertTrue(r.feed(ev("session.moved", """{"to":"s_9f3c"}""")),
             "옮겨 간 사실이 화면을 안 바꾼다 — 그리라고 알리지 않으면 그려지지 않는다")
@@ -887,7 +891,7 @@ class RowsTest {
         assertTrue("끝납니다" in said.text, "이 대화가 끝났다는 말이 없다")
 
         // 어디로 갔는지가 요점이다. 그것이 없으면 따라갈 데가 없다 — 그래도 **말은 한다**.
-        val blind = Rows()
+        val blind = Rows(ko)
         blind.feed(ev("session.moved", "{}"))
         val vague = blind.list().firstOrNull()
         assertTrue(vague != null, "목적지 없는 갈아타기는 통째로 사라진다")
@@ -906,7 +910,7 @@ class RowsTest {
      */
     @Test
     fun `아무도 투표 안 한 라운드는 반려로 그려지지 않는다`() {
-        val dead = Rows()
+        val dead = Rows(ko)
         dead.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"받아들이지 않았다",""" +
             """"tally":{"done":0,"continue":0,"abstain":3,"silent":3,"voters":0}}"""))
         val r = dead.list().last()
@@ -915,7 +919,7 @@ class RowsTest {
         assertFalse("3 abstain" in r.text, "말도 못 한 멤버를 기권으로도 센다 — 같은 실패를 두 번")
         assertEquals("no answer", RowText.verdict(r.decision, r.silent)?.word)
 
-        val real = Rows()
+        val real = Rows(ko)
         real.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"받아들이지 않았다",""" +
             """"tally":{"done":1,"continue":2,"abstain":1,"voters":3}}"""))
         val g = real.list().last()
@@ -924,7 +928,7 @@ class RowsTest {
         assertFalse("답 없음" in g.text)
 
         // ⚠ 한 갈래는 집계 없이 이 사실을 보낸다. 거기서 0 을 세면 아무도 안 센 수다.
-        val bare = Rows()
+        val bare = Rows(ko)
         bare.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"또 그대로 선언했다"}"""))
         val b = bare.list().last()
         assertEquals("또 그대로 선언했다", b.text, "집계 없는 사실에 집계를 지어 붙인다")
@@ -945,7 +949,7 @@ class RowsTest {
     @Test
     fun `반박 라운드는 아무도 안 움직였을 때도 이름이 붙는다`() {
         fun say(debate: String?): String {
-            val r = Rows()
+            val r = Rows(ko)
             r.feed(ev("council.decided", """{"round":1,"decision":"done","note":"받아들였다",""" +
                 """"tally":{"done":3,"continue":0,"voters":3}""" +
                 (debate?.let { ""","debate":$it""" } ?: "") + "}"))
@@ -978,7 +982,7 @@ class RowsTest {
      */
     @Test
     fun `평결은 얼마나 확신했는지까지 나른다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("council.verdict", """{"round":1,"member":"Melchior","lens":"correctness",""" +
             """"decision":"done","confidence":0.62,"rationale":"괜찮다"}"""))
         val v = r.list().last()
@@ -986,7 +990,7 @@ class RowsTest {
         assertFalse("62%" in RowText.plain(v), "과거 자기평가를 확률로 표시하면 안 됩니다: ${RowText.plain(v)}")
 
         // 안 실려 오면 아무 말도 안 한다 — 0% 는 반대를 확신한 멤버로 읽힌다.
-        val quiet = Rows()
+        val quiet = Rows(ko)
         quiet.feed(ev("council.verdict", """{"round":1,"member":"Casper","decision":"done"}"""))
         val q = quiet.list().last()
         assertEquals(null, q.confidence, "말하지 않은 확신을 0 으로 지어낸다")
@@ -1006,13 +1010,13 @@ class RowsTest {
      */
     @Test
     fun `아무것도 안 고친 턴을 심의하면 그렇게 적힌다`() {
-        val ro = Rows()
+        val ro = Rows(ko)
         ro.feed(ev("council.convened", """{"round":1,"rule":"majority","task":"물음에 답한다","noChanges":true}"""))
         val e1 = ro.list().last().evidence.orEmpty()
         assertTrue("읽기만 한 턴" in e1, "읽기 전용 턴이 diff 를 잃은 턴과 똑같이 그려진다: $e1")
         assertTrue("task: 물음에 답한다" in e1, "증거가 통째로 사라졌다")
 
-        val edited = Rows()
+        val edited = Rows(ko)
         edited.feed(ev("council.convened", """{"round":1,"rule":"majority","task":"고친다","changes":"a.kt | 2 +-"}"""))
         val e2 = edited.list().last().evidence.orEmpty()
         assertFalse("읽기만 한 턴" in e2, "파일을 고친 턴을 읽기 전용이라 적는다 — 칸은 없는 것이지 거짓이 아니다")
@@ -1022,7 +1026,7 @@ class RowsTest {
         // 움직인다 — 그 둘 사이의 변이는 살아남고, 픽스처가 잡은 척하는 것보다 그렇게 적는 편이
         // 정직하다. 대신 **안전한 쪽**을 못박는다: 거짓을 실어 보내는 데몬이 생겨도(다른 언어의
         // 클라이언트, 나중의 변경) 읽기 전용으로 읽히면 안 된다.
-        val stated = Rows()
+        val stated = Rows(ko)
         stated.feed(ev("council.convened", """{"round":1,"task":"고친다","noChanges":false}"""))
         assertFalse("읽기만 한 턴" in stated.list().last().evidence.orEmpty(),
             "적어 보낸 거짓을 읽기 전용으로 읽는다 — 있다는 것을 참으로 삼고 있다")
@@ -1030,14 +1034,14 @@ class RowsTest {
 
     @Test
     fun `final review is separate from member approval`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("council.decided", """{"round":1,"decision":"continue","tally":{"done":3,"continue":0,"voters":3},"closingDecision":"continue","closingReason":"verify 72dp"}"""))
         assertTrue("final review: held" in r.list().last().text)
         assertTrue("verify 72dp" in r.list().last().text)
     }
 
     @Test fun `잘못 저장된 제공자 오류는 압축 성공으로 표시하지 않는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("compaction", """{"summary":"Prompt is too long · A single-exchange conversation cannot be compacted; reduce attached files/tools.","tokensBefore":616869,"tokensAfter":73}"""))
         val text = r.list().last().text
         assertTrue("압축 실패" in text)
@@ -1050,7 +1054,7 @@ class RowsTest {
      */
     @Test
     fun `접기·압축 결과 줄은 그 순간의 컨텍스트 구성을 받는다`() {
-        val r = Rows()
+        val r = Rows(ko)
         r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
         fun note(n: Int) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"freed the window by eliding $n bulky tool result(s) — re-derivable, and already narrated"}"""))
         val ctx = Rows.Ctx(30000, 100000, 30.0, dev.sayaya.magi.ide.model.ContextParts(system = 4000, tools = 6000, talk = 8000, calls = 2000, results = 10000))
@@ -1076,5 +1080,35 @@ class RowsTest {
         assertTrue(r.pinFoldContext(after))
         assertEquals(after, r.list().last().ctx, "구성은 마지막 접힌 줄에 붙는다")
         assertEquals(ctx, r.list().first { it.folded }.ctx, "앞 줄의 구성은 그대로다")
+    }
+
+    /**
+     * 영문 IDE 에서는 대화 행 문구가 영어다. core 는 키만 내고 번들이 번역한다(`AnswerDrafts.REASON_*` 의 선례) -
+     * 예전에는 접기·압축·실패·회복·이동 행이 어느 로케일에서나 한국어로 떴다.
+     */
+    @Test
+    fun `영문 IDE 의 대화 행에는 한국어가 없다`() {
+        val r = Rows(BundleWords.of("en"))
+        r.feed(ev("prompt.submitted", """{"msgId":"u1","text":"hi"}"""))
+        fun note(text: String) = r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"$text"}"""))
+        note("freed the window by eliding 3 bulky tool result(s) — re-derivable")
+        note("freed the window by eliding 2 bulky tool result(s) — re-derivable")
+        r.feed(ev("tool.progress", """{"callId":"compact","name":"compact","text":"compacting","progress":{"done":0,"total":1,"chars":0,"elapsedMs":0}}"""))
+        r.feed(ev("compaction", """{"summary":"brief","tokensBefore":50868,"tokensAfter":19325}"""))
+        r.feed(ev("compaction", """{"summary":"brief","tokensBefore":100,"tokensAfter":120}"""))
+        note("compact: summarizer failed")
+        r.feed(ev("error", """{"message":"boom","recovered":true}"""))
+        r.feed(ev("session.moved", """{"to":"s2"}"""))
+        r.feed(ev("session.moved", """{}"""))
+        val texts = r.list().filter { it.who == Who.System || it.who == Who.Error }.map { it.text }
+        val hangul = Regex("[\uac00-\ud7a3]")
+        assertEquals(emptyList<String>(), texts.filter { hangul.containsMatchIn(it) }, "영문 번들인데 한국어 행이 남았다: $texts")
+        assertTrue(texts.any { it.contains("5") && it.contains("tool result") }, "접기 줄은 한 줄에 개수를 더한다: $texts")
+        assertEquals(1, texts.count { it.contains("tool result") }, "아래 표식으로 같은 줄을 찾는다: $texts")
+        assertTrue(texts.any { it.contains("50868→19325") }, "수는 천 단위 쉼표 없이: $texts")
+        assertTrue(texts.any { it.contains("+20") }, "커진 요약은 그대로 말한다: $texts")
+        assertTrue(texts.any { it.contains("boom") && it != "boom" }, "회복된 에러는 갈래를 글자에 싣는다: $texts")
+        assertTrue(texts.any { it.contains("s2") }, texts.toString())
+        println("PASS en rows: $texts")
     }
 }
