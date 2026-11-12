@@ -506,6 +506,20 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if runner, ok := tool.(port.ForegroundProcessTool); guard != nil && ok && runner.ObservesProcessExit() {
 		verification = guard.experience.before(tc)
 	}
+	// Written before the tool runs, through the log's synced append: after a crash, a call with
+	// this fact and no result may have done its work, and recovery hands it to the person rather
+	// than running it again; a call without it never started. A start that cannot be written is
+	// not run: after a crash nobody could tell whether it had.
+	startFact, serr := json.Marshal(event.ToolStartedData{CallID: tc.CallID, Tool: tc.Name})
+	if serr == nil {
+		serr = a.appendFact(ctx, sid, event.TypeToolStarted, actor, startFact)
+	}
+	if serr != nil {
+		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID,
+			"not run — magi could not record that "+tc.Name+" was starting ("+serr.Error()+"), "+
+				"and a call it could not account for after a crash is not started", true)
+		return
+	}
 	var background <-chan port.BackgroundCompletion
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		ObserveBackground: func(done <-chan port.BackgroundCompletion) {

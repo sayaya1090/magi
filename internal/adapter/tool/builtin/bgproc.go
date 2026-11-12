@@ -224,8 +224,10 @@ func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, comm
 	m.pruneLocked()
 	m.mu.Unlock()
 
+	release := noteChild(cmd.Process.Pid)
 	go func() {
 		err := cmd.Wait()
+		release()
 		exit := 0
 		if cmd.ProcessState != nil {
 			exit = cmd.ProcessState.ExitCode()

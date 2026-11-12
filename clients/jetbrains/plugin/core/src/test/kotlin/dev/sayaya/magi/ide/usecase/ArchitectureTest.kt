@@ -162,6 +162,7 @@ class ArchitectureTest {
             "checkpoint.context" to "체크포인트 채택 후 모델에 전달하는 컨텍스트를 교체하는 내부 사건이며, 화면의 대화 행은 기존 로그에서 그대로 읽는다",
             "labels.changed" to "이 클라이언트는 아직 일에 이름을 안 붙인다 — 붙이는 화면이 생기면 그때 읽는다",
             "result.elided" to "덜어낸 툴 결과는 **컨텍스트 창의 사실**이지 대화의 사실이 아니다. 그 행은 이미 무엇을 불렀는지 적고 있고, 「모델에게 안 보인다」는 계획 판의 컨텍스트 띠가 말한다",
+            "tool.started" to "재시작 복구용 표지다. 호출이 실행을 시작했는지를 남겨 「실행됐을 수 있음」과 「실행 안 됨」을 가른다. 호출과 결과는 이미 각자의 행이 있다",
         )
         val missed = (types - read - skipped.keys).sorted()
         assertEquals(

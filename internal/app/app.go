@@ -884,9 +884,20 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		writeFinish := false
 		switch {
 		case errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded):
-			// Mark the cancelled turn's seed prompt abandoned so an unrelated next request
-			// isn't anchored onto it (and a follow-up that augments it still seeds on itself).
-			a.abandonSeedOnCancel(context.WithoutCancel(runCtx), sid)
+			// A shutdown cancels the same way a press does, but nobody abandoned anything: the
+			// process is going away. Recording the seed abandoned there made a SIGTERM read as the
+			// person's cancel — and a cancelled turn is, rightly, never picked up again. So a cut
+			// by shutdown (closed, and no press) is recorded as interrupted and resumable instead.
+			a.mu.Lock()
+			byShutdown := a.closed && a.stateLocked(sid).cancelSweep == nil
+			a.mu.Unlock()
+			if byShutdown {
+				a.noteShutdownInterrupt(context.WithoutCancel(runCtx), sid)
+			} else {
+				// Mark the cancelled turn's seed prompt abandoned so an unrelated next request
+				// isn't anchored onto it (and a follow-up that augments it still seeds on itself).
+				a.abandonSeedOnCancel(context.WithoutCancel(runCtx), sid)
+			}
 			writeFinish = true
 		case lastErr != nil:
 			writeFinish = true

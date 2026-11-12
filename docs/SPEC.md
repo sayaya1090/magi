@@ -206,7 +206,7 @@ Rules:
   `permission.decided` / `checkpoint.context` / `compaction` / `result.elided` / `turn.finished` / `todos.changed` /
   `labels.changed` / `error` / `council.convened` / `council.verdict` / `council.decided` /
   `interjection.deferred` / `interjection.answered` / `prompt.abandoned` / `session.moved` /
-  `model.changed` / `tool.background`) are written to the Store.
+  `model.changed` / `tool.background` / `tool.started`) are written to the Store.
 - R2 The transient types (`part.delta` / `tool.progress` / `permission.requested` /
   `question.requested` / `context.usage` / `workflow.phase` / `council.deliberating` /
   `question.answered` / `user.label.changed` / `slot.changed`) go to the bus only and are never recorded.

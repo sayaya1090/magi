@@ -636,3 +636,9 @@ type SlotChangedData struct {
 	Target string `json:"target,omitempty"`
 	Plugin string `json:"plugin,omitempty"`
 }
+
+// ToolStartedData names the call that began executing (see TypeToolStarted).
+type ToolStartedData struct {
+	CallID string `json:"callId"`
+	Tool   string `json:"tool"`
+}

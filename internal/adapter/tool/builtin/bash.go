@@ -474,7 +474,9 @@ func runCapture(cmd *exec.Cmd, logsDir string) (out []byte, logPath string, whol
 		return nil, "", false, err
 	}
 	bashDebugf("started pid=%d — waiting", cmd.Process.Pid)
+	release := noteChild(cmd.Process.Pid)
 	werr := cmd.Wait()
+	release()
 	bashDebugf("wait returned pid=%d err=%v", cmd.Process.Pid, werr)
 	// Read whatever was flushed by the time the shell exited, bounded to captureCap so a
 	// command that emits hundreds of MB (`cat huge`, a runaway build) can't buffer it all

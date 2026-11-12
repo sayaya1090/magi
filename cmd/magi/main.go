@@ -1079,7 +1079,14 @@ func runWithContext(runCtx context.Context) int {
 	// main returns the instant it sees the TurnFinished fact, but the turn
 	// goroutine enqueues the turn_finished observation a moment LATER — draining
 	// first would always see an empty queue and lose the observation.
-	defer a.Close(context.Background())
+	// Bounded: a tool or backend that ignores its cancellation must not hang exit, and with it every
+	// cleanup deferred above (the drain, the plugins' shutdown). What did not settle is named here
+	// and left for the next start's recovery to close in the log.
+	defer func() {
+		if left := a.Shutdown(envDur("MAGI_SHUTDOWN_GRACE", 10*time.Second)); len(left) > 0 {
+			fmt.Fprintf(os.Stderr, "magi: shutdown grace passed; runs still going, left for recovery: %v\n", left)
+		}
+	}()
 	defer mcpMgr.Close()
 	for name, s := range cfg.MCP {
 		var err error

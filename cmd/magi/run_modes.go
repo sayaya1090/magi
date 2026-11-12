@@ -106,6 +106,37 @@ func runDaemonMode(p daemonModeParams) int {
 	// the owner id has to be in it. A client reads the record to learn whether the daemon it
 	// found is the one it owns, and a field filled in afterwards would be absent exactly
 	// during the window that client is looking.
+	// Children first: a magi killed outright left its tool processes running (they run under
+	// Setsid, and no shutdown hook ran). Holding the workspace means their owner is gone, so the
+	// ones its ledger names — and that are still the same processes — are ended here, and this
+	// process starts its own ledger in the same place.
+	ledger := sockPath + ".children"
+	reaped, unsettled := builtin.ReapOrphans(ledger)
+	if len(reaped) > 0 {
+		fmt.Fprintf(os.Stderr, "magi: ended %d process group(s) a previous magi left running: %v\n", len(reaped), reaped)
+	}
+	for _, u := range unsettled {
+		fmt.Fprintf(os.Stderr, "magi: left over from a previous magi and not settled: %s\n", u)
+	}
+	if err := builtin.SetChildLedger(ledger); err != nil {
+		fmt.Fprintf(os.Stderr, "magi: child ledger off — a crash would leave tool processes running: %v\n", err)
+	}
+	// Recovery runs here: this process already holds the workspace (bound), so no earlier instance
+	// is still writing these sessions, and nothing has been published yet, so no request can start
+	// a turn underneath it. Turns a previous process left open are closed in the log — resumable,
+	// or handed to the person when a tool may have run — and nothing is executed again.
+	for _, r := range a.RecoverInterrupted(ctx, wd) {
+		if r.Err != nil {
+			fmt.Fprintf(os.Stderr, "magi: could not close an interrupted turn in %s — left open for the next start: %v\n", r.SessionID, r.Err)
+			continue
+		}
+		if r.Resumable {
+			fmt.Fprintf(os.Stderr, "magi: recovered an interrupted turn in %s — resumable, send \"continue\" to pick it up\n", r.SessionID)
+		} else {
+			fmt.Fprintf(os.Stderr, "magi: recovered an interrupted turn in %s — needs you: %d call(s) may have run (%v); nothing was re-run\n",
+				r.SessionID, len(r.Uncertain), r.Uncertain)
+		}
+	}
 	if p.clientOwned {
 		daemon.AdoptOwner()
 	}

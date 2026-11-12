@@ -95,6 +95,9 @@ const (
 	TypeModelChanged Type = "model.changed"
 	// TypeToolBackground records the actual exit of a detached tool process.
 	TypeToolBackground Type = "tool.background"
+	// TypeToolStarted records, durably and before it runs, that a tool call began executing. A call
+	// with this fact and no result may have changed the world; one without it never ran.
+	TypeToolStarted Type = "tool.started"
 )
 
 // Transient events — bus only, not persisted.

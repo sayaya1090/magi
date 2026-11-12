@@ -615,6 +615,7 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     // Added with the S² checkpoint lifecycle (b873949d): reconstruct.go reads it to rebuild what the
     // MODEL is sent after an adopted branch. The log keeps the original conversation and its rows.
     'checkpoint.context': 'model context, not a chat row — it replaces what the model is sent after a checkpoint branch is adopted; the conversation and its rows stay in the log as they were',
+    'tool.started': 'a recovery marker, not a chat row — it says a call began running so a restart can tell "may have run" from "never ran"; the call and its result already have their rows',
   };
   // ★ The exemptions that claim a fact arrives LIVE are checked against the code that reads it.
   // A reason is prose and prose does not fail — but THIS reason is a checkable claim: three keys are
