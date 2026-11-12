@@ -46,14 +46,14 @@ class PlanStripViewTest : BasePlatformTestCase() {
 
             plan("a" to "completed", "b" to "completed", "build it" to "in_progress", "d" to "pending")
             assertTrue("a plan raises the strip", strip.isVisible)
-            // 대화와 한눈에 구분된다: 불투명 primaryContainer 바탕, 아래 메시지 영역과 가르는 테두리, 굵은 글씨.
-            assertTrue("the strip paints its own surface", strip.isOpaque)
+            // 대화와 한눈에 구분된다: 불투명 primaryContainer 바탕, 대화 말풍선과 같은 둥근 1px 테두리(네 변), 굵은 글씨.
             assertEquals("the strip stands on the primary container", Look.primaryContainer, strip.background)
-            assertEquals("no stripe on the left: ${strip.insets}", 0, strip.insets.left)
-            val rule = strip.border as? javax.swing.border.MatteBorder
-            assertNotNull("a single rule under the strip: ${strip.border}", rule)
-            assertTrue("the rule under the strip is thick enough to see: ${strip.insets}", strip.insets.bottom >= 2)
-            assertEquals("the rule stands out from the messages below", Look.faint, rule!!.matteColor)
+            val edge = strip.border as? Look.BubbleBorder
+            assertNotNull("the strip is outlined like a message bubble: ${strip.border}", edge)
+            assertEquals("the outline has the bubble colour", Look.bubbleEdge(Look.primary), edge!!.edge)
+            assertEquals("the outline is as faint as a bubble's", 65, edge.edge.alpha)
+            val i = strip.insets
+            assertTrue("the outline runs on all four sides: $i", i.top > 0 && i.left > 0 && i.right > 0 && i.bottom > 0)
             assertTrue("the line is bold", head.font.isBold)
             assertTrue("the line names the step it is on: ${head.text}", head.text.contains("build it"))
             assertTrue("the line says which of how many: ${head.text}", head.text.contains("3") && head.text.contains("4"))

@@ -488,6 +488,34 @@ internal object Look {
             override fun getScrollableTracksViewportHeight() = false
         }
 
+    /** 대화 말풍선 모서리 둥글기. 말풍선과 계획 줄이 같은 값을 쓴다. */
+    val BUBBLE_ARC = 12
+
+    /** 말풍선 바탕 - 발화자 색을 아주 옅게(alpha 18). */
+    fun bubbleFill(surface: Color): Color = Color(surface.red, surface.green, surface.blue, 18)
+
+    /** 말풍선 테두리 - 발화자 색을 옅게(alpha 65) 1px. 계획 줄도 이 선으로 네 변을 감싼다. */
+    fun bubbleEdge(surface: Color): Color = Color(surface.red, surface.green, surface.blue, 65)
+
+    /** 말풍선과 같은 1px 둥근 테두리([bubbleEdge], [BUBBLE_ARC]). 선이 2px 안쪽에 서므로 네 변에 3px을 비운다. */
+    class BubbleBorder(val edge: Color) : javax.swing.border.AbstractBorder() {
+        override fun paintBorder(c: java.awt.Component?, g: java.awt.Graphics?, x: Int, y: Int, width: Int, height: Int) {
+            val g2 = (g ?: return).create() as java.awt.Graphics2D
+            try {
+                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = edge
+                g2.drawRoundRect(x + 2, y + 2, width - 5, height - 5, BUBBLE_ARC, BUBBLE_ARC)
+            } finally { g2.dispose() }
+        }
+        override fun getBorderInsets(c: java.awt.Component?): java.awt.Insets = JBUI.insets(3)
+        override fun getBorderInsets(c: java.awt.Component?, insets: java.awt.Insets): java.awt.Insets {
+            val i = JBUI.insets(3)
+            insets.set(i.top, i.left, i.bottom, i.right)
+            return insets
+        }
+        override fun isBorderOpaque() = false
+    }
+
     /** 트랜스크립트 행 기본 여백 (상하 8px, 좌우 12px). */
     fun row(): javax.swing.border.Border = JBUI.Borders.empty(8, 12)
 

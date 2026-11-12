@@ -327,12 +327,21 @@ class MagiToolWindow : ToolWindowFactory {
             isOpaque = false
             isVisible = false
         }
-        private val planStrip = JBPanel<JBPanel<*>>(BorderLayout()).apply {
-            // 대화와 눈에 띄게 구분한다: 불투명 primaryContainer 바탕, 아래 메시지 영역과 가르는 2px 테두리.
-            // 옛은 구분선 색(JBColor.border)은 이 바탕 아래에서 안 보여 보조 글자색을 쓴다.
-            isOpaque = true
+        private val planStrip = object : JBPanel<JBPanel<*>>(BorderLayout()) {
+            // 바탕도 말풍선처럼 둥글게 칠한다 - 모서리 밖은 부모가 그린다(불투명이 아니다).
+            override fun paintComponent(g: java.awt.Graphics) {
+                val canvas = g.create() as java.awt.Graphics2D
+                try {
+                    canvas.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+                    canvas.color = background
+                    canvas.fillRoundRect(2, 2, width - 5, height - 5, Look.BUBBLE_ARC, Look.BUBBLE_ARC)
+                } finally { canvas.dispose() }
+            }
+        }.apply {
+            // 대화와 구분한다: primaryContainer 바탕에 대화 말풍선과 같은 1px 옅은 둥근 테두리(네 변, [Look.BubbleBorder]).
+            isOpaque = false
             background = Look.primaryContainer
-            border = javax.swing.BorderFactory.createMatteBorder(0, 0, JBUI.scale(2), 0, Look.faint)
+            border = Look.BubbleBorder(Look.bubbleEdge(Look.primary))
             isVisible = false
             add(planHead, BorderLayout.NORTH)
             add(planList, BorderLayout.CENTER)
@@ -1392,10 +1401,10 @@ class MagiToolWindow : ToolWindowFactory {
                         val canvas = g.create() as java.awt.Graphics2D
                         try {
                             canvas.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
-                            canvas.color = java.awt.Color(surface.red, surface.green, surface.blue, 18)
-                            canvas.fillRoundRect(2, 2, width - 5, height - 5, 12, 12)
-                            canvas.color = java.awt.Color(surface.red, surface.green, surface.blue, 65)
-                            canvas.drawRoundRect(2, 2, width - 5, height - 5, 12, 12)
+                            canvas.color = Look.bubbleFill(surface)
+                            canvas.fillRoundRect(2, 2, width - 5, height - 5, Look.BUBBLE_ARC, Look.BUBBLE_ARC)
+                            canvas.color = Look.bubbleEdge(surface)
+                            canvas.drawRoundRect(2, 2, width - 5, height - 5, Look.BUBBLE_ARC, Look.BUBBLE_ARC)
                         } finally { canvas.dispose() }
                     }
                 }
