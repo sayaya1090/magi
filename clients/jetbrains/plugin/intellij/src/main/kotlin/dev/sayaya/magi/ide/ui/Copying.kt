@@ -172,3 +172,32 @@ internal class Copying {
         painted.forEach { (k, p) -> paint(p, k, rs); p.repaint() }
     }
 }
+
+/**
+ * 글 상자용 우클릭 편집 메뉴(잘라내기·복사·붙여넣기·모두 선택). `JBTextArea` 는 Swing 기본 메뉴가 없어서
+ * 대화창 하단 입력창에서 우클릭해도 아무것도 안 열렸다(ComposerMenuViewTest). 메뉴가 열릴 때마다 선택과
+ * 편집 가능 여부를 보고 항목을 켜고 끈다.
+ */
+internal fun textEditMenu(field: javax.swing.text.JTextComponent) {
+    val menu = javax.swing.JPopupMenu()
+    fun item(key: String, on: () -> Unit) = javax.swing.JMenuItem(MagiBundle.msg(key)).apply {
+        addActionListener { on() }
+        menu.add(this)
+    }
+    val cut = item("composer.menu.cut") { field.cut() }
+    val copy = item("composer.menu.copy") { field.copy() }
+    val paste = item("composer.menu.paste") { field.paste() }
+    menu.addSeparator()
+    item("composer.menu.selectAll") { field.requestFocusInWindow(); field.selectAll() }
+    menu.addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
+        override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent) {
+            val picked = field.selectionStart != field.selectionEnd
+            cut.isEnabled = picked && field.isEditable
+            copy.isEnabled = picked
+            paste.isEnabled = field.isEditable
+        }
+        override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent) = Unit
+        override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent) = Unit
+    })
+    field.componentPopupMenu = menu
+}

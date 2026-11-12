@@ -248,7 +248,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         private val buttons = ReviewSurface.actions()
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
-        private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
+        private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10); textEditMenu(this) }
         private fun updateComposerHint() {
             if (closing.get() || project.isDisposed) return
             val activeKey = answers.active
