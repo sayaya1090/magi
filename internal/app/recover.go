@@ -66,15 +66,21 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 			continue
 		}
 		r := RecoveredTurn{SessionID: m.ID, MessageID: open.MessageID}
-		calls, started, answered := openCalls(evs, open.MessageID)
+		calls, started, answered, mayHaveRun := openCalls(evs, open.MessageID)
 		// A magi older than tool.started leaves none, so there no start says nothing about whether
 		// a call ran — it may have done its work and died before its result was saved.
 		legacy := !recordsStarts(evs)
 		for _, c := range calls {
 			if answered[c.CallID] {
+				// An answer an earlier pass (or a shutdown) wrote as "may have run" is still that: the
+				// call stays the person's to check, whatever else of the turn got written then.
+				if mayHaveRun[c.CallID] {
+					r.Uncertain = append(r.Uncertain, c.CallID)
+				}
 				continue
 			}
 			var text string
+			uncertain := true
 			switch {
 			case started[c.CallID]:
 				r.Uncertain = append(r.Uncertain, c.CallID)
@@ -87,9 +93,10 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 					"check its effect before continuing", c.Name)
 			default:
 				r.NotRun = append(r.NotRun, c.CallID)
+				uncertain = false
 				text = fmt.Sprintf("interrupted: magi stopped before %s started; it never started and was not run", c.Name)
 			}
-			if r.Err = a.appendRecoveredResult(ctx, m.ID, c.CallID, text); r.Err != nil {
+			if r.Err = a.appendRecoveredResult(ctx, m.ID, c.CallID, text, uncertain); r.Err != nil {
 				break
 			}
 		}
@@ -122,8 +129,8 @@ func (a *App) runningHere(sid session.SessionID) bool {
 
 // openCalls lists the tool calls made after the prompt msgID, in order, with which of them started
 // and which already have a result.
-func openCalls(evs []event.Event, msgID string) (calls []session.ToolCall, started, answered map[string]bool) {
-	started, answered = map[string]bool{}, map[string]bool{}
+func openCalls(evs []event.Event, msgID string) (calls []session.ToolCall, started, answered, mayHaveRun map[string]bool) {
+	started, answered, mayHaveRun = map[string]bool{}, map[string]bool{}, map[string]bool{}
 	after := false
 	for _, e := range evs {
 		switch e.Type {
@@ -147,10 +154,13 @@ func openCalls(evs []event.Event, msgID string) (calls []session.ToolCall, start
 				calls = append(calls, *d.Part.ToolCall)
 			case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil:
 				answered[d.Part.ToolResult.CallID] = true
+				if d.Part.ToolResult.MayHaveRun {
+					mayHaveRun[d.Part.ToolResult.CallID] = true
+				}
 			}
 		}
 	}
-	return calls, started, answered
+	return calls, started, answered, mayHaveRun
 }
 
 // closeRecovered writes the interruption, then the turn's end — in that order, so a turn is never
@@ -177,14 +187,14 @@ func (a *App) finishRecovered(ctx context.Context, sid session.SessionID) error 
 
 // appendRecoveredResult pairs one call with what recovery knows about it, and says whether that
 // reached the log — which appendPart does not.
-func (a *App) appendRecoveredResult(ctx context.Context, sid session.SessionID, callID, text string) error {
+func (a *App) appendRecoveredResult(ctx context.Context, sid session.SessionID, callID, text string, mayHaveRun bool) error {
 	content, err := json.Marshal(text)
 	if err != nil {
 		return err
 	}
 	d, err := json.Marshal(event.PartAppendedData{MessageID: "m_" + newID(), Role: session.RoleTool, Part: session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult,
-		ToolResult: &session.ToolResult{CallID: callID, Content: content, IsError: true},
+		ToolResult: &session.ToolResult{CallID: callID, Content: content, IsError: true, MayHaveRun: mayHaveRun},
 	}})
 	if err != nil {
 		return err

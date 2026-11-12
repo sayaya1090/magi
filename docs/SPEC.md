@@ -363,6 +363,9 @@ starts) every unanswered call gets "may have run". Nothing is re-run; a turn wit
 left to the person. Results are written before the interruption and `turn.finished`; if any of them
 cannot be saved the turn stays open for the next start, and an interruption saved without its
 `turn.finished` has the end added then. A turn the person cancelled is not touched.
+A "may have run" answer carries `mayHaveRun`, so a later start keeps that call uncertain even when
+the interruption written with it was lost. Stopping a command ends its whole process group (unix). A
+last line torn by a crash is kept, and recovery pairs over it once.
 
 ```
 loop-int-1: Interrupt during streaming  ⇒ stop immediately, received text persisted as part.appended

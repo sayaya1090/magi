@@ -3,22 +3,33 @@
 package builtin
 
 import (
+	"errors"
+	"os"
 	"os/exec"
 	"syscall"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// killCmdTree matches the default context-cancel kill off Windows: the shell runs under
-// Setsid (detachTTY) and dies to a plain Process.Kill, which unblocks cmd.Wait, while the
-// command timeout bounds any orphaned child. It exists so the cross-platform bash tool can
-// wire a single Cancel hook; the Windows build is where that hook does the load-bearing work
-// (killing the whole tree so Wait can return at all).
+// killCmdTree ends a cancelled command's whole process group, then the shell. The shell runs
+// under Setsid (detachTTY), so it leads a group of its own and -pid reaches everything it started.
+// Killing the shell alone (the os/exec default this replaced) unblocked cmd.Wait but left its
+// children running with init as their parent: a timeout, the person's stop or magi shutting down
+// then ended the shell and nothing ever ended the `sleep`/build/server it was waiting on. ESRCH
+// from the group means there is no such group (a shell started without Setsid) and the shell
+// kill alone is all there is to do. The Windows build does the same with a job object.
 func killCmdTree(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	return cmd.Process.Kill()
+	groupErr := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	if groupErr != nil && !errors.Is(groupErr, syscall.ESRCH) {
+		return groupErr
+	}
+	return nil
 }
 
 // sandboxProcAttr is a no-op off Windows; those platforms confine via an argv

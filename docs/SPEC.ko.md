@@ -297,6 +297,9 @@ run again" 결과를 붙입니다. 강제로 죽은 프로세스가 열어 둔 �
 중단 기록과 `turn.finished`를 뒤에 씁니다. 하나라도 저장하지 못하면 턴을 열어 두어 다음 기동이 마저
 처리하고, 중단 기록만 저장되고 `turn.finished`가 빠진 턴도 그때 끝을 보충합니다. 사용자가 취소한 턴은
 건드리지 않습니다.
+"may have run" 결과에는 `mayHaveRun` 표식이 붙으므로, 함께 쓴 중단 기록이 사라져도 다음 기동은 그
+호출을 불확실로 유지합니다. 명령을 멈추면 그 프로세스 그룹 전체를 끝냅니다(unix). 크래시로 잘린
+끝줄은 그대로 두고, 복구는 그 위에서 한 번만 짝을 맞춥니다.
 
 ```
 loop-int-1: Interrupt during streaming  ⇒ stop immediately, received text persisted as part.appended

@@ -158,6 +158,11 @@ type ToolResult struct {
 	// So the two questions are separated. IsError still steers the agent; this says the work
 	// happened, and a surface can draw "done, with something to read" instead of "failed".
 	Advisory bool `json:"advisory,omitempty"`
+	// MayHaveRun marks an answer magi wrote for a call it cannot vouch for: the call had started (or
+	// the log predates start records) and magi stopped before its own result was saved, or a shutdown
+	// cut it mid-run. The text says so to the model; this says so to the next recovery, which would
+	// otherwise count the call as answered like a finished one and close the turn as resumable.
+	MayHaveRun bool `json:"mayHaveRun,omitempty"`
 	// Images are what the call produced that is not words: a rendered slide, a chart, a screenshot.
 	// References, not bytes — the log stays small and a viewer opens the file (ImageRef).
 	//

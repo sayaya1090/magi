@@ -140,3 +140,54 @@ func TestRecoveryWritesAMissingTurnEndOnTheNextStart(t *testing.T) {
 		t.Fatalf("third pass wrote %d events", len(evs2)-len(evs))
 	}
 }
+
+// A call recovery answered "may have run" stays uncertain on every later pass. The first pass saved
+// that answer and then could not save why the turn stopped; the next start used to count the call
+// as answered like any finished one, find nothing uncertain and close the turn as resumable — a
+// "continue" would then carry on past a call nobody checked.
+func TestReRecoveryKeepsACallItAnsweredMayHaveRunUncertain(t *testing.T) {
+	ctx := context.Background()
+	_, store, sid, wd := crashedLog(t, "c_write")
+	rs := &refusingStore{Store: store, refuse: byRecovery(event.TypeError)}
+	a := closeAfter(t, New(rs, &stuckLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
+
+	if got := a.RecoverInterrupted(ctx, wd); len(got) != 1 || !errors.Is(got[0].Err, errInjected) {
+		t.Fatalf("the first pass should fail on the error event; got %+v", got)
+	}
+	rs.allow()
+	again := a.RecoverInterrupted(ctx, wd)
+	if len(again) != 1 || again[0].Err != nil {
+		t.Fatalf("the next start should settle it; got %+v", again)
+	}
+	if again[0].Resumable || len(again[0].Uncertain) != 1 || again[0].Uncertain[0] != "c_write" {
+		t.Fatalf("c_write may have run and must stay uncertain, not resumable; got %+v", again[0])
+	}
+	evs, _ := store.Read(ctx, sid, 0)
+	var resumable []bool
+	for _, e := range evs {
+		if e.Type == event.TypeError && e.Actor == recoveryActor {
+			var d event.ErrorData
+			if json.Unmarshal(e.Data, &d) == nil {
+				resumable = append(resumable, d.Resumable)
+			}
+		}
+	}
+	if len(resumable) != 1 || resumable[0] {
+		t.Fatalf("want one interruption, not resumable; got %v", resumable)
+	}
+	if n := countByRecovery(evs, event.TypeTurnFinished); n != 1 {
+		t.Fatalf("want one turn end, got %d", n)
+	}
+	for _, c := range []string{"c_write", "c_read"} {
+		n := 0
+		for _, e := range evs {
+			var d event.PartAppendedData
+			if e.Type == event.TypePartAppended && json.Unmarshal(e.Data, &d) == nil && d.Part.ToolResult != nil && d.Part.ToolResult.CallID == c {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s has %d results, want exactly 1", c, n)
+		}
+	}
+}

@@ -892,13 +892,15 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			byShutdown := a.closed && a.stateLocked(sid).cancelSweep == nil
 			a.mu.Unlock()
 			if byShutdown {
-				a.noteShutdownInterrupt(context.WithoutCancel(runCtx), sid)
+				// Closed only once every cut call's answer and the interruption are saved; otherwise
+				// the turn is left open and the next start's recovery pairs what is missing.
+				writeFinish = a.noteShutdownInterrupt(context.WithoutCancel(runCtx), sid)
 			} else {
+				writeFinish = true
 				// Mark the cancelled turn's seed prompt abandoned so an unrelated next request
 				// isn't anchored onto it (and a follow-up that augments it still seeds on itself).
 				a.abandonSeedOnCancel(context.WithoutCancel(runCtx), sid)
 			}
-			writeFinish = true
 		case lastErr != nil:
 			writeFinish = true
 		}

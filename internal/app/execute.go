@@ -605,9 +605,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		}
 		a.noteShutdownCut(sid, tc.CallID)
 		resultEmitted = true
-		a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(fmt.Sprintf(
+		text := string(capToolResult([]byte(fmt.Sprintf(
 			"interrupted: magi shut down while %s was running; it may have run, in part or in full. "+
-				"It was not run again — check its effect before continuing.\n\n[what it returned when stopped]\n%s", tc.Name, got)))), true)
+				"It was not run again — check its effect before continuing.\n\n[what it returned when stopped]\n%s", tc.Name, got))))
+		if err := a.appendCutResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, text); err != nil {
+			a.noteShutdownUnsaved(sid)
+		}
 		return
 	}
 	if err != nil {

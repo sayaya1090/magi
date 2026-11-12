@@ -13,6 +13,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/idebridge"
 	"io"
 	"os"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"regexp"
@@ -22,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -1241,7 +1243,15 @@ func runWithContext(runCtx context.Context) int {
 	}
 
 	// One-shot headless run: stream fact events to stdout, errors to stderr.
-	return runHeadless(ctx, a, sid, promptText, *output == "json", *workflow, os.Stdout, os.Stderr)
+	// SIGTERM/Ctrl-C end the watch, not the process: runHeadless returns and the deferred Shutdown
+	// above cuts the turn as a shutdown (a running tool answered "may have run", the turn closed as
+	// interrupted, its process group ended) within MAGI_SHUTDOWN_GRACE. Without this the signal killed
+	// -p outright: no defer ran, the log stopped at tool.started and the tool's children were orphaned.
+	// The turn itself runs on a detached context (startRun), so the signal does not reach it as a
+	// person's cancel. Once stopSignals runs, a second signal kills as before.
+	headlessCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	return runHeadless(headlessCtx, a, sid, promptText, *output == "json", *workflow, os.Stdout, os.Stderr)
 }
 
 // hostParams is what the plugin host needs from run(). Named rather than passed as a dozen
@@ -2042,6 +2052,11 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 			exit = 1
 			break
 		}
+	}
+	if exit == 0 && !sawTerminal && ctx.Err() != nil {
+		// The watch ended because the run was told to stop (a signal), not because the turn finished.
+		fmt.Fprintln(errw, "magi: stopped before the turn finished — it is closed as interrupted; the next start shows what needs you")
+		exit = 1
 	}
 	if exit == 0 && sawRecovered && !sawTerminal {
 		fmt.Fprintln(errw, "error[provider]: the stream closed after a recovered error, with no finish — the turn did not complete")

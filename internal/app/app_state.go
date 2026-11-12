@@ -241,6 +241,9 @@ type sessionState struct {
 	// shutdownCut lists the tool calls a shutdown cut while they ran: they may have done their work,
 	// so the turn that held them closes as needing the person, not as resumable.
 	shutdownCut []string
+	// shutdownUnsaved is set when one of those calls' answers could not be saved: the turn must
+	// then stay open for the next start's recovery rather than be closed over a call with no result.
+	shutdownUnsaved bool
 	// bornWait is closed when the in-flight session.created append (bear) finishes. A second
 	// event racing the first through bornStore used to find born already nil, sail past, and win
 	// the store's lock — landing before created and failing "first append must include
