@@ -140,3 +140,71 @@ func TestRecoveryCannotCloseParentWhenChildrenCannotBeListed(t *testing.T) {
 		t.Fatal("closed without checking children")
 	}
 }
+
+func TestRecoveryRechecksChildrenAfterParentInterruptionWasSaved(t *testing.T) {
+	ctx := context.Background()
+	a, store, parent, wd := crashedLog(t)
+	a.RecoverInterrupted(ctx, wd)
+	if err := a.appendPromptText(ctx, parent, crashActor, "next task"); err != nil {
+		t.Fatal(err)
+	}
+	child := recoveryChild(t, a, parent, wd)
+	// Shutdown saved a resumable interruption, but died before the terminal
+	// event. A child was still writing when the process went away.
+	b, _ := json.Marshal(event.ErrorData{Code: "interrupted", Resumable: true, Message: "shutdown"})
+	if err := a.appendFact(ctx, parent, event.TypeError, crashActor, b); err != nil {
+		t.Fatal(err)
+	}
+	got := a.RecoverInterrupted(ctx, wd)
+	if len(got) != 2 || got[1].SessionID != parent || got[1].Resumable || len(got[1].UncertainChildren) != 1 || got[1].UncertainChildren[0] != child {
+		t.Fatalf("pending parent ending lost child uncertainty: %+v", got)
+	}
+	evs, _ := store.Read(ctx, parent, 0)
+	var last event.ErrorData
+	for _, e := range evs {
+		if e.Type == event.TypeError {
+			last = event.ErrorData{}
+			_ = json.Unmarshal(e.Data, &last)
+		}
+	}
+	if last.Resumable || !strings.Contains(last.Message, string(child)) {
+		t.Fatalf("saved parent interruption lost child uncertainty: %+v", last)
+	}
+	if again := a.RecoverInterrupted(ctx, wd); len(again) != 0 {
+		t.Fatalf("not idempotent: %+v", again)
+	}
+}
+
+func TestRecoveryPendingParentRetriesChildWarningWrites(t *testing.T) {
+	for _, refused := range []event.Type{event.TypeError, event.TypeTurnFinished} {
+		t.Run(string(refused), func(t *testing.T) {
+			ctx := context.Background()
+			a, _, parent, wd := crashedLog(t)
+			a.RecoverInterrupted(ctx, wd)
+			if err := a.appendPromptText(ctx, parent, crashActor, "next task"); err != nil {
+				t.Fatal(err)
+			}
+			child := recoveryChild(t, a, parent, wd)
+			b, _ := json.Marshal(event.ErrorData{Code: "interrupted", Resumable: true})
+			if err := a.appendFact(ctx, parent, event.TypeError, crashActor, b); err != nil {
+				t.Fatal(err)
+			}
+			rs := &refusingStore{Store: a.store, refuse: func(e event.Event) bool {
+				return e.SessionID == parent && byRecovery(refused)(e)
+			}}
+			a.store = rs
+			got := a.RecoverInterrupted(ctx, wd)
+			if len(got) != 2 || got[1].Err == nil {
+				t.Fatalf("write failure hidden: %+v", got)
+			}
+			rs.allow()
+			got = a.RecoverInterrupted(ctx, wd)
+			if len(got) != 1 || got[0].Err != nil || got[0].Resumable || len(got[0].UncertainChildren) != 1 || got[0].UncertainChildren[0] != child {
+				t.Fatalf("retry lost uncertainty: %+v", got)
+			}
+			if again := a.RecoverInterrupted(ctx, wd); len(again) != 0 {
+				t.Fatalf("not idempotent: %+v", again)
+			}
+		})
+	}
+}

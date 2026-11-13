@@ -70,10 +70,21 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 			continue
 		}
 		if msgID, resumable, ok := endlessInterruption(evs); ok {
-			// An earlier pass (or a shutdown) wrote why the turn stopped but not that it ended:
-			// the results are in, only the end is missing, so that is all this writes.
+			// Shutdown may have saved the parent's interruption before its children
+			// settled. Recheck their durable results before trusting that resume flag.
 			r := RecoveredTurn{SessionID: m.ID, MessageID: msgID, Resumable: resumable}
-			r.Err = a.finishRecovered(ctx, m.ID)
+			childNote, uncertain, childErr := a.recoveryChildren(ctx, evs, children[m.ID])
+			r.UncertainChildren = uncertain
+			switch {
+			case childErr != nil:
+				r.Err = childErr
+			case resumable && len(uncertain) > 0:
+				r.Resumable = false
+				r.Err = a.closeRecovered(ctx, m.ID,
+					"interrupted: child work may have run. Check the child results and their effects before continuing; nothing was re-run"+childNote, false)
+			default:
+				r.Err = a.finishRecovered(ctx, m.ID)
+			}
 			blocked[m.ID] = r.Err
 			out = append(out, r)
 			continue
