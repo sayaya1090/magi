@@ -495,7 +495,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// A workflow PHASE budget is different in kind: it declares its own budget as part of the
 	// pipeline's shape (localize gets 14 steps, summarize gets 3), spending it is ordinary, and the
 	// engine simply moves to the next phase. maxSteps<=0 means the caller set none.
-	consecutiveCuts := 0
+	cutRecovery := streamRecovery{}
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
@@ -541,7 +541,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		res, evs := sr.res, sr.evs
 		if !res.cut {
-			consecutiveCuts = 0
+			cutRecovery = streamRecovery{}
 		}
 		msgID, textPartID, reasonPartID := sr.msgID, sr.textPartID, sr.reasonPartID
 		// Reasoning-only spin: the response was cancelled after streaming huge output with no tool
@@ -691,10 +691,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		if len(toolCalls) == 0 {
 			if res.cut && ctx.Err() == nil {
-				consecutiveCuts++
-				if consecutiveCuts > maxTransientRetries {
-					err := fmt.Errorf("connection repeatedly interrupted the response; saved progress is retained, retry after the connection recovers")
-					a.emitErrorKind(ctx, sid, agentActor, err.Error(), false)
+				if err := cutRecovery.wait(ctx, res.cutCause, func(delay time.Duration, attempt int) {
+					a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("connection interrupted — continuing in %s (attempt %d of %d; stop the turn to cancel)", delay.Round(time.Millisecond), attempt, maxTransientRetries))
+				}); err != nil {
+					if ctx.Err() == nil {
+						cause := res.cutCause
+						if !classifyBackend(cause).Kind.Retryable() {
+							cause = &port.BackendError{Kind: port.KindNetwork, Cause: err}
+						}
+						return lastText, a.stopOnBackend(ctx, sid, agentActor, cause, cutRecovery.attempts, cutRecovery.waited, err.Error())
+					}
 					return lastText, err
 				}
 				// A transport cut is not the model declaring completion. The

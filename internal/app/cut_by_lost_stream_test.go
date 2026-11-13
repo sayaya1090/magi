@@ -247,6 +247,7 @@ func TestTransientFailureAfterOutputContinuesFromSavedPrefix(t *testing.T) {
 }
 
 func TestRepeatedPartialDisconnectsAreBounded(t *testing.T) {
+	fastTransient(t)
 	llm := &fakeLLM{}
 	for i := 0; i < maxTransientRetries+2; i++ {
 		llm.steps = append(llm.steps, cutStream("partial reply"))
@@ -265,10 +266,17 @@ func TestRepeatedPartialDisconnectsAreBounded(t *testing.T) {
 	for _, e := range evs {
 		if e.Type == event.TypeError && strings.Contains(string(e.Data), "connection repeatedly interrupted") {
 			found = true
+			var d event.ErrorData
+			if err := json.Unmarshal(e.Data, &d); err != nil || d.Attempts != maxTransientRetries || !d.Resumable {
+				t.Fatalf("missing recovery metadata: %s", e.Data)
+			}
 		}
 	}
 	if !found {
 		t.Fatal("persistent disconnection did not report retry exhaustion")
+	}
+	if _, ok := a.ResumableTurnOf(ctx, sid); !ok {
+		t.Fatal("exhausted partial response was not marked resumable")
 	}
 	llm.mu.Lock()
 	calls := llm.call

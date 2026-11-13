@@ -30,7 +30,8 @@ type streamStep struct {
 	stalled       bool   // the stream went silent before the FIRST token (hung backend) — safe to retry
 	// cut is set when the stream carried a reply and then ended with neither finish_reason nor
 	// [DONE]. The text is a prefix; the loop says so and keeps going (see cutByLostStreamNote).
-	cut bool
+	cut      bool
+	cutCause error
 	// finishReason is the provider's finish_reason for this response, unread. "length" means the
 	// output-token cap ended it, not the model — see cutByOutputCapNote.
 	finishReason string
@@ -487,6 +488,7 @@ loop:
 				// prevent — measured, a task lost 19 seconds into its first reply while the
 				// prefix and every earlier step stood.
 				res.cut = true
+				res.cutCause = ev.Err
 				break
 			}
 			streamErr = true
