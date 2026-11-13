@@ -132,6 +132,7 @@ const adapterWrapped = `// Auto-generated from src/web/chat_adapter.ts and depen
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
 var planStripView;
+var restartStripView;
 var createSuggestController;
 var createWebviewReceiveHandlers;
 var parseHostToWebviewMessage;
@@ -154,6 +155,7 @@ ${bundledCode}
   createWebviewActionAdapter = exp.createWebviewActionAdapter;
   createWebviewInputAdapter = exp.createWebviewInputAdapter;
   planStripView = exp.planStripView;
+  restartStripView = exp.restartStripView;
   createSuggestController = exp.createSuggestController;
   createWebviewReceiveHandlers = exp.createWebviewReceiveHandlers;
   parseHostToWebviewMessage = exp.parseHostToWebviewMessage;
@@ -173,6 +175,7 @@ ${bundledCode}
     window.createWebviewActionAdapter = createWebviewActionAdapter;
     window.createWebviewInputAdapter = createWebviewInputAdapter;
     window.planStripView = planStripView;
+    window.restartStripView = restartStripView;
     window.createSuggestController = createSuggestController;
     window.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     window.parseHostToWebviewMessage = parseHostToWebviewMessage;
@@ -191,6 +194,7 @@ ${bundledCode}
   if (typeof module !== 'undefined' && module.exports) {
     module.exports.createWebviewActionAdapter = createWebviewActionAdapter;
     module.exports.createWebviewInputAdapter = createWebviewInputAdapter;
+    module.exports.restartStripView = restartStripView;
     module.exports.createSuggestController = createSuggestController;
     module.exports.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     module.exports.parseHostToWebviewMessage = parseHostToWebviewMessage;

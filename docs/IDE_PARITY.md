@@ -23,6 +23,8 @@ VS Code preserves the transcript and UI generation during automatic reconnection
 
 Thinking starts collapsed in both IDEs. A thought opened by the user stays open during streaming. JetBrains reuses the closed component and updates only the appended text in an open draft. VS Code retains the draft DOM too.
 
+Streaming answers show Markdown formatting before completion. VS Code retains unchanged block DOM, including rendered Mermaid charts, while updating changed blocks. JetBrains uses the IDE Markdown parser to preserve block components and formats headings, emphasis, lists and code with its lightweight Swing renderer during streaming. Tables, links and Mermaid diagrams use the full IDE preview when the answer finishes, avoiding a browser reload for each token.
+
 The JetBrains plan window now includes a council control. Canceling confirmation or receiving a daemon rejection keeps the existing value. Saved profiles selected in the info popup now call `use-profile`, and status includes the current profile name.
 
 ## Validation scope and limits

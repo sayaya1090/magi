@@ -193,7 +193,36 @@ parser.block.ruler.at('fence', customFence, {
  * Renders Markdown into a DOM container using purely safe DOM methods
  * (createElement, createTextNode, appendChild). Never touches innerHTML.
  */
+// Keep the rendered DOM (including Mermaid's replacement SVG) for unchanged blocks.
+// Compare the safe renderer's output, not live DOM that interactive widgets mutate.
+const renderedBlocks = new WeakMap<HTMLElement, string[]>();
 export function renderMarkdown(
+  container: HTMLElement,
+  markdown: string,
+  options?: { document?: Document; incremental?: boolean }
+): void {
+  if (!options?.incremental) {
+    renderedBlocks.delete(container);
+    renderMarkdownFresh(container, markdown, options);
+    return;
+  }
+  const doc = options.document || container.ownerDocument;
+  const staging = doc.createElement('div');
+  renderMarkdownFresh(staging, markdown, options);
+  const previous = renderedBlocks.get(container) || [];
+  const incoming = Array.from(staging.childNodes);
+  const signatures = incoming.map(node => node.nodeType === 1 ? (node as Element).outerHTML : node.textContent || '');
+  incoming.forEach((node, index) => {
+    const existing = container.childNodes[index];
+    if (existing && previous[index] === signatures[index]) return;
+    if (existing) container.replaceChild(node, existing);
+    else container.appendChild(node);
+  });
+  while (container.childNodes.length > incoming.length) container.lastChild?.remove();
+  renderedBlocks.set(container, signatures);
+}
+
+function renderMarkdownFresh(
   container: HTMLElement,
   markdown: string,
   options?: { document?: Document }

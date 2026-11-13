@@ -569,7 +569,11 @@ function paintViewport(tail = followingTail) {
     const draftSignature = JSON.stringify({ ...r, text: '' });
     const old = paintedChatRows.get(key);
     if (old && (old.signature === signature || ((r.who === 'agent' || r.who === 'thinking') && r.draft && old.draftSignature === draftSignature))) {
-      if (old.signature !== signature) old.node.querySelector<HTMLElement>('.body')!.textContent = r.text;
+      if (old.signature !== signature) {
+        const body = old.node.querySelector<HTMLElement>('.body')!;
+        if (r.who === 'agent' && typeof renderMarkdown === 'function') renderMarkdown(body, r.text, { incremental: true });
+        else body.textContent = r.text;
+      }
       old.node.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
       nextPainted.set(key, { signature, draftSignature, node: old.node });
       nextNodes.push(old.node);
@@ -639,10 +643,10 @@ function paintViewport(tail = followingTail) {
       time.textContent = [stamp.getHours(), stamp.getMinutes(), stamp.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
       time.title = stamp.toLocaleString(); w.append(time);
     }
-    const b = document.createElement('div');
+    const b = (r.who === 'agent' && old?.node.classList.contains('agent') ? old.node.querySelector<HTMLDivElement>('.body') : null) || document.createElement('div');
     b.className = 'body';
-    if (r.who === 'agent' && !r.draft && typeof renderMarkdown === 'function') {
-      renderMarkdown(b, r.text);
+    if (r.who === 'agent' && typeof renderMarkdown === 'function') {
+      renderMarkdown(b, r.text, { incremental: true });
     } else {
       b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
     }

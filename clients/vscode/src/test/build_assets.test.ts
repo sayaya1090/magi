@@ -223,6 +223,8 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
     vm.createContext(adapterSandbox);
     vm.runInContext(generatedAdapterBundle, adapterSandbox);
 
+    assert.equal(typeof adapterSandbox.restartStripView, 'function');
+    assert.equal(typeof adapterSandbox.window.restartStripView, 'function');
     assert.equal(typeof adapterSandbox.createWebviewActionAdapter, 'function');
     assert.equal(typeof adapterSandbox.createWebviewInputAdapter, 'function');
     assert.equal(typeof adapterSandbox.createSuggestController, 'function');

@@ -1451,6 +1451,13 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         samePresentation && old.row.draft && r.draft && r.who == Who.Thinking && !open &&
                             RowText.foldable(old.row) == RowText.foldable(r) && old.row.copy(text = r.text) == r ->
                             old.panel.also { copying.retain(it, r) { allRows } }
+                        samePresentation && old.row.draft && r.draft && r.who == Who.Agent &&
+                            old.row.copy(text = r.text) == r && old.panel.getClientProperty("magi.draft.body") is StreamingMarkdown -> {
+                            (old.panel.getClientProperty("magi.draft.body") as StreamingMarkdown).update(r.text)
+                            old.panel.putClientProperty("magi.draft.updates", (old.panel.getClientProperty("magi.draft.updates") as? Int ?: 0) + 1)
+                            copying.retain(old.panel, r) { allRows }
+                            old.panel
+                        }
                         samePresentation && old.row.draft && r.draft &&
                             (r.who == Who.Agent || (r.who == Who.Thinking && open && RowText.foldable(old.row) == RowText.foldable(r))) &&
                             old.row.copy(text = r.text) == r && old.panel.getClientProperty("magi.draft.body") is javax.swing.JTextArea -> {
@@ -1595,11 +1602,10 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         val rich = if (pinned == null && !r.draft && RichAnswer.needsRich(r.text)) {
                             richAnswers.panel(project, r.text, richRenderKey(r), this@View, surface = Look.messageBackground(Look.accent))
                         } else null
-                        // 스트리밍 중인 초안은 커서 글리프(" ▌")를 붙여 완료된 텍스트와 구별합니다(리뷰 F11).
-                        val body = if (r.draft) Look.prose(r.text + " ▌").also {
-                            ((it as? javax.swing.JTextArea)?.caret as? javax.swing.text.DefaultCaret)?.updatePolicy = javax.swing.text.DefaultCaret.NEVER_UPDATE
+                        // Drafts format independently retained blocks without reloading the browser.
+                        val body = if (r.draft) StreamingMarkdown(r.text).also {
                             p.putClientProperty("magi.draft.body", it)
-                            com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info("magi: stable stream text renderer started")
+                            com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info("magi: stable stream markdown renderer started")
                         } else rich ?: Look.rich(r.text)
                         p.add(body, BorderLayout.CENTER)
                     } else {

@@ -9,6 +9,28 @@ import javax.swing.JPanel
 import javax.swing.JTextArea
 
 class StreamingHeightTest : BasePlatformTestCase() {
+    fun testMarkdownBlocksRenderBeforeCompletionAndKeepCompletedDocuments() {
+        val view = StreamingMarkdown("# Heading\n\n**Finished** paragraph.\n\n```kotlin\nval x = 1")
+        assertEquals(3, view.componentCount)
+        val heading = view.getComponent(0)
+        val finished = view.getComponent(1) as JPanel
+        val editor = finished.getComponent(0) as javax.swing.JEditorPane
+        val document = editor.document
+        assertTrue(editor.text.contains("<b>Finished</b>"))
+        view.update("# Heading\n\n**Finished** paragraph.\n\n```kotlin\nval x = 1\nval y = 2\n```\n\nNext")
+        assertSame(heading, view.getComponent(0))
+        assertSame(finished, view.getComponent(1))
+        assertSame(document, editor.document)
+        assertEquals(4, view.componentCount)
+        view.update("Replacement <img src=x> **answer**")
+        assertEquals(1, view.componentCount)
+        val replacement = (view.getComponent(0) as JPanel).getComponent(0) as javax.swing.JEditorPane
+        assertFalse(replacement.text.contains("<img"))
+        assertTrue(replacement.text.contains("<b>answer</b>"))
+        view.update("")
+        assertEquals(0, view.componentCount)
+    }
+
     fun testPartialDomMeasurementsCannotPullStreamingContentUpAndDown() {
         val sizing = StreamingHeight(true)
         val actual = listOf(1800, 72, 2200, 96, 2600).map { sizing.accept(it, 400) }

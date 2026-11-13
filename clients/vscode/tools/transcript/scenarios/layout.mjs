@@ -11,8 +11,8 @@ export const layoutScenarios = [
           await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
             configurable: true, value: { writeText: async text => { window.__diagramCopy = text; } },
           }));
-          const send = text => page.evaluate(m => window.postMessage(m, '*'), createRowsMessage({ rows: [
-            { seq: 1, who: 'agent', label: 'magi', text: '```mermaid\n' + source + '\n```' },
+          const send = (text, draft = true) => page.evaluate(m => window.postMessage(m, '*'), createRowsMessage({ rows: [
+            { seq: 1, who: 'agent', label: 'magi', text: '```mermaid\n' + source + '\n```\n\n' + text, draft },
             { seq: 2, who: 'agent', label: 'magi', text, draft: true },
           ] }));
           await send('next');
@@ -26,8 +26,11 @@ export const layoutScenarios = [
           await box.getByRole('button', { name: /Copy source|원본 복사/, exact: true }).click();
           assert.equal(await page.evaluate(() => window.__diagramCopy), source);
           for (let i = 0; i < 5; i++) await send('next '.repeat(i + 2));
-          await page.waitForFunction(() => document.querySelectorAll('.agent .body')[1].textContent === 'next '.repeat(6));
+          await page.waitForFunction(() => document.querySelectorAll('.row.agent')[1].dataset.copyText === 'next '.repeat(6));
           assert.equal(await svg.evaluate(s => s === window.__diagramSvg), true);
+          await send('next '.repeat(6), false);
+          await page.waitForFunction(() => !document.querySelector('.row.agent').classList.contains('draft'));
+          assert.equal(await svg.evaluate(s => s === window.__diagramSvg), true, 'completion retains the rendered diagram');
           assert.equal(await box.locator('[role="status"]').textContent().then(t => /could not|표시할 수 없/.test(t)), false);
         },
       },
@@ -130,7 +133,7 @@ export const layoutScenarios = [
           for (let i = 0; i < 20; i++) {
             text += 'const line' + i + ' = ' + i + ';\n';
             await send(text);
-            await page.waitForFunction((t) => document.querySelectorAll('#rows .body')[2].textContent === t, text);
+            await page.waitForFunction((t) => document.querySelectorAll('#rows .row')[2].dataset.copyText === t, text);
             const snapshot = await page.evaluate(() => ({
               kept: [...document.querySelectorAll('#rows > .row')].every((r, i) => r === window.__stableRows[i]),
               tops: [...document.querySelectorAll('#rows > .row')].slice(0, 2).map((r) => r.offsetTop),

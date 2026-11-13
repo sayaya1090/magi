@@ -135,7 +135,7 @@ class TailScrollTest : BasePlatformTestCase() {
             val bounds = history.map { java.awt.Rectangle(it.bounds) }
             val draft = column.getComponent(2) as javax.swing.JComponent
             val draftBody = draft.getClientProperty("magi.draft.body")
-            assertTrue("streaming must not reload CEF", draftBody is javax.swing.JTextArea)
+            assertTrue("streaming must not reload CEF", if (kind == "text") draftBody is StreamingMarkdown else draftBody is javax.swing.JTextArea)
             var detachedHistory = 0
             column.addContainerListener(object : java.awt.event.ContainerAdapter() {
                 override fun componentRemoved(e: java.awt.event.ContainerEvent) { if (e.child in history) detachedHistory++ }

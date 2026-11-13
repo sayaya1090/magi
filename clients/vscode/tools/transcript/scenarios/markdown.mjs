@@ -48,7 +48,8 @@ export const markdownScenario = {
           {
             who: 'agent',
             label: 'magi',
-            text: '스트리밍 중:\n```ts\nconst x = 1;',
+            text: '**스트리밍** 중:\n```ts\nconst x = 1;',
+            draft: true,
           }
         ],
         refs: []
@@ -58,6 +59,14 @@ export const markdownScenario = {
       const code1 = await page.locator('.row.agent pre code').textContent();
       assert.equal(code1, 'const x = 1;', 'unclosed streaming fence must render code text');
       assert.equal(await page.locator('#say').inputValue(), '작업 초안 원문', 'general draft must not be mutated');
+      assert.equal(await page.locator('.row.agent strong').textContent(), '스트리밍', 'format draft before completion');
+      await page.evaluate(() => { window.__streamParagraph = document.querySelector('.row.agent p'); });
+      await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+        session: 's-md-stream', rows: [{who:'agent',label:'magi',draft:true,text:'**스트리밍** 중:\n```ts\nconst x = 1;\nconst y = 2;'}], refs:[]
+      }));
+      await page.waitForFunction(() => document.querySelector('.row.agent code')?.textContent.includes('const y = 2;'));
+      assert.equal(await page.evaluate(() => window.__streamParagraph === document.querySelector('.row.agent p')),true,'unchanged paragraph survives token updates');
+
 
       // 3. Stream Phase 2: Completed response containing newline counterexamples, tables, lists, links, image syntax, HTML, 50-line code, wide code, and outputId
       const expected50Lines = Array.from({ length: 50 }, (_, i) => `const line${i} = ${i};`).join('\n');

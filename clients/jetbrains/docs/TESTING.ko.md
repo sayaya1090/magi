@@ -2035,6 +2035,8 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 `StreamingHeightTest`는 같은 폭에서 스트리밍 DOM 높이가 1800→72→2200→96→2600으로 보고되어도 표시 높이와 하단 스크롤이 뒤로 움직이지 않는지 검사합니다. 스트리밍 종료와 실제 폭 변경 때는 높이 감소를 허용합니다. 아직 배치되지 않은 폭 0의 측정은 무시합니다.
 
+`testMarkdownBlocksRenderBeforeCompletionAndKeepCompletedDocuments`는 `StreamingMarkdown`이 출력 도중 제목·강조·코드 서식을 표시하고, 이미 완성된 블록의 컴포넌트와 문서를 유지하는지 검사합니다. 내용 교체·삭제와 HTML 이미지 삽입 차단도 검사합니다. 실제 전사의 행과 읽기 위치 보존은 `TailScrollTest`에서 확인합니다.
+
 `FoldBubbleViewTest`는 실제 도구창(`MagiToolWindow.View`)에 압축 진행(`tool.progress`, `name=compact`)을 먹여, 대화에 진행 말풍선 행이 서고 그 안에 가운데 정렬한 진행 문구와 막대가 여백을 두고 그려지는지, 하단에는 막대가 없는지, 압축 결과(`compaction`)가 오면 그 행이 「↯ 컨텍스트를 접었다」로 바뀌는지 확인한다.
 
 `FoldGaugeViewTest`는 툴 결과 접기 줄에 컨텍스트 구성이 붙으면 실제 도구창 행이 그 줄 아래에 좌측바와 같은 띠(`Look.GaugeBar`, 조각 5개)와 조각별 범례(색 점과 몫%)를 그리는지, 구성이 없으면 띠를 세우지 않는지 검사합니다. 구성 값은 데몬 `context` 문에서 오므로, 언제 다시 물을지(`Rows.foldMarks`)와 어느 줄에 붙일지(`Rows.pinFoldContext`, 마지막 접힌 줄)는 `RowsTest`의 「접기·압축 결과 줄은 그 순간의 컨텍스트 구성을 받는다」가 봅니다. 실제 데몬에 묻는 경로와 재생 중 생략은 시험하지 않았습니다.
