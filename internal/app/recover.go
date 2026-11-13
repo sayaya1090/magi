@@ -9,6 +9,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // RecoveredTurn is what the start-up recovery did with one turn a previous process left open.
@@ -46,12 +47,50 @@ var recoveryActor = event.Actor{Kind: event.ActorSystem, ID: "recovery"}
 // running in this process. Writing the ending is what makes it idempotent: a second pass finds no
 // open turn.
 func (a *App) recoverInterrupted(ctx context.Context, workdir string) []RecoveredTurn {
-	metas, err := a.store.ListSessions(ctx, workdir)
+	return a.recoverSelected(ctx, workdir, "")
+}
+
+func (a *App) recoverSelected(ctx context.Context, workdir string, selected session.SessionID) []RecoveredTurn {
+	store := a.store
+	if born, ok := store.(bornStore); ok {
+		store = born.Store
+	}
+	var metas []session.SessionMeta
+	var err error
+	var inventory map[session.SessionID][]session.SessionMeta
+	if scanner, ok := store.(port.SessionInventory); ok {
+		metas, err = scanner.AllSessions(ctx, workdir)
+		inventory = make(map[session.SessionID][]session.SessionMeta)
+		for _, m := range metas {
+			inventory[session.SessionID(m.Parent)] = append(inventory[session.SessionID(m.Parent)], m)
+		}
+	} else {
+		metas, err = store.ListSessions(ctx, workdir)
+	}
 	if err != nil {
 		return []RecoveredTurn{{Err: fmt.Errorf("list recovery sessions: %w", err)}}
 	}
+	if selected == "" && inventory != nil {
+		var roots []session.SessionMeta
+		for _, m := range metas {
+			if m.Parent == "" {
+				roots = append(roots, m)
+			}
+		}
+		metas = roots
+	}
+	if selected != "" {
+		var root []session.SessionMeta
+		for _, m := range metas {
+			if m.ID == selected {
+				root = append(root, m)
+				break
+			}
+		}
+		metas = root
+	}
 	var out []RecoveredTurn
-	metas, children, blocked := a.recoveryTree(ctx, workdir, metas)
+	metas, children, blocked := a.recoveryTree(ctx, workdir, metas, inventory, selected != "")
 	for _, m := range metas {
 		if a.runningHere(m.ID) {
 			blocked[m.ID] = fmt.Errorf("session %s is still running", m.ID)

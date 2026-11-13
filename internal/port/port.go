@@ -279,9 +279,13 @@ type DeliberationRequest struct {
 
 // ---- Store (D6: event-sourced persistence; jsonl is the first impl) ----
 
-// Store persists and reads the per-session event log. Append assigns a per-
-// session monotonically increasing seq (starting at 1) to each fact event and
-// returns the assigned seq values in order.
+// SessionInventory is an optional header-only inventory for startup recovery.
+// It includes both top-level and child sessions owned by the project.
+type SessionInventory interface {
+	AllSessions(context.Context, string) ([]session.SessionMeta, error)
+}
+
+// Store persists and reads per-session events. Append assigns increasing sequence numbers.
 type Store interface {
 	Append(ctx context.Context, s session.SessionID, evs ...event.Event) ([]int64, error)
 	Read(ctx context.Context, s session.SessionID, fromSeq int64) ([]event.Event, error)

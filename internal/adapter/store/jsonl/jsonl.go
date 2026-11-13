@@ -626,6 +626,62 @@ func (s *Store) Truncate(ctx context.Context, sid session.SessionID, upToSeq int
 	return nil
 }
 
+// AllSessions reads only session.created headers for recovery topology, including
+// cloned children. Titles and last activity are intentionally absent.
+func (s *Store) AllSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {
+	dir := filepath.Join(s.projectsDir(), encodeWorkdir(workdir))
+	files, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var metas []session.SessionMeta
+	for _, f := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
+			continue
+		}
+		m, ok, err := recoveryHeader(filepath.Join(dir, f.Name()), workdir)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			metas = append(metas, m)
+		}
+	}
+	return metas, nil
+}
+
+func recoveryHeader(path, project string) (session.SessionMeta, bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return session.SessionMeta{}, false, err
+	}
+	defer f.Close()
+	line, skip, err := readLogLine(bufio.NewReader(f))
+	if err != nil && err != io.EOF {
+		return session.SessionMeta{}, false, err
+	}
+	var e event.Event
+	var d event.SessionCreatedData
+	if skip || json.Unmarshal(line, &e) != nil || e.Type != event.TypeSessionCreated || json.Unmarshal(e.Data, &d) != nil {
+		return session.SessionMeta{}, false, fmt.Errorf("invalid session header: %s", filepath.Base(path))
+	}
+	owner := d.Project
+	if owner == "" {
+		owner = d.Workdir
+	}
+	if owner != "" && owner != project {
+		return session.SessionMeta{}, false, nil
+	}
+	return session.SessionMeta{ID: session.SessionID(strings.TrimSuffix(filepath.Base(path), ".jsonl")),
+		Workdir: d.Workdir, Parent: d.Parent, Created: e.TS}, true, nil
+}
+
 // ListSessions returns metadata for top-level (non-subagent) sessions under
 // workdir, newest first.
 func (s *Store) ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {

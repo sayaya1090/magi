@@ -15,7 +15,7 @@ import (
 // recoveryTree keeps the project's directory while walking: a cloned child's Workdir is
 // its checkout, but its log (and its descendants) belongs to the original project.
 // Children precede parents so a failed child can prevent its parent from closing.
-func (a *App) recoveryTree(ctx context.Context, project string, roots []session.SessionMeta) ([]session.SessionMeta, map[session.SessionID][]session.SessionMeta, map[session.SessionID]error) {
+func (a *App) recoveryTree(ctx context.Context, project string, roots []session.SessionMeta, inventory map[session.SessionID][]session.SessionMeta, selectedOnly bool) ([]session.SessionMeta, map[session.SessionID][]session.SessionMeta, map[session.SessionID]error) {
 	var ordered []session.SessionMeta
 	children := map[session.SessionID][]session.SessionMeta{}
 	blocked := map[session.SessionID]error{}
@@ -31,9 +31,38 @@ func (a *App) recoveryTree(ctx context.Context, project string, roots []session.
 			ordered = append(ordered, m)
 			return // do not touch the descendants of a live owner
 		}
-		kids, err := a.store.ChildSessions(ctx, project, string(m.ID))
+		kids := inventory[m.ID]
+		var err error
+		if inventory == nil {
+			kids, err = a.store.ChildSessions(ctx, project, string(m.ID))
+		}
 		if err != nil {
 			blocked[m.ID] = fmt.Errorf("list children: %w", err)
+		}
+		if selectedOnly {
+			evs, readErr := a.store.Read(ctx, m.ID, 0)
+			if readErr != nil {
+				blocked[m.ID] = readErr
+				kids = nil
+			} else {
+				_, _, endless := endlessInterruption(evs)
+				_, pending := unfinishedTurn(evs)
+				if !pending && m.Parent != "" {
+					_, pending = unfinishedTurn(withoutErrors(evs))
+				}
+				if !endless && !pending {
+					kids = nil
+				} else {
+					since := lastPromptAt(evs)
+					current := make([]session.SessionMeta, 0, len(kids))
+					for _, child := range kids {
+						if !child.Created.Before(since) {
+							current = append(current, child)
+						}
+					}
+					kids = current
+				}
+			}
 		}
 		children[m.ID] = kids
 		for _, child := range kids {

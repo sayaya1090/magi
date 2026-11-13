@@ -125,7 +125,7 @@ func runDaemonMode(p daemonModeParams) int {
 	// is still writing these sessions, and nothing has been published yet, so no request can start
 	// a turn underneath it. Turns a previous process left open are closed in the log — resumable,
 	// or handed to the person when a tool may have run — and nothing is executed again.
-	for _, r := range a.RecoverInterrupted(ctx, wd) {
+	for _, r := range a.RecoverSelected(ctx, wd, sid) {
 		if r.Err != nil {
 			fmt.Fprintf(os.Stderr, "magi: could not close an interrupted turn in %s — left open for the next start: %v\n", r.SessionID, r.Err)
 			continue

@@ -74,6 +74,8 @@ var ErrRecoveryPending = errors.New("recovery of this conversation has not finis
 type recoveryBook struct {
 	mu       sync.Mutex
 	workdir  string
+	lazy     bool
+	checked  map[session.SessionID]bool
 	failed   map[session.SessionID]string
 	unlisted string
 }
@@ -104,16 +106,73 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 	return out
 }
 
+// RecoverSelected enables lazy recovery and checks only the opened conversation.
+// Other sessions are checked when subscribed to or submitted to in this process.
+func (a *App) RecoverSelected(ctx context.Context, workdir string, sid session.SessionID) []RecoveredTurn {
+	a.recovery.mu.Lock()
+	a.recovery.workdir = workdir
+	a.recovery.lazy = true
+	a.recovery.mu.Unlock()
+	return a.ensureSelectedRecovery(ctx, sid, false)
+}
+
+// CheckSessionRecovery is used by session selection before exposing its saved state.
+func (a *App) CheckSessionRecovery(ctx context.Context, sid session.SessionID) {
+	a.ensureSelectedRecovery(ctx, sid, false)
+}
+
+func (a *App) ensureSelectedRecovery(ctx context.Context, sid session.SessionID, force bool) []RecoveredTurn {
+	a.recoverGate.Lock()
+	defer a.recoverGate.Unlock()
+	a.recovery.mu.Lock()
+	wd, enabled, checked := a.recovery.workdir, a.recovery.lazy, a.recovery.checked[sid]
+	a.recovery.mu.Unlock()
+	if !enabled || sid == "" || (checked && !force) || a.runningHere(sid) {
+		return nil
+	}
+	out := a.recoverSelected(ctx, wd, sid)
+	a.recovery.mu.Lock()
+	defer a.recovery.mu.Unlock()
+	if a.recovery.checked == nil {
+		a.recovery.checked = map[session.SessionID]bool{}
+	}
+	if a.recovery.failed == nil {
+		a.recovery.failed = map[session.SessionID]string{}
+	}
+	delete(a.recovery.failed, sid)
+	a.recovery.checked[sid] = true
+	for _, r := range out {
+		target := r.SessionID
+		if target == "" {
+			target = sid
+		}
+		a.recovery.checked[target] = true
+		if r.Err != nil && !r.ChildrenUnchecked {
+			a.recovery.failed[target] = r.Err.Error()
+		} else {
+			delete(a.recovery.failed, target)
+		}
+	}
+	return out
+}
+
 // RetryRecovery runs recovery again over the workspace the last pass covered and returns what it
 // did for sid. Recovery is idempotent, so a session already settled is not touched again.
 func (a *App) RetryRecovery(ctx context.Context, sid session.SessionID) RecoveredTurn {
 	a.recovery.mu.Lock()
 	wd := a.recovery.workdir
+	lazy := a.recovery.lazy
 	a.recovery.mu.Unlock()
 	if wd == "" {
 		return RecoveredTurn{SessionID: sid, Err: errors.New("recovery has not run in this process")}
 	}
-	for _, r := range a.RecoverInterrupted(ctx, wd) {
+	out := []RecoveredTurn(nil)
+	if lazy {
+		out = a.ensureSelectedRecovery(ctx, sid, true)
+	} else {
+		out = a.RecoverInterrupted(ctx, wd)
+	}
+	for _, r := range out {
 		if r.SessionID == "" && r.Err != nil {
 			return RecoveredTurn{SessionID: sid, Err: r.Err}
 		}

@@ -2840,6 +2840,7 @@ func (d daemonEngine) moveTo(ctx context.Context, sid session.SessionID, mustExi
 				return "", fmt.Errorf("%s is not a conversation of this workspace", sid)
 			}
 		}
+		d.App.CheckSessionRecovery(ctx, sid)
 		if d.republish != nil {
 			if rerr := d.republish(sid); rerr != nil {
 				// The record is what every reader believes. Unwritten, the move did not happen as

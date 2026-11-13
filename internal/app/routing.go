@@ -128,7 +128,7 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	// for the read-only paths that never write a log, and SetModel was safe in those before this —
 	// a routing change is not a reason for the process to die.
 	d, _ := json.Marshal(event.ModelChangedData{Model: modelID})
-	if a.store == nil || runtimeProfile {
+	if a.store == nil || runtimeProfile || sid == "" {
 		a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
 		return
 	}

@@ -317,6 +317,7 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 		return err
 	}
 	defer a.endPromptAdmission()
+	a.ensureSelectedRecovery(ctx, c.SessionID, false)
 	a.recoverGate.RLock()
 	defer a.recoverGate.RUnlock()
 	if err := a.refuseUnrecovered(c.SessionID); err != nil {
@@ -366,6 +367,7 @@ func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
 		return err
 	}
 	defer a.endPromptAdmission()
+	a.ensureSelectedRecovery(ctx, c.SessionID, false)
 	a.recoverGate.RLock()
 	defer a.recoverGate.RUnlock()
 	if err := a.refuseUnrecovered(c.SessionID); err != nil {
@@ -1203,6 +1205,7 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 // Subscribe replays persisted events from fromSeq, then streams live events,
 // de-duplicating any fact events that appear in both (F-STORE-READ-REPLAY).
 func (a *App) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error) {
+	a.ensureSelectedRecovery(ctx, sid, false)
 	if a.backgroundAuthority.Load() {
 		a.reconcileBackground(ctx, sid)
 	}
