@@ -133,8 +133,8 @@ func runDaemonMode(p daemonModeParams) int {
 		if r.Resumable {
 			fmt.Fprintf(os.Stderr, "magi: recovered an interrupted turn in %s — resumable, send \"continue\" to pick it up\n", r.SessionID)
 		} else {
-			fmt.Fprintf(os.Stderr, "magi: recovered an interrupted turn in %s — needs you: %d call(s) may have run (%v); nothing was re-run\n",
-				r.SessionID, len(r.Uncertain), r.Uncertain)
+			fmt.Fprintf(os.Stderr, "magi: recovered an interrupted turn in %s — needs you: calls %v and child sessions %v need their effects checked; nothing was re-run\n",
+				r.SessionID, r.Uncertain, r.UncertainChildren)
 		}
 	}
 	if p.clientOwned {

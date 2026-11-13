@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,6 +23,8 @@ type RecoveredTurn struct {
 	// Resumable is true when nothing is uncertain: a follow-up ("continue") picks the turn up
 	// from its last settled point.
 	Resumable bool
+	// UncertainChildren names child sessions whose interrupted work still needs checking.
+	UncertainChildren []session.SessionID
 	// Err is set when the log could not be written. Whatever was written stays; a turn whose end
 	// was not written is still open, and the next start settles it again.
 	Err error
@@ -42,15 +45,28 @@ var recoveryActor = event.Actor{Kind: event.ActorSystem, ID: "recovery"}
 func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []RecoveredTurn {
 	metas, err := a.store.ListSessions(ctx, workdir)
 	if err != nil {
-		return nil
+		return []RecoveredTurn{{Err: fmt.Errorf("list recovery sessions: %w", err)}}
 	}
 	var out []RecoveredTurn
+	metas, children, blocked := a.recoveryTree(ctx, workdir, metas)
 	for _, m := range metas {
 		if a.runningHere(m.ID) {
+			blocked[m.ID] = fmt.Errorf("session %s is still running", m.ID)
+			continue
+		}
+		for _, child := range children[m.ID] {
+			if err := blocked[child.ID]; err != nil {
+				blocked[m.ID] = errors.Join(blocked[m.ID], fmt.Errorf("child %s: %w", child.ID, err))
+			}
+		}
+		if err := blocked[m.ID]; err != nil {
+			out = append(out, RecoveredTurn{SessionID: m.ID, Err: err})
 			continue
 		}
 		evs, err := a.store.Read(ctx, m.ID, 0)
 		if err != nil {
+			blocked[m.ID] = err
+			out = append(out, RecoveredTurn{SessionID: m.ID, Err: err})
 			continue
 		}
 		if msgID, resumable, ok := endlessInterruption(evs); ok {
@@ -58,14 +74,34 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 			// the results are in, only the end is missing, so that is all this writes.
 			r := RecoveredTurn{SessionID: m.ID, MessageID: msgID, Resumable: resumable}
 			r.Err = a.finishRecovered(ctx, m.ID)
+			blocked[m.ID] = r.Err
 			out = append(out, r)
 			continue
 		}
 		open, ok := unfinishedTurn(evs)
+		if !ok && m.Parent != "" {
+			// Children run runLoop directly, without startRun's terminal-error teardown.
+			// A provider error can therefore exist without turn.finished; settle that
+			// child too so readers do not wait forever for its terminal event.
+			withoutErrors := make([]event.Event, 0, len(evs))
+			for _, e := range evs {
+				if e.Type != event.TypeError {
+					withoutErrors = append(withoutErrors, e)
+				}
+			}
+			open, ok = unfinishedTurn(withoutErrors)
+		}
 		if !ok {
 			continue
 		}
 		r := RecoveredTurn{SessionID: m.ID, MessageID: open.MessageID}
+		childNote, uncertainChildren, childErr := a.recoveryChildren(ctx, evs, children[m.ID])
+		if childErr != nil {
+			blocked[m.ID] = childErr
+			out = append(out, RecoveredTurn{SessionID: m.ID, Err: childErr})
+			continue
+		}
+		r.UncertainChildren = uncertainChildren
 		calls, started, answered, mayHaveRun := openCalls(evs, open.MessageID)
 		// A magi older than tool.started leaves none, so there no start says nothing about whether
 		// a call ran — it may have done its work and died before its result was saved.
@@ -96,12 +132,13 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 				uncertain = false
 				text = fmt.Sprintf("interrupted: magi stopped before %s started; it never started and was not run", c.Name)
 			}
-			if r.Err = a.appendRecoveredResult(ctx, m.ID, c.CallID, text, uncertain); r.Err != nil {
+			if r.Err = a.appendRecoveredResult(ctx, m.ID, c.CallID, text+childNote, uncertain); r.Err != nil {
 				break
 			}
 		}
-		r.Resumable = len(r.Uncertain) == 0
+		r.Resumable = len(r.Uncertain) == 0 && len(r.UncertainChildren) == 0
 		if r.Err != nil {
+			blocked[m.ID] = r.Err
 			// A call without its result must not be closed over: the turn stays open and the next
 			// start pairs what is still unpaired.
 			out = append(out, r)
@@ -109,11 +146,15 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 		}
 		msg := "interrupted: the previous magi stopped mid-turn. Nothing after the last saved step was lost or re-run — " +
 			"send a follow-up such as \"continue\" to pick it up"
-		if !r.Resumable {
+		if len(r.Uncertain) > 0 {
 			msg = fmt.Sprintf("interrupted: the previous magi stopped while %d tool call(s) were running (%s); they may have run. "+
 				"Nothing was re-run — check their effect, then say how to continue", len(r.Uncertain), strings.Join(r.Uncertain, ", "))
 		}
-		r.Err = a.closeRecovered(ctx, m.ID, msg, r.Resumable)
+		if len(r.UncertainChildren) > 0 && len(r.Uncertain) == 0 {
+			msg = "interrupted: child work may have run. Check the child results and their effects before continuing; nothing was re-run"
+		}
+		r.Err = a.closeRecovered(ctx, m.ID, msg+childNote, r.Resumable)
+		blocked[m.ID] = r.Err
 		out = append(out, r)
 	}
 	return out
