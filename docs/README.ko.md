@@ -30,6 +30,7 @@
 | [MERMAID](MERMAID.ko.md) | Mermaid 도구, 클라이언트 렌더링, TUI 미리보기와 설계 설명 지침. |
 | [ENGRAM_MEMORY](ENGRAM_MEMORY.ko.md) · [English](ENGRAM_MEMORY.md) | **기억 정리·공유 목표 설계**: 정본 ID, 병합·정정·망각, 데몬 복제·권한, 이행 및 인수 조건. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.ko.md) · [English](CLIENT_LIFECYCLE.md) | **대표 클라이언트 안정화 목표**: 소유권, 상태 전이, 호환성, 담당 범위와 설치 환경 인수 매트릭스. 구현 완료 문서가 아닙니다. |
+| [CONNECTION_RECOVERY](CONNECTION_RECOVERY.ko.md) · [English](CONNECTION_RECOVERY.md) | 연결 단절 자동 복구, 재시도 한도, 종료 시 요청 접수와 장애 주입 검증. |
 | [APPLICATION_CLIENTS_DESIGN](APPLICATION_CLIENTS_DESIGN.ko.md) · [English](APPLICATION_CLIENTS_DESIGN.md) | **앱 클라이언트 계약**: Figma·IMAP/SMTP 메일·Slack·GitHub의 화면, 역할, 세션 귀속, 인증과 인수 기준. |
 | [CODING_WORKTREE_DESIGN](CODING_WORKTREE_DESIGN.ko.md) · [English](CODING_WORKTREE_DESIGN.md) | **코딩 작업 격리·복구**: Git worktree와 비 Git 복사본, CLI 사용 절차·검증, 남은 컴패니언·PR 설계. |
 | [MAIL_CLIENT](MAIL_CLIENT.ko.md) · [English](MAIL_CLIENT.md) | **메일 구현 참조**: IMAP/SMTP 계약, MIME 제한과 계정 인수 절차. |

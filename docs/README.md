@@ -30,6 +30,7 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 | [MERMAID](MERMAID.md) | Mermaid tools, client rendering, TUI previews and visual explanation guidance. |
 | [ENGRAM_MEMORY](ENGRAM_MEMORY.md) · [한국어](ENGRAM_MEMORY.ko.md) | **Memory consolidation and sharing target**: canonical IDs, merging, correction, forgetting, daemon replication, authorization and acceptance. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages, and installed-environment acceptance. Not an as-built specification. |
+| [CONNECTION_RECOVERY](CONNECTION_RECOVERY.md) · [한국어](CONNECTION_RECOVERY.ko.md) | Automatic recovery after connection loss, retry limits, shutdown admission and fault-injection evidence. |
 | [APPLICATION_CLIENTS_DESIGN](APPLICATION_CLIENTS_DESIGN.md) · [한국어](APPLICATION_CLIENTS_DESIGN.ko.md) | **Application client contracts**: Figma, IMAP/SMTP mail, Slack and GitHub surfaces, roles, bindings, authentication and acceptance. |
 | [CODING_WORKTREE_DESIGN](CODING_WORKTREE_DESIGN.md) · [한국어](CODING_WORKTREE_DESIGN.ko.md) | **Coding workspace isolation and recovery**: Git worktrees, independent copies, CLI usage and validation; remaining companion/PR design. |
 | [MAIL_CLIENT](MAIL_CLIENT.md) · [한국어](MAIL_CLIENT.ko.md) | **Mail implementation reference**: IMAP/SMTP contracts, MIME limits and account acceptance. |
