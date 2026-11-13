@@ -79,6 +79,7 @@ func Default() *Registry {
 	r.Register(WebSearch{})
 	r.Register(Remember{})
 	r.Register(Skill{})
+	r.Register(Mermaid{})
 	r.Register(RecallContext{})
 	r.Register(RecallMemory{})
 	r.Register(CodingTask{})
@@ -131,7 +132,7 @@ func RegisterOrchestration(r *Registry, headless bool) {
 func KnownNames() map[string]bool {
 	r := Default()
 	RegisterOrchestration(r, false)
-	out := map[string]bool{}
+	out := map[string]bool{"mermaid_preview": true}
 	for _, t := range r.List() {
 		out[t.Name()] = true
 	}

@@ -319,6 +319,12 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 	// top-level turn begins, rather than guessed at later from the session's contents.
 	a.mu.Lock()
 	a.stateLocked(c.SessionID).unattended = isUnattended(c.Actor)
+	st := a.stateLocked(c.SessionID)
+	terminal := c.Actor.ID == "tui"
+	if st.terminalDiagram != terminal {
+		st.toolsFrozen = nil
+	}
+	st.terminalDiagram = terminal
 	a.mu.Unlock()
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err

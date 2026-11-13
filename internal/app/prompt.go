@@ -49,8 +49,14 @@ func looksOnlyReads(agent AgentSpec, t port.Tool) bool {
 // is advertised to all, which is what this function did before owners existed.
 func (a *App) toolSpecs(sid session.SessionID, agent AgentSpec) []port.ToolSpec {
 	var specs []port.ToolSpec
+	a.mu.Lock()
+	terminal := a.stateLocked(sid).terminalDiagram
+	a.mu.Unlock()
 	for _, t := range a.tools.List() {
 		name := t.Name()
+		if terminal && name == "mermaid" {
+			continue
+		}
 		if !ClientRoleAllows(a.cfg.ClientRole, name) {
 			continue
 		}
@@ -659,7 +665,8 @@ const outputFormatGuide = "\n\n# Output formatting\n" +
 	"table (| col | col | with a |---|---| separator row) — the renderer aligns the columns for you, correctly " +
 	"accounting for wide/CJK characters that take two cells. Do NOT hand-align columns with spaces or draw " +
 	"ASCII/box-drawing tables: space padding counts characters, not display width, so any CJK or other wide " +
-	"content shifts the columns out of alignment."
+	"content shifts the columns out of alignment. " +
+	"For complex architecture, component relationships, request flows and state transitions, prefer a short explanation together with a Mermaid diagram when a Mermaid tool is available. Use real code names and distinguish current behavior from proposals. Load visual-explanation for diagram guidance. Do not add diagrams to simple answers. When only mermaid_preview is available, show its preview link and a short explanation, never the Mermaid source. If neither Mermaid tool is available, explain in text without promising a visual preview."
 
 // langDirective inspects the user's latest message and, when it's written in a
 // non-Latin script, returns a short forceful instruction (placed first in the

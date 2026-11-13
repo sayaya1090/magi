@@ -163,3 +163,11 @@ tasks.withType<Test>().configureEach {
         exclude("**/NativeMarkdownSurfaceTest.class")
     }
 }
+
+// Shared offline Mermaid engine and controls; no runtime CDN or extra IDE plugin.
+tasks.processResources {
+    from(rootProject.file("../../../internal/diagram/web")) {
+        include("mermaid.min.js", "view.js", "MERMAID-LICENSE")
+        into("magi-diagram")
+    }
+}

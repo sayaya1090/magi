@@ -23,10 +23,12 @@ export interface RenderChatHtmlOptions {
    * now src/web/chat_view.ts, type-checked under strict and bundled like the adapter.
    */
   viewUri: string;
+  diagramUri?: string;
 }
 
 export function renderChatHtml(options: RenderChatHtmlOptions): string {
   const { nonce, cspSource, scriptUri, adapterUri, viewUri } = options;
+  const diagramUri = options.diagramUri || 'out/web/diagram.bundle.js';
   const language = !options.language || options.language.toLowerCase().startsWith('ko') ? 'ko' : 'en';
   const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};`;
   return `<!DOCTYPE html><html lang="${language}"><head>
@@ -363,6 +365,7 @@ ${idePaletteCss}
 <div id="hint" role="region" aria-label="단축키 힌트"></div>
 <section id="reply-mode" aria-label="답변 모드" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></section>
 <footer id="bar" aria-label="메시지 작성"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></footer>
+<script nonce="${nonce}" src="${diagramUri}"></script>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 <script nonce="${nonce}" src="${adapterUri}"></script>
 <script nonce="${nonce}" src="${viewUri}"></script></body></html>`;

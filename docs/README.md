@@ -27,6 +27,7 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 
 | Document | Description |
 |---|---|
+| [MERMAID](MERMAID.md) | Mermaid tools, client rendering, TUI previews and visual explanation guidance. |
 | [ENGRAM_MEMORY](ENGRAM_MEMORY.md) · [한국어](ENGRAM_MEMORY.ko.md) | **Memory consolidation and sharing target**: canonical IDs, merging, correction, forgetting, daemon replication, authorization and acceptance. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages, and installed-environment acceptance. Not an as-built specification. |
 | [APPLICATION_CLIENTS_DESIGN](APPLICATION_CLIENTS_DESIGN.md) · [한국어](APPLICATION_CLIENTS_DESIGN.ko.md) | **Application client contracts**: Figma, IMAP/SMTP mail, Slack and GitHub surfaces, roles, bindings, authentication and acceptance. |

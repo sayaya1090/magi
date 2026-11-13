@@ -97,7 +97,7 @@ test('no webview script contains a backtick', () => {
 
 /** And every interpolation in there is one we meant — a stray ${ is a hole, not a value. */
 test('every interpolation in a webview is a named one', () => {
-  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri', 'idePaletteCss', 'uiJson', 'language']);
+  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri', 'viewUri', 'diagramUri', 'idePaletteCss', 'uiJson', 'language']);
   for (const { file, body } of templates()) {
     for (const m of body.matchAll(/\$\{([^}]*)\}/g)) {
       assert.ok(allowed.has(m[1].trim()), `${file}: unexpected interpolation \${${m[1]}}`);

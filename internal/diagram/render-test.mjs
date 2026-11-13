@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+const require=createRequire(new URL('../../clients/web/e2e/package.json',import.meta.url));
+const {chromium}=require('playwright');
+const browser=await chromium.launch({headless:true});
+try {
+ const page=await browser.newPage();
+ const calls=[];page.on('request',r=>calls.push(r.url()));
+ await page.setContent('<html lang="en"><body></body></html>');
+ await page.addScriptTag({content:await readFile(new URL('web/mermaid.min.js',import.meta.url),'utf8')});
+ await page.addScriptTag({content:await readFile(new URL('web/view.js',import.meta.url),'utf8')});
+ const insert=async(source,streaming=false)=>page.evaluate(({source,streaming})=>{
+  const p=document.createElement('pre'),c=document.createElement('code');c.dataset.lang='mermaid';c.dataset.streaming=String(streaming);c.textContent=source;p.append(c);document.body.append(p);
+ },{source,streaming});
+ await insert('flowchart LR\n A[Agent] --> B[Developer]');
+ await page.locator('.magi-diagram svg').waitFor();
+ await page.getByRole('button',{name:'+',exact:true}).click();
+ assert.equal(await page.locator('.magi-diagram svg').evaluate(e=>e.style.width),'125%');
+ await page.getByRole('button',{name:'Fit',exact:true}).click();
+ await page.locator('.node').first().click();
+ assert.equal(await page.getByRole('button',{name:'Copy question'}).isEnabled(),true);
+ assert.match(await page.locator('[role=status]').innerText(),/Selected/);
+ await insert('flowchart LR\n A[Agent] --> B[Developer]');
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg').length===2);
+ const ids=await page.locator('.magi-diagram svg').evaluateAll(es=>es.map(e=>e.id));assert.notEqual(ids[0],ids[1]);
+ await insert('sequenceDiagram\n participant A as Agent\n participant B as Developer\n A->>B: Explain');
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg').length===3);
+ await insert('classDiagram\n class Service\n class Repository\n Service --> Repository');
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg').length===4);
+ await insert('stateDiagram-v2\n [*] --> Running\n Running --> Done');
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg').length===5);
+ await insert('flowchart LR\n A-->');
+ await page.waitForFunction(()=>document.body.innerText.includes('Diagram could not be rendered'));
+ await insert('flowchart LR\n A[<img src=x onerror=alert(1)>]');
+ await page.waitForFunction(()=>document.body.innerText.includes('Use plain labels'));
+ await insert('flowchart LR\n A-->B',true);
+ assert.equal(await page.locator('code[data-streaming=true]').count(),1);
+ assert.equal(calls.length,0,'offline diagram must not request external resources');
+ await page.setViewportSize({width:390,height:800});
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'narrow viewport overflow');
+ console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
+} finally {await browser.close();}

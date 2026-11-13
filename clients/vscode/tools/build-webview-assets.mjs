@@ -290,3 +290,8 @@ fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');
 fs.writeFileSync(viewDst, viewWrapped, 'utf8');
 fs.writeFileSync(markdownRenderDst, markdownRenderBundledCode, 'utf8');
 fs.writeFileSync(protocolDst, protocolBundledCode, 'utf8');
+
+// Offline diagram renderer is shared with the web console, terminal previews and JetBrains.
+const diagramRoot = path.resolve(__dirname, '../../../internal/diagram/web');
+fs.writeFileSync(path.join(outDir, 'diagram.bundle.js'),
+  fs.readFileSync(path.join(diagramRoot, 'mermaid.min.js'), 'utf8') + '\n' + fs.readFileSync(path.join(diagramRoot, 'view.js'), 'utf8'));

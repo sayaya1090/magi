@@ -1,0 +1,2 @@
+# Preserve upstream Mermaid bundle bytes, including whitespace inside template strings.
+internal/diagram/web/mermaid.min.js -whitespace linguist-vendored

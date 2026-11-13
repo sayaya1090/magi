@@ -670,6 +670,13 @@ func runWithContext(runCtx context.Context) int {
 	// Tools: built-ins plus any Lua plugins. The plugin host shares the registry
 	// so hot-reloaded plugins take effect in the running agent.
 	reg := builtin.Default()
+	// Local terminal previews are never offered to remote/headless sessions.
+	if !headless {
+		reg.Unregister("mermaid")
+		if builtin.DiagramBrowserAvailable(runCtx) {
+			reg.Register(builtin.Mermaid{Preview: true})
+		}
+	}
 
 	// Static custom LLM headers from config ([llm].headers), e.g. an in-house
 	// gateway's X-CLIENT-API-KEY. ${ENV_VAR} is expanded so secrets stay out of

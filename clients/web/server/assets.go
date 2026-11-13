@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/diagram"
 	"github.com/sayaya1090/magi/internal/webassets"
 )
 
@@ -28,6 +29,9 @@ var assetFS embed.FS
 func (s *server) asset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/")
 	b, err := assetFS.ReadFile(name)
+	if name == "vendor/magi-diagram.js" {
+		b, err = diagram.Script(), nil
+	}
 	if err != nil {
 		http.NotFound(w, r)
 		return

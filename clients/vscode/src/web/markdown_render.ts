@@ -342,6 +342,10 @@ export function renderMarkdown(
         code.textContent = text;
       }
 
+      if (lang === 'mermaid') {
+        code.setAttribute('data-lang', 'mermaid');
+        code.setAttribute('data-streaming', String(!Boolean((t.meta as any)?.closed)));
+      }
       pre.appendChild(code);
       curParent().appendChild(pre);
     } else if (t.type === 'hr') {

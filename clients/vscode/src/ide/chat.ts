@@ -827,6 +827,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       scriptUri,
       adapterUri,
       viewUri,
+      diagramUri: typeof this !== 'undefined' && this?.extUri && w.asWebviewUri ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'diagram.bundle.js')).toString() : 'out/web/diagram.bundle.js',
     });
   }
 }

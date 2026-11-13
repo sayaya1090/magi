@@ -110,6 +110,8 @@ ${licContent}
   );
 }
 
+sections.push('Mermaid 11.17.2 (bundled offline renderer)\n' + fs.readFileSync(path.resolve(__dirname, '../../../internal/diagram/web/MERMAID-LICENSE'), 'utf8'));
+
 const generatedText = sections.join('\n') + '\n';
 
 // 3. Verify required notices are present (§5.8.5)

@@ -41,6 +41,11 @@ internal class RichAnswer {
      */
     companion object {
         const val KEEP = 4
+        private val diagramScript: String by lazy {
+            listOf("mermaid.min.js", "view.js").joinToString("\n") { name ->
+                RichAnswer::class.java.getResourceAsStream("/magi-diagram/$name")?.bufferedReader()?.use { it.readText() } ?: ""
+            }
+        }
 
         /**
          * 경량 렌더러에서 지원하지 못하는 복합 마크다운 서식(펜스, 인용, 표, 링크, 이미지) 포함 여부를 판별한다.
@@ -253,7 +258,10 @@ internal class RichAnswer {
             })();
         """.trimIndent()
         // 단일 타이머 세트를 재사용하여 스트리밍 갱신 시 타이머 인스턴스 과다 생성(EDT 포화)을 방지한다 (리뷰 F6).
-        val ask = { runCatching { browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0) } }
+        val ask = { runCatching {
+            browser.cefBrowser.executeJavaScript("if (!window.magiMermaid) {\n" + diagramScript + "\n}", browser.cefBrowser.url, 0)
+            browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
+        } }
         val soon = javax.swing.Timer(350) { ask() }.apply { isRepeats = false }
         val later = javax.swing.Timer(1400) { ask() }.apply { isRepeats = false }
         // 2500ms 경과 후에도 무응답일 경우 추정 높이 유지 사실을 감사 로그에 기록한다 (리뷰 F7).
