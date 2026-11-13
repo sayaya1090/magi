@@ -32,6 +32,13 @@ kotlin {
 // 빌드가 릴리스처럼 보이지 않게(Makefile 의 VERSION 이 같은 이유로 --dirty 를 단다).
 version = (findProperty("pluginVersion") as String?) ?: "0.0.0-dev"
 
+// Search indexing requires the IDE's default UI locale. A runIde sandbox may
+// remember another language; JVM user.language does not override that setting.
+// Keep indexing's configuration separate without changing the developer's IDE.
+tasks.named<org.jetbrains.intellij.platform.gradle.tasks.BuildSearchableOptionsTask>("buildSearchableOptions") {
+    sandboxConfigDirectory.set(layout.buildDirectory.dir("searchable-options-config"))
+}
+
 repositories {
     mavenCentral()
     intellijPlatform { defaultRepositories() }
