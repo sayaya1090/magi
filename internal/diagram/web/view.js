@@ -5,37 +5,54 @@
   const say = (en, kr) => ko ? kr : en;
   let seq = 0, queue = Promise.resolve();
   const cache = new Map();
+  // Font Awesome Free 6.7.2 by Fonticons, Inc. (CC BY 4.0 for icons).
+  // https://fontawesome.com — see FONT-AWESOME-LICENSE. Bundled for offline IDE previews.
+  const icons = {"zoomIn":{"viewBox":"0 0 512 512","path":"M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM184 296c0 13.3 10.7 24 24 24s24-10.7 24-24l0-64 64 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-64 0 0-64c0-13.3-10.7-24-24-24s-24 10.7-24 24l0 64-64 0c-13.3 0-24 10.7-24 24s10.7 24 24 24l64 0 0 64z"},"zoomOut":{"viewBox":"0 0 512 512","path":"M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM136 184c-13.3 0-24 10.7-24 24s10.7 24 24 24l144 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-144 0z"},"fit":{"viewBox":"0 0 448 512","path":"M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"},"copy":{"viewBox":"0 0 448 512","path":"M208 0L332.1 0c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1 33.9L448 336c0 26.5-21.5 48-48 48l-192 0c-26.5 0-48-21.5-48-48l0-288c0-26.5 21.5-48 48-48zM48 128l80 0 0 64-64 0 0 256 192 0 0-32 64 0 0 48c0 26.5-21.5 48-48 48L48 512c-26.5 0-48-21.5-48-48L0 176c0-26.5 21.5-48 48-48z"},"question":{"viewBox":"0 0 512 512","path":"M512 240c0 114.9-114.6 208-256 208c-37.1 0-72.3-6.4-104.1-17.9c-11.9 8.7-31.3 20.6-54.3 30.6C73.6 471.1 44.7 480 16 480c-6.5 0-12.3-3.9-14.8-9.9c-2.5-6-1.1-12.8 3.4-17.4c0 0 0 0 0 0s0 0 0 0s0 0 0 0c0 0 0 0 0 0l.3-.3c.3-.3 .7-.7 1.3-1.4c1.1-1.2 2.8-3.1 4.9-5.7c4.1-5 9.6-12.4 15.2-21.6c10-16.6 19.5-38.4 21.4-62.9C17.7 326.8 0 285.1 0 240C0 125.1 114.6 32 256 32s256 93.1 256 208z"}};
+  const style = document.createElement('style');
+  style.textContent = `
+    .magi-diagram { --magi-outline:var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 20%,transparent)); }
+    .magi-diagram .magi-diagram-action { font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:8px;cursor:pointer; }
+    .magi-diagram .magi-diagram-action:hover:not(:disabled) { background:color-mix(in srgb,currentColor 8%,transparent); }
+    .magi-diagram .magi-diagram-action:focus-visible { outline:2px solid var(--md-sys-color-primary,Highlight);outline-offset:2px; }
+    .magi-diagram .magi-diagram-action:disabled { opacity:.38;cursor:default; }
+    .magi-diagram .magi-diagram-action svg { width:18px;height:18px;fill:currentColor;flex:none; }
+    @media (pointer:coarse) { .magi-diagram .magi-diagram-action { min-width:48px;min-height:48px; } }
+  `;
+  document.head.append(style);
   function allowed(source) {
     if (source.length > 24000) throw Error(say('Diagram exceeds 24,000 characters.', '다이어그램은 24,000자를 넘을 수 없습니다.'));
     if (/%%\s*\{|^\s*---|^\s*click\s|<\s*\/?\s*[a-z]|https?:\/\//im.test(source))
       throw Error(say('Use plain labels without HTML, links, click directives or configuration.', 'HTML, 링크, click 지시문, 설정 없이 일반 라벨을 사용해 주세요.'));
   }
   function mount(pre, source) {
-    if (pre.dataset.magiDiagram === source) return;
+    if (pre.querySelector('svg, img, iframe, object') || pre.dataset.magiDiagram === source) return;
     pre.dataset.magiDiagram = source;
     const box = document.createElement('figure');
     box.className = 'magi-diagram';
-    box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid currentColor;border-radius:8px;max-width:100%;overflow:hidden;color:inherit';
+    box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--magi-outline);border-radius:8px;max-width:100%;overflow:hidden;color:inherit';
     const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
     const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;max-height:65vh;min-height:48px';
     const note = document.createElement('div'); note.setAttribute('role','status'); note.style.cssText = 'white-space:pre-wrap;font:inherit';
     const sourceBox = document.createElement('details'), summary = document.createElement('summary'), code = document.createElement('pre');
     summary.textContent = say('Source', '원본'); code.textContent = source; sourceBox.append(summary, code);
     let zoom = 1, svg;
-    function button(en, kr, action) {
-      const b = document.createElement('button'); b.type='button'; b.textContent=say(en,kr);
-      b.style.cssText='font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:6px;padding:6px 10px;min-height:32px;cursor:pointer';
+    function button(icon, en, kr, action) {
+      const b = document.createElement('button'); b.type='button'; b.className='magi-diagram-action';
+      b.title=say(en,kr); b.setAttribute('aria-label',b.title);
+      const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('viewBox',icons[icon].viewBox); svg.setAttribute('aria-hidden','true');
+      const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',icons[icon].path);svg.append(path);b.append(svg);
       b.onclick=action; bar.append(b); return b;
     }
     function scale(n) { zoom=Math.max(.25,Math.min(4,n)); if(svg) { svg.style.width=(zoom*100)+'%'; svg.style.maxWidth='none'; } }
-    button('+','+',()=>scale(zoom*1.25)); button('−','−',()=>scale(zoom/1.25)); button('Fit','맞춤',()=>scale(1));
+    button('zoomIn','Zoom in','확대',()=>scale(zoom*1.25)); button('zoomOut','Zoom out','축소',()=>scale(zoom/1.25)); button('fit','Fit','맞춤',()=>scale(1));
     async function copy(text) {
       try { await navigator.clipboard.writeText(text); note.textContent=say('Copied.','복사했습니다.'); }
       catch { sourceBox.open=true; note.textContent=say('Clipboard unavailable. Select and copy the source below.','클립보드를 사용할 수 없습니다. 아래 원본을 선택해 복사해 주세요.'); }
     }
-    button('Copy source','원본 복사',()=>copy(source));
+    button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='';
-    const ask=button('Copy question','질문 복사',()=>copy(say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+selected+'\n\n```mermaid\n'+source+'\n```')); ask.disabled=true;
+    const ask=button('question','Copy question','질문 복사',()=>copy(say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+selected+'\n\n```mermaid\n'+source+'\n```')); ask.disabled=true;
     box.append(bar,canvas,note,sourceBox); pre.replaceWith(box);
     note.textContent=say('Rendering diagram…','다이어그램을 그리는 중…');
     queue=queue.catch(()=>{}).then(async()=>{
@@ -70,6 +87,8 @@
   }
   function scan() {
     document.querySelectorAll('pre > code').forEach(code=>{
+      // IDE-native Mermaid has already consumed the source. textContent now includes SVG CSS.
+      if (code.querySelector('svg, img, iframe, object') || code.dataset.processed === 'true') return;
       const lang=code.getAttribute('data-lang')||code.getAttribute('data-language')||(code.className||'').replace(/^language-/,'');
       if(lang.trim().toLowerCase()==='mermaid' && code.getAttribute('data-streaming')!=='true') mount(code.parentElement,code.textContent||'');
     });

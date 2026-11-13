@@ -167,7 +167,7 @@ tasks.withType<Test>().configureEach {
 // Shared offline Mermaid engine and controls; no runtime CDN or extra IDE plugin.
 tasks.processResources {
     from(rootProject.file("../../../internal/diagram/web")) {
-        include("mermaid.min.js", "view.js", "MERMAID-LICENSE")
+        include("mermaid.min.js", "view.js", "MERMAID-LICENSE", "FONT-AWESOME-LICENSE")
         into("magi-diagram")
     }
 }

@@ -111,6 +111,7 @@ ${licContent}
 }
 
 sections.push('Mermaid 11.17.2 (bundled offline renderer)\n' + fs.readFileSync(path.resolve(__dirname, '../../../internal/diagram/web/MERMAID-LICENSE'), 'utf8'));
+sections.push('Font Awesome Free 6.7.2 (diagram toolbar icons)\n' + fs.readFileSync(path.resolve(__dirname, '../../../internal/diagram/web/FONT-AWESOME-LICENSE'), 'utf8'));
 
 const generatedText = sections.join('\n') + '\n';
 
