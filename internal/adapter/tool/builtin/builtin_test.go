@@ -282,6 +282,7 @@ func TestDefaultRegistry(t *testing.T) {
 		"todowrite", "label", "webfetch", "websearch", "remember", "skill",
 		"recall_context", "recall_memory", "search_sessions", "schedule", "council",
 		"coding_task", // prepares isolated workspaces without promoting source changes
+		"mermaid", // prepares diagrams for graphical clients; local TUI replaces it after capability probing
 	}
 	if portOwnerSupported {
 		want = append(want, "port_owner")

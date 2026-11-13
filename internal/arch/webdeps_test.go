@@ -44,6 +44,10 @@ var consoleSurface = map[string]bool{
 	// 빠졌다: 이제 답하는 것이 Go 문자열이 아니라 콘솔과 같이 컴파일되는 모듈(clients/web/ui/demo-ui)
 	// 이고, 그러니 코어가 실어 나를 것이 아니다.
 	"internal/webassets": true,
+	// The console serves the same embedded offline Mermaid renderer as local
+	// previews. This leaf owns static assets and HTML escaping, not agent policy
+	// or browser launching; sharing it keeps rendering and safety rules aligned.
+	"internal/diagram": true,
 	// Windows 에서 콘솔 없는 데몬이 검은 창을 남기지 않게 하는 조각. platform·tool/builtin·app 이
 	// 이미 실어 나르므로 콘솔이 데몬을 다시 띄우는 길에 같이 간다(2026-09-06, daemon(Windows) 커밋).
 	"internal/quietconsole": true,

@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -77,8 +78,11 @@ func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	_, writeErr := f.WriteString(diagram.HTML(args.Title, args.Source))
 	closeErr := f.Close()
 	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(path)
-		return errResult("", "Could not save preview"), nil
+		failure := errors.Join(writeErr, closeErr)
+		if removeErr := os.Remove(path); removeErr != nil {
+			failure = errors.Join(failure, fmt.Errorf("remove incomplete preview %s: %w", path, removeErr))
+		}
+		return errResult("", "Could not save preview: "+failure.Error()), nil
 	}
 	link := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
 	return okText("", fmt.Sprintf("[%s](%s)\nLocal HTML preview saved; it has not been opened. Show this link and a short explanation only. Source copying is available inside the preview.", args.Title, link)), nil
