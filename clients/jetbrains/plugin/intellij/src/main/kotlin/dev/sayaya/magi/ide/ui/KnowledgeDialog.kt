@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.model.KnowledgeItem
 import java.awt.BorderLayout
@@ -22,7 +24,13 @@ import javax.swing.JComponent
 import javax.swing.ListSelectionModel
 
 /** Native project-only controls. Requests use the displayed revision and reload on conflict. */
-internal class KnowledgeDialog(project: Project, private val workspace: Workspace) : DialogWrapper(project) {
+internal class KnowledgeDialog(
+    project: Project,
+    workspace: Workspace,
+    private val fetch: suspend (KnowledgeItem?, String, String, String) -> dev.sayaya.magi.ide.model.Response =
+        { item, action, plugin, slot -> workspace.askWithoutChat { it.knowledge(item, action, plugin, slot) } },
+    observe: (() -> Unit) -> java.io.Closeable? = workspace::slotWatch,
+) : DialogWrapper(project) {
     private val entries = DefaultListModel<String>()
     private val list = JBList(entries).apply { selectionMode = ListSelectionModel.SINGLE_SELECTION }
     private val details = JBLabel(" ")
@@ -34,8 +42,10 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
     private val reload = JButton(MagiBundle.msg("knowledge.reload"))
     private val slotButtons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT))
     private var items = emptyList<KnowledgeItem>()
-    private var busy = false
-    private var alive = true
+    @Volatile private var busy = false
+    private var fresh = false
+    private var reloadPending = false
+    @Volatile private var alive = true
     private var watch: java.io.Closeable? = null
     private val requests = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -48,48 +58,36 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
             val item = selected() ?: return@addActionListener
             if (!item.archived && Messages.showYesNoDialog(contentPanel,
                     MagiBundle.msg("knowledge.archive.confirm"), title, Messages.getQuestionIcon()) != Messages.YES) return@addActionListener
-            change(if (item.archived) "restore" else "archive")
+            request(item, if (item.archived) "restore" else "archive")
         }
         register.addActionListener {
-            if (Messages.showYesNoDialog(contentPanel, MagiBundle.msg("knowledge.import.confirm"), title, Messages.getQuestionIcon()) == Messages.YES) change("import")
+            val item = selected() ?: return@addActionListener
+            if (Messages.showYesNoDialog(contentPanel, MagiBundle.msg("knowledge.import.confirm"), title, Messages.getQuestionIcon()) == Messages.YES) request(item, "import")
         }
         reload.addActionListener { request() }
         request()
-        // 다이얼로그가 열린 동안 슬롯 변경 알림이 오면 슬롯 요약을 다시 읽는다.
-        watch = workspace.slotWatch {
-            requests.launch {
-                if (!busy && alive) {
-                    val res = runCatching { workspace.askWithoutChat { it.knowledge() } }.getOrNull()
-                    if (res?.ok == true && alive) {
-                        managementUiLater {
-                            if (!alive || busy) return@managementUiLater
-                            val slots = res.slots.orEmpty()
-                            if (slots.isNotEmpty()) {
-                                val statusSummaries = slots.mapNotNull { s ->
-                                    val itemsText = s.items?.joinToString(" · ") { "${it.label}: ${it.value}" } ?: ""
-                                    val badgeText = s.status?.let { " [${it.label}${if (it.badge > 0) " (${it.badge})" else ""}]" } ?: ""
-                                    "${s.title}: $itemsText$badgeText"
-                                }
-                                slotStatus.text = statusSummaries.joinToString("  |  ")
-                            } else {
-                                slotStatus.text = " "
-                            }
-                        }
-                    }
+        watch = observe {
+            managementUiLater {
+                if (alive) {
+                    if (busy) reloadPending = true else request()
                 }
             }
         }
     }
+    private fun drainReload() {
+        if (reloadPending && alive) { reloadPending = false; request() }
+    }
+
     private fun selected(): KnowledgeItem? = items.getOrNull(list.selectedIndex)
     private fun updateSelection() {
         val item = selected()
         pin.text = MagiBundle.msg(if (item?.pinned == true) "knowledge.unpin" else "knowledge.pin")
         archive.text = MagiBundle.msg(if (item?.archived == true) "knowledge.restore" else "knowledge.archive")
-        pin.isEnabled = !busy && item?.managed == true
-        archive.isEnabled = !busy && item?.managed == true
-        register.isEnabled = !busy && item?.importable == true
+        pin.isEnabled = !busy && fresh && item?.managed == true
+        archive.isEnabled = !busy && fresh && item?.managed == true
+        register.isEnabled = !busy && fresh && item?.importable == true
         reload.isEnabled = !busy
-        slotButtons.components.forEach { it.isEnabled = !busy }
+        slotButtons.components.forEach { it.isEnabled = !busy && fresh }
         details.text = when {
             item == null -> " "
             !item.managed -> MagiBundle.msg("knowledge.legacy")
@@ -100,14 +98,15 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
     }
     private fun change(action: String) { selected()?.let { request(it, action) } }
     private fun request(item: KnowledgeItem? = null, action: String = "", plugin: String = "", slot: String = "") {
-        if (busy || !alive) return
+        if (busy || !alive || (action.isNotBlank() && !fresh)) return
         busy = true
         notice.text = MagiBundle.msg("knowledge.loading")
         updateSelection()
         requests.launch {
-            val result = runCatching { workspace.askWithoutChat { it.knowledge(item, action, plugin, slot) } }
+            val result = runCatching { fetch(item, action, plugin, slot) }
+            currentCoroutineContext().ensureActive()
             // Always reload after mutation, including stale revision or lost acknowledgement.
-            val inventory = if (item != null) runCatching { workspace.askWithoutChat { it.knowledge() } } else result
+            val inventory = if (action.isNotBlank()) runCatching { fetch(null, "", "", "") } else result
             managementUiLater {
                 if (!alive) return@managementUiLater
                 busy = false
@@ -118,6 +117,13 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
                     response?.ok != true -> response?.error ?: MagiBundle.msg("knowledge.failed")
                     response.knowledge.isNullOrEmpty() -> MagiBundle.msg("knowledge.empty")
                     else -> " "
+                }
+                fresh = response?.ok == true
+                if (!fresh) {
+                    // Keep the last readable inventory, but do not mutate stale revisions.
+                    updateSelection()
+                    drainReload()
+                    return@managementUiLater
                 }
                 val selectedName = item?.name ?: selected()?.name
                 val slots = response?.slots.orEmpty()
@@ -138,7 +144,7 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
                     slot.actions?.forEach { act ->
                         val btn = JButton(act.label).apply {
                             toolTipText = act.description
-                            isEnabled = !busy
+                            isEnabled = !busy && fresh
                             addActionListener { request(action = act.id, plugin = slot.plugin, slot = slot.id) }
                         }
                         slotButtons.add(btn)
@@ -159,6 +165,7 @@ internal class KnowledgeDialog(project: Project, private val workspace: Workspac
                 }
                 list.selectedIndex = items.indexOfFirst { it.name == selectedName }.takeIf { it >= 0 } ?: if (items.isEmpty()) -1 else 0
                 updateSelection()
+                drainReload()
             }
         }
     }

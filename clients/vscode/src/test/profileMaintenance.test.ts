@@ -45,3 +45,13 @@ test('maintenance shows durable queued source and watermark without requesting r
   } });
   assert.equal(calls.length, 1); assert.equal(calls[0].extra, undefined);
 });
+
+for (const payload of ['null', '[]', '{', '{"history":{}}', '{"history":[null]}',
+  '{"last_attempt":42}', '{"pending_sources":[]}', '{"history":[{"added":"wrong"}]}']) {
+  test('malformed maintenance payload is reported without opening a picker: ' + payload, async () => {
+    const view = ui(() => { assert.fail('invalid status reached the picker'); });
+    await view.run({ caps: async () => new Set(['profile-maintenance']),
+      ask: async () => ({ ok: true, out: payload }) });
+    assert.deepEqual(view.notices, ['Could not read maintenance status.']);
+  });
+}

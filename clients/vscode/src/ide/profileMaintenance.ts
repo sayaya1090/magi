@@ -9,7 +9,19 @@ export async function profileMaintenance(companion: Companion, session?: string)
     const response = await companion.ask('profile-maintenance');
     if (!response?.ok || !response.out) { await vscode.window.showWarningMessage(response?.error || t('Could not read maintenance status.')); return; }
     let state: { id: string; running: boolean; enabled: boolean; pending: boolean; last_attempt: string; last_success: string; last_error?: string; pending_sources?: Record<string, number>; history?: { at: string; status: string; added?: string[]; updated?: string[]; error?: string }[] };
-    try { state = JSON.parse(response.out); } catch { await vscode.window.showWarningMessage(t('Could not read maintenance status.')); return; }
+    try {
+      state = JSON.parse(response.out);
+      if (!state || typeof state !== 'object' || Array.isArray(state) ||
+          ['enabled', 'running', 'pending'].some(key => (state as any)[key] !== undefined && typeof (state as any)[key] !== 'boolean') ||
+          ['id', 'last_attempt', 'last_success', 'last_error'].some(key => (state as any)[key] !== undefined && typeof (state as any)[key] !== 'string') ||
+          (state.pending_sources !== undefined && (!state.pending_sources || typeof state.pending_sources !== 'object' ||
+            Array.isArray(state.pending_sources) || Object.values(state.pending_sources).some(n => typeof n !== 'number'))) ||
+          (state.history !== undefined && (!Array.isArray(state.history) || state.history.some(e => !e || typeof e !== 'object' ||
+            ['at', 'status', 'error'].some(key => (e as any)[key] !== undefined && typeof (e as any)[key] !== 'string') ||
+            [e.added, e.updated].some(list => list !== undefined && (!Array.isArray(list) || list.some(s => typeof s !== 'string'))))))) {
+        throw new Error('Invalid maintenance status');
+      }
+    } catch { await vscode.window.showWarningMessage(t('Could not read maintenance status.')); return; }
     const date = (s: string) => !s || s.startsWith('0001-') ? t('Never') : s;
     const rows = [
       { label: t('Request description refresh'), description: t('Uses new project-read evidence; waits for idle and respects the cooldown.'), refresh: true },

@@ -12,7 +12,7 @@
 | 모델·프로필·권한·카운슬 | `Companion`, 정보 팝업, `CouncilControl` / `CompanionTest`, `CouncilControlTest` | `ide/choose.ts`, `plan.ts` / `chat_host`, `plan_host`, `setup` | JetBrains 카운슬 전환 추가; 저장 프로필을 `use-profile`로 선택하도록 수정 |
 | 계획·컨텍스트·카운슬 결과 | `PlanToolWindow`, `Rows` / `PlanStripViewTest`, `ContextGaugeTest`, `RowsTest` | `ide/plan.ts`, `core/transcript.ts` / `plan_host`, `planstrip`, `stream` | 양쪽 제공 |
 | 자식 작업·종료·스케줄·위임 승인 | `PlanToolWindow`, `ScheduleActions` / `SchedulesTest`, `CompanionTest`, `PlanPanelLayoutTest` | `ide/doors.ts`, `handoff.ts` / `background`, `handoff`, `approvals` | 양쪽 제공 |
-| 지식·프로필 관리 | `KnowledgeDialog`, `ProfileMaintenanceDialog`, `CompanionProfileEditor` / `CompanionProfileEditorTest` | `ide/knowledge.ts`, `profileMaintenance.ts`, `companionProfile.ts` / 동명 테스트 | 양쪽 제공; JetBrains 관리 대화상자 전체의 실행 테스트는 부족 |
+| 지식·프로필 관리 | `KnowledgeDialog`, `ProfileMaintenanceDialog`, `CompanionProfileEditor` / `CompanionProfileEditorTest`, `KnowledgeDialogTest`, `ProfileMaintenancePanelTest` | `ide/knowledge.ts`, `profileMaintenance.ts`, `companionProfile.ts` / 동명 테스트 | 양쪽 제공; JetBrains 목록 재조회·충돌·연결 실패·닫기 및 프로필 새로고침 실행 테스트 추가 |
 | 코드 검토·자동완성·작성자·커밋 메시지 | `Assist`, `Authorship`, IDE 액션 / `AssistTest`, `AuthorshipTest`, `LookNotesTest` | `ide/look.ts`, `complete.ts`, `edits.ts`, `doors.ts` / `look`, `touched`, `hand` | 양쪽 제공; IDE 고유 편집기 기능은 같은 테스트로 대체할 수 없음 |
 | 편집기 MCP·소유권·출력 문서 | `IdeHand`, `OutputEditor` / `HandRegistrationTest`, `HandEdtCallTest`, `OutputEditorTest` | `ide/hand.ts`, `output.ts` / `hand_lifecycle`, `hand_provider`, `output_provider` | 양쪽 제공 |
 | 스트리밍·생각 접기·Markdown·Mermaid | `MagiToolWindow`, `NativeMarkdownSurface` / `TailScrollTest`, `StreamingHeightTest`, `NativeMarkdownSurfaceTest` | `web/chat_view.ts`, 공유 diagram 번들 / 브라우저 layout·markdown·virtualization | 생각은 양쪽 기본 접힘. VS Code에 Mermaid 렌더링·확대·복사·후속 스트림 보존 검증 추가 |
@@ -32,3 +32,9 @@ VS Code Node 테스트는 660개 중 653개 통과, 플랫폼 조건으로 7개 
 JetBrains 전체 core 실행은 458개 중 451개 통과, 5개 제외, 아래 기존 파일로 인한 2개 실패입니다. IntelliJ 225개 테스트는 모두 통과했습니다. 작업 트리에 있던 미추적 `ZzReplayProbeTest.kt`는 다른 작업이므로 수정하지 않았습니다. 이 파일 때문에 전체 core 검증의 소스 추적·문서 목록 검사와 기본 테스트 컴파일은 별도 제약을 받습니다. 변경 관련 core 테스트는 별도로 통과했고, 플러그인 빌드도 검증합니다.
 
 테스트 개수가 같다는 뜻은 아닙니다. VS Code에는 속성 기반 초안 복구와 브라우저 접근성 검증이 있고, JetBrains에는 실제 Swing·JCEF 컴포넌트 검증이 있습니다. 소스 문자열 검사만 있는 경로도 남아 있습니다. 이번 작업에서 모든 관리 대화상자나 Windows·Linux의 설치된 IDE를 실제 조작한 것은 아닙니다. VS Code `test:live`도 확장 활성화·명령 등록 검증이며 실제 장애 복구 시험과는 범위가 다릅니다.
+
+## 관리 화면 후속 보완
+
+JetBrains 지식 관리의 플러그인 액션은 성공 응답에 목록이 없어도 기존 항목을 지우지 않도록 액션 뒤에 전체 목록을 다시 읽습니다. 연결 실패 시 마지막 목록을 유지하며, 최신 목록을 받기 전까지 변경 버튼을 비활성화합니다. 조회 중 도착한 슬롯 알림은 한 번의 후속 조회로 합칩니다. 수정 충돌 뒤에는 새 리비전을 사용하고, 창을 닫으면 대기 중 요청을 취소합니다.
+
+`KnowledgeDialogTest`와 `ProfileMaintenancePanelTest`는 실제 Swing 컴포넌트에서 버튼을 눌러 응답·실패·재시도·닫기를 검증합니다. 전송 응답은 주입하므로 실제 서버와 연결된 종단 간 시험은 아닙니다. 프로필 상태 본문 누락은 JetBrains에서 오류로 안내하며, VS Code는 잘못된 JSON 구조도 오류로 처리합니다. VS Code 후속 실행은 668개 중 661개 통과, 7개 제외입니다. JetBrains IntelliJ 후속 실행은 231개 모두 통과했습니다.

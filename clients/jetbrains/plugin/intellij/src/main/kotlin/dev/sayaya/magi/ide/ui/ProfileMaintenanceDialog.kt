@@ -26,11 +26,16 @@ internal class ProfileMaintenanceDialog(project: Project, workspace: Workspace) 
 }
 
 /** Inline status with bounded scrolling; opening a dialog is optional. */
-internal class ProfileMaintenancePanel(private val workspace: Workspace) : JBPanel<ProfileMaintenancePanel>(BorderLayout()), com.intellij.openapi.Disposable {
+internal class ProfileMaintenancePanel(
+    workspace: Workspace,
+    private val fetch: suspend (Boolean) -> dev.sayaya.magi.ide.model.Response =
+        { refresh -> workspace.askWithoutChat { it.profileMaintenance(refresh) } },
+) : JBPanel<ProfileMaintenancePanel>(BorderLayout()), com.intellij.openapi.Disposable {
     private val text = JTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true; border = JBUI.Borders.empty(8) }
     private val refresh = JButton(MagiBundle.msg("maintenance.refresh")).apply { toolTipText = MagiBundle.msg("maintenance.refresh.hint") }
     private val reload = JButton(MagiBundle.msg("knowledge.reload"))
     private var alive = true
+    private var busy = false
     private val requests = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val timer = javax.swing.Timer(5000) { if (isShowing && reload.isEnabled) load() }
     init {
@@ -56,18 +61,21 @@ internal class ProfileMaintenancePanel(private val workspace: Workspace) : JBPan
         timer.start()
     }
     private fun load(request: Boolean = false) {
+        if (!alive || busy) return
+        busy = true
         refresh.isEnabled = false; reload.isEnabled = false
         requests.launch {
-            val result = runCatching { workspace.askWithoutChat { it.profileMaintenance(request) } }
+            val result = runCatching { fetch(request) }
             managementUiLater {
                 if (!alive) return@managementUiLater
+                busy = false
                 refresh.isEnabled = true; reload.isEnabled = true
                 val response = result.getOrNull()
                 if (response?.ok != true) {
                     text.text = response?.error ?: result.exceptionOrNull()?.message ?: MagiBundle.msg("knowledge.failed")
                 } else {
                     val content = runCatching {
-                        val state = Json.parseToJsonElement(response.out ?: "{}").jsonObject
+                        val state = Json.parseToJsonElement(requireNotNull(response.out)).jsonObject
                         fun value(key: String) = (state[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
                         fun date(key: String) = value(key).takeUnless { it.isEmpty() || it.startsWith("0001-") } ?: MagiBundle.msg("knowledge.never")
                         buildString {
