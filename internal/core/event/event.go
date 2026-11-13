@@ -98,6 +98,9 @@ const (
 	// TypeToolStarted records, durably and before it runs, that a tool call began executing. A call
 	// with this fact and no result may have changed the world; one without it never ran.
 	TypeToolStarted Type = "tool.started"
+	// TypeToolResolved records the person's verdict on a call recovery left uncertain (it may have
+	// run): ran, not_ran, rerun_ok or deferred. Only a person writes it.
+	TypeToolResolved Type = "tool.resolved"
 )
 
 // Transient events — bus only, not persisted.

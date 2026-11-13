@@ -22,6 +22,12 @@ public interface RosterSource {
         void turn(boolean open, double forSec);
 
         /**
+         * 조준된 세션을 지난 멈춤이 어떻게 남겼나(recovery 프레임) — 이어갈 수 있음·확인할 호출·복구
+         * 실패. 바뀔 때만 온다. 기본은 버린다: 이 사실을 그리는 것은 대화 화면이다.
+         */
+        default void recovery(Object stateOrNull) {}
+
+        /**
          * 조준된 회의에서 참가자 하나가 방금 한 일(`{who, rows}`) — 변한 것만 온다.
          *
          * 명단·전사와 달리 null을 안 흘린다: 이 프레임의 부재는 "못 읽었다"가 아니라

@@ -901,3 +901,43 @@ test('closing the view cancels a scheduled retry before it reaches the daemon', 
     assert.equal((h.chat as any).cancelRetry, null);
   } finally { h.close(); }
 });
+
+test('the restart strip asks only a daemon that offers it, and a verdict goes to resolve-call and comes back redrawn', async () => {
+  const companion: any = createMockCompanion();
+  let offers = new Set(['recovery']);
+  companion.caps = async () => offers;
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'recovery-state') return { ok: true, recovery: { kind: 'needs_check', uncertain: [{ callId: 'c_w', tool: 'write', target: 'notes.md' }] } };
+    if (door === 'resolve-call') return { ok: true, recovery: { kind: 'resumable' } };
+    if (door === 'recovery-retry') return { ok: true, recovery: { kind: 'none' } };
+    return { ok: true };
+  };
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const posted: any[] = [];
+  (chat as any).post = (m: any) => posted.push(m);
+  (chat as any).draw = () => {};
+  (chat as any).sid = 's1';
+  const restarts = () => posted.filter((m) => m.kind === 'restart');
+
+  await (chat as any).askRestart();
+  assert.deepEqual(companion.calls.map((c: any) => c.door), ['recovery-state']);
+  assert.equal(companion.calls[0].payload?.session, 's1');
+  assert.equal(restarts().at(-1)?.state?.kind, 'needs_check');
+  assert.equal(restarts().at(-1)?.state?.uncertain?.[0]?.callId, 'c_w');
+
+  await chat.fromView({ kind: 'settle', callId: 'c_w', verdict: 'not_ran' });
+  const resolve = companion.calls.find((c: any) => c.door === 'resolve-call');
+  assert.deepEqual(resolve?.payload, { session: 's1', callId: 'c_w', name: 'not_ran' });
+  assert.equal(restarts().at(-1)?.state?.kind, 'resumable', 'the strip is redrawn from what the daemon re-read');
+
+  await chat.fromView({ kind: 'settle', retry: true });
+  assert.deepEqual(companion.calls.find((c: any) => c.door === 'recovery-retry')?.payload, { session: 's1' });
+  assert.equal(restarts().at(-1)?.state?.kind, 'none');
+
+  offers = new Set();
+  companion.calls.length = 0;
+  await (chat as any).askRestart();
+  assert.equal(companion.calls.length, 0, 'a daemon that does not offer the door is not asked');
+  assert.equal(restarts().at(-1)?.state, null);
+});

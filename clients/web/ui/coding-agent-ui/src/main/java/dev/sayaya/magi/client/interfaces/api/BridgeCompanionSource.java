@@ -31,6 +31,7 @@ public class BridgeCompanionSource implements CompanionSource {
         CompanionSharing.subscribe(l::context);
         TranscriptSharing.subscribe(l::transcript);
         TranscriptSharing.subscribeTurn(l::turn);
+        TranscriptSharing.subscribeRecovery(l::recovery);
     }
 
     @Override
@@ -87,6 +88,36 @@ public class BridgeCompanionSource implements CompanionSource {
         // 사유를 <b>일부러</b> 버린다 — 컴포저가 멈춘 것을 보고 부르는 도움이라, 사람은
         // 아무것도 청한 적이 없다. 거절도 침묵으로 지나간다.
         Console.post("/suggest", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
+    }
+
+    @Override
+    public void recoveryState(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/recovery" + q(ctx), cb::accept);
+    }
+
+    @Override
+    public void resolveCall(CompanionContext ctx, String call, String verdict, String note,
+                            java.util.function.BiConsumer<Object, String> done) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("call", call);
+        body.set("verdict", verdict);
+        if (note != null && !note.isEmpty()) body.set("note", note);
+        Console.post("/recovery", body, ctx.socket, ctx.peer, (ok, said) -> settled(ok, said, done));
+    }
+
+    @Override
+    public void retryRecovery(CompanionContext ctx, java.util.function.BiConsumer<Object, String> done) {
+        URLSearchParams body = new URLSearchParams();
+        body.set("retry", "1");
+        Console.post("/recovery", body, ctx.socket, ctx.peer, (ok, said) -> settled(ok, said, done));
+    }
+
+    /** 받아들여진 답의 본문은 데몬이 다시 읽은 상태다 — 화면은 보낸 것이 아니라 그것을 그린다. */
+    private static void settled(boolean ok, String said, java.util.function.BiConsumer<Object, String> done) {
+        if (!ok) { done.accept(null, Console.why(false, said)); return; }
+        Object st;
+        try { st = Global.JSON.parse(said); } catch (Exception e) { st = null; }
+        done.accept(st, "");
     }
 
     private static String q(CompanionContext ctx) {

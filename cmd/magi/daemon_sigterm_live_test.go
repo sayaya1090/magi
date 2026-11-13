@@ -262,6 +262,43 @@ func TestADaemonStoppedBySigtermHandsTheCutCallToThePersonAndRestartsClean(t *te
 		t.Fatalf("before anyone said continue the command ran %d times, want 1", strings.Count(string(b), "ran"))
 	}
 
+	// The restarted daemon says what the stop left: a call that may have run, for the person.
+	// Until the person settles it, a repeat of the same command is asked about even in allow
+	// mode, so the person looks first and says it may run again.
+	recovery := func() *daemon.Client {
+		c, err := daemon.Dial(sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	rc := recovery()
+	st, err := rc.RecoveryState(sid)
+	rc.Close()
+	if err != nil {
+		t.Fatalf("recovery-state: %v", err)
+	}
+	listed := false
+	for _, u := range st.Uncertain {
+		listed = listed || u.CallID == "c_bash1"
+	}
+	if st.Kind != "needs_check" || !listed {
+		t.Fatalf("after the restart the daemon should ask the person about c_bash1; got %+v", st)
+	}
+	rc = recovery()
+	st, err = rc.ResolveCall(sid, "c_bash1", "rerun_ok", "looked at the marker; running it again is fine")
+	rc.Close()
+	if err != nil {
+		t.Fatalf("resolve-call: %v", err)
+	}
+	if st.Kind != "resumable" {
+		t.Fatalf("once the person settled c_bash1 the turn should be resumable; got %+v", st)
+	}
+	if b, _ := os.ReadFile(marker); strings.Count(string(b), "ran") != 1 {
+		t.Fatalf("a verdict must run nothing; the command ran %d times", strings.Count(string(b), "ran"))
+	}
+	t.Logf("recovery: needs_check with c_bash1, then %s after rerun_ok", st.Kind)
+
 	// R2: the person says continue and the model asks for the same command again.
 	submit(d2, stderr2, c2, sid, "continue")
 	deadline = time.Now().Add(30 * time.Second)

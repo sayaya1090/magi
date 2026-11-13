@@ -26,7 +26,26 @@ public interface CompanionSource {
 
         /** 턴이 열려 있는가 — 진행 바의 사실. */
         void turn(boolean open, double forSec);
+
+        /** 지난 멈춤이 이 대화에 남긴 것(셸 스트림의 recovery 프레임) — 모르면 null. */
+        default void recovery(Object stateOrNull) {}
     }
+
+    /**
+     * 복구 상태를 <b>데몬에게</b> 묻는다(/recovery). 스트림 프레임은 로그에서 읽은 것이라,
+     * 데몬이 끝내 쓰지 못한 복구 실패는 이 읽기로만 보인다. 못 읽으면 null.
+     */
+    default void recoveryState(CompanionContext ctx, java.util.function.Consumer<Object> stateOrNull) { stateOrNull.accept(null); }
+
+    /**
+     * 재시작이 끊은 호출 하나에 사람이 한 판정(ran · not_ran · rerun_ok · deferred)을 데몬에
+     * 적는다. done은 (데몬이 다시 읽은 상태, 거부 사유) — 성공이면 사유는 빈 문자열.
+     */
+    default void resolveCall(CompanionContext ctx, String call, String verdict, String note,
+                             java.util.function.BiConsumer<Object, String> done) { done.accept(null, "Not supported"); }
+
+    /** 복구를 다시 시도한다 — done은 resolveCall과 같다. */
+    default void retryRecovery(CompanionContext ctx, java.util.function.BiConsumer<Object, String> done) { done.accept(null, "Not supported"); }
 
     void start(Listener l);
 

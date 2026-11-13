@@ -44,6 +44,10 @@ var mayWrite = map[string]auth.Capability{
 	// that is the most common shape of a second person on a console.
 	"/answer":    auth.Answer,
 	"/interrupt": auth.Answer,
+	// Saying what happened to a call a restart cut — ran, did not, may run again — decides what the
+	// companion may do next without deciding what it works on: the same weight as answering a
+	// blocked tool. Reading the state is a read (GET falls to auth.Read in mayDo).
+	"/recovery": auth.Answer,
 	// Asking the model to look at a file somebody is editing. It changes nothing and records
 	// nothing — but it spends the backend on their behalf, which is what `prompt` is about.
 	"/look": auth.Prompt,

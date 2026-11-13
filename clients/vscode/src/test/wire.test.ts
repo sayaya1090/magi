@@ -35,6 +35,7 @@ const WIRE_GO = [
   path.join(REPO, 'internal', 'core', 'command'), //         what a submit carries (WireRef, …)
   path.join(REPO, 'internal', 'core', 'report'), //          what an answer is grounded in (Filled, …)
   path.join(REPO, 'internal', 'app', 'context_state.go'), // the context door's answer — the FILE
+  path.join(REPO, 'internal', 'app', 'recovery_state.go'), // what a restart left (recovery-state door) — the FILE
 ];
 
 /** Every `json:"name"` tag in a Go file, minus its options. */

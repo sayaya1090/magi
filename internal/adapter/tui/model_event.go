@@ -674,6 +674,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 	m.councilMember = ""
 	m.councilPhase = ""
 	m.drawnVerdicts = nil
+	m.refreshRecoveryAfterTurn()
 	m.reviewFoldNext = false // turn ended with no revision landing — keep the report visible
 	// The turn ended: any pane still marked unfinished (e.g. a completion event
 	// that never arrived) should now fade too, so nothing lingers after the turn.

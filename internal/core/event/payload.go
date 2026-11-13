@@ -642,3 +642,10 @@ type ToolStartedData struct {
 	CallID string `json:"callId"`
 	Tool   string `json:"tool"`
 }
+
+// ToolResolvedData is the person's verdict on an uncertain call (see TypeToolResolved).
+type ToolResolvedData struct {
+	CallID  string `json:"callId"`
+	Verdict string `json:"verdict"`
+	Note    string `json:"note,omitempty"`
+}

@@ -74,6 +74,9 @@ final class Companion {
         switch (path) {
         // 구 콘솔의 데모와 같은 다섯 — 끝난 것 둘, 하는 중 하나, 아직 둘. 진행이 막대와 개수로
         // 함께 말해지는 것이 이 판의 요점이라, 세 상태 중 어느 것도 비어 있으면 안 된다.
+            // 지난 멈춤이 남긴 것 — 데모의 대화는 멈춘 적이 없다. 판정·재시도(POST)도 같은 답을 받아
+            // 띠가 걷힌다: 데몬이 다시 읽은 상태로 다시 서는 것이 화면의 약속이라서.
+            case "/recovery": return Mock.json("{\"kind\":\"none\"}");
             case "/plan": return Mock.json("[{\"content\":\"read what the empty states do now\",\"status\":\"completed\"},"
                         + "{\"content\":\"write the spec\",\"status\":\"completed\"},"
                         + "{\"content\":\"name the tokens it uses\",\"status\":\"in_progress\"},"

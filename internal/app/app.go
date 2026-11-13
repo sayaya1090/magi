@@ -130,7 +130,11 @@ type App struct {
 	// gates is the cooldown/circuit state every caller of a backend shares (backend_gate.go).
 	gates backendGates
 
-	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
+	// recoverGate keeps recovery from reading a prompt that Submit stored and has not started yet;
+	// recovery holds it for writing, Submit and Steer for reading.
+	recoverGate sync.RWMutex
+	recovery    recoveryBook
+	states      map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
 }
 
 // New constructs an App.
@@ -313,6 +317,11 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 		return err
 	}
 	defer a.endPromptAdmission()
+	a.recoverGate.RLock()
+	defer a.recoverGate.RUnlock()
+	if err := a.refuseUnrecovered(c.SessionID); err != nil {
+		return err
+	}
 	// A new top-level request starts with a fresh per-task contract so the
 	// previous turn's plan/criteria don't leak into the new one (see
 	// resetForNewTopLevel). The agent repopulates the plan via todowrite if
@@ -357,6 +366,11 @@ func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
 		return err
 	}
 	defer a.endPromptAdmission()
+	a.recoverGate.RLock()
+	defer a.recoverGate.RUnlock()
+	if err := a.refuseUnrecovered(c.SessionID); err != nil {
+		return err
+	}
 	a.appendRefs(ctx, &c)
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err

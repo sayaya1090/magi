@@ -542,6 +542,22 @@ type ChildLister interface {
 	ChildrenOf(ctx context.Context, parent string) ([]session.SessionMeta, error)
 }
 
+// RecoveryTeller is the engine half of the recovery banner: what a restart left in a
+// conversation, the person's word on a call that may have run, and another look at a
+// conversation magi could not read when it started.
+//
+// The state comes from the log (and, for a failed look, from the process that tried), so every
+// client draws the same banner from one answer instead of re-deriving "may have run" in its own
+// language. Resolving and retrying answer with the state as it now stands.
+type RecoveryTeller interface {
+	RecoveryStateOf(ctx context.Context, sid string) app.RecoveryState
+	// ResolveCall records the person's verdict (ran | not_ran | rerun_ok | deferred) on a call
+	// the restart left uncertain. A call the banner does not name is refused.
+	ResolveCall(ctx context.Context, sid, callID, verdict, note string) error
+	// RetryRecovery reads the conversation again; the error is why it still could not.
+	RetryRecovery(ctx context.Context, sid string) error
+}
+
 // ConversationKeeper is the engine half of the bottom dock's session switcher: list this
 // workspace's conversations, and open a fresh one. Local socket only, like the transcript —
 // the clients this exists for (the IDE plugin first) hold a socket and nothing else.
@@ -918,6 +934,9 @@ type Response struct {
 	// that finished last week and for a companion that has since been restarted — which is
 	// exactly when somebody asks what a subagent actually did.
 	Children []SessionRow `json:"children,omitempty"`
+	// Recovery answers recovery-state, resolve-call and recovery-retry: what the last stop left in
+	// this conversation, as it stands after the request.
+	Recovery *app.RecoveryState `json:"recovery,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.

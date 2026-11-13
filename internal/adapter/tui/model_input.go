@@ -735,6 +735,8 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 	switch cmd {
 	case "/resume":
 		out = m.handleResume(fields[1:])
+	case "/recover":
+		out = m.handleRecover(fields[1:])
 	case "/rewind":
 		n := 1
 		if len(fields) > 1 {
@@ -1094,6 +1096,7 @@ func (m *Model) handleResume(args []string) tea.Cmd {
 	}
 	m.resumeAll, m.resumeList = metas, metas
 	m.resumeQuery, m.resumeWhy = "", nil
+	m.resumeBadge = map[session.SessionID]string{}
 	if len(args) == 0 {
 		m.resuming = true
 		m.resumeSel = 0

@@ -662,6 +662,9 @@ func (m *Model) resumeView() string {
 		// row is truncated again below: on a terminal narrower than the floor plus the age
 		// column, the floor is the thing that overflows.
 		line := fmt.Sprintf("%-11s %s", when, oneLine(title, max(20, m.width-24)))
+		if b := m.resumeBadgeOf(s.ID); b != "" {
+			line = fmt.Sprintf("%-11s %s %s", when, b, oneLine(title, max(20, m.width-26-len([]rune(b)))))
+		}
 		if m.width > 2 {
 			line = ansi.Truncate(line, m.width-2, "")
 		}

@@ -62,6 +62,12 @@ type Engine interface {
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
 	// RecentPrompts is the composer's ↑/↓ list — what a person typed here across conversations.
 	RecentPrompts(ctx context.Context, workdir string, limit int) ([]app.PastPrompt, error)
+	// RecoveryStateOf is what the last stop left in a conversation — the header chip and /recover.
+	RecoveryStateOf(ctx context.Context, sid session.SessionID) app.RecoveryState
+	// ResolveCall records the person's word on a call that may have run; RetryRecovery reads a
+	// conversation magi could not read when it started.
+	ResolveCall(ctx context.Context, sid session.SessionID, callID string, v app.Verdict, note string) error
+	RetryRecovery(ctx context.Context, sid session.SessionID) app.RecoveredTurn
 	// SuggestPrompt is the composer's ghost text: how the person is likely to finish the instruction
 	// they are typing, on the composer profile. Returns "" when composer suggestion is off or no
 	// profile is routed. See app.SuggestPrompt.

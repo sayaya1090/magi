@@ -216,6 +216,28 @@ func (a attached) Interrupt(ctx context.Context, c command.Interrupt) error {
 	return a.c.get().Interrupt(ctx, c)
 }
 
+// RecoveryStateOf, ResolveCall and RetryRecovery go to the daemon. A failed recovery is known only
+// to the process that tried it, and a verdict is written to the log the daemon owns — answered here
+// they would report a clean conversation the daemon is refusing, or write under its feet. A daemon
+// too old to have the doors falls back to reading the shared log, which is right for everything but
+// a failed look.
+func (a attached) RecoveryStateOf(ctx context.Context, sid session.SessionID) app.RecoveryState {
+	if st, err := a.c.get().RecoveryState(string(sid)); err == nil {
+		return st
+	}
+	return a.App.RecoveryStateOf(ctx, sid)
+}
+
+func (a attached) ResolveCall(_ context.Context, sid session.SessionID, callID string, v app.Verdict, note string) error {
+	_, err := a.c.get().ResolveCall(string(sid), callID, string(v), note)
+	return err
+}
+
+func (a attached) RetryRecovery(_ context.Context, sid session.SessionID) app.RecoveredTurn {
+	_, err := a.c.get().RetryRecovery(string(sid))
+	return app.RecoveredTurn{SessionID: sid, Err: err}
+}
+
 // RespondPermission and RespondQuestion answer a tool that is blocked. The channel it waits on
 // belongs to the daemon; answering locally would leave it waiting forever while the screen showed
 // the question resolved.

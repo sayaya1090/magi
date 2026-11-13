@@ -48,6 +48,9 @@ func (m Model) View() tea.View {
 		if m.plannerMode != "" {
 			headLine += "  " + styleKeyLabel.Render("◈ plan: "+m.plannerMode)
 		}
+		if chip := m.recoveryChip(); chip != "" {
+			headLine += "  " + chip
+		}
 		// Live plan progress + the currently-running (sub-)step, so a refine/delegate
 		// child's re-plan surfaces in the header the same way it nests in the panel. Only
 		// the in-progress leaf is shown (accent+bold via styleKeyLabel) — pending/done

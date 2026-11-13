@@ -197,11 +197,46 @@ func init() {
 		"context":             {run: answerContext, needs: (*ContextTeller)(nil), why: "this daemon cannot say what fills its context window", cap: "context"},
 		"session-new":         {run: answerSessionNew, needs: (*ConversationKeeper)(nil), why: "this daemon cannot open a new conversation", cap: "session-new"},
 		"children":            {run: answerChildren, needs: (*ChildLister)(nil), why: "this daemon cannot list a conversation's subagents", cap: "children"},
+		"recovery-state":      {run: answerRecovery, needs: (*RecoveryTeller)(nil), why: "this daemon cannot say what a restart left", cap: "recovery"},
+		"resolve-call":        {run: answerRecovery, needs: (*RecoveryTeller)(nil), why: "this daemon cannot say what a restart left", cap: "recovery"},
+		"recovery-retry":      {run: answerRecovery, needs: (*RecoveryTeller)(nil), why: "this daemon cannot say what a restart left", cap: "recovery"},
 		"cron":                {run: answerCron, needs: (*CronTeller)(nil), why: "this daemon cannot read its schedule", cap: "cron"},
 		"cron-set":            {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-set"},
 		"cron-remove":         {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-remove"},
 		"job-kill":            {run: answerJobKill, needs: (*JobKiller)(nil), why: "this daemon cannot stop background commands", cap: "job-kill"},
 	}
+}
+
+// answerRecovery serves the recovery banner. Every request names its conversation; a verdict
+// names its call and what the person found. Resolving and retrying answer with the state after
+// them, so a screen redraws from what is true rather than from what it asked for.
+func answerRecovery(ctx context.Context, eng Engine, req Request) Response {
+	r, ok := eng.(RecoveryTeller)
+	if !ok {
+		return Response{Err: "this daemon cannot say what a restart left"}
+	}
+	sid := strings.TrimSpace(req.Session)
+	if sid == "" {
+		return Response{Err: req.Method + " needs the conversation it is about — `sessions` lists them"}
+	}
+	switch req.Method {
+	case "resolve-call":
+		if strings.TrimSpace(req.CallID) == "" {
+			return Response{Err: "resolve-call needs the call the banner names"}
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			return Response{Err: "resolve-call needs a verdict: ran, not_ran, rerun_ok or deferred"}
+		}
+		if err := r.ResolveCall(ctx, sid, req.CallID, req.Name, req.Text); err != nil {
+			return Response{Err: err.Error()}
+		}
+	case "recovery-retry":
+		if err := r.RetryRecovery(ctx, sid); err != nil {
+			return Response{Err: err.Error()}
+		}
+	}
+	st := r.RecoveryStateOf(ctx, sid)
+	return Response{OK: true, Recovery: &st}
 }
 
 // answerJobKill stops one background command. Removed answers whether the id named a job — a ✕

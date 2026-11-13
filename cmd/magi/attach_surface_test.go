@@ -42,6 +42,9 @@ func TestEveryEngineMethodIsClassified(t *testing.T) {
 		// the memory of the process running the turn, and a viewer reading its own would report an
 		// empty one — which reads as "nothing is waiting" on the screen somebody typed into.
 		"ParkedWork": true,
+		// What a restart left. A failed recovery lives only in the memory of the daemon that tried,
+		// and a verdict on a call is written to the log that daemon owns.
+		"RecoveryStateOf": true, "ResolveCall": true, "RetryRecovery": true,
 	}
 	// local: answered from the shared store or this process, and correct there.
 	local := map[string]bool{

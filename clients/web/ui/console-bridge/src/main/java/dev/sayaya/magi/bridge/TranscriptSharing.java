@@ -38,6 +38,29 @@ public final class TranscriptSharing {
         win.set(TURN, turn);
     }
 
+    private static final String RECOVERY = "__magi_recovery_subscribe";
+
+    /** 재시작이 남긴 것(recovery 프레임의 상태 객체) — 모르면 null. */
+    @JsFunction
+    public interface RecoveryFn { void call(Object stateOrNull); }
+
+    @JsFunction
+    public interface RecoverySubscribeFn { void call(RecoveryFn cb); }
+
+    /**
+     * 셸 측: 복구 상태의 문을 따로 건다. host(rows, turn)에 셋째 인자를 보태지 않은 것은 그 두
+     * 문만 거는 호출자(데모·테스트 셸)가 이미 있어서다 — 문 하나가 늘었다고 그들이 깨질 까닭이 없다.
+     */
+    public static void hostRecovery(RecoverySubscribeFn recovery) {
+        Js.asPropertyMap(DomGlobal.window).set(RECOVERY, recovery);
+    }
+
+    public static void subscribeRecovery(RecoveryFn cb) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        if (!win.has(RECOVERY)) return;
+        Js.<RecoverySubscribeFn>cast(win.get(RECOVERY)).call(cb);
+    }
+
     public static boolean hosted() { return Js.asPropertyMap(DomGlobal.window).has(SUB); }
 
     public static void subscribe(RowsFn cb) {

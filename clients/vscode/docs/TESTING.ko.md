@@ -1531,3 +1531,12 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 계획(TodoWrite)은 오른쪽 계획 패널에만 있어서, 대화를 보는 동안에는 지금 어디쯤인지 보이지 않았습니다. 채팅 판 맨 위에 「N단계 중 M단계 · 지금 과정」 한 줄을 세우고, 누르면 단계 목록이 펼쳐지거나 접힙니다. 호스트는 계획 패널에 넘기던 같은 자리에서 웹뷰에 `plan` 메시지를 보냅니다.
 
 - **새 시험**: `planstrip.test.ts` 「the plan strip names the step in progress, or the next one, or says it is all done」 · 「the plan message reaches the webview with only well-formed steps」. · 「the strip is drawn at the top, a click shows and hides the steps, and no plan hides it」(그리기·토글은 어댑터의 `planStripView`가 맡고, 시험이 가짜 요소에 클릭을 보내 구동합니다).
+
+## 계획 줄 아래 재시작 띠 (2026-11-14)
+
+데몬이 재시작하거나 턴이 끊긴 뒤 대화에 무엇이 남았는지가 화면에 보이지 않았습니다. 계획 줄 아래, 대화 위에 띠 하나를 세웁니다. 끊긴 턴이면 「continue」를 보내라고 안내하고, 실행됐을지 모르는 호출이 있으면 호출마다 「실행됨·실행 안 됨·다시 실행 허용·보류」 판정 버튼을 둡니다. 복구가 실패했으면 데몬이 준 사유와 다시 시도 버튼을 보입니다. 판정은 기록만 하고 아무것도 다시 실행하지 않습니다. 이 클라이언트에는 이미 입력 초안 복구(`recovery_view.ts`)가 있어서 이름은 `restart`로 지었고, 데몬 문 이름(`recovery-state`·`resolve-call`·`recovery-retry`)은 그대로 씁니다. 호스트는 세션이 바뀌었거나 `turn.finished`·`tool.resolved` 수가 바뀌었을 때만 묻고, `recovery`를 광고하지 않는 데몬이나 묻다가 실패한 경우에는 띠를 내립니다.
+
+- **새 시험**: `restartstrip.test.ts` 「the restart message reaches the webview with only well-formed calls」 · 「a verdict the daemon does not know never leaves the webview」 · 「nothing left, or a kind this client does not know, draws no strip」 · 「the strip names each call to check, offers four verdicts, and sends the one clicked」(그리기와 판정 버튼은 어댑터의 `restartStripView`가 맡고, 시험이 가짜 요소에 클릭을 보내 구동합니다).
+- **호스트 시험**: `chat_host.test.ts` 「the restart strip asks only a daemon that offers it, and a verdict goes to resolve-call and comes back redrawn」.
+- **전선 대조**: `wire.test.ts`의 `WIRE_GO`에 `internal/app/recovery_state.go`를 파일 단위로 넣었습니다(`context_state.go`와 같은 이유, JetBrains `wireOrigins`와 같은 목록).
+- 실제 VS Code 화면에서 띠가 보이는지는 확인하지 않았습니다.

@@ -27,6 +27,7 @@ public class CompanionStore implements CompanionSource.Listener {
     private final BehaviorSubject<dev.sayaya.magi.bridge.Turn> turnOf =
             dev.sayaya.rx.subject.BehaviorSubject.behavior(dev.sayaya.magi.bridge.Turn.NONE);
     private CompanionContext ctx = null;
+    private final BehaviorSubject<Object> recoveryOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
     private boolean turnOpen = false;
     private double turnFor = 0;
     private boolean started = false;
@@ -272,11 +273,49 @@ public class CompanionStore implements CompanionSource.Listener {
         if (rosterOf.getValue() != null) rosterOf.next(rosterOf.getValue());
         askPast();
         askSub();
+        askRecovery();
     }
 
     @Override
     public void transcript(Object rowsOrNull) {
         rowsOf.next(rowsOrNull);
+    }
+
+    /** 지난 멈춤이 이 대화에 남긴 것 — null은 모름(띠를 세우지 않는다). */
+    public void onRecovery(Consumer<Object> o) { recoveryOf.subscribe(o); }
+
+    @Override
+    public void recovery(Object stateOrNull) {
+        recoveryOf.next(stateOrNull);
+    }
+
+    /**
+     * 컴패니언을 열면 데몬에게 한 번 묻는다 — 복구 실패는 로그에 없어서 스트림 프레임으로는 안 온다.
+     * 늦게 온 답이 다른 컴패니언의 화면에 앉지 않게, 물을 때의 컨텍스트와 대 본다.
+     */
+    private void askRecovery() {
+        CompanionContext at = ctx;
+        if (at == null) { recoveryOf.next(null); return; }
+        source.recoveryState(at, st -> { if (at == ctx && st != null) recoveryOf.next(st); });
+    }
+
+    /** 끊긴 호출 하나에 대한 사람의 판정 — 화면은 데몬이 다시 읽은 상태로 다시 선다. */
+    public void resolveCall(String call, String verdict, Consumer<String> why) {
+        CompanionContext at = ctx;
+        if (at == null) { why.accept("no companion"); return; }
+        source.resolveCall(at, call, verdict, "", (st, w) -> {
+            if (at == ctx && st != null) recoveryOf.next(st);
+            why.accept(w == null ? "" : w);
+        });
+    }
+
+    public void retryRecovery(Consumer<String> why) {
+        CompanionContext at = ctx;
+        if (at == null) { why.accept("no companion"); return; }
+        source.retryRecovery(at, (st, w) -> {
+            if (at == ctx && st != null) recoveryOf.next(st);
+            why.accept(w == null ? "" : w);
+        });
     }
 
     @Override

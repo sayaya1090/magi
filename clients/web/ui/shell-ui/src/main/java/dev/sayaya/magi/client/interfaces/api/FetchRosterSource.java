@@ -136,6 +136,11 @@ public class FetchRosterSource implements RosterSource {
                 }
             } catch (Exception ignore) { listener.turn(false, 0); }
         });
+        es.addEventListener("recovery", evt -> {
+            MessageEvent<String> me = Js.uncheckedCast(evt);
+            try { listener.recovery(Global.JSON.parse(me.data)); }
+            catch (Exception ignore) { /* 깨진 프레임은 다음 프레임이 고친다 */ }
+        });
         es.addEventListener("slot", evt -> {
             if (elemental2.dom.DomGlobal.window != null) {
                 elemental2.dom.DomGlobal.window.dispatchEvent(new elemental2.dom.CustomEvent("magi:slot.changed"));

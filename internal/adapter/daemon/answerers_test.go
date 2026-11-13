@@ -178,6 +178,7 @@ func TestAnswerersRefuseInWords(t *testing.T) {
 		"suggest": answerSuggest, "shell": answerShell, "about": answerAbout,
 		"sessions": answerSessions, "session-new": answerSessionNew, "prompts": answerPrompts,
 		"cron": answerCron, "job-kill": answerJobKill,
+		"recovery-state": answerRecovery, "resolve-call": answerRecovery, "recovery-retry": answerRecovery,
 	} {
 		resp := fn(ctx, bare, Request{Method: method, Name: "x", Text: "y"})
 		if resp.OK || resp.Err == "" {

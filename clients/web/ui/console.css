@@ -5454,6 +5454,15 @@ md-linear-progress.foldbar[hidden] { display: none; }
 /* 대화 맨 위 계획 줄 — 한 줄, 누르면 단계 목록이 펼쳐진다. */
 .planstrip { border-bottom: 1px solid var(--md-sys-color-outline-variant); margin: 0 0 6px; }
 .planstrip[hidden], .planlist[hidden] { display: none; }
+.recoverystrip { border-bottom: 1px solid var(--md-sys-color-outline-variant); margin: 0 0 6px; padding: 4px 8px; background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.recoverystrip[hidden] { display: none; }
+.recoverystrip .rhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.recoverystrip .rcall { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 0 2px 12px; }
+.recoverystrip .rcall[data-verdict] .rwhat { opacity: .7; }
+.recoverystrip .rwhat { font-family: var(--magi-mono, monospace); margin-right: auto; }
+.recoverystrip .rwhy { font-family: var(--magi-mono, monospace); }
+.recoverystrip .rerr:empty { display: none; }
+.recoverystrip .rerr { color: var(--md-sys-color-error); }
 .planhead { display: block; width: 100%; text-align: left; padding: 4px 8px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .planlist { margin: 0 0 6px; padding: 0 8px 0 28px; opacity: .85; }
 .planlist li.done { opacity: .6; }

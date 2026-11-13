@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -51,12 +52,7 @@ func (a *App) recoveryTree(ctx context.Context, project string, roots []session.
 // Read the saved child state, not this pass's return values: a previous recovery may
 // have finished the child and died before writing anything to the parent.
 func (a *App) recoveryChildren(ctx context.Context, parent []event.Event, children []session.SessionMeta) (string, []session.SessionID, error) {
-	var since time.Time
-	for _, e := range parent {
-		if e.Type == event.TypePromptSubmitted {
-			since = e.TS
-		}
-	}
+	since := lastPromptAt(parent)
 	var notes []string
 	var uncertain []session.SessionID
 	for _, child := range children {
@@ -95,4 +91,44 @@ func (a *App) recoveryChildren(ctx context.Context, parent []event.Event, childr
 		return "", uncertain, nil
 	}
 	return "\n\nChild work saved separately:\n" + strings.Join(notes, "\n"), uncertain, nil
+}
+
+// lastPromptAt is when the last prompt in a log was submitted; the children created since belong
+// to the turn that prompt opened.
+func lastPromptAt(evs []event.Event) time.Time {
+	var since time.Time
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			since = e.TS
+		}
+	}
+	return since
+}
+
+// turnChildrenBlocked joins the failures of the children created during the last turn of parent.
+func turnChildrenBlocked(parent []event.Event, kids []session.SessionMeta, blocked map[session.SessionID]error) error {
+	since := lastPromptAt(parent)
+	var err error
+	for _, k := range kids {
+		if k.Created.Before(since) {
+			continue
+		}
+		if b := blocked[k.ID]; b != nil {
+			err = errors.Join(err, fmt.Errorf("child %s: %w", k.ID, b))
+		}
+	}
+	return err
+}
+
+// withoutErrors drops error events. Children run runLoop directly, without startRun's
+// terminal-error teardown, so a provider error can stand without turn.finished; read past it to
+// settle that child, so nothing waits forever for its terminal event.
+func withoutErrors(evs []event.Event) []event.Event {
+	out := make([]event.Event, 0, len(evs))
+	for _, e := range evs {
+		if e.Type != event.TypeError {
+			out = append(out, e)
+		}
+	}
+	return out
 }

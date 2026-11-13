@@ -347,6 +347,15 @@ export interface Response {
   removed?: boolean;
   models?: string[];
   /**
+   * `recovery-state` / `resolve-call` / `recovery-retry`: what the last stop left in this conversation.
+   * `kind` is none, resumable, needs_check or recovery_failed. Resolve and retry answer with the state
+   * re-read after the write, so the strip is redrawn from the daemon and not from a guess.
+   */
+  recovery?: {
+    kind?: string; messageId?: string; at?: string; reason?: string;
+    uncertain?: { callId?: string; tool?: string; target?: string; verdict?: string }[];
+  };
+  /**
    * ⚠ There was a `done?: boolean` here until 2026-09-10, and no door has ever filled one. `Done`
    * is a field of `Handover` — which this file declares separately and which `handoff.ts` reads
    * correctly — so the top-level name was a second, empty copy of a real fact, sitting where a
@@ -357,7 +366,7 @@ export interface Response {
 /** A door this build advertises in `about`. Read the advertisement; never call an absent door. */
 export type Cap =
   | 'handshake' | 'roster' | 'transcript' | 'sessions' | 'session-new' | 'children'
-  | 'cron' | 'cron-set' | 'cron-remove' | 'job-kill' | 'tool-servers' | 'settings' | 'context';
+  | 'cron' | 'cron-set' | 'cron-remove' | 'job-kill' | 'tool-servers' | 'settings' | 'context' | 'recovery';
 
 /** One conversation on the roster or the session list (`daemon.SessionRow`). */
 export interface SessionRow {

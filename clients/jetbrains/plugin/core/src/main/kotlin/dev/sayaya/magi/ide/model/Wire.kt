@@ -191,6 +191,13 @@ data class Response(
      * 모른다.** 이 문은 지금 답한다.
      */
     val context: ContextState? = null,
+    /**
+     * `recovery-state` · `resolve-call` · `recovery-retry` 의 답 — 지난 멈춤이 이 대화에 남긴 것.
+     *
+     * 판정과 재시도는 **다시 읽은 상태**를 돌려준다. 띠는 그 답으로 다시 서고, 화면이 짐작으로
+     * 걷지 않는다. 낡은 데몬은 이 칸을 안 보낸다 — 그때는 null 이고 띠는 서지 않는다.
+     */
+    val recovery: RecoveryState? = null,
     val tools: List<String>? = null,
     val models: List<String>? = null,
     val why: String? = null,
@@ -596,6 +603,31 @@ data class ContextState(
      * should not assume is still there"* — 감독의 사실이라는 것이다.
      */
     val compactions: Int = 0,
+)
+
+/**
+ * 재시작이나 중단 뒤 이 대화에 남은 것 — 코어 `app.RecoveryState` 의 전선 모양.
+ *
+ * `kind` 는 넷이다: `none`(남은 것 없음) · `resumable`(끊긴 턴, continue 로 잇는다) ·
+ * `needs_check`(실행됐을지 모르는 호출이 사람을 기다린다) · `recovery_failed`(복구가 대화를 못
+ * 닫았다 — 새 일을 안 받는다). `at` 은 Go `time.Time` 이라 영 시각도 실려 온다 — 그리지 않는다.
+ */
+@Serializable
+data class RecoveryState(
+    val kind: String = "none",
+    val messageId: String? = null,
+    val at: String? = null,
+    val uncertain: List<UncertainCall> = emptyList(),
+    val reason: String? = null,
+)
+
+/** 사람이 확인해야 하는 호출 하나. `verdict` 는 `deferred` 로 미뤄 둔 것만 차 있다. */
+@Serializable
+data class UncertainCall(
+    val callId: String,
+    val tool: String,
+    val target: String? = null,
+    val verdict: String? = null,
 )
 
 /**

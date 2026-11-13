@@ -65,6 +65,11 @@ public class ConversationElement {
     private final HTMLElement planStrip = el("div");
     private final HTMLElement planHead = el("button");
     private final HTMLElement planList = el("ol");
+    /**
+     * 지난 멈춤이 남긴 것 — 계획 줄 위. 계획 줄은 전사 바로 위 자리를 지킨다(전사의 앞 형제가
+     * 계획 줄이라는 배치를 시험이 본다). 남은 것이 없으면 서지 않는다.
+     */
+    private final HTMLElement recovery = el("div");
     private boolean planOpen = false;
     private Object planNow = null;
     private String planAsked = null;
@@ -106,7 +111,11 @@ public class ConversationElement {
         planList.setAttribute("hidden", "");
         planHead.addEventListener("click", evt -> { planOpen = !planOpen; paintPlan(); });
         planStrip.append(planHead, planList);
-        root.append(planStrip, log, past);
+        recovery.id = "recovery";
+        recovery.className = "recoverystrip";
+        recovery.setAttribute("role", "status");
+        recovery.setAttribute("hidden", "");
+        root.append(recovery, planStrip, log, past);
     }
 
     public void mount(HTMLElement frame) {
@@ -130,6 +139,7 @@ public class ConversationElement {
             restoreDraft();
         });
         store.onRows(this::paintRows);
+        store.onRecovery(this::paintRecovery);
         // 턴이 열리고 닫힐 때도 계획을 다시 묻는다 — 단계 수가 그대로여도 새 계획이 섰을 수 있다.
         store.onTurn((open, sec) -> {
             if (!open.equals(planTurnOpen)) { planTurnOpen = open; planAsked = null; askPlan(); }
@@ -493,6 +503,87 @@ public class ConversationElement {
         }
         if (planOpen) planList.removeAttribute("hidden"); else planList.setAttribute("hidden", "");
         planStrip.removeAttribute("hidden");
+    }
+
+    private static final String[] VERDICTS = {"ran", "not_ran", "rerun_ok", "deferred"};
+
+    /**
+     * 띠 하나에 세 사정 — 이어갈 수 있음(계속하기), 결과를 확인할 호출(호출마다 판정 넷), 복구
+     * 실패(까닭과 다시 시도). 판정은 아무것도 다시 돌리지 않는다: 데몬에 적힐 뿐이고, 무엇을
+     * 다시 할지는 그다음 사람의 말이 정한다.
+     */
+    private void paintRecovery(Object state) {
+        recovery.replaceChildren();
+        JsPropertyMap<Object> st = state == null ? null : Js.uncheckedCast(state);
+        String kind = st == null ? "" : str(st, "kind");
+        if (!"resumable".equals(kind) && !"needs_check".equals(kind) && !"recovery_failed".equals(kind)) {
+            recovery.removeAttribute("data-kind");
+            recovery.setAttribute("hidden", "");
+            return;
+        }
+        recovery.setAttribute("data-kind", kind);
+        HTMLElement head = el("div");
+        head.className = "rhead";
+        HTMLElement said = el("span");
+        said.className = "rerr";
+        java.util.function.Consumer<String> shown = why -> said.textContent = why == null ? "" : why;
+        switch (kind) {
+            case "resumable": {
+                head.textContent = tr("recovery.resumable");
+                HTMLElement go = action("rgo", tr("recovery.continue"));
+                go.addEventListener("click", e -> store.submit("continue", shown));
+                head.append(go);
+                recovery.append(head);
+                break;
+            }
+            case "recovery_failed": {
+                head.textContent = tr("recovery.failed");
+                HTMLElement why = el("span");
+                why.className = "rwhy";
+                why.textContent = str(st, "reason");
+                HTMLElement again = action("rretry", tr("recovery.retry"));
+                again.addEventListener("click", e -> store.retryRecovery(shown));
+                head.append(why, again);
+                recovery.append(head);
+                break;
+            }
+            default: {
+                jsinterop.base.JsArrayLike<Object> calls = st.has("uncertain") ? Js.uncheckedCast(st.get("uncertain")) : null;
+                int n = calls == null ? 0 : calls.getLength();
+                head.textContent = tr("recovery.needs_check", "n", String.valueOf(n));
+                head.title = tr("recovery.check_tip");
+                recovery.append(head);
+                for (int i = 0; i < n; i++) {
+                    JsPropertyMap<Object> c = Js.uncheckedCast(calls.getAt(i));
+                    String id = str(c, "callId"), was = str(c, "verdict");
+                    HTMLElement row = el("div");
+                    row.className = "rcall";
+                    if (!was.isEmpty()) row.setAttribute("data-verdict", was);
+                    HTMLElement what = el("span");
+                    what.className = "rwhat";
+                    String target = str(c, "target");
+                    what.textContent = str(c, "tool") + (target.isEmpty() ? "" : " \u00b7 " + target);
+                    row.append(what);
+                    for (String v : VERDICTS) {
+                        HTMLElement b = action("rverdict", tr("recovery.verdict." + v));
+                        b.setAttribute("data-verdict", v);
+                        b.addEventListener("click", e -> store.resolveCall(id, v, shown));
+                        row.append(b);
+                    }
+                    recovery.append(row);
+                }
+            }
+        }
+        recovery.append(said);
+        recovery.removeAttribute("hidden");
+    }
+
+    private static HTMLElement action(String cls, String words) {
+        HTMLElement b = el("button");
+        b.className = cls;
+        b.setAttribute("type", "button");
+        b.textContent = words;
+        return b;
     }
 
     private HTMLElement composer() {

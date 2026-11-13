@@ -69,6 +69,9 @@ public class FakeCompanionSource implements CompanionSource {
             if (rows != null) rows.accept(Global.JSON.parse(
                     "[{\"who\":\"user\",\"text\":\"weigh it\"}]"));
         });
+        // 재시작이 남긴 것은 셸 스트림의 recovery 프레임으로 온다 — 그 프레임을 스펙이 민다.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_recovery", (RowsHook) json ->
+                listener.recovery(json == null ? null : Global.JSON.parse(json)));
         l.context(CompanionContext.of("/tmp/a1.sock", null, "1", null));
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +
@@ -184,5 +187,30 @@ public class FakeCompanionSource implements CompanionSource {
                 round + "@" + (ctx.past == null ? "-" : ctx.past));
         cb.accept(elemental2.core.Global.JSON.parse(
                 "{\"task\":\"the task it judged\",\"report\":\"what was reported\",\"actions\":\"read · edit\"}"));
+    }
+
+    /** 컴패니언을 열 때 데몬에게 묻는 상태 — 스펙이 창에 적어 둔 것(JSON), 없으면 null. */
+    @Override
+    public void recoveryState(CompanionContext ctx, Consumer<Object> cb) {
+        Object s = Js.asPropertyMap(DomGlobal.window).get("__magi_test_recovery_state");
+        cb.accept(s == null ? null : Global.JSON.parse(String.valueOf(s)));
+    }
+
+    /** 판정은 __magi_test_recovery_sent에 적고, 데몬이 다시 읽은 척 __magi_test_recovery_after를 돌려준다. */
+    @Override
+    public void resolveCall(CompanionContext ctx, String call, String verdict, String note,
+                            java.util.function.BiConsumer<Object, String> done) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set("__magi_test_recovery_sent", call + ":" + verdict);
+        Object s = win.get("__magi_test_recovery_after");
+        done.accept(s == null ? null : Global.JSON.parse(String.valueOf(s)), "");
+    }
+
+    @Override
+    public void retryRecovery(CompanionContext ctx, java.util.function.BiConsumer<Object, String> done) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set("__magi_test_recovery_sent", "retry");
+        Object s = win.get("__magi_test_recovery_after");
+        done.accept(s == null ? null : Global.JSON.parse(String.valueOf(s)), "");
     }
 }

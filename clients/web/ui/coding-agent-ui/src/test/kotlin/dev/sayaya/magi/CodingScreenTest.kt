@@ -1297,4 +1297,46 @@ internal class CodingScreenTest : GwtTestSpec({
             }
         }
     }
+    Given("재시작이 남긴 대화") {
+        When("결과를 확인해야 할 호출이 하나 남았다는 사실이 오면") {
+            page.evaluate("""window.__magi_test_recovery('{"kind":"needs_check","uncertain":[{"callId":"c_w","tool":"write","target":"notes.md"}]}')""")
+            Then("전사 위 띠가 그 호출과 대상을 말하고, 판정 넷을 내놓는다") {
+                // 재시작이 끊은 쓰기는 됐을 수도 안 됐을 수도 있다. 그것을 아는 사람은 화면 앞의
+                // 사람뿐이라, 띠는 <b>무엇을</b> 확인할지(도구와 대상)와 답할 말을 함께 내놓는다.
+                page.waitForSelector("#recovery:not([hidden])")
+                page.locator("#recovery .rcall").count() shouldBe 1
+                page.locator("#recovery .rcall").textContent() shouldContain "write"
+                page.locator("#recovery .rcall").textContent() shouldContain "notes.md"
+                page.locator("#recovery .rcall button[data-verdict]").count() shouldBe 4
+            }
+            Then("판정은 데몬으로 가고, 띠는 데몬이 다시 읽은 상태로 다시 선다") {
+                page.evaluate("""window.__magi_test_recovery_after = '{"kind":"resumable"}'""")
+                page.locator("#recovery .rcall button[data-verdict=not_ran]").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_recovery_sent") == "c_w:not_ran" }
+                withClue("보낸 것이 아니라 데몬이 다시 읽은 것이 화면의 사실이다") {
+                    page.waitForCondition { page.locator("#recovery .rcall").count() == 0 }
+                    page.locator("#recovery").getAttribute("data-kind") shouldBe "resumable"
+                }
+            }
+            Then("이어갈 수 있는 대화는 계속하기 하나로 이어진다") {
+                page.locator("#recovery button.rgo").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_sent") == "continue@/tmp/a1.sock" }
+            }
+        }
+        When("복구가 실패했다는 사실이 오면") {
+            page.evaluate("""window.__magi_test_recovery('{"kind":"recovery_failed","reason":"disk full"}')""")
+            Then("실패한 까닭을 말하고, 다시 시도를 데몬에 청한다") {
+                page.waitForCondition { page.locator("#recovery").getAttribute("data-kind") == "recovery_failed" }
+                page.locator("#recovery").textContent() shouldContain "disk full"
+                page.locator("#recovery button.rretry").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_recovery_sent") == "retry" }
+            }
+        }
+        When("남은 것이 없다는 사실이 오면") {
+            page.evaluate("""window.__magi_test_recovery('{"kind":"none"}')""")
+            Then("띠는 걷힌다") {
+                page.waitForCondition { page.locator("#recovery").getAttribute("hidden") != null }
+            }
+        }
+    }
 })

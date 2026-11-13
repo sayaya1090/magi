@@ -98,6 +98,18 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 	if !forcePrompt {
 		reason = "" // routine danger-tool confirmation, not a policy hit
 	}
+	// A call recovery left uncertain is not repeated on the model's say-so: the same call goes to
+	// the person whatever the mode, and with no person to ask it is refused, not re-run.
+	if why := a.uncertainRepeat(ctx, sid, tc); why != "" {
+		if !a.cfg.Interactive {
+			dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny", Origin: "recovery", Reason: why})
+			a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePermissionDecided, actor, dd)
+			a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, "not run: "+why+". There is no one here to approve it", true)
+			return true
+		}
+		forcePrompt, reason = true, why
+		ctx = asRepeat(ctx)
+	}
 	// A scanner-forced "ask" (a destructive invocation, an egress command, a pipe-to-shell, a
 	// secret-path reference) is NOT waived by an allow rule. An allow rule pre-approves a program
 	// for ordinary use — `bash(git:*)` trusts git — but "git status && rm -rf build" both matches

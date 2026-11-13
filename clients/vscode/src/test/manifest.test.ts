@@ -616,6 +616,7 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     // MODEL is sent after an adopted branch. The log keeps the original conversation and its rows.
     'checkpoint.context': 'model context, not a chat row — it replaces what the model is sent after a checkpoint branch is adopted; the conversation and its rows stay in the log as they were',
     'tool.started': 'a recovery marker, not a chat row — it says a call began running so a restart can tell "may have run" from "never ran"; the call and its result already have their rows',
+    'tool.resolved': 'the person\'s word on a call that may have run (ran / not run / rerun ok / deferred); the recovery banner reads it through the recovery-state door, not as a chat row',
   };
   // ★ The exemptions that claim a fact arrives LIVE are checked against the code that reads it.
   // A reason is prose and prose does not fail — but THIS reason is a checkable claim: three keys are

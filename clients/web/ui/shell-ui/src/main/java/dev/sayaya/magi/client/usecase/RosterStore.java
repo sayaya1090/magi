@@ -37,6 +37,8 @@ public class RosterStore implements RosterSource.Listener {
     private final List<CompanionSharing.NextFn> ctxObs = new ArrayList<>();
     private final List<TranscriptSharing.RowsFn> rowsObs = new ArrayList<>();
     private final List<TranscriptSharing.TurnFn> turnObs = new ArrayList<>();
+    private final List<TranscriptSharing.RecoveryFn> recoveryObs = new ArrayList<>();
+    private Object lastRecovery = null;
     private FleetAgent[] current = null;
     private boolean up = false;
     private boolean started = false;
@@ -69,6 +71,7 @@ public class RosterStore implements RosterSource.Listener {
         TranscriptSharing.host(
                 cb -> { rowsObs.add(cb); cb.call(lastRows); },
                 cb -> { turnObs.add(cb); cb.call(turnOpen, turnFor); });
+        TranscriptSharing.hostRecovery(cb -> { recoveryObs.add(cb); cb.call(lastRecovery); });
         RoomSharing.host(
                 cb -> { roomObs.add(cb); for (Object f : lastRoom.values()) cb.call(f); },
                 this::meet);
@@ -117,6 +120,9 @@ public class RosterStore implements RosterSource.Listener {
         turnOpen = false;
         turnFor = 0;
         for (TranscriptSharing.TurnFn o : turnObs) o.call(false, 0);
+        // 앞 컴패니언이 남긴 복구 사정도 새 화면에 비치면 안 된다.
+        lastRecovery = null;
+        for (TranscriptSharing.RecoveryFn o : recoveryObs) o.call(null);
         pushContext();
         source.aim(socket, peer);
     }
@@ -236,6 +242,12 @@ public class RosterStore implements RosterSource.Listener {
         turnOpen = open;
         turnFor = forSec;
         for (TranscriptSharing.TurnFn o : turnObs) o.call(open, forSec);
+    }
+
+    @Override
+    public void recovery(Object stateOrNull) {
+        lastRecovery = stateOrNull;
+        for (TranscriptSharing.RecoveryFn o : recoveryObs) o.call(stateOrNull);
     }
 
     private void pushContext() {

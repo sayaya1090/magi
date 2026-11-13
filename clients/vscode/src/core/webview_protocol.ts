@@ -113,6 +113,14 @@ export const SuggestMessageSchema = v.object({
   target: v.string(),
 });
 
+/** The person's word on a call the last stop left uncertain, or a retry of a recovery that failed. Records only; runs nothing. */
+export const SettleMessageSchema = v.object({
+  kind: v.literal('settle'),
+  callId: v.optional(v.string()),
+  verdict: v.optional(v.picklist(['ran', 'not_ran', 'rerun_ok', 'deferred'])),
+  retry: v.optional(v.literal(true)),
+});
+
 export const WebviewToHostMessageSchema = v.union([
   ReadyMessageSchema,
   StartMessageSchema,
@@ -127,6 +135,7 @@ export const WebviewToHostMessageSchema = v.union([
   ReplyMessageSchema,
   MentionMessageSchema,
   SuggestMessageSchema,
+  SettleMessageSchema,
 ]);
 
 // ── Inferred Type ──
@@ -472,6 +481,39 @@ export const PlanMessageSchema = v.pipe(
   })),
 );
 
+/**
+ * The restart strip: what the last stop (a restart or a cut) left in this conversation, as the daemon's
+ * recovery-state door says it. Null when there is nothing, or the daemon cannot say. A call without an id
+ * is dropped - a verdict on it could not be sent anywhere.
+ */
+/** The restart state as the webview holds it: every field present, calls without an id dropped. */
+export type RestartWire = {
+  kind: string;
+  reason: string;
+  uncertain: { callId: string; tool: string; target: string; verdict: string }[];
+};
+
+export const RestartMessageSchema = v.pipe(
+  v.object({ kind: v.literal('restart'), state: v.unknown() }),
+  v.transform((m): { kind: 'restart'; state: RestartWire | null } => {
+    const s = (m.state ?? null) as { kind?: unknown; reason?: unknown; uncertain?: unknown } | null;
+    if (!s || typeof s !== 'object') return { kind: 'restart' as const, state: null };
+    const str = (x: unknown): string => (typeof x === 'string' ? x : '');
+    const calls = Array.isArray(s.uncertain) ? s.uncertain : [];
+    return {
+      kind: 'restart' as const,
+      state: {
+        kind: str(s.kind) || 'none',
+        reason: str(s.reason),
+        uncertain: calls
+          .map((c) => (c ?? {}) as { callId?: unknown; tool?: unknown; target?: unknown; verdict?: unknown })
+          .filter((c) => str(c.callId) !== '')
+          .map((c) => ({ callId: str(c.callId), tool: str(c.tool), target: str(c.target), verdict: str(c.verdict) })),
+      },
+    };
+  }),
+);
+
 export const HostToWebviewMessageSchema = v.union([
   RowsMessageSchema,
   ComposeMessageSchema,
@@ -485,6 +527,7 @@ export const HostToWebviewMessageSchema = v.union([
   NoteMessageSchema,
   PromptsMessageSchema,
   PlanMessageSchema,
+  RestartMessageSchema,
 ]);
 
 export type HostToWebviewMessage = v.InferOutput<typeof HostToWebviewMessageSchema>;

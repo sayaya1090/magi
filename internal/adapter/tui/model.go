@@ -249,6 +249,12 @@ type Model struct {
 	// titles answers "which of these is it" only when the words are in the titles, and the reason
 	// somebody is searching is usually that they are not.
 	resumeWhy map[session.SessionID]string
+	// resumeBadge caches what the last stop left in each listed conversation, filled as rows are
+	// drawn: reading every log to open the picker would make it slower the more you have used magi.
+	resumeBadge map[session.SessionID]string
+	// recovery is what the last stop left in THIS conversation — kept, not flashed, so the header
+	// keeps saying it until the person has dealt with it.
+	recovery  app.RecoveryState
 	resumeSel int  // selected row in the interactive resume picker
 	resuming  bool // the resume picker modal is open
 
@@ -372,6 +378,7 @@ func New(ctx context.Context, a Engine, cmds CommandSource, sid session.SessionI
 	m.userLbl = a.UserLabel(sid)
 	m.history = m.recentHistory(nil) // ↑ works before the first prompt, from earlier conversations
 	m.histIdx = len(m.history)
+	m.recovery = a.RecoveryStateOf(ctx, sid)
 	m.applyWidgetStyles() // theme-dependent textarea/spinner styling (re-applied on theme flip)
 	return m
 }
@@ -420,6 +427,7 @@ var slashCommands = []cmdInfo{
 	{"/cron", "see and change what this workspace runs on a schedule"},
 	{"/sessions", "list sessions in this directory"},
 	{"/resume", "resume a session (/resume to list, /resume N to switch)"},
+	{"/recover", "what a restart left: /recover to list, /recover N ran|not_ran|rerun|defer [note], /recover retry"},
 	{"/rewind", "roll back the last user turn(s) (/rewind [n])"},
 	{"/image", "render an image file inline (/image <path>)"},
 	{"/diff", "show the working-tree git diff"},
@@ -762,6 +770,7 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	// and the work was silently abandoned. Say it, and say what is at stake — but do NOT restart it.
 	// Re-running forty steps of edits without being asked is a side effect the user did not choose,
 	// and the abandoned turn may be exactly what they killed magi to stop.
+	m.recovery = m.app.RecoveryStateOf(m.ctx, sid)
 	if u, ok := m.app.UnfinishedTurnOf(m.ctx, sid); ok {
 		return tea.Batch(cmd, m.snack(fmt.Sprintf(
 			"resumed %s — the last turn stopped after %d tool calls without finishing: %s",

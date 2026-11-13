@@ -163,6 +163,7 @@ class ArchitectureTest {
             "labels.changed" to "이 클라이언트는 아직 일에 이름을 안 붙인다 — 붙이는 화면이 생기면 그때 읽는다",
             "result.elided" to "덜어낸 툴 결과는 **컨텍스트 창의 사실**이지 대화의 사실이 아니다. 그 행은 이미 무엇을 불렀는지 적고 있고, 「모델에게 안 보인다」는 계획 판의 컨텍스트 띠가 말한다",
             "tool.started" to "재시작 복구용 표지다. 호출이 실행을 시작했는지를 남겨 「실행됐을 수 있음」과 「실행 안 됨」을 가른다. 호출과 결과는 이미 각자의 행이 있다",
+            "tool.resolved" to "실행됐을 수 있는 호출에 대한 사람의 판단(수행됨·미수행·재실행 허용·보류)이다. 복구 띠는 recovery-state 문으로 읽고 대화 행으로 그리지 않는다",
         )
         val missed = (types - read - skipped.keys).sorted()
         assertEquals(
@@ -246,7 +247,7 @@ class ArchitectureTest {
     fun `시험이 실제로 파일을 보고 있다`() {
         val names = usecase.listFiles { f -> f.name.endsWith(".kt") }.orEmpty().map { it.name }.toSet()
         assertEquals(
-            setOf("Activity.kt", "Assist.kt", "Authorship.kt", "Companion.kt", "CoreProbe.kt", "CoreRelease.kt", "Generation.kt", "Hand.kt", "HandRegistration.kt", "DaemonLifecycle.kt", "Launches.kt", "Level.kt", "LookNotes.kt", "Markup.kt", "McpName.kt", "OnceAcross.kt", "Palette.kt", "Phases.kt", "Ports.kt", "Problems.kt", "RowText.kt", "Rows.kt", "Schedules.kt", "SlotWatch.kt", "Transcript.kt", "SendDrafts.kt", "AnswerDrafts.kt", "DraftArchive.kt", "ContextGauge.kt", "WrapPoint.kt", "PromptRecall.kt", "FoldBar.kt", "PlanStrip.kt"),
+            setOf("Activity.kt", "Assist.kt", "Authorship.kt", "Companion.kt", "CoreProbe.kt", "CoreRelease.kt", "Generation.kt", "Hand.kt", "HandRegistration.kt", "DaemonLifecycle.kt", "Launches.kt", "Level.kt", "LookNotes.kt", "Markup.kt", "McpName.kt", "OnceAcross.kt", "Palette.kt", "Phases.kt", "Ports.kt", "Problems.kt", "RowText.kt", "Rows.kt", "Schedules.kt", "SlotWatch.kt", "Transcript.kt", "SendDrafts.kt", "AnswerDrafts.kt", "DraftArchive.kt", "ContextGauge.kt", "WrapPoint.kt", "PromptRecall.kt", "FoldBar.kt", "PlanStrip.kt", "RecoveryStrip.kt"),
             names,
             "usecase 의 파일 목록이 예상과 다르다 — 옮겼으면 이 시험의 경로도 같이 옮길 것",
         )

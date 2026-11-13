@@ -191,6 +191,7 @@ export interface HostMessageHandlers {
   }): void;
   onState?(payload: { state: Activity; note: PanelNoteInfo }): void;
   onPlan?(payload: { kind: 'plan'; todos: { content: string; status: string }[] }): void;
+  onRestart?(payload: { kind: 'restart'; state: RestartState | null }): void;
   onInfo?(payload: {
     kind: 'info';
     state: string;
@@ -271,6 +272,9 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
     return true;
   } else if (m.kind === 'plan') {
     handlers.onPlan?.(m);
+    return true;
+  } else if (m.kind === 'restart') {
+    handlers.onRestart?.(m);
     return true;
   } else if (m.kind === 'info') {
     handlers.onInfo?.(m);
@@ -1139,6 +1143,7 @@ export interface WebviewReceiveAdapterOptions {
   drawState: (note: PanelNoteInfo) => void;
   /** The plan strip at the top: one line, and the steps behind it. Null hides it. */
   drawPlan?: (strip: PlanStrip | null, todos: { content: string; status: string }[]) => void;
+  drawRestart?: (state: RestartState | null) => void;
   /** The compaction bar: a share and its words, or null to hide it. */
   drawFold?: (bar: FoldBar | null) => void;
   drawEmptyNote: (text: string) => void;
@@ -1267,6 +1272,9 @@ export function createWebviewReceiveHandlers(
     },
     onPlan(m) {
       options.drawPlan?.(planStrip(m.todos), m.todos);
+    },
+    onRestart(m) {
+      options.drawRestart?.(m.state);
     },
     onInfo(payload) {
       options.drawInfo(payload);
@@ -1467,4 +1475,104 @@ export function planStripView(els: PlanStripEls, doc: Document): { draw(todos: {
   };
   els.head.addEventListener('click', () => { open = !open; render(); });
   return { draw(todos) { last = todos; render(); } };
+}
+
+/**
+ * What the last stop left in this conversation, as the daemon's recovery-state door says it. Called
+ * "restart" in this client because "recovery" already names the drafts kept for a send that never left.
+ */
+export interface RestartState {
+  kind: string;
+  reason: string;
+  uncertain: { callId: string; tool: string; target: string; verdict: string }[];
+}
+
+/** The four words a person can put on an uncertain call. A verdict records; it runs nothing. */
+export const RESTART_VERDICTS = ['ran', 'not_ran', 'rerun_ok', 'deferred'] as const;
+const RESTART_VERDICT_WORDS: Record<string, string> = { ran: '\uc2e4\ud589\ub428', not_ran: '\uc2e4\ud589 \uc548 \ub428', rerun_ok: '\ub2e4\uc2dc \uc2e4\ud589 \ud5c8\uc6a9', deferred: '\ubcf4\ub958' };
+
+export interface RestartStrip {
+  kind: 'resumable' | 'needs_check' | 'recovery_failed';
+  text: string;
+  reason: string;
+  calls: RestartState['uncertain'];
+}
+
+/** The strip's line, or null when there is nothing to show - including a kind this client does not know. */
+export function restartStrip(s: RestartState | null): RestartStrip | null {
+  if (!s) return null;
+  if (s.kind === 'resumable') {
+    return { kind: 'resumable', reason: '', calls: [], text: '\uc9c0\ub09c \ud134\uc774 \ub04a\uacbc\uc2b5\ub2c8\ub2e4 \u00b7 "continue"\ub97c \ubcf4\ub0b4\uba74 \uc774\uc5b4 \uac11\ub2c8\ub2e4' };
+  }
+  if (s.kind === 'needs_check') {
+    return { kind: 'needs_check', reason: '', calls: s.uncertain,
+      text: '\uba48\ucd94\uae30 \uc804\uc5d0 \uc2e4\ud589\ub410\uc744\uc9c0 \ubaa8\ub974\ub294 \ud638\ucd9c ' + s.uncertain.length + '\uac1c \u00b7 \uc774\uc5b4 \uac00\uae30 \uc804\uc5d0 \ud655\uc778\ud558\uc138\uc694' };
+  }
+  if (s.kind === 'recovery_failed') {
+    return { kind: 'recovery_failed', reason: s.reason, calls: [],
+      text: '\ubcf5\uad6c\uac00 \uc774 \ub300\ud654\ub97c \ub2eb\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4. \ub2e4\uc2dc \uc2dc\ub3c4\ud574 \ub2eb\uae30 \uc804\uc5d0\ub294 \uc0c8 \uc791\uc5c5\uc744 \ubc1b\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4' };
+  }
+  return null;
+}
+
+/** The three elements of the restart strip: the box, its line, and what sits under the line. */
+export interface RestartStripEls { strip: HTMLElement; head: HTMLElement; list: HTMLElement; }
+
+/** A verdict or a retry, as the strip sends it to the host. */
+export type RestartSettle = { kind: 'settle'; callId: string; verdict: (typeof RESTART_VERDICTS)[number] } | { kind: 'settle'; retry: true };
+
+/**
+ * The restart strip, drawn. Calls to check each get their tool, their target and four verdict buttons;
+ * a cut turn gets its line only; a failed recovery gets the daemon's own reason and one retry button.
+ * Nothing left hides the strip. The page hands in its real elements; a test hands in fakes and clicks.
+ */
+export function restartStripView(els: RestartStripEls, doc: Document, send: (m: RestartSettle) => void): { draw(state: RestartState | null): void } {
+  return {
+    draw(state) {
+      const s = restartStrip(state);
+      if (!s) { els.strip.hidden = true; els.list.replaceChildren(); return; }
+      els.strip.setAttribute('data-kind', s.kind);
+      els.head.textContent = s.text;
+      const kids: HTMLElement[] = [];
+      const button = (words: string, click: () => void): HTMLElement => {
+        const b = doc.createElement('button');
+        b.setAttribute('type', 'button');
+        b.textContent = words;
+        b.addEventListener('click', click);
+        return b;
+      };
+      if (s.kind === 'needs_check') {
+        for (const c of s.calls) {
+          const row = doc.createElement('div');
+          row.className = 'restart-call';
+          const what = doc.createElement('span');
+          what.textContent = c.tool + (c.target ? ' \u00b7 ' + c.target : '') + (c.verdict === 'deferred' ? ' (\ubcf4\ub958)' : '');
+          const verdicts = RESTART_VERDICTS.map((v) => {
+            const b = button(RESTART_VERDICT_WORDS[v], () => send({ kind: 'settle', callId: c.callId, verdict: v }));
+            b.setAttribute('data-call', c.callId);
+            b.setAttribute('data-verdict', v);
+            return b;
+          });
+          row.replaceChildren(what, ...verdicts);
+          kids.push(row);
+        }
+        const tip = doc.createElement('p');
+        tip.className = 'restart-tip';
+        tip.textContent = '\ud310\uc815\uc740 \ud655\uc778\ud55c \uac83\uc744 \uae30\ub85d\ud560 \ubfd0, \uc544\ubb34\uac83\ub3c4 \ub2e4\uc2dc \uc2e4\ud589\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4';
+        kids.push(tip);
+      } else if (s.kind === 'recovery_failed') {
+        if (s.reason) {
+          const why = doc.createElement('p');
+          why.className = 'restart-why';
+          why.textContent = s.reason;
+          kids.push(why);
+        }
+        const retry = button('\ubcf5\uad6c \ub2e4\uc2dc \uc2dc\ub3c4', () => send({ kind: 'settle', retry: true }));
+        retry.setAttribute('data-retry', 'true');
+        kids.push(retry);
+      }
+      els.list.replaceChildren(...kids);
+      els.strip.hidden = false;
+    },
+  };
 }

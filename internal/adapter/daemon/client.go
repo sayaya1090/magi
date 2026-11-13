@@ -616,6 +616,34 @@ func (c *Client) Children(sid string) ([]SessionRow, error) {
 	return resp.Children, nil
 }
 
+// RecoveryState asks what the last stop left in a conversation: nothing, a turn to continue,
+// calls the person has to check, or a conversation magi could not read.
+func (c *Client) RecoveryState(sid string) (app.RecoveryState, error) {
+	return c.recovery(Request{Method: "recovery-state", Session: sid})
+}
+
+// ResolveCall records what the person found about a call that may have run — verdict is ran,
+// not_ran, rerun_ok or deferred — and answers with the state after it.
+func (c *Client) ResolveCall(sid, callID, verdict, note string) (app.RecoveryState, error) {
+	return c.recovery(Request{Method: "resolve-call", Session: sid, CallID: callID, Name: verdict, Text: note})
+}
+
+// RetryRecovery asks the companion to read a conversation it could not read when it started.
+func (c *Client) RetryRecovery(sid string) (app.RecoveryState, error) {
+	return c.recovery(Request{Method: "recovery-retry", Session: sid})
+}
+
+func (c *Client) recovery(req Request) (app.RecoveryState, error) {
+	resp, err := c.exchange(req)
+	if err != nil {
+		return app.RecoveryState{}, err
+	}
+	if resp.Recovery == nil {
+		return app.RecoveryState{}, fmt.Errorf("%s: the companion answered without a recovery state", req.Method)
+	}
+	return *resp.Recovery, nil
+}
+
 // NewSession opens a fresh conversation on the companion and moves it there, answering with the
 // new id. The one way to get a new conversation: resume refuses invented ids on purpose.
 func (c *Client) NewSession() (string, error) { return c.newSession(false, "") }

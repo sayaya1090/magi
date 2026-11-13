@@ -32,6 +32,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/events":               s.events,
 		"/submit":               s.submit,
 		"/interrupt":            s.interrupt,
+		"/recovery":             s.recovery,
 		"/resume":               s.resume,
 		"/shell":                s.shell,
 		"/cron":                 s.cron,

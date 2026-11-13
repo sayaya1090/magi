@@ -1146,6 +1146,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	// Sent only when it changes, like the roster frame: a bar that is already on does not need to
 	// be told so every 400ms.
 	lastTurning := false
+	lastRecovery := ""
 	tick := time.NewTicker(400 * time.Millisecond)
 	defer tick.Stop()
 	// The roster rides this connection too.
@@ -1265,6 +1266,15 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 				// had one.
 				fmt.Fprintf(w, "event: turn\ndata: {\"open\":%t,\"forSec\":%d}\n\n",
 					turning, turnAgeSec(msgs, turning))
+				fl.Flush()
+			}
+			// What the last stop left, on its own frame for the same reason the turn is: it is about the
+			// session, not a row. Read from this process's reader, which sees the log the daemon
+			// writes — a verdict lands here on the next pass. A recovery the daemon could not finish is
+			// not in the log at all, so the page asks GET /recovery for that once when it opens.
+			if rb, rerr := json.Marshal(s.reader.RecoveryStateOf(r.Context(), sid)); rerr == nil && string(rb) != lastRecovery {
+				lastRecovery = string(rb)
+				fmt.Fprintf(w, "event: recovery\ndata: %s\n\n", rb)
 				fl.Flush()
 			}
 			// The council, put back where it happened. Its marks name the message they followed,

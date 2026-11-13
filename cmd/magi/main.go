@@ -2735,6 +2735,20 @@ func (d daemonEngine) ChildrenOf(ctx context.Context, parent string) ([]session.
 	return d.App.ChildSessions(ctx, d.workdir, parent)
 }
 
+// RecoveryStateOf, ResolveCall and RetryRecovery satisfy daemon.RecoveryTeller: the recovery
+// banner's three questions, answered by the App that ran the recovery at start.
+func (d daemonEngine) RecoveryStateOf(ctx context.Context, sid string) app.RecoveryState {
+	return d.App.RecoveryStateOf(ctx, session.SessionID(sid))
+}
+
+func (d daemonEngine) ResolveCall(ctx context.Context, sid, callID, verdict, note string) error {
+	return d.App.ResolveCall(ctx, session.SessionID(sid), callID, app.Verdict(verdict), note)
+}
+
+func (d daemonEngine) RetryRecovery(ctx context.Context, sid string) error {
+	return d.App.RetryRecovery(ctx, session.SessionID(sid)).Err
+}
+
 // NewSession opens a fresh conversation and moves this companion onto it — create, then the same
 // move Resume performs, so the record, the mark in the old log and the mid-turn refusal are one
 // code path. The model falls to the config default inside CreateSession.

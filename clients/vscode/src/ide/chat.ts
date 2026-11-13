@@ -13,7 +13,7 @@ import { DiffProvider, openApprovalDiff } from './diff';
 import { OutputProvider, openOutputDocument } from './output';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath, ActionOriginOptions } from '../core/nav';
-import { parseWebviewToHostMessage, HostToWebviewMessage, PaintedRow } from '../core/webview_protocol';
+import { parseWebviewToHostMessage, HostToWebviewMessage, PaintedRow, RestartWire } from '../core/webview_protocol';
 import { renderChatHtml } from '../web/chat_html';
 
 /**
@@ -252,6 +252,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.onPlan?.(plan);
     // And at the top of the conversation itself: which step of how many, and what it is on.
     this.post({ kind: 'plan', todos: plan });
+    // The restart strip is asked, not streamed: a person's verdict and a failed recovery live in the
+    // daemon. Ask again only when the conversation changed, a turn ended or a verdict was recorded.
+    const restartKey = this.session + ':' + this.events.filter((e) => e.type === 'turn.finished' || e.type === 'tool.resolved').length;
+    if (restartKey !== this.restartKey) { this.restartKey = restartKey; void this.askRestart(); }
     // The context meter rides the same stream. The door for it is a capability a daemon may not
     // have, and this number arrives every turn regardless.
     this.onUsage?.(usage(this.events));
@@ -462,12 +466,33 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.post({ kind: 'prompts', texts: (r.prompts ?? []).map((p) => p.text ?? '') });
   }
 
+  private restartKey = '';
+
+  /**
+   * Ask the daemon what the last stop left in the followed conversation, and hand it to the strip. A
+   * daemon that does not offer the door is not asked - the strip says nothing rather than guess.
+   */
+  /* visible for testing */ async askRestart(): Promise<void> {
+    const sid = this.session;
+    try {
+      const caps = sid ? await this.companion.caps() : null;
+      if (!sid || !caps?.has('recovery')) { this.post({ kind: 'restart', state: null }); return; }
+      const r = await this.companion.ask('recovery-state', { session: sid });
+      if (sid !== this.session) return;
+      this.post({ kind: 'restart', state: r?.ok ? ((r.recovery ?? null) as RestartWire | null) : null });
+    } catch {
+      // Could not ask: the strip says nothing rather than guess, and nothing else on the page breaks.
+      if (sid === this.session) this.post({ kind: 'restart', state: null });
+    }
+  }
+
   /* visible for testing */ async fromView(raw: unknown, callerWebviewId?: string): Promise<void> {
     if (callerWebviewId && callerWebviewId !== this.currentWebviewId) return;
     const m = parseWebviewToHostMessage(raw);
     if (!m) return;
     switch (m.kind) {
       case 'ready':
+        this.restartKey = ''; // a new page has no strip yet
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
         this.draw();
         void this.sendPrompts();
@@ -786,6 +811,22 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // it here — a message per keystroke is noise — so `magi.setup` is where it surfaces.
         noteCompletion(r?.ok ? (r.out ?? '') : '', r?.reason, r?.ok ? undefined : (r?.error ?? undefined));
         this.post({ kind: 'suggestion', text: r?.ok ? (r.out ?? '') : '', reqId: m.reqId, target: m.target });
+        break;
+      }
+      case 'settle': {
+        // A verdict or a retry. Neither runs anything; the daemon records it and answers with the state
+        // it re-read, which is what the strip is redrawn from.
+        const sid = this.session;
+        if (!sid) break;
+        const r = 'retry' in m && m.retry
+          ? await this.companion.ask('recovery-retry', { session: sid })
+          : m.callId && m.verdict
+            ? await this.companion.ask('resolve-call', { session: sid, callId: m.callId, name: m.verdict })
+            : null;
+        if (!r || sid !== this.session) break;
+        if (r.ok) { this.post({ kind: 'restart', state: (r.recovery ?? null) as RestartWire | null }); break; }
+        void vscode.window.showWarningMessage(r.error ?? 'magi: the daemon did not record it');
+        void this.askRestart();
         break;
       }
       default:

@@ -15,6 +15,7 @@ declare const createRecoveryState: typeof CreateRecoveryState;
 declare const createWebviewActionAdapter: typeof Adapter.createWebviewActionAdapter;
 declare const createWebviewInputAdapter: typeof Adapter.createWebviewInputAdapter;
 declare const planStripView: typeof Adapter.planStripView;
+declare const restartStripView: typeof Adapter.restartStripView;
 declare const createSuggestController: typeof Adapter.createSuggestController;
 declare const createWebviewReceiveHandlers: typeof Adapter.createWebviewReceiveHandlers;
 declare const parseHostToWebviewMessage: typeof Adapter.parseHostToWebviewMessage;
@@ -82,6 +83,9 @@ const foldEl = document.getElementById('fold') as HTMLElement;
 const planStripEl = document.getElementById('plan-strip') as HTMLElement;
 const planHeadEl = document.getElementById('plan-head') as HTMLButtonElement;
 const planListEl = document.getElementById('plan-list') as HTMLElement;
+const restartStripEl = document.getElementById('restart-strip') as HTMLElement;
+const restartHeadEl = document.getElementById('restart-head') as HTMLElement;
+const restartListEl = document.getElementById('restart-list') as HTMLElement;
 const foldBarEl = document.getElementById('fold-bar') as HTMLProgressElement;
 const foldTextEl = document.getElementById('fold-text') as HTMLElement;
 const emptyNoteEl = document.getElementById('empty-note') as HTMLElement;
@@ -435,6 +439,15 @@ const planView = planStripEl && planHeadEl && planListEl
   ? planStripView({ strip: planStripEl, head: planHeadEl, list: planListEl }, document) : null;
 function drawPlan(_strip: { text: string } | null, todos: { content: string; status: string }[]) {
   planView?.draw(todos);
+}
+
+/* The restart strip - what the last stop left in this conversation. Drawing and the verdict buttons live
+   in the adapter (restartStripView); a verdict goes to the host, which asks the daemon and sends back
+   what it re-read. */
+const restartView = restartStripEl && restartHeadEl && restartListEl
+  ? restartStripView({ strip: restartStripEl, head: restartHeadEl, list: restartListEl }, document, (m) => vs.postMessage(m)) : null;
+function drawRestart(state: Adapter.RestartState | null) {
+  restartView?.draw(state);
 }
 
 /* The compaction bar. Values only: the share and words are decided in the adapter (foldBar). With
@@ -808,6 +821,7 @@ const receiveHandlers = createWebviewReceiveHandlers({
   drawState,
   drawFold,
   drawPlan,
+  drawRestart,
   drawInfo: (m) => { info = m; drawInfo(); },
   drawEmptyNote,
   setNoteText: (t) => { noteEl.textContent = t; },

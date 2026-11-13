@@ -257,6 +257,23 @@ class Companion(
      */
     fun context(): Response = send(Request(method = "context", session = session))
 
+    /**
+     * 지난 멈춤이 이 대화에 남긴 것 — 끊긴 턴 · 사람이 확인해야 하는 호출 · 복구 실패.
+     * 답의 [Response.recovery] 가 null 이면 이 문을 모르는 낡은 데몬이다. 광고(`recovery`)가
+     * 있는 데몬에만 물을 것.
+     */
+    fun recoveryState(): Response = send(Request(method = "recovery-state", session = session))
+
+    /**
+     * 사람이 호출 하나를 판정한다(`ran` · `not_ran` · `rerun_ok` · `deferred`). **아무것도 다시
+     * 돌리지 않는다** — 기록만 남기고, 답은 다시 읽은 상태다.
+     */
+    fun resolveCall(callId: String, verdict: String, note: String = ""): Response =
+        send(Request(method = "resolve-call", session = session, callId = callId, name = verdict, text = note.ifEmpty { null }))
+
+    /** 복구가 이 대화를 못 닫았을 때 다시 해 본다. 답은 다시 읽은 상태다. */
+    fun retryRecovery(): Response = send(Request(method = "recovery-retry", session = session))
+
     /** 도는 백그라운드 하나를 세운다. removed=false 는 실패가 아니라 이미-없음이다. */
     fun killJob(id: String): Response =
         send(Request(method = "job-kill", name = id))

@@ -357,6 +357,23 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
             planHead.addMouseListener(toggle)
         }
+        // 복구 띠 - 지난 멈춤(재시작·중단)이 이 대화에 남긴 것. 판정은 core [dev.sayaya.magi.ide.usecase.RecoveryStrip] 이
+        // 하고 여기는 칠하기만 한다. 계획 줄이 root 의 NORTH 를 쥐고 있어서(PlanStripViewTest) 띠는 대화를 감싼 판의
+        // 위에 선다 - 계획 줄 아래, 대화 위.
+        private val recoveryHead = JBLabel().apply { foreground = Look.body; font = font.deriveFont(java.awt.Font.BOLD) }
+        private val recoveryCalls = JBPanel<JBPanel<*>>().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+            isOpaque = false
+        }
+        private val recoveryStrip = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            isOpaque = true
+            background = Look.primaryContainer
+            border = javax.swing.BorderFactory.createCompoundBorder(Look.BubbleBorder(Look.bubbleEdge(Look.warn)), JBUI.Borders.empty(4, 10))
+            isVisible = false
+            add(recoveryHead, BorderLayout.NORTH)
+            add(recoveryCalls, BorderLayout.CENTER)
+        }
+        private var recoveryKey = ""
         private val debounce = javax.swing.Timer(SuggestCoordinator.DEBOUNCE_DELAY_MS) { askSuggestion() }.apply { isRepeats = false }
 
         /**
@@ -376,6 +393,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private fun finishReplay() {
             replayGrace.stop()
             if (replaying) { replaying = false; redrawLog() }
+            // 대화를 열거나 갈아타거나 다시 붙은 뒤 - 그 대화에 지난 멈춤이 남긴 것을 데몬에 묻는다.
+            askRecovery()
         }
         private val richRecent = RichRecency(RichAnswer.KEEP)
         private val column = VirtualTranscript { redrawLog() }.apply {
@@ -560,7 +579,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     follow() == Attach.Ok
                 }
             },
-            recovered = { if (!closing.get()) refresh() },
+            recovered = { if (!closing.get()) { refresh(); askRecovery() } },
         )
 
 
@@ -652,6 +671,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     } else if (!Transcript.echoesFact(e) && shaper.feed(e) && !replaying) redrawLog()
                     // 재생 중의 접기 줄에는 지금 구성을 붙이지 않는다 - 그때의 구성이 아니다.
                     if (replaying) foldAsked = shaper.foldMarks else askFoldContext()
+                    // 턴이 끝나거나 사람이 호출을 판정하면 복구 상태가 바뀔 수 있다. 재생 중에는 묻지 않는다 - 끝에서 한 번 묻는다.
+                    if (!replaying && (e.type == "turn.finished" || e.type == "tool.resolved")) askRecovery()
                     refreshDisk() // 컴패니언이 수정한 디스크 변경사항을 IDE VFS에 동기화(사유: Rows.drainDisk)
                     if (e.seq > lastSeq) lastSeq = e.seq // 영속 사실 이벤트만 커서로 추적(과도기 전이 이벤트는 seq == 0)
                     // 지적 사항(Problems)은 트랜스크립트 스트림에서 파생 추출합니다.
@@ -881,7 +902,11 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
             // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
             root.add(planStrip, BorderLayout.NORTH)
-            root.add(scroll, BorderLayout.CENTER)
+            root.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                isOpaque = false
+                add(recoveryStrip, BorderLayout.NORTH)
+                add(scroll, BorderLayout.CENTER)
+            }, BorderLayout.CENTER)
             root.add(javax.swing.JPanel(BorderLayout()).apply {
                 isOpaque = false
                 add(bottom, BorderLayout.CENTER)
@@ -1216,6 +1241,89 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             planStrip.isVisible = true
             planStrip.revalidate(); planStrip.repaint()
             planStrip.parent?.revalidate()
+        }
+
+        /**
+         * 지난 멈춤이 따르는 대화에 남긴 것을 데몬 `recovery-state` 문에 묻고 띠를 다시 칠한다. 문을 모르는
+         * 낡은 데몬이거나 물을 수 없으면 띠를 내린다 - 모르는 것을 그리지 않는다.
+         */
+        private fun askRecovery() {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                if (closing.get()) return@executeOnPooledThread
+                val sid = followedSid ?: return@executeOnPooledThread
+                val sock = socket() ?: return@executeOnPooledThread
+                val got = runCatching { DaemonClient.connect(sock).use { Companion(it, sid).recoveryState() } }.getOrNull()
+                val left = got?.takeIf { it.ok }?.recovery
+                SwingUtilities.invokeLater { if (sid == followedSid && !closing.get()) paintRecovery(left) }
+            }
+        }
+
+        /**
+         * 판정과 다시 시도. **아무것도 다시 돌리지 않는다** - 데몬이 기록하고 다시 읽은 상태로 띠를 다시 세운다.
+         * 보내기([say])와 같은 연결 길을 탄다.
+         */
+        private fun settleRecovery(work: (Companion) -> dev.sayaya.magi.ide.model.Response) {
+            val target = followedSid
+            if (target.isNullOrBlank() || closing.get()) return
+            val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, w: (Companion) -> Unit ->
+                workspace.onDaemon(sid, trouble, w)
+            }
+            connect(target, { report(it) }) { comp ->
+                val r = work(comp)
+                SwingUtilities.invokeLater {
+                    if (target != followedSid || closing.get()) return@invokeLater
+                    if (r.ok) paintRecovery(r.recovery) else report(r.error ?: MagiBundle.msg("common.noreason"))
+                }
+            }
+        }
+
+        /** 복구 띠를 그린다. 상태가 같으면 다시 짓지 않는다. EDT 에서 부른다. */
+        private fun paintRecovery(left: dev.sayaya.magi.ide.model.RecoveryState?) {
+            val s = dev.sayaya.magi.ide.usecase.RecoveryStrip.of(left)
+            if (s == null) {
+                if (recoveryStrip.isVisible) { recoveryStrip.isVisible = false; recoveryKey = ""; recoveryStrip.parent?.revalidate() }
+                return
+            }
+            val key = s.toString()
+            if (key == recoveryKey && recoveryStrip.isVisible) return
+            recoveryKey = key
+            recoveryCalls.removeAll()
+            fun buttons() = javax.swing.JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply { isOpaque = false; alignmentX = 0f }
+            when (s.kind) {
+                dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.Resumable ->
+                    recoveryHead.text = MagiBundle.msg("recovery.resumable")
+                dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.NeedsCheck -> {
+                    recoveryHead.text = MagiBundle.msg("recovery.needs_check", s.calls.size)
+                    s.calls.forEach { c ->
+                        val what = c.tool + (if (c.target.isNotEmpty()) " \u00b7 " + c.target else "") +
+                            (if (c.deferred) "  " + MagiBundle.msg("recovery.deferred") else "")
+                        recoveryCalls.add(JBLabel(what).apply { foreground = Look.body; border = JBUI.Borders.emptyTop(4) })
+                        val row = buttons()
+                        dev.sayaya.magi.ide.usecase.RecoveryStrip.VERDICTS.forEach { v ->
+                            row.add(javax.swing.JButton(MagiBundle.msg("recovery.verdict." + v)).apply {
+                                putClientProperty("verdict", v)
+                                putClientProperty("call", c.callId)
+                                addActionListener { settleRecovery { it.resolveCall(c.callId, v) } }
+                            })
+                        }
+                        recoveryCalls.add(row)
+                    }
+                    recoveryCalls.add(JBLabel(MagiBundle.msg("recovery.check_tip")).apply { foreground = Look.faint; border = JBUI.Borders.emptyTop(4) })
+                }
+                dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.Failed -> {
+                    recoveryHead.text = MagiBundle.msg("recovery.failed")
+                    if (s.reason.isNotEmpty()) recoveryCalls.add(JBLabel(s.reason).apply { foreground = Look.error })
+                    recoveryCalls.add(buttons().apply {
+                        add(javax.swing.JButton(MagiBundle.msg("recovery.retry")).apply {
+                            putClientProperty("retry", true)
+                            addActionListener { settleRecovery { it.retryRecovery() } }
+                        })
+                    })
+                }
+            }
+            recoveryStrip.isVisible = true
+            recoveryStrip.revalidate(); recoveryStrip.repaint()
+            recoveryStrip.parent?.revalidate()
         }
 
         @Volatile private var foldAsked = 0

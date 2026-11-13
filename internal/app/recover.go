@@ -25,6 +25,9 @@ type RecoveredTurn struct {
 	Resumable bool
 	// UncertainChildren names child sessions whose interrupted work still needs checking.
 	UncertainChildren []session.SessionID
+	// ChildrenUnchecked marks a session whose own turn is settled but whose child sessions could
+	// not be listed: the failure is reported, and the session itself is not held back by it.
+	ChildrenUnchecked bool
 	// Err is set when the log could not be written. Whatever was written stays; a turn whose end
 	// was not written is still open, and the next start settles it again.
 	Err error
@@ -42,7 +45,7 @@ var recoveryActor = event.Actor{Kind: event.ActorSystem, ID: "recovery"}
 // is executed again. A cancelled turn is already closed and is left alone, and so is any session
 // running in this process. Writing the ending is what makes it idempotent: a second pass finds no
 // open turn.
-func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []RecoveredTurn {
+func (a *App) recoverInterrupted(ctx context.Context, workdir string) []RecoveredTurn {
 	metas, err := a.store.ListSessions(ctx, workdir)
 	if err != nil {
 		return []RecoveredTurn{{Err: fmt.Errorf("list recovery sessions: %w", err)}}
@@ -54,17 +57,30 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 			blocked[m.ID] = fmt.Errorf("session %s is still running", m.ID)
 			continue
 		}
-		for _, child := range children[m.ID] {
-			if err := blocked[child.ID]; err != nil {
-				blocked[m.ID] = errors.Join(blocked[m.ID], fmt.Errorf("child %s: %w", child.ID, err))
-			}
-		}
-		if err := blocked[m.ID]; err != nil {
+		listErr := blocked[m.ID]
+		evs, err := a.store.Read(ctx, m.ID, 0)
+		if err != nil {
+			blocked[m.ID] = err
 			out = append(out, RecoveredTurn{SessionID: m.ID, Err: err})
 			continue
 		}
-		evs, err := a.store.Read(ctx, m.ID, 0)
-		if err != nil {
+		_, _, endless := endlessInterruption(evs)
+		_, pending := unfinishedTurn(evs)
+		if !endless && !pending && m.Parent != "" {
+			_, pending = unfinishedTurn(withoutErrors(evs))
+		}
+		if !endless && !pending {
+			// Nothing of its own to settle. Children it could not list went unchecked, and that is
+			// reported, but this session is not failed for it: it has no turn left to close.
+			if listErr != nil {
+				blocked[m.ID] = listErr
+				out = append(out, RecoveredTurn{SessionID: m.ID, Err: listErr, ChildrenUnchecked: true})
+			}
+			continue
+		}
+		// Only the children of the turn being settled can hold it back; an older child that failed
+		// is that child's failure, reported on its own row.
+		if err := errors.Join(listErr, turnChildrenBlocked(evs, children[m.ID], blocked)); err != nil {
 			blocked[m.ID] = err
 			out = append(out, RecoveredTurn{SessionID: m.ID, Err: err})
 			continue
@@ -91,16 +107,7 @@ func (a *App) RecoverInterrupted(ctx context.Context, workdir string) []Recovere
 		}
 		open, ok := unfinishedTurn(evs)
 		if !ok && m.Parent != "" {
-			// Children run runLoop directly, without startRun's terminal-error teardown.
-			// A provider error can therefore exist without turn.finished; settle that
-			// child too so readers do not wait forever for its terminal event.
-			withoutErrors := make([]event.Event, 0, len(evs))
-			for _, e := range evs {
-				if e.Type != event.TypeError {
-					withoutErrors = append(withoutErrors, e)
-				}
-			}
-			open, ok = unfinishedTurn(withoutErrors)
+			open, ok = unfinishedTurn(withoutErrors(evs))
 		}
 		if !ok {
 			continue

@@ -195,7 +195,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	// "ask" (and "auto" for non-edit tools): honor a prior "always" grant.
 	a.mu.Lock()
-	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] && !handed {
+	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) {
 		a.mu.Unlock()
 		return finish(true, "policy", "")
 	}
