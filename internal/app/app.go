@@ -81,7 +81,8 @@ type App struct {
 	// holding is set while an update is being applied: nothing is running and nothing new may start.
 	// Distinct from closed because it is temporary and the process is still serving — see
 	// HoldForUpdate for why the two facts cannot share a flag.
-	holding bool
+	holding          bool
+	promptAdmissions int // prompt writes admitted before shutdown/update; guarded by mu
 	// bg is the lifetime of work that must outlive the turn that started it, and bgStop ends it.
 	// See bgContext.
 	bg     context.Context
@@ -308,6 +309,10 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 
 // Submit appends the user's prompt and starts the agent loop asynchronously.
 func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
+	if err := a.beginPromptAdmission(); err != nil {
+		return err
+	}
+	defer a.endPromptAdmission()
 	// A new top-level request starts with a fresh per-task contract so the
 	// previous turn's plan/criteria don't leak into the new one (see
 	// resetForNewTopLevel). The agent repopulates the plan via todowrite if
@@ -348,6 +353,10 @@ func isUnattended(actor event.Actor) bool {
 // each step) instead of the user having to wait for the turn to finish. If no
 // turn is running, it behaves like Submit and starts one.
 func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
+	if err := a.beginPromptAdmission(); err != nil {
+		return err
+	}
+	defer a.endPromptAdmission()
 	a.appendRefs(ctx, &c)
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
@@ -567,7 +576,7 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 func (a *App) HoldForUpdate() (func(), bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.closed || a.holding {
+	if a.closed || a.holding || a.promptAdmissions > 0 {
 		return nil, false
 	}
 	for _, st := range a.states {
