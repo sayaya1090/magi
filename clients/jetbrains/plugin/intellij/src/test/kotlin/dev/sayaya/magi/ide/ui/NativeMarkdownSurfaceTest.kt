@@ -184,7 +184,8 @@ class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
             pump(100)
             val early = bar.value
             println("MAGI_NATIVE_WHEEL early=$early")
-            assertEquals("three notches before the page has loaded move the transcript 60px", 60, early)
+            // JCEF uses 10px per unit: three notches x three units = 90px.
+            assertEquals("three notches before the page has loaded move the transcript 90px", 90, early)
             val measured = renderer.javaClass.getDeclaredField("measured").apply { isAccessible = true }.get(renderer) as Map<*, *>
             pump(15000) { "sample" in measured }
             assertTrue("the page script never answered", "sample" in measured)

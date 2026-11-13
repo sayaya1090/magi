@@ -20,3 +20,22 @@ Authentication failures, permission failures, exhausted quota and user cancellat
 `internal/app/cut_by_lost_stream_test.go` covers recovery after partial output, bounded repeated disconnections and a completed write call executed once. `prompt_admission_test.go` covers rejection during shutdown/update and shutdown waiting on an admitted store write. JetBrains `TranscriptTest` covers cursor serialization and distinguishes transport failure from explicit close; `TranscriptReconnectTest` checks that reconnect requests share one worker, failures during attachment are retained, and closing cancels waiting. `stream_recovery_test.go` checks server delay budgets and cancellation.
 
 These are controlled fault-injection checks. They do not establish recovery for every proxy, remote model service or IDE installation.
+
+## Desktop verification (2026-11-14)
+
+Commit `e088aa4f` was built and opened with `:intellij:runIde` on macOS in an isolated workspace. Requests were sent through the visible Chat input. A local HTTP server injected failures; a Unix socket proxy interrupted the IDE connection. This used the real plugin, daemon and desktop, with controlled responses instead of a remote model.
+
+| Check | Observed result |
+|---|---|
+| Truncated HTTP response | `SAVED_PREFIX` remained visible; the continuation request included it and the final answer arrived. |
+| Two 429 responses | `Retry-After: 2` produced waits of 2.005s and 2.004s before success. |
+| Stop during a delayed response | The title-bar Stop action recorded `prompt.abandoned` and `turn.finished`. |
+| 401 response | The error appeared in Chat and the turn ended without a recovery retry. Auxiliary calls were counted separately. |
+| IDE socket cut during a response | The proxy dropped the live connection. Reconnection completed without resubmission: durable sequences 27–29 contained one prompt, one answer and one turn end. |
+| Daemon killed during a response | Restart recorded `interrupted`, `resumable=true` and one recovery turn end. A follow-up completed. |
+| SIGTERM during a shell tool | The daemon, shell and sleep child exited. The marker file contained one write; the saved result had `mayHaveRun=true` and the tool was not replayed. |
+| IDE exit and reopen | The IDE exited normally. Reopening the Chat panel restored the saved conversation and interrupted tool result. The separately owned daemon remained running. |
+
+The standard IntelliJ suite passed 221 tests. All three native browser tests passed after correcting an outdated wheel expectation from 60px to 90px (three notches × three units × 10px). Process shutdown tests also passed. Desktop captures and local logs were retained at `/tmp/magi-ide-reliability` on the verification host; they are temporary evidence, not repository fixtures.
+
+This does not establish behavior for Windows, a real remote-provider outage, or every external tool. A process crash still requires a follow-up to resume. The IDE initially displayed an empty restored tool-window area until the panel was toggled; conversation data was intact, but automatic panel activation needs separate investigation.
