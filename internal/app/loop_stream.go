@@ -458,6 +458,13 @@ loop:
 			// — the flag is what stops a reader (the headless CLI) from quitting in the middle of
 			// a turn the loop is still working.
 			recovered := errors.Is(ev.Err, port.ErrStreamCut) || errors.Is(ev.Err, port.ErrStreamAborted)
+			// A reset/timeout after output is a lost stream too. Preserve the
+			// prefix and completed calls; do not reissue the original request.
+			// Cancellation and permanent provider refusals must still stop.
+			if !recovered && ctx.Err() == nil && !errors.Is(ev.Err, context.Canceled) &&
+				(text.Len() > 0 || reasoning.Len() > 0 || len(res.toolCalls) > 0) && isTransientBackend(ev.Err) {
+				recovered = true
+			}
 			if !recovered && isContextOverflow(ev.Err) && text.Len() == 0 && reasoning.Len() == 0 && len(res.toolCalls) == 0 {
 				res.overflow = ev.Err
 				break

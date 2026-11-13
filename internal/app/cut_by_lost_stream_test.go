@@ -206,3 +206,111 @@ func TestOnlyRecoveredErrorsAreMarked(t *testing.T) {
 		}
 	}
 }
+
+func TestTransientFailureAfterOutputContinuesFromSavedPrefix(t *testing.T) {
+	for _, failure := range []error{errors.New("connection reset by peer"), context.DeadlineExceeded, errors.New("HTTP 503 service unavailable")} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			llm := &fakeLLM{steps: [][]port.ProviderEvent{
+				{{Type: port.ProviderText, Text: "The configuration contains"}, {Type: port.ProviderError, Err: failure}},
+				textStep("Recovered and completed."),
+			}}
+			a, wd := newApp(t, llm, Config{Permission: "allow"})
+			ctx := context.Background()
+			sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "Explain configuration"}}}); err != nil {
+				t.Fatal(err)
+			}
+			evs := waitForFinish(t, a, sid)
+			continued := false
+			for _, e := range evs {
+				if e.Type == event.TypePartDelta && strings.Contains(string(e.Data), "Recovered and completed") {
+					continued = true
+				}
+				if e.Type == event.TypeError {
+					var d event.ErrorData
+					if err := json.Unmarshal(e.Data, &d); err != nil {
+						t.Fatal(err)
+					}
+					if !d.Recovered {
+						t.Fatalf("transient cut ended the turn: %s", e.Data)
+					}
+				}
+			}
+			if !continued {
+				t.Fatal("did not continue after partial response")
+			}
+		})
+	}
+}
+
+func TestRepeatedPartialDisconnectsAreBounded(t *testing.T) {
+	llm := &fakeLLM{}
+	for i := 0; i < maxTransientRetries+2; i++ {
+		llm.steps = append(llm.steps, cutStream("partial reply"))
+	}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "finish the response"}}}); err != nil {
+		t.Fatal(err)
+	}
+	evs := waitForFinish(t, a, sid)
+	found := false
+	for _, e := range evs {
+		if e.Type == event.TypeError && strings.Contains(string(e.Data), "connection repeatedly interrupted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("persistent disconnection did not report retry exhaustion")
+	}
+	llm.mu.Lock()
+	calls := llm.call
+	llm.mu.Unlock()
+	if calls != maxTransientRetries+1 {
+		t.Fatalf("unexpected retry count %d", calls)
+	}
+}
+
+func TestDisconnectAfterCompleteToolCallExecutesItOnce(t *testing.T) {
+	step := toolStep("write", `{"path":"result.txt","content":"saved once"}`)
+	step[len(step)-1] = port.ProviderEvent{Type: port.ProviderError, Err: errors.New("connection reset by peer")}
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{step, textStep("Finished after reconnecting.")}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write result.txt"}}}); err != nil {
+		t.Fatal(err)
+	}
+	evs := waitForFinish(t, a, sid)
+	starts, results := 0, 0
+	for _, e := range evs {
+		if e.Type == event.TypeToolStarted {
+			var d event.ToolStartedData
+			if json.Unmarshal(e.Data, &d) == nil && d.CallID == "c_write" {
+				starts++
+			}
+		}
+		if e.Type == event.TypePartAppended {
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Part.ToolResult != nil && d.Part.ToolResult.CallID == "c_write" {
+				results++
+				if d.Part.ToolResult.IsError {
+					t.Fatalf("write failed: %s", d.Part.ToolResult.Content)
+				}
+			}
+		}
+	}
+	if starts != 1 || results != 1 {
+		t.Fatalf("tool replayed or lost: starts=%d results=%d", starts, results)
+	}
+}

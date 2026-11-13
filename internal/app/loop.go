@@ -495,6 +495,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// A workflow PHASE budget is different in kind: it declares its own budget as part of the
 	// pipeline's shape (localize gets 14 steps, summarize gets 3), spending it is ordinary, and the
 	// engine simply moves to the next phase. maxSteps<=0 means the caller set none.
+	consecutiveCuts := 0
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
@@ -539,6 +540,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return lastText, gerr
 		}
 		res, evs := sr.res, sr.evs
+		if !res.cut {
+			consecutiveCuts = 0
+		}
 		msgID, textPartID, reasonPartID := sr.msgID, sr.textPartID, sr.reasonPartID
 		// Reasoning-only spin: the response was cancelled after streaming huge output with no tool
 		// call. Discard it (it's garbage), nudge the agent to ACT, and move on — the step/stall
@@ -632,7 +636,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// is judged, not counted; a wait or a poll is meant to be asked again; a question to a
 		// person or a companion has its own cap.
 		promptSeq := newestPromptSeq(evs)
-		if sig := stepSignature(text, toolCalls); repeatIsChurn(&ts, sig, toolCalls, promptSeq, guard) {
+		if sig := stepSignature(text, toolCalls); !(res.cut && len(toolCalls) == 0) && repeatIsChurn(&ts, sig, toolCalls, promptSeq, guard) {
 			if err := a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, repeatedStepNote); err != nil {
 				// Best-effort: the note explains the ending to whoever reads the log; the ending
 				// itself does not depend on it, and a store that cannot take one line now will
@@ -686,6 +690,17 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			toolCalls = a.callsAfterDeclaring(ctx, sid, toolCalls, &ts)
 		}
 		if len(toolCalls) == 0 {
+			if res.cut && ctx.Err() == nil {
+				consecutiveCuts++
+				if consecutiveCuts > maxTransientRetries {
+					err := fmt.Errorf("connection repeatedly interrupted the response; saved progress is retained, retry after the connection recovers")
+					a.emitErrorKind(ctx, sid, agentActor, err.Error(), false)
+					return lastText, err
+				}
+				// A transport cut is not the model declaring completion. The
+				// saved prefix and recovery note belong in the next request.
+				continue
+			}
 			// Turn-cumulative usage: out/cost summed across steps, in = last.
 			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
 			switch a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) {
