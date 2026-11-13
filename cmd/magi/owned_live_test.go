@@ -48,7 +48,7 @@ func TestAnOwnedDaemonDiesWithItsOwnersPipe(t *testing.T) {
 		}
 	})
 
-	exe := buildMagi(t, cfg)
+	exe := recoveryVerificationBinary(t)
 
 	cmd := exec.Command(exe, "--daemon", "--client-owned")
 	cmd.Dir = ws

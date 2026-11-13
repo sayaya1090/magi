@@ -47,3 +47,21 @@ Daemon startup checks the selected conversation. Other conversations are checked
 On 2026-11-14 the startup timeout was reproduced in the actual magi workspace. The diagnostic process stack showed `recoveryTree → ChildSessions → scanSessions → readFile`: each parent reparsed every project log. The JSONL store now reads parent relationships once from `session.created` headers, while recovery reads bodies only for the selected session tree. This does not remove full reads from ordinary session listing or initial store indexing.
 
 The patched daemon started in the actual workspace, preserved its selected session and answered `about` successfully. `recovery_selected_test.go` checks that unopened conversations are neither read nor changed, that opening a transcript recovers it, and that reconnecting does not repeat recovery. `recovery_inventory_test.go` checks header-based topology and cloned workspace ownership. Startup plugin model selection no longer attempts a durable write before a session exists. The workspace trust warning is separate; trust settings were not changed.
+
+## Installed binary verification (2026-11-14)
+
+Three process tests passed against `/Users/sayaya/.local/bin/magi`, version `v0.42.1-119-g94b2017a`. They used isolated config, data and workspace directories, a local HTTP server and real daemon sockets. The user's running companion was not stopped.
+
+`TestRecoveryLifecycleThroughRealDaemon` truncated an HTTP response after `SAVED_PREFIX`, waited for a continuation carrying that prefix, and closed an attached transcript socket. Reattachment from durable sequence 5 received the final answer: two model requests and one user prompt. API capability probes and system continuation prompts are counted separately.
+
+The test then killed the daemon during another model request. Restart checked only the selected session; a second interrupted log stayed unchanged until `resume` selected it. Opening it again added no recovery events. A follow-up completed, and normal shutdown removed both the socket and daemon registration. The selected session was `s_653d120f2c05b1904d3574c6`; the unopened session was `s_e6acc640e9290d1db1f94ab6`. These were temporary test sessions, removed after verification. Initial readiness took 53ms and restart readiness 61ms in this small fixture, not a large-history performance measurement.
+
+`TestADaemonStoppedBySigtermHandsTheCutCallToThePersonAndRestartsClean` checked tool process cleanup and uncertain-operation handling; SIGTERM exited with code 0 in 16ms. `TestAnOwnedDaemonDiesWithItsOwnersPipe` checked that closing the owner's pipe stops its daemon and removes its registration within five seconds.
+
+On macOS or Linux, rerun against an installed binary with:
+
+```sh
+MAGI_VERIFY_BINARY=/absolute/path/to/magi go test ./cmd/magi -run 'TestRecoveryLifecycleThroughRealDaemon|TestADaemonStoppedBySigtermHands|TestAnOwnedDaemonDiesWithItsOwnersPipe' -count=1 -v
+```
+
+Without `MAGI_VERIFY_BINARY`, these tests build the current source. This run exercised daemon processes and a controlled provider, not a live remote-provider outage or desktop IDE exit/reopen. Focused JetBrains transcript and recovery tests passed 24 core tests and four IntelliJ tests; an unrelated untracked probe was excluded from core test compilation. Full core-suite acceptance and full-log indexing/listing performance remain separate work.

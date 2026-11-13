@@ -47,3 +47,20 @@ Windows, 실제 원격 공급자 장애, 모든 외부 도구의 동작까지 �
 2026-11-14 실제 magi 작업공간에서 시작 시간 초과를 재현했습니다. 진단 프로세스의 스택은 `recoveryTree → ChildSessions → scanSessions → readFile`에 있었고, 부모마다 전체 프로젝트 기록을 재파싱했습니다. 이제 JSONL 저장소는 부모 관계를 `session.created` 헤더로 한 번 읽으며, 복구는 선택된 세션 트리의 본문만 읽습니다. 일반 세션 목록·저장소 초기 색인 경로의 전체 읽기까지 제거한 것은 아닙니다.
 
 수정본은 기존 세션을 유지한 채 실제 작업공간에서 기동했고 `about` 요청에 정상 응답했습니다. `recovery_selected_test.go`는 열지 않은 세션을 읽거나 변경하지 않는지, 전사를 열면 복구하는지, 다시 붙을 때 중복 복구하지 않는지 검증합니다. `recovery_inventory_test.go`는 헤더 기반 부모 관계와 복제 작업공간 소유권을 검증합니다. 시작 플러그인의 모델 선택은 세션 생성 전 영속 기록을 쓰지 않도록 수정했습니다. 작업공간 신뢰 경고는 별개이며 신뢰 설정은 변경하지 않았습니다.
+## 설치 바이너리 검증 (2026-11-14)
+
+`/Users/sayaya/.local/bin/magi`의 `v0.42.1-119-g94b2017a`를 직접 실행한 프로세스 테스트 세 건이 통과했습니다. 설정·데이터·작업공간 디렉터리를 분리하고 로컬 HTTP 서버와 실제 데몬 소켓을 사용했습니다. 사용 중인 컴패니언은 종료하지 않았습니다.
+
+`TestRecoveryLifecycleThroughRealDaemon`은 `SAVED_PREFIX` 이후 HTTP 응답을 끊고, 그 내용을 포함한 후속 요청이 들어온 뒤 연결된 전사 소켓을 닫았습니다. 영속 순번 5부터 재접속하여 최종 답변을 받았으며, 모델 요청은 두 번, 사용자 프롬프트는 한 번이었습니다. API 지원 탐색 요청과 시스템의 계속하기 프롬프트는 별도로 셉니다.
+
+이어 다른 모델 요청 중 데몬을 강제 종료했습니다. 재시작은 선택한 세션만 복구했고, 두 번째 중단 로그는 `resume`으로 선택할 때까지 그대로 남았습니다. 다시 열어도 복구 이벤트가 추가되지 않았습니다. 후속 요청이 완료됐고, 정상 종료 뒤 소켓과 데몬 등록이 제거됐습니다. 선택 세션은 `s_653d120f2c05b1904d3574c6`, 열지 않은 세션은 `s_e6acc640e9290d1db1f94ab6`이었습니다. 검증 후 제거한 임시 세션입니다. 이 작은 테스트 구성에서 최초 준비는 53ms, 재시작 준비는 61ms였으며 대용량 기록 성능 측정은 아닙니다.
+
+`TestADaemonStoppedBySigtermHandsTheCutCallToThePersonAndRestartsClean`은 도구 프로세스 정리와 실행 여부가 불확실한 작업의 처리를 검사했습니다. SIGTERM 뒤 16ms에 종료 코드 0으로 끝났습니다. `TestAnOwnedDaemonDiesWithItsOwnersPipe`는 소유자의 파이프를 닫으면 5초 이내에 데몬이 종료되고 등록이 제거되는지 검사했습니다.
+
+macOS 또는 Linux에서 설치 바이너리로 다시 실행하려면 다음을 사용합니다.
+
+```sh
+MAGI_VERIFY_BINARY=/absolute/path/to/magi go test ./cmd/magi -run 'TestRecoveryLifecycleThroughRealDaemon|TestADaemonStoppedBySigtermHands|TestAnOwnedDaemonDiesWithItsOwnersPipe' -count=1 -v
+```
+
+`MAGI_VERIFY_BINARY`를 생략하면 현재 소스를 빌드합니다. 이번 실행은 데몬 프로세스와 제어된 제공자를 검사했으며, 실제 원격 제공자 장애나 데스크톱 IDE 종료·재실행 검증은 아닙니다. JetBrains 전사·복구 관련 코어 테스트 24개와 IntelliJ 테스트 4개도 통과했습니다. 별도 작업의 미추적 프로브는 코어 테스트 컴파일에서 제외했습니다. 코어 전체 테스트의 최종 통과 판정과 전체 로그 인덱싱·목록 조회 성능은 별도 작업으로 남습니다.

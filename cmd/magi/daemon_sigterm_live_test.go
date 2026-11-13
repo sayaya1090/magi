@@ -47,7 +47,7 @@ func TestADaemonStoppedBySigtermHandsTheCutCallToThePersonAndRestartsClean(t *te
 	}
 	t.Cleanup(func() { os.RemoveAll(ws) })
 	data := t.TempDir()
-	bin := buildMagi(t, t.TempDir())
+	bin := recoveryVerificationBinary(t)
 	marker := filepath.Join(ws, "marker")
 	commandText := "echo ran >> " + marker + "; if [ $(grep -c ran " + marker + ") -lt 2 ]; then sleep 30; fi"
 
