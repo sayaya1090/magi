@@ -32,7 +32,6 @@ import dev.sayaya.magi.ide.usecase.Level
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Row
 import dev.sayaya.magi.ide.usecase.RowText
-import dev.sayaya.magi.ide.usecase.Backoff
 import dev.sayaya.magi.ide.usecase.Rows
 import dev.sayaya.magi.ide.usecase.Who
 import dev.sayaya.magi.ide.usecase.Transcript
@@ -551,6 +550,17 @@ class MagiToolWindow : ToolWindowFactory {
 
         /** 창이 닫히는 중인가. 서면 재접속이 멈춘다 — 닫은 창이 스스로 되살아나면 안 된다. */
         private val closing = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val reconnect = TranscriptReconnect(
+            execute = { ApplicationManager.getApplication().executeOnPooledThread(it) },
+            attach = {
+                if (closing.get()) false else {
+                    mood(Look.faint, "↻", MagiBundle.msg("chat.link.connecting"), Phase.Connecting)
+                    follow() == Attach.Ok
+                }
+            },
+            recovered = { if (!closing.get()) refresh() },
+        )
+
 
         /**
          * 손. 창이 서면 같이 서고, 창이 살아 있는 동안만 산다.
@@ -938,6 +948,7 @@ class MagiToolWindow : ToolWindowFactory {
 
             // 스트림 닫기 전 closing 플래그를 먼저 설정하여 ended 콜백에서의 자동 재연결 트리거를 차단합니다.
             closing.set(true)
+            reconnect.close()
             sendDrafts.close()
             answerTransitions.dispose()
             answers.close()
@@ -1025,6 +1036,7 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun follow(): Attach = synchronized(followLock) {
+            if (closing.get()) return Attach.Failed("transcript is closing")
             // 자물쇠 하나(리뷰 4): 호출자가 init·reattach 백오프·moved 프레임 셋으로 늘었다.
             // 잠그지 않으면 동시 follow 둘이 각자 스트림을 열고 진 쪽이 안 닫힌 채 같은 sink 에
             // 계속 먹인다 — clear 와 재생이 뒤섞여 행이 두 벌 선다.
@@ -1059,6 +1071,11 @@ class MagiToolWindow : ToolWindowFactory {
                 Transcript({ DaemonClient.connect(sock) }, sid).follow(sink, since)
             }.getOrElse { return Attach.Failed(it.message ?: it.toString()) }
             following = started
+            if (closing.get()) {
+                started.close()
+                following = null
+                return Attach.Failed("transcript is closing")
+            }
             return Attach.Ok
         }
 
@@ -1082,27 +1099,9 @@ class MagiToolWindow : ToolWindowFactory {
          * 한 번 붙어 보는 값이고, 실패는 화면에 안 적는다 — 같은 줄을 무한히 쌓으면 사람이
          * 읽던 전사가 밀려난다.
          */
+
         private fun reattach() {
-            if (closing.get()) return
-            runCatching {
-                ApplicationManager.getApplication().executeOnPooledThread {
-                    // ⚠ **기다리는 시간은 공유 계약의 것이다.** 여기 1초·배증·30초가 손으로 적혀
-                    // 있었고 VS Code 에도 같은 두 수가 따로 적혀 있었다 — 게다가 **지터가 없어서**
-                    // 창이 여럿인 기계에서는 전부 같은 순간에 몰렸다. 계약의 ±20% 가 그것을 흩는다
-                    // (`clients/contract/lifecycle-policy.json`, `docs/CLIENT_LIFECYCLE` §5).
-                    var attempt = 1
-                    while (!closing.get()) {
-                        val wait = Backoff.delayMs(attempt, Math.random())
-                        try { Thread.sleep(wait) } catch (e: InterruptedException) { return@executeOnPooledThread }
-                        if (closing.get()) return@executeOnPooledThread
-                        // 시도하는 중이라고 말한다. 백오프가 30초까지 벌어지므로, 이 말이
-                        // 없으면 마지막 실패 사유가 30초 동안 「지금 상태」인 척 서 있는다.
-                        mood(Look.faint, "↻", MagiBundle.msg("chat.link.connecting"), Phase.Connecting)
-                        if (follow() == Attach.Ok) return@executeOnPooledThread refresh()
-                        attempt++
-                    }
-                }
-            }
+            if (!closing.get()) reconnect.request()
         }
 
         /**

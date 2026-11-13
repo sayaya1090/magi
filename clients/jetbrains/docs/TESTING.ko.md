@@ -2107,3 +2107,7 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 `TranscriptHistoryTest`는 600행을 복원하고 맨 위와 아래로 이동하면서 화면 주변의 행만 Swing 컴포넌트로 유지하는지 검사합니다. 화면 밖 행은 높이 정보로 스크롤 범위를 유지하며 전체 기록과 전체 선택은 보존합니다. `TailScrollTest`는 스트리밍 행 재사용, 읽기 위치와 하단 추적을 검사합니다. 실행 중인 IDE의 재시작 프리징 시간은 별도로 확인해야 합니다.
 
 같은 테스트는 시작 재생과 큰 답변도 검사합니다. 재생 중에는 행을 붙이지 않고 `caughtUp`에서 로그 끝 행만 그리는지, `caughtUp`을 보내지 않는 데몬도 시간 초과 뒤 그려지는지 봅니다. 범위를 벗어난 복합 서식 답변이 브라우저를 유지하는지(`RichRecency`), 다시 만든 브라우저가 재 둔 높이로 시작하는지도 봅니다. 실제 브라우저가 필요한 부분은 옵트인 `NativeMarkdownSurfaceTest.testABrowserForwardsTheWheelBeforeItsPageAndSurvivesLeavingTheRange`가 맡습니다. 페이지 준비 전 휠이 Swing 스크롤로 넘어가는지, 준비 뒤에는 페이지가 보낸 값만 반영되는지, 떼었다 다시 붙인 브라우저의 페이지가 남아 있는지 봅니다. 창을 띄우므로 데스크톱에서 `./gradlew -PnativeMarkdownTest :intellij:test --tests '*NativeMarkdownSurfaceTest.testABrowser*'`로 실행합니다. 합성 이벤트로 재는 테스트라 실제 손으로 스크롤하는 체감은 확인하지 못합니다.
+
+### 전사 자동 재접속
+
+`TranscriptReconnectTest`는 겹친 재접속 요청의 단일 실행, 연결 시도 중 다시 발생한 단절의 보존, 실패 후 백오프와 성공 후 갱신, 창 종료 시 대기 취소를 검증합니다. 네트워크는 주입된 콜백으로 재현하며, 실제 HTTP·소켓 단절은 Go의 `TestHTTPStreamAndIDEDisconnectRecoverWithoutResubmitting`에서 검사합니다.
