@@ -60,7 +60,9 @@ import javax.swing.text.StyleConstants
  *
  * 소켓 입출력은 모두 백그라운드 스레드 풀에서 실행됩니다. EDT(Event Dispatch Thread)에서 소켓을 점유하면 데몬 응답 지연 시 IDE 전체가 블로킹됩니다.
  */
-class MagiToolWindow : ToolWindowFactory {
+// Transcript replay and the composer use daemon events, not IDE indices. Without
+// DumbAware the platform hides their content while startup indexing is running.
+class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware {
     /**
      * 이 프로젝트에 해당 도구 창이 유효한지 판정합니다(UI Guidelines · Tool window:
      * "don't display the button when the window doesn't apply to the project setup").

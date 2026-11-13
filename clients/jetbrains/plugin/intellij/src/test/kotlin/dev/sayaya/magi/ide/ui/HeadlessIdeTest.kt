@@ -45,6 +45,12 @@ import kotlinx.serialization.json.put
  */
 class HeadlessIdeTest : BasePlatformTestCase() {
 
+    fun testChatFactoryRemainsAvailableDuringIndexing() {
+        val factory: com.intellij.openapi.wm.ToolWindowFactory = MagiToolWindow()
+        assertTrue("IDE startup indexing must not hide the transcript and composer", factory.isDumbAware)
+    }
+
+
     private class PendingSend(
         val id: Int,
         val session: String,
