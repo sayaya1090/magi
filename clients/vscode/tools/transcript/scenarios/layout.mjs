@@ -20,8 +20,9 @@ export const layoutScenarios = [
           const svg = box.locator('svg[role="img"]');
           await svg.waitFor();
           await page.evaluate(() => { window.__diagramSvg = document.querySelector('.magi-diagram svg[role="img"]'); });
+          const fitWidth = await svg.evaluate(s => parseFloat(s.style.width));
           await box.getByRole('button', { name: /Zoom in|확대/, exact: true }).click();
-          assert.equal(await svg.evaluate(s => s.style.width), '125%');
+          assert.ok(Math.abs(await svg.evaluate(s => parseFloat(s.style.width)) - fitWidth * 1.25) < .01);
           await box.getByRole('button', { name: /Copy source|원본 복사/, exact: true }).click();
           assert.equal(await page.evaluate(() => window.__diagramCopy), source);
           for (let i = 0; i < 5; i++) await send('next '.repeat(i + 2));

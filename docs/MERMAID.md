@@ -32,6 +32,8 @@ These checks establish prerequisites. They cannot guarantee a window will open. 
 
 ## Interaction
 
+Fit preserves a small diagram’s intrinsic size and shrinks larger diagrams to the available width and a height of at most 420 pixels or 55% of the viewport. Zoom remains available for reading dense charts. Icon controls show labels on hover and keyboard focus.
+
 Offer zoom, fit, source copying, node selection and question copying. Select a node, copy the prepared question, then paste it into the composer. Nothing is submitted automatically and no code is executed. Enter and Space select nodes too. When clipboard access is denied, expand the source and offer manual copying.
 
 File/symbol navigation, path highlighting, live execution state and direct insertion into the composer remain future work. Do not describe them as implemented.

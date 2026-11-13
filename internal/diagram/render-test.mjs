@@ -30,7 +30,12 @@ try {
  assert.equal(await page.evaluate(()=>document.querySelector('#native-kept')===window.nativeDiagram),true,'native SVG must be moved, not re-rendered');
  assert.equal(await page.locator('.magi-diagram details pre').textContent(),nativeSource,'copy source must retain UTF-8, never SVG CSS');
  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
- assert.equal(await page.locator('#native-kept').evaluate(e=>e.style.width),'125%');
+ assert.equal(await page.locator('#native-kept').evaluate(e=>e.style.width),'125px');
+ await page.getByRole('button',{name:'Fit',exact:true}).click();
+ assert.equal(await page.locator('#native-kept').evaluate(e=>e.getBoundingClientRect().width),100,'small diagram keeps intrinsic size');
+ const fitButton=page.getByRole('button',{name:'Fit',exact:true});
+ await fitButton.focus();
+ assert.equal(await fitButton.locator('.magi-diagram-tooltip').isVisible(),true,'keyboard tooltip');
  await page.locator('.magi-diagram').evaluate(e=>e.remove());
  const insert=async(source,streaming=false)=>page.evaluate(({source,streaming})=>{
   const p=document.createElement('pre'),c=document.createElement('code');c.dataset.lang='mermaid';c.dataset.streaming=String(streaming);c.textContent=source;
@@ -39,8 +44,9 @@ try {
  },{source,streaming});
  await insert('flowchart LR\n A[Agent] --> B[Developer]');
  await page.locator('.magi-diagram svg[role=img]').waitFor();
+ const fitWidth=await page.locator('.magi-diagram svg[role=img]').evaluate(e=>parseFloat(e.style.width));
  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
- assert.equal(await page.locator('.magi-diagram svg[role=img]').evaluate(e=>e.style.width),'125%');
+ assert.ok(Math.abs(await page.locator('.magi-diagram svg[role=img]').evaluate(e=>parseFloat(e.style.width))-fitWidth*1.25)<.01);
  await page.getByRole('button',{name:'Fit',exact:true}).click();
  await page.locator('.node').first().click();
  assert.equal(await page.getByRole('button',{name:'Copy question'}).isEnabled(),true);
@@ -64,6 +70,10 @@ try {
  await page.waitForTimeout(250);
  await page.locator('code[data-streaming=true]').evaluate(e=>e.dataset.streaming='false');
  await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length===6,{},{timeout:2000});
+ await insert('flowchart TD\n'+Array.from({length:25},(_,i)=>`N${i} --> N${i+1}`).join('\n'));
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length===7);
+ const tall=page.locator('.magi-diagram svg[role=img]').last();
+ assert.ok(await tall.evaluate(e=>e.getBoundingClientRect().height<=Math.min(420,innerHeight*.55)+1),'tall chart fits height');
  assert.equal(calls.length,0,'offline diagram must not request external resources');
  await page.setViewportSize({width:390,height:800});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'narrow viewport overflow');

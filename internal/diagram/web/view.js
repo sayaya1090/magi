@@ -11,11 +11,13 @@
   const style = document.createElement('style');
   style.textContent = `
     .magi-diagram { --magi-outline:var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 20%,transparent)); }
-    .magi-diagram .magi-diagram-action { font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:8px;cursor:pointer; }
+    .magi-diagram .magi-diagram-action { position:relative;font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:8px;cursor:pointer; }
     .magi-diagram .magi-diagram-action:hover:not(:disabled) { background:color-mix(in srgb,currentColor 8%,transparent); }
     .magi-diagram .magi-diagram-action:focus-visible { outline:2px solid var(--md-sys-color-primary,Highlight);outline-offset:2px; }
     .magi-diagram .magi-diagram-action:disabled { opacity:.38;cursor:default; }
     .magi-diagram .magi-diagram-action svg { width:18px;height:18px;fill:currentColor;flex:none; }
+    .magi-diagram .magi-diagram-tooltip { display:none;position:absolute;top:100%;left:0;z-index:2;white-space:nowrap;padding:4px 8px;border:1px solid var(--magi-outline);border-radius:4px;background:var(--md-sys-color-surface,Canvas);color:var(--md-sys-color-on-surface,CanvasText);font-size:12px;pointer-events:none; }
+    .magi-diagram-action:hover .magi-diagram-tooltip,.magi-diagram-action:focus-visible .magi-diagram-tooltip { display:block; }
     @media (pointer:coarse) { .magi-diagram .magi-diagram-action { min-width:48px;min-height:48px; } }
   `;
   document.head.append(style);
@@ -32,21 +34,37 @@
     box.className = 'magi-diagram';
     box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--magi-outline);border-radius:8px;max-width:100%;overflow:hidden;color:inherit';
     const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
-    const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;max-height:65vh;min-height:48px';
+    const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;max-height:min(420px,55vh);min-height:48px;max-width:100%';
     const note = document.createElement('div'); note.setAttribute('role','status'); note.style.cssText = 'white-space:pre-wrap;font:inherit';
     const sourceBox = document.createElement('details'), summary = document.createElement('summary'), code = document.createElement('pre');
     summary.textContent = say('Source', '원본'); code.textContent = source; sourceBox.append(summary, code);
-    let zoom = 1, svg;
+    let zoom = 1, svg, fitWidth = 0;
     function button(icon, en, kr, action) {
       const b = document.createElement('button'); b.type='button'; b.className='magi-diagram-action';
       b.title=say(en,kr); b.setAttribute('aria-label',b.title);
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
       svg.setAttribute('viewBox',icons[icon].viewBox); svg.setAttribute('aria-hidden','true');
       const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',icons[icon].path);svg.append(path);b.append(svg);
+      const tip=document.createElement('span');tip.className='magi-diagram-tooltip';tip.setAttribute('aria-hidden','true');tip.textContent=b.title;b.append(tip);
       b.onclick=action; bar.append(b); return b;
     }
-    function scale(n) { zoom=Math.max(.25,Math.min(4,n)); if(svg) { svg.style.width=(zoom*100)+'%'; svg.style.maxWidth='none'; } }
-    button('zoomIn','Zoom in','확대',()=>scale(zoom*1.25)); button('zoomOut','Zoom out','축소',()=>scale(zoom/1.25)); button('fit','Fit','맞춤',()=>scale(1));
+    function scale(n) {
+      zoom=Math.max(.25,Math.min(4,n));
+      if(svg) {
+        svg.style.width=(fitWidth*zoom)+'px'; svg.style.height='auto'; svg.style.maxWidth='none';
+        svg.style.display='block'; svg.style.maxWidth=zoom===1?'100%':'none';
+      }
+    }
+    function fit() {
+      if(!svg) return;
+      const vb=svg.viewBox.baseVal;
+      const width=vb.width || svg.getBoundingClientRect().width || canvas.clientWidth;
+      const height=vb.height || svg.getBoundingClientRect().height || 48;
+      // Never enlarge a small diagram merely to fill the transcript column.
+      fitWidth=width*Math.min(1,Math.max(1,canvas.clientWidth)/width,Math.min(420,innerHeight*.55)/height);
+      scale(1);
+    }
+    button('zoomIn','Zoom in','확대',()=>scale(zoom*1.25)); button('zoomOut','Zoom out','축소',()=>scale(zoom/1.25)); button('fit','Fit','맞춤',fit);
     async function copy(text) {
       try { await navigator.clipboard.writeText(text); note.textContent=say('Copied.','복사했습니다.'); }
       catch { sourceBox.open=true; note.textContent=say('Clipboard unavailable. Select and copy the source below.','클립보드를 사용할 수 없습니다. 아래 원본을 선택해 복사해 주세요.'); }
@@ -84,7 +102,7 @@
           svg=document.importNode(parsed.documentElement,true);
         }
         svg.setAttribute('role','img'); svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
-        canvas.replaceChildren(svg); scale(1); note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
+        canvas.replaceChildren(svg); fit(); note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button');
           const select=()=>{selected=(n.textContent||'').trim(); ask.disabled=!selected; note.textContent=say('Selected: ','선택: ')+selected;};
