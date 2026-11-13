@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -702,7 +703,7 @@ func recoveryHeader(path, project string) (session.SessionMeta, bool, error) {
 // ListSessions returns metadata for top-level (non-subagent) sessions under
 // workdir, newest first.
 func (s *Store) ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {
-	all, err := s.scanSessions(workdir)
+	all, err := s.scanSessions(ctx, workdir)
 	if err != nil {
 		return nil, err
 	}
@@ -718,7 +719,7 @@ func (s *Store) ListSessions(ctx context.Context, workdir string) ([]session.Ses
 // ChildSessions returns the subagent (child) sessions spawned by parentID, newest
 // first — used to restore a parent's subagent panes on resume.
 func (s *Store) ChildSessions(ctx context.Context, workdir, parentID string) ([]session.SessionMeta, error) {
-	all, err := s.scanSessions(workdir)
+	all, err := s.scanSessions(ctx, workdir)
 	if err != nil {
 		return nil, err
 	}
@@ -737,7 +738,7 @@ type listingEntry struct {
 	meta session.SessionMeta
 }
 
-func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
+func (s *Store) scanSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {
 	s.listingMu.Lock()
 	defer s.listingMu.Unlock()
 	dir := filepath.Join(s.projectsDir(), encodeWorkdir(workdir))
@@ -750,6 +751,9 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 	}
 	var metas []session.SessionMeta
 	for _, f := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
 			continue
 		}
@@ -760,9 +764,19 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 			return nil, err
 		}
 		key := workdir + "\x00" + path
-		if cached, ok := s.listing[key]; ok && os.SameFile(info, cached.info) && info.Size() == cached.info.Size() && info.ModTime().Equal(cached.info.ModTime()) {
+		if cached, ok := s.listing[key]; ok && os.SameFile(info, cached.info) && info.Size() == cached.info.Size() && info.ModTime().Equal(cached.info.ModTime()) && listingIdentity(info) == listingIdentity(cached.info) {
 			m := cached.meta
 			m.Labels = append([]string(nil), m.Labels...)
+			metas = append(metas, m)
+			continue
+		}
+		if m, ok := s.loadListing(key, workdir, sid, info); ok {
+			if len(s.listing) >= 4096 {
+				clear(s.listing)
+			}
+			cached := m
+			cached.Labels = append([]string(nil), m.Labels...)
+			s.listing[key] = listingEntry{info: info, meta: cached}
 			metas = append(metas, m)
 			continue
 		}
@@ -846,6 +860,11 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 		}
 		if len(s.listing) >= 4096 {
 			clear(s.listing)
+		}
+		if err := s.saveListing(key, workdir, info, m); err != nil {
+			// The cache is disposable; the parsed log remains authoritative for this result.
+			// Do not hide this session just because its acceleration file is unwritable.
+			slog.Debug("session listing cache write failed", "error", err)
 		}
 		cached := m
 		cached.Labels = append([]string(nil), m.Labels...)

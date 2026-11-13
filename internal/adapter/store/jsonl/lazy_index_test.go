@@ -140,6 +140,18 @@ func BenchmarkLazyHistory(b *testing.B) {
 	if _, err := s.ListSessions(ctx, wd); err != nil {
 		b.Fatal(err)
 	}
+	b.Run("RestartList64Logs16MiB", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			fresh, err := New(root)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if _, err = fresh.ListSessions(ctx, wd); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 	b.Run("WarmList64Logs16MiB", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {

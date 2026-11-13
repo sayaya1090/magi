@@ -64,13 +64,22 @@ On macOS or Linux, rerun against an installed binary with:
 MAGI_VERIFY_BINARY=/absolute/path/to/magi go test ./cmd/magi -run 'TestRecoveryLifecycleThroughRealDaemon|TestADaemonStoppedBySigtermHands|TestAnOwnedDaemonDiesWithItsOwnersPipe' -count=1 -v
 ```
 
-Without `MAGI_VERIFY_BINARY`, these tests build the current source. This run exercised daemon processes and a controlled provider, not a live remote-provider outage or desktop IDE exit/reopen. Focused JetBrains transcript and recovery tests passed 24 core tests and four IntelliJ tests; an unrelated untracked probe was excluded from core test compilation. Full core-suite acceptance and full-log indexing/listing performance remain separate work.
+Without `MAGI_VERIFY_BINARY`, these tests build the current source. This run exercised daemon processes and a controlled provider, not a live remote-provider outage or desktop IDE exit/reopen. Focused JetBrains transcript and recovery tests passed 24 core tests and four IntelliJ tests; an unrelated untracked probe was excluded from core test compilation. The subsequent full-suite and listing-cache checks are recorded below.
 
 
 ## Resume control and log lookup
 
 JetBrains and VS Code show a **Resume task** button for a resumable interruption. Clicking it rechecks the daemon’s recovery state and submits the continuation without changing the composer draft. Duplicate clicks are blocked while the request is pending. Sessions with uncertain tool calls still require those calls to be checked first. A failed recovery keeps its separate retry action.
 
-The JSONL store discovers file paths at startup and loads a session’s last sequence only before its first append. Listing caches up to 4096 metadata entries separately from transcript bodies. File identity, modification time and size invalidate an entry, including another process’s append or an atomic replacement. The first listing and changed files still require full reads; this is not a persistent on-disk metadata index.
+The JSONL store discovers file paths at startup and loads a session’s last sequence only before its first append. Listing caches up to 4096 metadata entries separately from transcript bodies. File identity, modification time and size invalidate an entry, including another process’s append or an atomic replacement. On macOS and Linux, disposable metadata files in `listing-cache` survive process restarts. File identity, size, mtime and ctime must match before reuse. Missing, corrupt or stale entries fall back to the source log; cache write failures do not hide sessions. Other platforms retain ordinary log reads. Logs without a valid saved entry still require one full read.
 
 `lazy_index_test.go` checks lazy sequence initialization, external updates, same-size atomic replacement, deletion and isolation of returned labels. On an Apple M4 Pro, `BenchmarkLazyHistory` with 64 logs totaling 16 MiB measured about 0.084ms to open the store and 0.152ms for a warm listing (20 iterations). These are synthetic local measurements, not IDE startup timings.
+
+
+## Full core-suite and persistent listing checks (2026-11-14)
+
+A detached checkout of `bbc501ed`, with the resume button’s local variable renamed from `state` to `recoveryReply`, passed 456 of 462 JetBrains core tests, with six environment-dependent skips and no failures. The rename satisfies the existing source guard against bringing back the old state label. No test was excluded from this checkout, and the original untracked replay probe was left untouched. No plugin was installed or restarted.
+
+The JSONL race suite and recovery process tests passed with the persistent metadata cache. Tests cover corrupt and unwritable caches, external append, atomic replacement and in-place edits that restore the original size and modification time. Windows and Linux test binaries were cross-compiled; this is not runtime validation on those operating systems. With 64 logs totaling 16 MiB, a new store followed by a cached disk listing measured 1.66ms; a warm in-memory listing measured 0.16ms (Apple M4 Pro, 20 iterations).
+
+Remote-provider verification could not proceed with the available configuration: the Gemini profile endpoint was unreachable, and the configured cloud model was absent from the responding server’s model list. Only local models were listed. This is a connection prerequisite check, not a successful remote outage/recovery test.

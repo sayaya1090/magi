@@ -1301,8 +1301,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                                 if (target != followedSid || !isEnabled) return@addActionListener
                                 isEnabled = false
                                 settleRecovery(onDone = { isEnabled = true }) { comp ->
-                                    val state = comp.recoveryState()
-                                    if (target != followedSid || closing.get() || !state.ok || state.recovery?.kind != "resumable") state
+                                    val recoveryReply = comp.recoveryState()
+                                    if (target != followedSid || closing.get() || !recoveryReply.ok || recoveryReply.recovery?.kind != "resumable") recoveryReply
                                     else comp.say("continue", turnOpen = false)
                                 }
                             }
