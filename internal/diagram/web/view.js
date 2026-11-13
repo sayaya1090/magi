@@ -24,8 +24,9 @@
     if (/%%\s*\{|^\s*---|^\s*click\s|<\s*\/?\s*[a-z]|https?:\/\//im.test(source))
       throw Error(say('Use plain labels without HTML, links, click directives or configuration.', 'HTML, 링크, click 지시문, 설정 없이 일반 라벨을 사용해 주세요.'));
   }
-  function mount(pre, source) {
-    if (pre.querySelector('svg, img, iframe, object') || pre.dataset.magiDiagram === source) return;
+  function mount(pre, source, nativeSVG) {
+    const input=pre.querySelector('code')||pre;
+    if ((!nativeSVG && input.querySelector('svg, img, iframe, object')) || pre.dataset.magiDiagram === source) return;
     pre.dataset.magiDiagram = source;
     const box = document.createElement('figure');
     box.className = 'magi-diagram';
@@ -59,23 +60,30 @@
       if (!box.isConnected) return;
       try {
         allowed(source);
-        let rendered=cache.get(source);
-        if (!rendered) {
-          window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'neutral',maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
-          rendered=(await window.mermaid.render('magiDiagram'+(++seq),source)).svg;
-          if(cache.size>=32) cache.delete(cache.keys().next().value);
-          cache.set(source,rendered);
+        if (nativeSVG) {
+          // Already rendered by the IDE: move that node, retaining native labels
+          // and theme. Never parse its CSS/text as Mermaid or render it twice.
+          svg=nativeSVG;
+        } else {
+          let rendered=cache.get(source);
+          if (!rendered) {
+            window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'neutral',maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
+            rendered=(await window.mermaid.render('magiDiagram'+(++seq),source)).svg;
+            if(cache.size>=32) cache.delete(cache.keys().next().value);
+            cache.set(source,rendered);
+          }
+          if(!box.isConnected) return;
+          // Only Mermaid's strict-mode output enters this isolated SVG parse boundary.
+          const unique=rendered.replace(/magiDiagram[0-9]+/g,'magiDiagram'+(++seq));
+          const parsed=new DOMParser().parseFromString(unique,'image/svg+xml');
+          if(parsed.querySelector('parsererror')) throw Error('Invalid SVG');
+          parsed.querySelectorAll('script,foreignObject,iframe,image,a').forEach(n=>n.remove());
+          parsed.querySelectorAll('*').forEach(n=>Array.from(n.attributes).forEach(a=>{
+            if(/^on/i.test(a.name)||/href$/i.test(a.name)) n.removeAttribute(a.name);
+          }));
+          svg=document.importNode(parsed.documentElement,true);
         }
-        if(!box.isConnected) return;
-        // Only Mermaid's strict-mode output enters this isolated SVG parse boundary.
-        const unique=rendered.replace(/magiDiagram[0-9]+/g,'magiDiagram'+(++seq));
-        const parsed=new DOMParser().parseFromString(unique,'image/svg+xml');
-        if(parsed.querySelector('parsererror')) throw Error('Invalid SVG');
-        parsed.querySelectorAll('script,foreignObject,iframe,image,a').forEach(n=>n.remove());
-        parsed.querySelectorAll('*').forEach(n=>Array.from(n.attributes).forEach(a=>{
-          if(/^on/i.test(a.name)||/href$/i.test(a.name)) n.removeAttribute(a.name);
-        }));
-        svg=document.importNode(parsed.documentElement,true); svg.setAttribute('role','img'); svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
+        svg.setAttribute('role','img'); svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
         canvas.replaceChildren(svg); scale(1); note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button');
@@ -87,10 +95,23 @@
   }
   function scan() {
     document.querySelectorAll('pre > code').forEach(code=>{
-      // IDE-native Mermaid has already consumed the source. textContent now includes SVG CSS.
-      if (code.querySelector('svg, img, iframe, object') || code.dataset.processed === 'true') return;
       const lang=code.getAttribute('data-lang')||code.getAttribute('data-language')||(code.className||'').replace(/^language-/,'');
-      if(lang.trim().toLowerCase()==='mermaid' && code.getAttribute('data-streaming')!=='true') mount(code.parentElement,code.textContent||'');
+      if(lang.trim().toLowerCase()!=='mermaid' || code.getAttribute('data-streaming')==='true') return;
+      const pre=code.parentElement, nativeSVG=code.querySelector('svg');
+      if (nativeSVG) {
+        // JetBrains keeps the UTF-8 source on its copy button even after native
+        // rendering. Without that metadata, preserve the SVG without a toolbar.
+        const encoded=pre.querySelector('[data-fence-content]')?.getAttribute('data-fence-content');
+        if (!encoded) return;
+        try {
+          const source=new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(atob(encoded),c=>c.charCodeAt(0)));
+          allowed(source);
+          mount(pre,source,nativeSVG);
+        } catch { /* Invalid metadata: leave the IDE's rendered diagram intact. */ }
+        return;
+      }
+      if (code.querySelector('img, iframe, object') || code.dataset.processed === 'true') return;
+      mount(pre,code.textContent||'');
     });
   }
   window.magiMermaid={mount,scan};

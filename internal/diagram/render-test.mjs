@@ -19,8 +19,23 @@ try {
  });
  assert.equal(await page.locator('#ide-native svg').count(),1,'native rendered SVG must be preserved');
  await page.locator('#ide-native').evaluate(e=>e.remove());
+ const nativeSource='flowchart LR\n A[에이전트] --> B[개발자]';
+ await page.evaluate(source=>{
+  const pre=document.createElement('pre');
+  pre.innerHTML='<div data-fence-content=""><img class="copy-icon"></div><code class="language-mermaid"><svg id="native-kept" viewBox="0 0 100 40"><style>#native-kept{fill:gray}</style><g class="node"><text x="5" y="20">에이전트</text></g></svg></code>';
+  pre.querySelector('[data-fence-content]').dataset.fenceContent=btoa(String.fromCharCode(...new TextEncoder().encode(source)));
+  window.nativeDiagram=pre.querySelector('svg');document.body.append(pre);window.magiMermaid.scan();
+ },nativeSource);
+ await page.locator('.magi-diagram #native-kept').waitFor();
+ assert.equal(await page.evaluate(()=>document.querySelector('#native-kept')===window.nativeDiagram),true,'native SVG must be moved, not re-rendered');
+ assert.equal(await page.locator('.magi-diagram details pre').textContent(),nativeSource,'copy source must retain UTF-8, never SVG CSS');
+ await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+ assert.equal(await page.locator('#native-kept').evaluate(e=>e.style.width),'125%');
+ await page.locator('.magi-diagram').evaluate(e=>e.remove());
  const insert=async(source,streaming=false)=>page.evaluate(({source,streaming})=>{
-  const p=document.createElement('pre'),c=document.createElement('code');c.dataset.lang='mermaid';c.dataset.streaming=String(streaming);c.textContent=source;p.append(c);document.body.append(p);
+  const p=document.createElement('pre'),c=document.createElement('code');c.dataset.lang='mermaid';c.dataset.streaming=String(streaming);c.textContent=source;
+  // Real IDE markup includes a copy-button icon beside the code; it is not a diagram.
+  const button=document.createElement('div');button.innerHTML='<img class="copy-icon">';p.append(button,c);document.body.append(p);
  },{source,streaming});
  await insert('flowchart LR\n A[Agent] --> B[Developer]');
  await page.locator('.magi-diagram svg[role=img]').waitFor();

@@ -8,6 +8,49 @@ import java.awt.Color
 
 /** Opt-in: launches a real JCEF window; never runs in headless CI. */
 class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
+    fun testMermaidUsesRealMarkdownAndPackagedRenderer() {
+        check(java.lang.Boolean.getBoolean("magi.native.surface.test"))
+        val md = "```mermaid\nflowchart LR\nA[Agent] --> B[Developer]\n```"
+        val renderer = RichAnswer()
+        renderer.keepOnly(listOf("diagram"))
+        val panel = renderer.panel(project, md, "diagram", testRootDisposable, surface = Color(30, 31, 34))
+        assertNotNull("real Markdown provider failed", panel)
+        val live = renderer.javaClass.getDeclaredField("live").apply { isAccessible = true }.get(renderer) as Map<*, *>
+        val held = live.values.single()!!
+        val browser = held.javaClass.getDeclaredField("panel").apply { isAccessible = true }.get(held) as com.intellij.ui.jcef.JBCefBrowser
+        val state = java.util.concurrent.atomic.AtomicReference("")
+        val query = com.intellij.ui.jcef.JBCefJSQuery.create(browser)
+        com.intellij.openapi.util.Disposer.register(testRootDisposable, query)
+        query.addHandler { value -> state.set(value); null }
+        val inspect = query.inject("JSON.stringify({script:!!window.magiMermaid,ready:!!document.querySelector('.magi-diagram svg[role=img]'),buttons:document.querySelectorAll('.magi-diagram-action').length,text:document.body.innerText})")
+        val frame = JFrame("Magi native Mermaid test")
+        frame.glassPane = com.intellij.openapi.wm.impl.IdeGlassPaneImpl(frame.rootPane, false)
+        frame.contentPane = JPanel(BorderLayout()).apply { add(panel, BorderLayout.CENTER) }
+        frame.setSize(650, 500)
+        try {
+            frame.isVisible = true
+            val file = com.intellij.testFramework.LightVirtualFile("diagram.md", md)
+            val html = org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(file, md, project)
+            // Test application replaces the Markdown bootstrap URL; use its real generated HTML.
+            val update = "document.body.innerHTML=" + kotlinx.serialization.json.JsonPrimitive(html).toString() + ";window.magiMermaid && window.magiMermaid.scan();"
+            val start = System.currentTimeMillis()
+            var injected = false
+            while (System.currentTimeMillis() - start < 15000 && !state.get().contains("\"ready\":true")) {
+                com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+                if (!injected && System.currentTimeMillis() - start > 3000) {
+                    browser.cefBrowser.executeJavaScript(update, browser.cefBrowser.url, 0)
+                    injected = true
+                }
+                browser.cefBrowser.executeJavaScript(inspect, browser.cefBrowser.url, 0)
+                Thread.sleep(50)
+            }
+            println("MAGI_NATIVE_MERMAID " + state.get())
+            assertTrue("Mermaid did not render: " + state.get(), state.get().contains("\"ready\":true"))
+            assertTrue("icon toolbar missing: " + state.get(), state.get().contains("\"buttons\":5"))
+            assertFalse("renderer error: " + state.get(), state.get().contains("Diagram could not be rendered"))
+        } finally { frame.dispose() }
+    }
+
     fun testRealTableRendererSurface() {
         check(java.lang.Boolean.getBoolean("magi.native.surface.test")) { "run with -PnativeMarkdownTest on an interactive desktop" }
         val md = """
