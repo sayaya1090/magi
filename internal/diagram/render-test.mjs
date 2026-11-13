@@ -93,5 +93,42 @@ try {
   assert.notEqual(await button.evaluate(e=>getComputedStyle(e).outlineStyle),'none');
   await page.locator('.magi-diagram').first().screenshot({path:`/tmp/magi-diagram-${theme}.png`});
  }
+ // Metadata survives a plain Markdown fence, with accessible local questions.
+ await page.setViewportSize({width:1100,height:800});
+ await insert('flowchart LR\n A[Agent] --> B[Developer]\n%% magi-descriptions {"Agent":"Reads the request and prepares a reply."}\n%% magi-animate');
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length===8);
+ const interactive=page.locator('.magi-diagram').last();
+ const node=interactive.locator('.node').first();
+ await node.click();
+ assert.equal(await interactive.locator('aside p').textContent(),'Reads the request and prepares a reply.');
+ const positions=await interactive.evaluate(e=>({canvas:e.querySelector('.magi-diagram-canvas').getBoundingClientRect().right,info:e.querySelector('aside').getBoundingClientRect().left}));
+ assert.ok(positions.info>=positions.canvas,'details appear to the right when space permits');
+ await node.click({button:'right'});
+ assert.equal(await interactive.getByLabel('Follow-up question').evaluate(e=>e===document.activeElement),true);
+ await interactive.getByLabel('Follow-up question').fill('How does Agent retry?');
+ await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedQuestion=text;}}}));
+ await interactive.getByRole('button',{name:'Copy question',exact:true}).click();
+ assert.match(await page.evaluate(()=>window.copiedQuestion),/^How does Agent retry\?\n\n```mermaid/);
+ const edge=interactive.locator('.flowchart-link').first();
+ assert.equal(await edge.evaluate(e=>getComputedStyle(e).animationName),'magi-flow');
+ await interactive.getByLabel('Animate flow').uncheck();
+ assert.equal(await edge.evaluate(e=>getComputedStyle(e).animationName),'none');
+ await interactive.getByLabel('Animate flow').check();
+ await page.emulateMedia({reducedMotion:'reduce'});
+ assert.equal(await edge.evaluate(e=>getComputedStyle(e).animationName),'none');
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ await interactive.locator('.node').last().click();
+ assert.match(await interactive.locator('aside p').textContent(),/No explanation was supplied/);
+ await node.focus();await page.keyboard.press('Shift+F10');
+ assert.equal(await interactive.getByLabel('Follow-up question').evaluate(e=>e===document.activeElement),true);
+ await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('denied');}}}));
+ await interactive.getByRole('button',{name:'Copy question',exact:true}).click();
+ assert.match(await interactive.getByLabel('Question to copy',{exact:true}).inputValue(),/```mermaid/);
+ const copiedOnce=await interactive.getByLabel('Question to copy',{exact:true}).inputValue();
+ await interactive.getByRole('button',{name:'Copy question',exact:true}).click();
+ assert.equal(await interactive.getByLabel('Question to copy',{exact:true}).inputValue(),copiedOnce,'retries never duplicate context');
+ await page.setViewportSize({width:390,height:800});
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'details fit narrow screens');
+ await interactive.screenshot({path:'/tmp/magi-diagram-details.png'});
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

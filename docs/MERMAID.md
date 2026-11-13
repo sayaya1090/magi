@@ -20,7 +20,7 @@ The `skill` tool can load `visual-explanation`. This built-in guide covers flowc
 | Standalone local TUI | `mermaid_preview` saves HTML and returns a link. | Register the tool only after checking the environment. |
 | SSH, CI, TUI attached to a remote daemon | Do not provide the preview tool. | Explain in text. Do not infer the user's browser from the daemon host. |
 
-`mermaid` accepts `title` and `source`. Source is plain Mermaid without a code fence. The tool checks input size and policy; it does not claim that Mermaid syntax was validated. Clients display rendering errors and preserve the source. Graphical clients receive a Mermaid fenced block in the final answer.
+`mermaid` accepts `title` and `source`, plus optional `descriptions` and `animate`. Source is plain Mermaid without a code fence. The tool checks input size and policy; it does not claim that Mermaid syntax was validated. Clients display rendering errors and preserve the source. Graphical clients receive a Mermaid fenced block in the final answer.
 
 TUI answers contain a short explanation and the HTML link only. Do not expand the source. Source copying is available inside the preview. Files are saved under `magi/diagrams` in the user cache; no browser is launched automatically. Users can remove these files through their cache cleanup policy.
 
@@ -35,6 +35,10 @@ These checks establish prerequisites. They cannot guarantee a window will open. 
 Fit preserves a small diagram’s intrinsic size and shrinks larger diagrams to the available width and a height of at most 420 pixels or 55% of the viewport. Zoom remains available for reading dense charts. Icon controls show labels on hover and keyboard focus.
 
 Offer zoom, fit, source copying, node selection and question copying. Select a node, copy the prepared question, then paste it into the composer. Nothing is submitted automatically and no code is executed. Enter and Space select nodes too. When clipboard access is denied, expand the source and offer manual copying.
+
+Supply `descriptions` as an object keyed by each unique visible node label, for example `{"Agent":"Reads the request and prepares a reply."}`. Selecting a node opens its explanation to the right, or below on narrow screens. Missing descriptions are marked as missing. Right-click or Shift+F10 opens the editable follow-up question; Copy question includes the diagram context. Clipboard denial exposes a selectable copy field. Questions are never sent automatically.
+
+Set `animate: true` only for flowcharts whose arrows show data movement. The renderer adds moving dashes, a checkbox to stop them, and respects the system’s reduced-motion preference. Class and state diagrams are unaffected. The tool preserves both options as `%% magi-descriptions` and `%% magi-animate` comments in portable Mermaid source; keep these comments when placing the result in an answer. Descriptions are plain text, with at most 100 entries and 2000 bytes per description, within the total 24,000-byte source limit.
 
 File/symbol navigation, path highlighting, live execution state and direct insertion into the composer remain future work. Do not describe them as implemented.
 

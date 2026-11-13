@@ -37,15 +37,17 @@ func (m Mermaid) Description() string {
 	return "Prepare a Mermaid diagram for explaining complex architecture, component relations, sequences or state transitions. Return the fenced diagram in your answer with a short explanation. This checks input limits and policy, not Mermaid grammar; the client renders and reports syntax errors. Load skill visual-explanation for UML guidance."
 }
 func (Mermaid) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"source":{"type":"string","description":"Mermaid source without fences. Plain labels; no HTML, URLs, click directives or configuration."}},"required":["title","source"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"source":{"type":"string","description":"Mermaid source without fences. Plain labels; no HTML, URLs, click directives or configuration."},"descriptions":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional plain-text explanations keyed by the exact visible node label. Keep labels unique."},"animate":{"type":"boolean","description":"Animate data-flow arrows in flowcharts only; use only when arrows represent data movement."}},"required":["title","source"],"additionalProperties":false}`)
 }
 
 var diagramUnsafe = regexp.MustCompile("(?im)%%\\s*\\{|^\\s*---|^\\s*click\\s|<\\s*/?\\s*[a-z]|https?://|```")
 
 func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var args struct {
-		Title  string `json:"title"`
-		Source string `json:"source"`
+		Title        string            `json:"title"`
+		Source       string            `json:"source"`
+		Descriptions map[string]string `json:"descriptions"`
+		Animate      bool              `json:"animate"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return errResult("", "invalid diagram arguments"), nil
@@ -56,8 +58,29 @@ func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	if args.Title == "" || args.Source == "" || len(args.Title) > 200 || len(args.Source) > 24000 || diagramUnsafe.MatchString(args.Source) {
 		return errResult("", "Provide a title (1–200 bytes) and plain Mermaid source (1–24000 bytes), without fences, HTML, links, click directives or configuration."), nil
 	}
+	if len(args.Descriptions) > 100 {
+		return errResult("", "Provide at most 100 node descriptions."), nil
+	}
+	for label, description := range args.Descriptions {
+		if strings.TrimSpace(label) == "" || len(label) > 200 || len(description) > 2000 || diagramUnsafe.MatchString(label+"\n"+description) {
+			return errResult("", "Use plain node labels (1–200 bytes) and descriptions (at most 2000 bytes), without HTML, links or directives."), nil
+		}
+	}
+	if len(args.Descriptions) > 0 {
+		metadata, err := json.Marshal(args.Descriptions)
+		if err != nil {
+			return errResult("", "Could not encode node descriptions."), nil
+		}
+		args.Source += "\n%% magi-descriptions " + string(metadata)
+	}
+	if args.Animate {
+		args.Source += "\n%% magi-animate"
+	}
+	if len(args.Source) > 24000 {
+		return errResult("", "Diagram including descriptions exceeds 24000 bytes."), nil
+	}
 	if !m.Preview {
-		return okText("", fmt.Sprintf("Prepared for client rendering (syntax has not been parsed). Include this diagram and explain its important relationships:\n\n```mermaid\n%s\n```", args.Source)), nil
+		return okText("", fmt.Sprintf("Prepared for client rendering (syntax has not been parsed). Include this diagram verbatim, preserving its metadata comments, and explain its important relationships:\n\n```mermaid\n%s\n```", args.Source)), nil
 	}
 	if !DiagramBrowserAvailable(ctx) {
 		return errResult("", "Local browser preview is unavailable. Explain in text; do not claim a preview was opened."), nil

@@ -18,6 +18,14 @@
     .magi-diagram .magi-diagram-action svg { width:18px;height:18px;fill:currentColor;flex:none; }
     .magi-diagram .magi-diagram-tooltip { display:none;position:absolute;top:100%;left:0;z-index:2;white-space:nowrap;padding:4px 8px;border:1px solid var(--magi-outline);border-radius:4px;background:var(--md-sys-color-surface,Canvas);color:var(--md-sys-color-on-surface,CanvasText);font-size:12px;pointer-events:none; }
     .magi-diagram-action:hover .magi-diagram-tooltip,.magi-diagram-action:focus-visible .magi-diagram-tooltip { display:block; }
+    .magi-diagram-layout { display:flex;flex-wrap:wrap;gap:12px;align-items:start; }
+    .magi-diagram-canvas { flex:2 1 280px;min-width:0; }
+    .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:8px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:8px; }
+    .magi-diagram-info[hidden] { display:none; }
+    .magi-diagram-info textarea { width:100%;box-sizing:border-box;min-height:90px;font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:4px; }
+    .magi-diagram .magi-flow-active .flowchart-link { stroke-dasharray:8 5;animation:magi-flow 1s linear infinite; }
+    @keyframes magi-flow { to { stroke-dashoffset:-26; } }
+    @media (prefers-reduced-motion:reduce) { .magi-diagram .magi-flow-active .flowchart-link { animation:none; } }
     @media (pointer:coarse) { .magi-diagram .magi-diagram-action { min-width:48px;min-height:48px; } }
   `;
   document.head.append(style);
@@ -35,6 +43,26 @@
     box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--magi-outline);border-radius:8px;max-width:100%;overflow:hidden;color:inherit';
     const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
     const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;max-height:min(420px,55vh);min-height:48px;max-width:100%';
+    canvas.className='magi-diagram-canvas';
+    const layout=document.createElement('div');layout.className='magi-diagram-layout';
+    const info=document.createElement('aside');info.className='magi-diagram-info';info.hidden=true;
+    info.setAttribute('aria-label',say('Element details','요소 설명'));
+    const heading=document.createElement('strong'), description=document.createElement('p');
+    const questionLabel=document.createElement('label'), question=document.createElement('textarea');
+    questionLabel.textContent=say('Follow-up question','추가 질문');questionLabel.append(question);
+    const manualCopy=document.createElement('textarea');manualCopy.readOnly=true;manualCopy.hidden=true;manualCopy.setAttribute('aria-label',say('Question to copy','복사할 질문'));
+    info.append(heading,description,questionLabel,manualCopy);layout.append(canvas,info);
+    const descriptions=Object.create(null);
+    for(const line of source.split('\n')) {
+      const match=line.match(/^\s*%% magi-descriptions (.+)$/);
+      if(!match) continue;
+      try {
+        const parsed=JSON.parse(match[1]);
+        if(parsed && !Array.isArray(parsed) && typeof parsed==='object')
+          for(const [label,text] of Object.entries(parsed).slice(0,100))
+            if(typeof text==='string' && text.length<=2000) descriptions[label.trim()]=text;
+      } catch { /* Optional malformed descriptions do not prevent rendering. */ }
+    }
     const note = document.createElement('div'); note.setAttribute('role','status'); note.style.cssText = 'white-space:pre-wrap;font:inherit';
     const sourceBox = document.createElement('details'), summary = document.createElement('summary'), code = document.createElement('pre');
     summary.textContent = say('Source', '원본'); code.textContent = source; sourceBox.append(summary, code);
@@ -71,8 +99,12 @@
     }
     button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='';
-    const ask=button('question','Copy question','질문 복사',()=>copy(say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+selected+'\n\n```mermaid\n'+source+'\n```')); ask.disabled=true;
-    box.append(bar,canvas,note,sourceBox); pre.replaceWith(box);
+    const ask=button('question','Copy question','질문 복사',async()=>{
+      const text=question.value+'\n\n```mermaid\n'+source+'\n```';
+      try { await navigator.clipboard.writeText(text);note.textContent=say('Question copied. Paste it into the conversation to send.','질문을 복사했습니다. 대화 입력창에 붙여넣어 보내세요.'); }
+      catch { manualCopy.hidden=false;manualCopy.value=text;manualCopy.focus();manualCopy.select();note.textContent=say('Clipboard unavailable. Copy the selected question manually.','클립보드를 사용할 수 없습니다. 선택된 질문을 직접 복사하세요.'); }
+    }); ask.disabled=true;
+    box.append(bar,layout,note,sourceBox); pre.replaceWith(box);
     note.textContent=say('Rendering diagram…','다이어그램을 그리는 중…');
     queue=queue.catch(()=>{}).then(async()=>{
       if (!box.isConnected) return;
@@ -102,10 +134,26 @@
           svg=document.importNode(parsed.documentElement,true);
         }
         svg.setAttribute('role','img'); svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
-        canvas.replaceChildren(svg); fit(); note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
+        canvas.replaceChildren(svg); fit();
+        if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
+          const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';
+          toggle.checked=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+          const update=()=>svg.classList.toggle('magi-flow-active',toggle.checked);
+          toggle.addEventListener('change',update);update();
+          label.append(toggle,document.createTextNode(say('Animate flow','흐름 애니메이션')));bar.append(label);
+        } note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button');
-          const select=()=>{selected=(n.textContent||'').trim(); ask.disabled=!selected; note.textContent=say('Selected: ','선택: ')+selected;};
+          const select=()=>{
+            const next=(n.textContent||'').trim();
+            if(next!==selected) question.value=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;
+            manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
+            description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
+            note.textContent=say('Selected: ','선택: ')+selected;fit();
+          };
+          const followup=e=>{e.preventDefault();select();question.focus();};
+          n.addEventListener('contextmenu',followup);
+          n.addEventListener('keydown',e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')) followup(e);});
           n.addEventListener('click',select);n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});
         });
       } catch(e) { note.textContent=say('Diagram could not be rendered: ','다이어그램을 표시할 수 없습니다: ')+e.message; sourceBox.open=true; }
