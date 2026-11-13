@@ -941,3 +941,28 @@ test('the restart strip asks only a daemon that offers it, and a verdict goes to
   assert.equal(companion.calls.length, 0, 'a daemon that does not offer the door is not asked');
   assert.equal(restarts().at(-1)?.state, null);
 });
+
+test('resume button checks current recovery, rejects stale clicks and submits once', async () => {
+  const companion: any = createMockCompanion();
+  companion.caps = async () => new Set(['recovery']);
+  let release!: () => void;
+  let state = 'resumable';
+  const held = new Promise<void>(resolve => { release = resolve; });
+  companion.ask = async (door: string, payload?: any) => {
+    companion.calls.push({door,payload});
+    if (door === 'recovery-state') { await held; return {ok:true,recovery:{kind:state}}; }
+    if (door === 'submit') state='none';
+    return {ok:true};
+  };
+  const chat = new Chat(companion, {fsPath:'/ext',scheme:'file'} as any);
+  (chat as any).post=()=>{};(chat as any).draw=()=>{};(chat as any).sid='s1';
+  await chat.fromView({kind:'settle',resume:true,session:'old'});
+  assert.equal(companion.calls.length,0);
+  const first=chat.fromView({kind:'settle',resume:true,session:'s1'});
+  await chat.fromView({kind:'settle',resume:true,session:'s1'});
+  release();await first;
+  assert.deepEqual(companion.calls.filter((c:any)=>c.door==='submit'),[{door:'submit',payload:{session:'s1',text:'continue'}}]);
+  state='needs_check';await chat.fromView({kind:'settle',resume:true,session:'s1'});
+  assert.equal(companion.calls.filter((c:any)=>c.door==='submit').length,1);
+  chat.dispose();
+});

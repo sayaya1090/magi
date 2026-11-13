@@ -44,7 +44,7 @@ This does not establish behavior for Windows, a real remote-provider outage, or 
 
 Daemon startup checks the selected conversation. Other conversations are checked once on first transcript subscription, session selection or input; failed recovery is checked again on explicit retry. Running sessions are left alone. Only children created during the selected conversation's unfinished turn are checked. Tools are not automatically rerun.
 
-On 2026-11-14 the startup timeout was reproduced in the actual magi workspace. The diagnostic process stack showed `recoveryTree → ChildSessions → scanSessions → readFile`: each parent reparsed every project log. The JSONL store now reads parent relationships once from `session.created` headers, while recovery reads bodies only for the selected session tree. This does not remove full reads from ordinary session listing or initial store indexing.
+On 2026-11-14 the startup timeout was reproduced in the actual magi workspace. The diagnostic process stack showed `recoveryTree → ChildSessions → scanSessions → readFile`: each parent reparsed every project log. The JSONL store now reads parent relationships once from `session.created` headers, while recovery reads bodies only for the selected session tree. Initial store indexing now discovers paths without reading bodies. Ordinary session listing still reads each uncached or changed log for its title, labels and current model.
 
 The patched daemon started in the actual workspace, preserved its selected session and answered `about` successfully. `recovery_selected_test.go` checks that unopened conversations are neither read nor changed, that opening a transcript recovers it, and that reconnecting does not repeat recovery. `recovery_inventory_test.go` checks header-based topology and cloned workspace ownership. Startup plugin model selection no longer attempts a durable write before a session exists. The workspace trust warning is separate; trust settings were not changed.
 
@@ -65,3 +65,12 @@ MAGI_VERIFY_BINARY=/absolute/path/to/magi go test ./cmd/magi -run 'TestRecoveryL
 ```
 
 Without `MAGI_VERIFY_BINARY`, these tests build the current source. This run exercised daemon processes and a controlled provider, not a live remote-provider outage or desktop IDE exit/reopen. Focused JetBrains transcript and recovery tests passed 24 core tests and four IntelliJ tests; an unrelated untracked probe was excluded from core test compilation. Full core-suite acceptance and full-log indexing/listing performance remain separate work.
+
+
+## Resume control and log lookup
+
+JetBrains and VS Code show a **Resume task** button for a resumable interruption. Clicking it rechecks the daemon’s recovery state and submits the continuation without changing the composer draft. Duplicate clicks are blocked while the request is pending. Sessions with uncertain tool calls still require those calls to be checked first. A failed recovery keeps its separate retry action.
+
+The JSONL store discovers file paths at startup and loads a session’s last sequence only before its first append. Listing caches up to 4096 metadata entries separately from transcript bodies. File identity, modification time and size invalidate an entry, including another process’s append or an atomic replacement. The first listing and changed files still require full reads; this is not a persistent on-disk metadata index.
+
+`lazy_index_test.go` checks lazy sequence initialization, external updates, same-size atomic replacement, deletion and isolation of returned labels. On an Apple M4 Pro, `BenchmarkLazyHistory` with 64 logs totaling 16 MiB measured about 0.084ms to open the store and 0.152ms for a warm listing (20 iterations). These are synthetic local measurements, not IDE startup timings.

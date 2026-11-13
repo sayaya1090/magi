@@ -84,7 +84,11 @@ test('the strip names each call to check, offers four verdicts, and sends the on
   view.draw({ kind: 'resumable', reason: '', uncertain: [] });
   assert.equal(strip.hidden, false);
   assert.equal(strip.getAttribute('data-kind'), 'resumable');
-  assert.match(head.textContent, /continue/);
+  assert.doesNotMatch(head.textContent, /continue/);
+  const resume = all(list).find(e => e.getAttribute('data-resume') === 'true')!;
+  resume.click();resume.click();
+  assert.deepEqual(sent[1], {kind:'settle',resume:true});
+  assert.equal(sent.length,2,'double click submits once');
   assert.equal(all(list).filter((e) => e.getAttribute('data-verdict')).length, 0, 'a cut turn asks for no verdicts');
 
   view.draw({ kind: 'recovery_failed', reason: 'disk full', uncertain: [] });
@@ -93,7 +97,7 @@ test('the strip names each call to check, offers four verdicts, and sends the on
   const retry = all(list).filter((e) => e.getAttribute('data-retry') === 'true');
   assert.equal(retry.length, 1);
   retry[0].click();
-  assert.deepEqual(sent[1], { kind: 'settle', retry: true });
+  assert.deepEqual(sent[2], { kind: 'settle', retry: true });
 
   view.draw(null);
   assert.equal(strip.hidden, true, 'nothing left, no strip');

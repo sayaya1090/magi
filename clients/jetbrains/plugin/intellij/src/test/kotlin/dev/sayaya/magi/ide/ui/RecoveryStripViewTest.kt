@@ -56,7 +56,10 @@ class RecoveryStripViewTest : BasePlatformTestCase() {
             show(RecoveryState(kind = "resumable"))
             assertTrue(strip.isVisible)
             assertTrue(words(), words().contains(MagiBundle.msg("recovery.resumable")))
-            assertTrue("a cut turn asks for nothing but continue", buttons().none { it.getClientProperty("verdict") != null })
+            assertTrue(buttons().none { it.getClientProperty("verdict") != null })
+            val resume = buttons().single { it.getClientProperty("resume") == true }
+            resume.doClick(); resume.doClick()
+            assertEquals("resume is dispatched once without editing the composer", listOf("s1", "s1"), asked)
 
             show(RecoveryState(kind = "recovery_failed", reason = "disk full"))
             assertTrue(strip.isVisible)
@@ -64,7 +67,7 @@ class RecoveryStripViewTest : BasePlatformTestCase() {
             val retry = buttons().single { it.getClientProperty("retry") == true }
             retry.doClick()
             UIUtil.dispatchAllInvocationEvents()
-            assertEquals(listOf("s1", "s1"), asked)
+            assertEquals(listOf("s1", "s1", "s1"), asked)
 
             show(RecoveryState(kind = "none"))
             assertFalse("none hides the band", strip.isVisible)

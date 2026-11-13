@@ -1262,15 +1262,16 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          * 판정과 다시 시도. **아무것도 다시 돌리지 않는다** - 데몬이 기록하고 다시 읽은 상태로 띠를 다시 세운다.
          * 보내기([say])와 같은 연결 길을 탄다.
          */
-        private fun settleRecovery(work: (Companion) -> dev.sayaya.magi.ide.model.Response) {
+        private fun settleRecovery(onDone: () -> Unit = {}, work: (Companion) -> dev.sayaya.magi.ide.model.Response) {
             val target = followedSid
             if (target.isNullOrBlank() || closing.get()) return
             val connect = sendConnection ?: { sid: String, trouble: (String) -> Unit, w: (Companion) -> Unit ->
                 workspace.onDaemon(sid, trouble, w)
             }
-            connect(target, { report(it) }) { comp ->
+            connect(target, { report(it); SwingUtilities.invokeLater { onDone() } }) { comp ->
                 val r = work(comp)
                 SwingUtilities.invokeLater {
+                    onDone()
                     if (target != followedSid || closing.get()) return@invokeLater
                     if (r.ok) paintRecovery(r.recovery) else report(r.error ?: MagiBundle.msg("common.noreason"))
                 }
@@ -1290,8 +1291,24 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             recoveryCalls.removeAll()
             fun buttons() = javax.swing.JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply { isOpaque = false; alignmentX = 0f }
             when (s.kind) {
-                dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.Resumable ->
+                dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.Resumable -> {
                     recoveryHead.text = MagiBundle.msg("recovery.resumable")
+                    val target = followedSid
+                    recoveryCalls.add(buttons().apply {
+                        add(javax.swing.JButton(MagiBundle.msg("recovery.resume")).apply {
+                            putClientProperty("resume", true)
+                            addActionListener {
+                                if (target != followedSid || !isEnabled) return@addActionListener
+                                isEnabled = false
+                                settleRecovery(onDone = { isEnabled = true }) { comp ->
+                                    val state = comp.recoveryState()
+                                    if (target != followedSid || closing.get() || !state.ok || state.recovery?.kind != "resumable") state
+                                    else comp.say("continue", turnOpen = false)
+                                }
+                            }
+                        })
+                    })
+                }
                 dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.NeedsCheck -> {
                     recoveryHead.text = MagiBundle.msg("recovery.needs_check", s.calls.size)
                     s.calls.forEach { c ->

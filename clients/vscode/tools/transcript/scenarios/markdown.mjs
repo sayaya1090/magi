@@ -41,6 +41,15 @@ export const markdownScenario = {
       await page.locator('#say').fill('작업 초안 원문');
       assert.equal(await page.locator('#say').inputValue(), '작업 초안 원문');
 
+      await page.evaluate(() => window.postMessage({kind:'restart',state:{kind:'resumable'}}, '*'));
+      const resume = page.locator('[data-resume=true]');
+      await resume.click();
+      assert.equal(await resume.isDisabled(),true);
+      assert.deepEqual(await page.evaluate(() => window.__posted.filter(m=>m.kind==='settle' && m.resume).at(-1)),
+        {kind:'settle',resume:true,session:'s-md-stream'});
+      assert.equal(await page.locator('#say').inputValue(),'작업 초안 원문','resume preserves composer draft');
+      await page.evaluate(() => window.postMessage({kind:'restart',state:null}, '*'));
+
       // 2. Stream Phase 1: Incomplete streaming code fence
       await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
         session: 's-md-stream',

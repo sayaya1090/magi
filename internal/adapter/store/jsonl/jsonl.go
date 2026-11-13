@@ -27,7 +27,9 @@ import (
 
 // Store is a filesystem-backed, event-sourced store. Safe for concurrent use.
 type Store struct {
-	root string
+	root      string
+	listingMu sync.Mutex
+	listing   map[string]listingEntry
 
 	mu    sync.Mutex
 	seqs  map[session.SessionID]int64         // last assigned seq per session
@@ -59,16 +61,17 @@ type Store struct {
 // session's next Read.
 const cacheCap = 256
 
-// New opens (or initializes) a Store rooted at root, indexing any existing logs
-// so seq numbering and lookups survive process restarts.
+// New opens a Store and indexes log paths without reading their bodies.
+// The first Append loads that session's last sequence before assigning new numbers.
 func New(root string) (*Store, error) {
 	s := &Store{
-		root:  root,
-		seqs:  make(map[session.SessionID]int64),
-		paths: make(map[session.SessionID]string),
-		cache: make(map[session.SessionID][]event.Event),
-		read:  make(map[session.SessionID]int64),
-		used:  make(map[session.SessionID]uint64),
+		root:    root,
+		listing: make(map[string]listingEntry),
+		seqs:    make(map[session.SessionID]int64),
+		paths:   make(map[session.SessionID]string),
+		cache:   make(map[session.SessionID][]event.Event),
+		read:    make(map[session.SessionID]int64),
+		used:    make(map[session.SessionID]uint64),
 	}
 	if err := s.index(); err != nil {
 		return nil, err
@@ -79,7 +82,7 @@ func New(root string) (*Store, error) {
 // projectsDir is the parent of all per-workdir directories.
 func (s *Store) projectsDir() string { return filepath.Join(s.root, "projects") }
 
-// index scans existing logs to rebuild seq counters and path lookups.
+// index discovers paths only. Sequence counters are loaded on the first append to each log.
 func (s *Store) index() error {
 	base := s.projectsDir()
 	entries, err := os.ReadDir(base)
@@ -103,14 +106,7 @@ func (s *Store) index() error {
 			}
 			sid := session.SessionID(strings.TrimSuffix(f.Name(), ".jsonl"))
 			path := filepath.Join(base, dir.Name(), f.Name())
-			evs, err := readFile(path, 0)
-			if err != nil {
-				return err
-			}
 			s.paths[sid] = path
-			if n := len(evs); n > 0 {
-				s.seqs[sid] = evs[n-1].Seq
-			}
 		}
 	}
 	return nil
@@ -137,6 +133,20 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
+	}
+	if _, loaded := s.seqs[sid]; !loaded {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		existing, err := readFile(path, 0)
+		if err != nil {
+			return nil, err
+		}
+		var last int64
+		if len(existing) > 0 {
+			last = existing[len(existing)-1].Seq
+		}
+		s.seqs[sid] = last
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
 	if err != nil {
@@ -517,6 +527,13 @@ func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int6
 		return err
 	}
 
+	if _, loaded := s.seqs[sid]; !loaded {
+		var last int64
+		if len(existing) > 0 {
+			last = existing[len(existing)-1].Seq
+		}
+		s.seqs[sid] = last
+	}
 	snapshot.SessionID = sid
 	if snapshot.Seq == 0 {
 		snapshot.Seq = upToSeq
@@ -715,7 +732,14 @@ func (s *Store) ChildSessions(ctx context.Context, workdir, parentID string) ([]
 }
 
 // scanSessions reads metadata for every session file under workdir, newest first.
+type listingEntry struct {
+	info os.FileInfo
+	meta session.SessionMeta
+}
+
 func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
+	s.listingMu.Lock()
+	defer s.listingMu.Unlock()
 	dir := filepath.Join(s.projectsDir(), encodeWorkdir(workdir))
 	files, err := os.ReadDir(dir)
 	if err != nil {
@@ -730,7 +754,19 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 			continue
 		}
 		sid := session.SessionID(strings.TrimSuffix(f.Name(), ".jsonl"))
-		evs, err := readFile(filepath.Join(dir, f.Name()), 0)
+		path := filepath.Join(dir, f.Name())
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		key := workdir + "\x00" + path
+		if cached, ok := s.listing[key]; ok && os.SameFile(info, cached.info) && info.Size() == cached.info.Size() && info.ModTime().Equal(cached.info.ModTime()) {
+			m := cached.meta
+			m.Labels = append([]string(nil), m.Labels...)
+			metas = append(metas, m)
+			continue
+		}
+		evs, err := readFile(path, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -808,6 +844,12 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 				}
 			}
 		}
+		if len(s.listing) >= 4096 {
+			clear(s.listing)
+		}
+		cached := m
+		cached.Labels = append([]string(nil), m.Labels...)
+		s.listing[key] = listingEntry{info: info, meta: cached}
 		metas = append(metas, m)
 	}
 	sort.Slice(metas, func(i, j int) bool {

@@ -445,7 +445,7 @@ function drawPlan(_strip: { text: string } | null, todos: { content: string; sta
    in the adapter (restartStripView); a verdict goes to the host, which asks the daemon and sends back
    what it re-read. */
 const restartView = restartStripEl && restartHeadEl && restartListEl
-  ? restartStripView({ strip: restartStripEl, head: restartHeadEl, list: restartListEl }, document, (m) => vs.postMessage(m)) : null;
+  ? restartStripView({ strip: restartStripEl, head: restartHeadEl, list: restartListEl }, document, (m) => vs.postMessage({...m, session: currentSession})) : null;
 function drawRestart(state: Adapter.RestartState | null) {
   restartView?.draw(state);
 }

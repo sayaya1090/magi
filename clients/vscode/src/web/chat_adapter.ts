@@ -1502,7 +1502,7 @@ export interface RestartStrip {
 export function restartStrip(s: RestartState | null): RestartStrip | null {
   if (!s) return null;
   if (s.kind === 'resumable') {
-    return { kind: 'resumable', reason: '', calls: [], text: '\uc9c0\ub09c \ud134\uc774 \ub04a\uacbc\uc2b5\ub2c8\ub2e4 \u00b7 "continue"\ub97c \ubcf4\ub0b4\uba74 \uc774\uc5b4 \uac11\ub2c8\ub2e4' };
+    return { kind: 'resumable', reason: '', calls: [], text: '지난 작업을 이어갈 수 있습니다' };
   }
   if (s.kind === 'needs_check') {
     return { kind: 'needs_check', reason: '', calls: s.uncertain,
@@ -1519,7 +1519,7 @@ export function restartStrip(s: RestartState | null): RestartStrip | null {
 export interface RestartStripEls { strip: HTMLElement; head: HTMLElement; list: HTMLElement; }
 
 /** A verdict or a retry, as the strip sends it to the host. */
-export type RestartSettle = { kind: 'settle'; callId: string; verdict: (typeof RESTART_VERDICTS)[number] } | { kind: 'settle'; retry: true };
+export type RestartSettle = { kind: 'settle'; callId: string; verdict: (typeof RESTART_VERDICTS)[number] } | { kind: 'settle'; retry: true } | { kind: 'settle'; resume: true; session?: string };
 
 /**
  * The restart strip, drawn. Calls to check each get their tool, their target and four verdict buttons;
@@ -1560,6 +1560,13 @@ export function restartStripView(els: RestartStripEls, doc: Document, send: (m: 
         tip.className = 'restart-tip';
         tip.textContent = '\ud310\uc815\uc740 \ud655\uc778\ud55c \uac83\uc744 \uae30\ub85d\ud560 \ubfd0, \uc544\ubb34\uac83\ub3c4 \ub2e4\uc2dc \uc2e4\ud589\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4';
         kids.push(tip);
+      } else if (s.kind === 'resumable') {
+        const resume = button('작업 재개', () => {
+          if ((resume as HTMLButtonElement).disabled) return;
+          (resume as HTMLButtonElement).disabled = true;
+          send({kind:'settle', resume:true});
+        });
+        resume.setAttribute('data-resume','true');kids.push(resume);
       } else if (s.kind === 'recovery_failed') {
         if (s.reason) {
           const why = doc.createElement('p');

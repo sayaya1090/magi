@@ -467,6 +467,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private restartKey = '';
+  private resumingSessions = new Set<string>();
 
   /**
    * Ask the daemon what the last stop left in the followed conversation, and hand it to the strip. A
@@ -818,6 +819,23 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // it re-read, which is what the strip is redrawn from.
         const sid = this.session;
         if (!sid) break;
+        if (m.resume) {
+          if (m.session !== sid || this.resumingSessions.has(sid)) break;
+          this.resumingSessions.add(sid);
+          try {
+            const state = await this.companion.ask('recovery-state', {session:sid});
+            if (sid !== this.session) break;
+            if (!state?.ok || state.recovery?.kind !== 'resumable') { await this.askRestart(); break; }
+            const r = await this.companion.ask('submit', {session:sid, text:'continue'});
+            if (!r?.ok) void vscode.window.showWarningMessage(r?.error ?? 'Could not resume the task');
+          } catch (e) {
+            void vscode.window.showWarningMessage(String(e));
+          } finally {
+            this.resumingSessions.delete(sid);
+            if (sid === this.session) await this.askRestart();
+          }
+          break;
+        }
         const r = 'retry' in m && m.retry
           ? await this.companion.ask('recovery-retry', { session: sid })
           : m.callId && m.verdict

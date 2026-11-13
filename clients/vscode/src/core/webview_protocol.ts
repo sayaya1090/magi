@@ -119,6 +119,8 @@ export const SettleMessageSchema = v.object({
   callId: v.optional(v.string()),
   verdict: v.optional(v.picklist(['ran', 'not_ran', 'rerun_ok', 'deferred'])),
   retry: v.optional(v.literal(true)),
+  resume: v.optional(v.literal(true)),
+  session: v.optional(v.string()),
 });
 
 export const WebviewToHostMessageSchema = v.union([
