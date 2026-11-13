@@ -23,6 +23,37 @@ import kotlin.concurrent.thread
  * 않는다**는 규칙이다.
  */
 class CompanionTest {
+    @Test
+    fun `saved profile selection uses profile door and status preserves its name`() {
+        val fake = FakeDaemon(listOf("""{"ok":true}""", """{"ok":true,"profile":"custom","backend":"openai"}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { client ->
+            val companion = Companion(client, "selected-chat")
+            assertTrue(companion.useProfile("custom").ok)
+            val facts = companion.facts()
+            assertEquals("custom", facts.profile)
+            assertEquals("openai", facts.backend)
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains("\"method\":\"use-profile\""))
+        assertTrue(fake.seen[0].contains("\"session\":\"selected-chat\""))
+    }
+
+    @Test
+    fun `council toggle targets selected session and sends explicit boolean`() {
+        val fake = FakeDaemon(listOf("""{"ok":true}""", """{"ok":false,"error":"busy"}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { client ->
+            val companion = Companion(client, "selected-chat")
+            assertTrue(companion.setCouncil(true).ok)
+            assertFalse(companion.setCouncil(false).ok)
+        }
+        fake.close()
+        assertTrue(fake.seen.all { it.contains("\"session\":\"selected-chat\"") && it.contains("\"method\":\"set-council\"") })
+        assertTrue(fake.seen[0].contains("\"name\":\"true\""))
+        assertTrue(fake.seen[1].contains("\"name\":\"false\""))
+    }
+
 
     @Test
     fun `delegated answers keep original session even with another chat selected`() {

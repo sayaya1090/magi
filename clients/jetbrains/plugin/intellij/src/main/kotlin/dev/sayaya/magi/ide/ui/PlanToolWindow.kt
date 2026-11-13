@@ -177,6 +177,21 @@ class PlanToolWindow : ToolWindowFactory {
         var paintAsked: (Long) -> Unit = {}
         /** 세션 표시 문자열("제목 (s_…id6)")에서 실제 세션 ID를 매핑하는 역조회 테이블. */
 
+        val council = CouncilControl(confirm = { enabled ->
+            com.intellij.openapi.ui.Messages.showYesNoDialog(project,
+                MagiBundle.msg(if (enabled) "plan.council.enable" else "plan.council.disable"),
+                MagiBundle.msg("plan.council"), com.intellij.openapi.ui.Messages.getWarningIcon()
+            ) == com.intellij.openapi.ui.Messages.YES
+        }, change = { session, enabled, done ->
+            workspace.onDaemon(session, { why ->
+                tell(MagiBundle.msg("common.failed", why))
+                SwingUtilities.invokeLater { done() }
+            }) { comp ->
+                val result = comp.setCouncil(enabled)
+                if (!result.ok) tell(MagiBundle.msg("common.notsent", result.error ?: MagiBundle.msg("common.noreason")))
+                SwingUtilities.invokeLater { done(); polls.tryEmit(Unit) }
+            }
+        })
         val modelRevision = java.util.concurrent.atomic.AtomicLong()
         val modelChanging = java.util.concurrent.atomic.AtomicBoolean()
         model.addActionListener {
@@ -291,6 +306,7 @@ class PlanToolWindow : ToolWindowFactory {
             add(JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, JBUI.scale(8), 0)).apply {
                 border = JBUI.Borders.empty(6, 12 - 8 + labelWidth, 2, 12)
                 add(fresh)
+                add(council)
             })
             add(said)
             add(section(MagiBundle.msg("plan.companions")))
@@ -438,11 +454,14 @@ class PlanToolWindow : ToolWindowFactory {
             val cr: dev.sayaya.magi.ide.model.Response,
             val past: List<dev.sayaya.magi.ide.model.SessionRow>,
             val currentModel: String?,
+            val session: String,
+            val council: Boolean?,
             val revision: Long,
         )
         fun readPoll(comp: dev.sayaya.magi.ide.usecase.Companion): PollRead {
             val revision = modelRevision.get()
-            val currentModel = comp.facts().model
+            val facts = comp.facts()
+            val currentModel = facts.model
             val jr = comp.jobs()
             val r = comp.roster()
             val cr = comp.cron()
@@ -468,9 +487,10 @@ class PlanToolWindow : ToolWindowFactory {
             }
             // 완료된 서브에이전트 목록 조회 (하위 호환성: 해당 엔드포인트를 미지원하는 구버전 데몬에서는 실행 중인 작업만 표시).
             val past = comp.children().children.orEmpty()
-            return PollRead(jr, r, cr, past, currentModel, revision)
+            return PollRead(jr, r, cr, past, currentModel, comp.session, facts.council, revision)
         }
         fun paintPoll(p: PollRead) {
+                council.update(p.session, p.council)
                 if (!modelChanging.get() && p.revision == modelRevision.get()) {
                     p.currentModel?.let { now ->
                         painting = true

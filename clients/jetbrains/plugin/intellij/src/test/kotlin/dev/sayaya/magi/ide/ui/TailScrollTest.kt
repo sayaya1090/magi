@@ -80,7 +80,11 @@ class TailScrollTest : BasePlatformTestCase() {
         } finally { view.dispose() }
     }
 
-    fun testStreamingKeepsCompletedRowsAttachedAndReaderPositionStable() {
+    fun testStreamingKeepsCompletedRowsAttachedAndReaderPositionStable() = checkStreamingRows("text")
+
+    fun testThinkingKeepsItsRowAttachedAndReaderPositionStable() = checkStreamingRows("reasoning")
+
+    private fun checkStreamingRows(kind: String) {
         val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
         try {
             fun field(name: String) = view.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(view)
@@ -96,7 +100,7 @@ class TailScrollTest : BasePlatformTestCase() {
             }
             fun delta(text: String) = feed("part.delta", kotlinx.serialization.json.buildJsonObject {
                 put("messageId", kotlinx.serialization.json.JsonPrimitive("stream"))
-                put("kind", kotlinx.serialization.json.JsonPrimitive("text"))
+                put("kind", kotlinx.serialization.json.JsonPrimitive(kind))
                 put("text", kotlinx.serialization.json.JsonPrimitive(text))
             })
             fun layout(c: java.awt.Container) { c.doLayout(); c.components.filterIsInstance<java.awt.Container>().forEach(::layout) }
@@ -114,6 +118,16 @@ class TailScrollTest : BasePlatformTestCase() {
                 })
             })
             delta("```kotlin\n" + "val x = 1\n".repeat(80))
+            if (kind == "reasoning") {
+                val closedDraft = column.getComponent(2)
+                delta("more hidden reasoning\n")
+                assertSame("closed thinking must stay attached", closedDraft, column.getComponent(2))
+                assertNull((closedDraft as javax.swing.JComponent).getClientProperty("magi.draft.body"))
+                val row = rows.list().last()
+                view.javaClass.getDeclaredMethod("flip", dev.sayaya.magi.ide.usecase.Row::class.java)
+                    .apply { isAccessible = true }.invoke(view, row)
+                UIUtil.dispatchAllInvocationEvents()
+            }
             settle()
             assertAtEnd(pane)
             repeat(3) { delta("still following\n"); settle(); assertAtEnd(pane) }

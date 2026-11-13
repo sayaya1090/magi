@@ -494,6 +494,7 @@ function drawRefs(rs: string[]) {
 }
 type PaintedChatRow = { signature: string; draftSignature: string; node: HTMLDivElement };
 let paintedChatRows = new Map<string, PaintedChatRow>();
+const expandedThinkingRows = new Set<string>();
 type ChatRows = Parameters<ReceiveOptions['drawRows']>[0];
 let transcriptRows: ChatRows = [];
 let transcriptScope = '';
@@ -527,6 +528,7 @@ function draw(rs: ChatRows) {
     transcriptScope = scope;
     rowHeights = [];
     paintedChatRows.clear();
+    expandedThinkingRows.clear();
   }
   transcriptRows = rs;
   rowHeights.length = rs.length;
@@ -553,7 +555,7 @@ function paintViewport(tail = followingTail) {
     const signature = JSON.stringify(r);
     const draftSignature = JSON.stringify({ ...r, text: '' });
     const old = paintedChatRows.get(key);
-    if (old && (old.signature === signature || (r.who === 'agent' && r.draft && old.draftSignature === draftSignature))) {
+    if (old && (old.signature === signature || ((r.who === 'agent' || r.who === 'thinking') && r.draft && old.draftSignature === draftSignature))) {
       if (old.signature !== signature) old.node.querySelector<HTMLElement>('.body')!.textContent = r.text;
       old.node.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
       nextPainted.set(key, { signature, draftSignature, node: old.node });
@@ -631,7 +633,20 @@ function paintViewport(tail = followingTail) {
     } else {
       b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
     }
-    d.append(w, b);
+    if (r.who === 'thinking') {
+      const details = document.createElement('details');
+      details.className = 'thinking-details';
+      details.open = expandedThinkingRows.has(key);
+      const summary = document.createElement('summary');
+      summary.textContent = r.label;
+      details.append(summary, b);
+      details.addEventListener('toggle', () => {
+        if (!details.isConnected) return;
+        if (details.open) expandedThinkingRows.add(key); else expandedThinkingRows.delete(key);
+        scheduleViewport();
+      });
+      d.append(w, details);
+    } else d.append(w, b);
     /* A tool row names the call AND what it was asked to do. Without the second half a turn that
        runs thirty commands is thirty rows reading the same word, and the transcript cannot answer
        the one question it exists for. Its own element so it can be dimmed and clipped without

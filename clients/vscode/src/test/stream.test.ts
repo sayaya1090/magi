@@ -1139,13 +1139,11 @@ test('attaching draws the empty chat instead of leaving the last one up', () => 
   assert.equal(usage([]), '', 'an empty chat carries the previous one\'s context meter');
 
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
-  const at = chat.indexOf('this.events = [];\n    this.draw();');
-  assert.ok(at > 0,
-    'the panel is emptied without being redrawn — the rows on screen are the last chat\'s');
-  // Before the stream opens, not after: a frame that lands between the two would be drawn and then
-  // wiped by a redraw that follows it.
-  assert.ok(at < chat.indexOf("s.stream({ method: 'transcript'"),
-    'the redraw happens after the stream is opened — a frame landing between the two is lost');
+  const body = chat.slice(chat.indexOf('  showSession(sid: string)'), chat.indexOf('  /** Told the plan'));
+  assert.ok(body.indexOf('this.events = [];') >= 0);
+  assert.ok(body.indexOf('this.draw()') > body.indexOf('this.events = [];'));
+  assert.ok(body.indexOf('this.draw()') < body.indexOf('void this.openStream()'));
+
 });
 
 /**

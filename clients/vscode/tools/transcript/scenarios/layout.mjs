@@ -3,6 +3,63 @@ import assert from 'node:assert/strict';
 import { createRowsMessage, createStateMessage } from '../../transcript-fixtures.mjs';
 
 export const layoutScenarios = [
+      {
+        id: 'mermaid_renders_controls_and_survives_stream_updates',
+        name: 'Mermaid 렌더링·확대·원본 복사·후속 스트리밍',
+        run: async (page) => {
+          const source = 'flowchart LR\n A[Start] --> B[Done]';
+          await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+            configurable: true, value: { writeText: async text => { window.__diagramCopy = text; } },
+          }));
+          const send = text => page.evaluate(m => window.postMessage(m, '*'), createRowsMessage({ rows: [
+            { seq: 1, who: 'agent', label: 'magi', text: '```mermaid\n' + source + '\n```' },
+            { seq: 2, who: 'agent', label: 'magi', text, draft: true },
+          ] }));
+          await send('next');
+          const box = page.locator('.magi-diagram');
+          const svg = box.locator('svg[role="img"]');
+          await svg.waitFor();
+          await page.evaluate(() => { window.__diagramSvg = document.querySelector('.magi-diagram svg[role="img"]'); });
+          await box.getByRole('button', { name: /Zoom in|확대/, exact: true }).click();
+          assert.equal(await svg.evaluate(s => s.style.width), '125%');
+          await box.getByRole('button', { name: /Copy source|원본 복사/, exact: true }).click();
+          assert.equal(await page.evaluate(() => window.__diagramCopy), source);
+          for (let i = 0; i < 5; i++) await send('next '.repeat(i + 2));
+          await page.waitForFunction(() => document.querySelectorAll('.agent .body')[1].textContent === 'next '.repeat(6));
+          assert.equal(await svg.evaluate(s => s === window.__diagramSvg), true);
+          assert.equal(await box.locator('[role="status"]').textContent().then(t => /could not|표시할 수 없/.test(t)), false);
+        },
+      },
+      {
+        id: 'thinking_stream_keeps_collapsed_and_expanded_dom',
+        name: 'thinking 기본 접힘·스트리밍 행 유지·사용자 펼침 보존',
+        run: async (page) => {
+          const send = (text, draft = true) => page.evaluate(m => window.postMessage(m, '*'),
+            createRowsMessage({ rows: [{seq: 1, who: 'thinking', label: 'Thinking', text, draft, folded: true}] }));
+          await send('first thought');
+          const details = page.locator('.thinking-details');
+          await details.waitFor();
+          assert.equal(await details.evaluate(d => d.open), false);
+          await page.evaluate(() => { window.__thoughtRow = document.querySelector('.thinking'); window.__thoughtBody = document.querySelector('.thinking .body'); });
+          const height = await page.locator('.thinking').evaluate(r => r.clientHeight);
+          for (let i = 1; i <= 10; i++) {
+            await send('reasoning line\n'.repeat(i * 10));
+            await page.waitForFunction(n => document.querySelector('.thinking .body').textContent.length === n, 'reasoning line\n'.repeat(i * 10).length);
+            assert.equal(await page.locator('.thinking').evaluate(r => r.clientHeight), height);
+            assert.equal(await page.evaluate(() => document.querySelector('.thinking') === window.__thoughtRow), true);
+          }
+          await details.locator('summary').click();
+          for (let i = 11; i <= 15; i++) {
+            await send('reasoning line\n'.repeat(i * 10));
+            await page.waitForFunction(n => document.querySelector('.thinking .body').textContent.length === n, 'reasoning line\n'.repeat(i * 10).length);
+            assert.equal(await details.evaluate(d => d.open), true);
+            assert.equal(await page.evaluate(() => document.querySelector('.thinking .body') === window.__thoughtBody), true);
+          }
+          await send('finished thought', false);
+          await page.waitForFunction(() => document.querySelector('.thinking .body').textContent === 'finished thought');
+          assert.equal(await details.evaluate(d => d.open), true);
+        },
+      },
       { id: 'sidebar_inline_controls_and_locales', name: '우측 패널 드롭다운·스위치·i18n·포커스·좁은 폭', run: page => checkPanel(page.context()) },
       {
         id: 'semantic_text_colors_match_jetbrains',

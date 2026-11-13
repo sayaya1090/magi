@@ -35,6 +35,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private events: Event[] = [];
   private refs: Ref[] = [];
   private sid = '';
+  private lastSeq = 0;
+  private reconnectEpoch = 0;
+  private reconnecting = false;
+  private cancelRetry: (() => void) | null = null;
   private readonly subs: vscode.Disposable[] = [];
   private readonly edits = new Edits();
   private readonly diffProvider = new DiffProvider();
@@ -45,7 +49,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.subs.push(
       companion.onChanged(() => {
         this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) });
-        if (this.view && !this.stream && !this.openingActive && !this.sessionCreating &&
+        if (this.view && !this.stream && !this.openingActive && !this.reconnecting && !this.sessionCreating &&
             [State.Attached, State.Working, State.Waiting].includes(companion.state.state)) {
           void this.openStream();
         }
@@ -82,8 +86,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       if (this.view === capturedView) {
         this.view = null;
         this.opening++;
-        this.stream?.close();
+        this.stopReconnect();
+        const stream = this.stream;
         this.stream = null;
+        stream?.close();
       }
     });
     void this.openStream();
@@ -179,27 +185,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // So the daemon SAYS the stream is over (`over`), and this reads it. Whichever arrives first
     // wins; the guard above makes the second one a no-op.
     s.whenClosed(ended);
-    /**
-     * ⚠ **The panel is emptied here, not when the first frame lands.**
-     *
-     * Clearing `events` alone changes nothing a person can see: the webview keeps the rows it was
-     * last handed, and `draw()` runs only inside the frame callback. A conversation with no events
-     * sends no frames — and the core makes that explicit: the stream's opening note goes out only
-     * when a tail was clipped (`answerable` returns "" for `since <= 0`), so a plain attach is
-     * silent until something happens.
-     *
-     * So opening a brand-new conversation, or resuming one nothing has been said in, left the
-     * PREVIOUS conversation's rows on screen under the new one's name — the ask, the plan and the
-     * context meter with them.
-     *
-     * The JetBrains client says the same thing in its own words and puts the clear before the
-     * worker thread starts: attachment "is already true on this line, and deferring it leaves the
-     * order against the first frame up to luck".
-     */
-    this.events = [];
+    // Automatic reconnection keeps the transcript and its UI generation. Only durable
+    // facts advance the cursor; transient deltas remain until their completed fact arrives.
     this.draw();
-    s.stream({ method: 'transcript', session: sid, name: 'interactive', text: vscode.env.language }, (r) => {
+    s.stream({ method: 'transcript', session: sid, name: 'interactive', text: vscode.env.language,
+      ...(this.lastSeq > 0 ? { since: this.lastSeq } : {}) }, (r) => {
+      if (this.stream !== s) return;
       if (r.event) {
+        if (r.event.seq > 0 && r.event.seq <= this.lastSeq) return;
+        if (r.event.seq > 0) this.lastSeq = r.event.seq;
         this.events.push(r.event);
         if (this.sid) {
           if (turnOpen(this.events)) {
@@ -211,7 +205,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         this.draw();
       }
       else if (r.error) this.post({ kind: 'note', text: r.error });
-      else if (r.why) this.post({ kind: 'note', text: r.why });
+      else if (r.why) {
+        // The daemon rejected a stale cursor and will replay the complete log.
+        this.lastSeq = 0;
+        this.events = [];
+        this.draw();
+        this.post({ kind: 'note', text: r.why });
+      }
       /* The replay is over. Drawn ONLY when there is nothing to show, because that is the only place
          it changes what a person sees: an empty panel is identical whether the conversation has not
          arrived yet or nothing was ever said in it. With rows on screen the rows are the evidence,
@@ -316,8 +316,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /** Read another conversation. The daemon is the source, so this only changes which one we ask for. */
   showSession(sid: string): void {
     this.generation++;
-    this.stream?.close();
+    this.stopReconnect();
+    const stream = this.stream;
     this.stream = null;
+    stream?.close();
+    this.lastSeq = 0;
     this.events = [];
     this.sid = sid;
     this.companion.session = sid;
@@ -364,16 +367,35 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
    * person who picks another conversation is not dragged back to this one.
    */
   private async reattach(): Promise<void> {
-    for (let attempt = 0; this.view && !this.stream; attempt++) {
-      // The schedule is a rule and lives in core, where a test can run it — see `retryAfter`.
-      await new Promise((r) => setTimeout(r, retryAfter(attempt)));
-      if (!this.view || this.stream) return;
-      this.post({ kind: 'note', text: 'reconnecting…' });
-      this.showSession(this.sid);
-      // showSession is async inside; give it a moment to land before deciding to wait again.
-      await new Promise((r) => setTimeout(r, 200));
-      if (this.stream) { this.post({ kind: 'note', text: '' }); return; }
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    const epoch = this.reconnectEpoch;
+    try {
+      for (let attempt = 0; this.view && !this.stream && epoch === this.reconnectEpoch; attempt++) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, retryAfter(attempt));
+          this.cancelRetry = () => { clearTimeout(timer); resolve(); };
+        });
+        if (epoch !== this.reconnectEpoch || !this.view || this.stream) return;
+        this.cancelRetry = null;
+        this.post({ kind: 'note', text: 'reconnecting…' });
+        await this.openStream();
+        if (epoch !== this.reconnectEpoch) return;
+        if (this.stream) { this.post({ kind: 'note', text: '' }); return; }
+      }
+    } finally {
+      if (epoch === this.reconnectEpoch) {
+        this.cancelRetry = null;
+        this.reconnecting = false;
+      }
     }
+  }
+
+  private stopReconnect(): void {
+    this.reconnectEpoch++;
+    this.cancelRetry?.();
+    this.cancelRetry = null;
+    this.reconnecting = false;
   }
 
   /** Put references above the composer. The person still writes the message. */
@@ -802,7 +824,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   dispose(): void {
     this.view = null;
     this.opening++;
-    this.stream?.close();
+    this.stopReconnect();
+    const stream = this.stream;
+    this.stream = null;
+    stream?.close();
     this.edits.dispose();
     this.asks.clear();
     for (const s of this.subs) s.dispose();

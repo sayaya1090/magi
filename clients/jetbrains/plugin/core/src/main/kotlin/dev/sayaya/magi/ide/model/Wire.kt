@@ -162,6 +162,7 @@ data class Response(
      * 말해 주지 않는다」고 적은 채 칸을 비워 두고 있었다 — 말해 주고 있었다.
      */
     val backend: String? = null,
+    val profile: String? = null,
     val model: String? = null,
     /**
      * 완성이 **왜 빈손인가** — `complete` 가 글자를 못 냈을 때만 온다(off · unrouted ·

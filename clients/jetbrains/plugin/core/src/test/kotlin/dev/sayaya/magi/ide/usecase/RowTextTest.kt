@@ -288,20 +288,10 @@ class RowTextTest {
         assertTrue(RowText.diffSides(row(ok = true, tool = "edit", args = args), "변경") != null)
     }
 
-    /**
-     * **생각은 접힌 채로 오지 않는다.**
-     *
-     * 길다는 이유로 접지 않는 것이 사용자 요구다(Think·보고서 기본 접기 금지: 「전문을 펼쳐 공통 세로
-     * 스크롤로 읽는 것은 사용자 요구입니다」). VS Code 판은 그것을 지키고 있었다 — 흐리게 그리되 접지
-     * 않는다. 이 창만 기본 접힘이었다(2026-09-19 실측, `MagiToolWindow` 의 그 주석이 그렇게 적고
-     * 있었다).
-     *
-     * 판정을 불러서 재는 이유: 화면 코드 안의 `if` 는 소스 글자로밖에 못 재고, 이 저장소는 그 방식이
-     * 「낱말을 다 남긴 채 검사만 끄는」 변이를 통과시킨 것을 이미 봤다.
-     */
+    /** 생각은 기본 접힘이며, 사용자가 펼친 행만 스트리밍 중에도 펼침을 유지합니다. */
     @Test
-    fun `생각은 기본 펼침이고 도구 본문은 기본 접힘이다`() {
-        assertTrue(RowText.openByDefault(Row(Who.Thinking, "긴 생각\n두 줄")), "생각이 기본 접힘이다 — 사용자 요구와 반대다")
+    fun `생각과 도구 본문은 기본 접힘이다`() {
+        assertFalse(RowText.openByDefault(Row(Who.Thinking, "긴 생각\n두 줄")), "생각은 기본 접힘이어야 한다")
         // 도구 인자·결과는 수백 줄일 수 있다. 그 요구는 읽을 것을 고르는 사람의 것이고, 흐름을 덮는
         // 것이 아니다 — 카운슬 소집 행의 증거도 같은 사유를 제 자리에 적고 있다.
         assertFalse(RowText.openByDefault(Row(Who.Tool, "bash", tool = "bash", args = "{}")), "도구 본문이 기본 펼침이 됐다")
@@ -315,16 +305,14 @@ class RowTextTest {
     /**
      * **눌러도 아무 일이 없는 접기 표시가 없다.**
      *
-     * **접을 수 없는 행에는 접기 표시가 없어야 한다.** 그 자리는 생각을 기본 펼침으로 바꾸면서 생겼다:
-     * 짧은 생각도 펼침 갈래로 오는데 거기엔 토글이 안 걸린다. 눌러도 아무 일이 없는 조작을 그리는 것은
-     * 사람 눈으로만 볼 일이 아니라 판정이므로 여기서 잰다.
+     * 짧은 생각도 기본 접힘이므로 내용이 있으면 토글로 열 수 있어야 합니다.
      *
      * 글리프와 실제 토글이 **같은 판정**을 지나는 것이 이 함수의 일이다. 두 자리에서 따로 정하면
      * 한쪽만 고쳐질 수 있고, 그 모양이 이 트리가 되풀이해 값을 치른 「한 사실, 두 기전」이다.
      */
     @Test
     fun `접을 것이 있는 행에만 접기 조작이 붙는다`() {
-        assertFalse(RowText.foldable(Row(Who.Thinking, "짧게")), "짧은 생각에 접기 표시가 붙는다 — 눌러도 아무 일이 없다")
+        assertTrue(RowText.foldable(Row(Who.Thinking, "짧게")), "기본 접힌 짧은 생각도 펼칠 수 있어야 한다")
         assertTrue(RowText.foldable(Row(Who.Thinking, "여러 줄\n생각")), "여러 줄 생각을 접을 수 없다")
         assertTrue(RowText.foldable(Row(Who.Thinking, "가".repeat(121))), "긴 한 줄 생각을 접을 수 없다")
         // 인자도 결과도 없는 도구 호출은 펼칠 것이 없다.

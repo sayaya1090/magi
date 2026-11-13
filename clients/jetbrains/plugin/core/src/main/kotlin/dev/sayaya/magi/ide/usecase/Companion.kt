@@ -289,6 +289,12 @@ class Companion(
         send(Request(method = "use-backend", session = session, name = name))
     fun setPermission(mode: String): Response =
         send(Request(method = "set-permission", session = session, name = mode))
+    fun useProfile(name: String): Response =
+        send(Request(method = "use-profile", session = session, name = name))
+
+    fun setCouncil(enabled: Boolean): Response =
+        send(Request(method = "set-council", session = session, name = enabled.toString()))
+
     fun reloadCron(): Response = send(Request(method = "reload-cron", session = session))
 
     /**
@@ -345,6 +351,7 @@ class Companion(
             backend = it.backend?.takeIf { b -> b.isNotBlank() },
             user = it.user?.takeIf { u -> u.isNotBlank() },
             council = it.council,
+            profile = it.profile,
         )
     }
 
@@ -382,6 +389,7 @@ class Companion(
         val council: Boolean?,
         /** `doing` 뒤의 센 값. 막대를 그릴 수 있을 때만 있다. */
         val progress: Progress? = null,
+        val profile: String? = null,
     )
 
     /**

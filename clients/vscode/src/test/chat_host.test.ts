@@ -800,3 +800,104 @@ test('startup retries session selection when the daemon becomes reachable and av
     assert.equal(connections, 1);
   } finally { chat.dispose(); Daemon.connect = connect; }
 });
+
+// Exercise the host callbacks, including a close synchronously emitted by close().
+function streamHarness() {
+  const { Daemon } = require('../core/daemon');
+  const connect = Daemon.connect;
+  const companion = createMockCompanion();
+  companion.reach = async () => ({}) as any;
+  companion.ask = async () => ({ ok: true, sessions: [{ id: 'one' }] });
+  const connections: any[] = [];
+  Daemon.connect = async () => {
+    const socket = {
+      request: null as any, receive: (_r: any) => {}, ended: () => {}, closed: 0,
+      whenClosed(fn: () => void) { this.ended = fn; },
+      close() { this.closed++; this.ended(); },
+      stream(request: any, receive: (r: any) => void) { this.request = request; this.receive = receive; },
+    };
+    connections.push(socket);
+    return socket;
+  };
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const mock = createMockWebviewView();
+  chat.resolveWebviewView(mock.view as any);
+  return { chat, connections, mock, companion, close() { chat.dispose(); Daemon.connect = connect; } };
+}
+const flushHost = () => new Promise<void>(resolve => setImmediate(resolve));
+
+test('reconnect preserves rows and generation, resumes cursor, ignores stale sockets and duplicate facts', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = streamHarness();
+  try {
+    await flushHost();
+    const first = h.connections[0];
+    const event = { seq: 4, type: 'prompt.received', data: { text: 'keep me' } };
+    first.receive({ event });
+    const generation = (h.chat as any).generation;
+    first.receive({ over: true });
+    first.ended(); // both signals must share one worker
+    assert.equal(first.closed, 1);
+    assert.equal((h.chat as any).events.length, 1);
+    t.mock.timers.tick(1201);
+    await flushHost();
+    assert.equal(h.connections.length, 2);
+    const second = h.connections[1];
+    assert.equal(second.request.since, 4);
+    assert.equal((h.chat as any).generation, generation);
+    first.receive({ event: { ...event, seq: 99 } });
+    second.receive({ event });
+    assert.equal((h.chat as any).events.length, 1);
+    second.receive({ event: { ...event, seq: 5 } });
+    assert.equal((h.chat as any).events.length, 2);
+    second.receive({ why: 'cursor rejected' });
+    assert.equal((h.chat as any).events.length, 0);
+    second.receive({ event: { ...event, seq: 1 } });
+    assert.equal((h.chat as any).lastSeq, 1);
+    h.chat.showSession('two');
+    await flushHost();
+    assert.equal(h.connections[2].request.session, 'two');
+    assert.equal(h.connections[2].request.since, undefined);
+    assert.equal((h.chat as any).events.length, 0);
+    t.mock.timers.tick(60000);
+    await flushHost();
+    assert.equal(h.connections.length, 3);
+  } finally { h.close(); }
+});
+
+test('reconnect awaits slow attempts without overlap and disposal cancels pending retry', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = streamHarness();
+  try {
+    await flushHost();
+    let release!: (value: any) => void;
+    let reaches = 0;
+    h.companion.reach = () => { reaches++; return new Promise(resolve => { release = resolve; }); };
+    h.connections[0].ended();
+    t.mock.timers.tick(1201);
+    await flushHost();
+    t.mock.timers.tick(60000);
+    await flushHost();
+    assert.equal(reaches, 1);
+    h.chat.dispose();
+    release({});
+    await flushHost();
+    t.mock.timers.tick(60000);
+    await flushHost();
+    assert.equal(h.connections.length, 1);
+  } finally { h.close(); }
+});
+
+test('closing the view cancels a scheduled retry before it reaches the daemon', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = streamHarness();
+  try {
+    await flushHost();
+    h.connections[0].ended();
+    h.chat.dispose();
+    t.mock.timers.tick(60000);
+    await flushHost();
+    assert.equal(h.connections.length, 1);
+    assert.equal((h.chat as any).cancelRetry, null);
+  } finally { h.close(); }
+});

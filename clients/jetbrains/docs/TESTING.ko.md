@@ -2111,3 +2111,7 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 ### 전사 자동 재접속
 
 `TranscriptReconnectTest`는 겹친 재접속 요청의 단일 실행, 연결 시도 중 다시 발생한 단절의 보존, 실패 후 백오프와 성공 후 갱신, 창 종료 시 대기 취소를 검증합니다. 네트워크는 주입된 콜백으로 재현하며, 실제 HTTP·소켓 단절은 Go의 `TestHTTPStreamAndIDEDisconnectRecoverWithoutResubmitting`에서 검사합니다.
+
+### 2026-11-14 클라이언트 기능 대조
+
+`CouncilControlTest`는 확인 취소, 요청 중 중복 클릭, 실패 시 기존 값 유지, 확인 중 세션 변경을 검사합니다. `CompanionTest`는 카운슬 설정과 저장 프로필 선택의 세션·메서드를 소켓으로 검증합니다. `RowTextTest`와 `TailScrollTest`는 생각 기본 접힘과 스트리밍 중 사용자 펼침·행·스크롤 보존을 검사합니다. 이전 기본 펼침 요구는 이번 기본 접힘 요청으로 대체했습니다. 전체 대조와 실행 범위는 [IDE 기능 대조](../../../docs/IDE_PARITY.ko.md)에 정리했습니다.

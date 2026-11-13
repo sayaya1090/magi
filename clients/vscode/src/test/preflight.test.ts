@@ -94,6 +94,7 @@ test('preflight: child process exits with code 1 and logs missing bundle and bui
 
     // 5) All four bundles present -> exit code 0
     await writeFile(path.join(tempDir, 'chat_view.bundle.js'), '// view bundle');
+    await writeFile(path.join(tempDir, 'diagram.bundle.js'), '// diagram bundle');
     const res = await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
     assert.equal(res.stderr, '');
   } finally {

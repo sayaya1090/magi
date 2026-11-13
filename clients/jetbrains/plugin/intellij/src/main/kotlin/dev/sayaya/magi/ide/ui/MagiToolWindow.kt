@@ -492,7 +492,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         /**
          * 기본이 **펼침**인 행에서 사람이 접은 것. [opened] 의 짝이다.
          *
-         * 두 집합이 필요한 이유: 기본이 종류마다 다르다(`RowText.openByDefault`). 한 집합으로 하면
+         * 두 집합이 필요한 이유: 기본값은 `RowText.openByDefault`에서 정한다. 한 집합으로 하면
          * 「아직 안 건드린 행」과 「일부러 접은 행」이 같은 얼굴이 되고, 그러면 생각 행은 다시 그릴
          * 때마다 접힌 채로 돌아온다.
          */
@@ -1340,10 +1340,20 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         old.session == currentSendSession() && old.user == youName
                     val panel = when {
                         samePresentation && old.row == r -> old.panel.also { copying.retain(it, r) { allRows } }
-                        samePresentation && old.row.draft && r.draft && r.who == Who.Agent &&
+                        samePresentation && old.row.draft && r.draft && r.who == Who.Thinking && !open &&
+                            RowText.foldable(old.row) == RowText.foldable(r) && old.row.copy(text = r.text) == r ->
+                            old.panel.also { copying.retain(it, r) { allRows } }
+                        samePresentation && old.row.draft && r.draft &&
+                            (r.who == Who.Agent || (r.who == Who.Thinking && open && RowText.foldable(old.row) == RowText.foldable(r))) &&
                             old.row.copy(text = r.text) == r && old.panel.getClientProperty("magi.draft.body") is javax.swing.JTextArea -> {
                             val body = old.panel.getClientProperty("magi.draft.body") as javax.swing.JTextArea
-                            body.text = r.text + " ▌"
+                            val text = r.text + if (r.who == Who.Agent) " ▌" else ""
+                            // Preserve the document prefix as well as the component. setText removes
+                            // the whole document first, invalidating a long row twice per update.
+                            val prefix = old.row.text
+                            if (r.text.startsWith(prefix)) {
+                                body.replaceRange(text.substring(prefix.length), prefix.length, body.document.length)
+                            } else body.text = text
                             old.panel.putClientProperty("magi.draft.updates", (old.panel.getClientProperty("magi.draft.updates") as? Int ?: 0) + 1)
                             copying.retain(old.panel, r) { allRows }
                             old.panel
@@ -1360,8 +1370,10 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 val components: List<java.awt.Component> = if (rows.isEmpty()) listOf(
                     Look.welcome(MagiBundle.msg("chat.welcome.title"), mood.why, mood.colour, MagiBundle.msg("chat.welcome.hint"))
                 ) else next.map { it.panel }
+                var structureChanged = false
                 components.forEachIndexed { index, component ->
                     if (index >= column.componentCount || column.getComponent(index) !== component) {
+                        structureChanged = true
                         if (component.parent === column) column.setComponentZOrder(component, index)
                         else {
                             if (index < column.componentCount) column.remove(index)
@@ -1369,11 +1381,16 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         }
                     }
                 }
-                while (column.componentCount > components.size) column.remove(column.componentCount - 1)
+                while (column.componentCount > components.size) {
+                    structureChanged = true
+                    column.remove(column.componentCount - 1)
+                }
                 paintedRows = next
                 column.doLayout()
                 column.revalidate()
-                column.repaint()
+                // Text components repaint their changed region. Do not invalidate the whole
+                // transcript on each token or viewport notification (including native browsers).
+                if (structureChanged) column.repaint()
                 tailScroll.contentChanged()
             }
         }
@@ -1481,23 +1498,21 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     }
                 }
-                // 추론 과정(Thinking)은 **기본 펼침**으로 렌더링하고 클릭 시 접습니다. 길다는 이유로
-                // 접지 않는 것이 사용자 요구이며(Think·보고서 기본 접기 금지: 전문을 펼쳐 공통 세로 스크롤로 읽음), VS Code 판은 그것을
-                // 지키고 있었습니다 — 이 창만 접고 있었습니다(2026-09-19). 판정은 코어에 있고
-                // (`RowText.openByDefault`) 사람이 접은 것은 [closed] 가, 펼친 것은 [opened] 가 듭니다.
+                // Thinking starts collapsed; the stable message key keeps a user's expansion
+                // across streaming updates. Closed drafts do not grow the transcript.
                 Who.Thinking -> {
                     // 접기 조작이 붙는지는 코어가 정한다(`RowText.foldable`) — 글리프와 실제 토글이
                     // 같은 판정을 지나야, 눌러도 아무 일이 없는 표시가 생기지 않는다.
                     val long = RowText.foldable(r)
                     val open = shows(r)
                     if (open) {
-                        // ⚠ 글리프는 **접을 수 있을 때만** 붙인다. 기본이 펼침이 된 뒤로 짧은 생각도 이
-                        // 갈래로 오는데(그쪽은 `long` 이 아니라 토글이 안 걸린다), 그때 ⌃ 를 그리면
-                        // 눌러도 아무 일이 없는 조작을 그리는 것이다.
+                        // 본문이 있는 생각은 길이와 관계없이 다시 접을 수 있습니다.
                         p.add(Look.aside(MagiBundle.msg("chat.think") + if (long) " ⌃" else ""), BorderLayout.NORTH)
-                        p.add(Look.prose(r.text), BorderLayout.CENTER)
+                        p.add(Look.prose(r.text).also {
+                            if (r.draft) p.putClientProperty("magi.draft.body", it)
+                        }, BorderLayout.CENTER)
                     } else {
-                        val head = r.text.lineSequence().firstOrNull().orEmpty().take(120)
+                        val head = if (r.draft) "" else r.text.lineSequence().firstOrNull().orEmpty().take(120)
                         p.add(Look.aside(MagiBundle.msg("chat.think") + " $head" + if (long) "  ⌄" else ""), BorderLayout.CENTER)
                     }
                     if (long) foldable(p, r)
@@ -2047,7 +2062,11 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 return box
             }
             row(MagiBundle.msg("chat.info.model"), picker(f.model, models) { comp, v -> comp.setModel(v) })
-            row(MagiBundle.msg("chat.info.backend"), picker(f.backend, backends) { comp, v -> comp.useBackend(v) })
+            row(MagiBundle.msg("chat.info.backend"), picker(
+                f.profile.orEmpty(),
+                (if (backends.second == null) listOf("") + backends.first else backends.first) to backends.second,
+                { name -> name.orEmpty().ifBlank { f.backend ?: MagiBundle.msg("plan.model.default") } },
+            ) { comp, name -> if (name.isBlank()) comp.useBackend("") else comp.useProfile(name) })
             row(MagiBundle.msg("chat.info.permission"),
                 // 승인 모드 목록은 프로토콜 상수이므로 데몬 질의 없이 정적 정의를 사용합니다.
                 picker(f.permission, Perms.TOKENS to null, Perms::label) { comp, v -> comp.setPermission(v) })

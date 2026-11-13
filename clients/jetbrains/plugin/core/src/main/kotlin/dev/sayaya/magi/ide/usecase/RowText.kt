@@ -225,13 +225,13 @@ object RowText {
      * 접을 것이 있어야 접는다: 긴 생각, 본문이나 결과를 든 도구 행, 증거를 든 카운슬 소집 행.
      */
     fun foldable(r: Row): Boolean = when (r.who) {
-        Who.Thinking -> r.text.contains('\n') || r.text.length > 120
+        Who.Thinking -> r.text.isNotEmpty()
         Who.Tool -> !r.args.isNullOrBlank() || !r.out.isNullOrBlank()
         Who.Council -> r.opened && !r.evidence.isNullOrBlank()
         else -> false
     }
 
-    fun openByDefault(r: Row): Boolean = r.who == Who.Thinking
+    fun openByDefault(@Suppress("UNUSED_PARAMETER") r: Row): Boolean = false
 
     /**
      * 키보드 접기가 **이 행 자신**을 향한 것인가.

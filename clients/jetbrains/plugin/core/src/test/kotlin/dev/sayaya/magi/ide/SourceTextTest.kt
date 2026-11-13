@@ -93,7 +93,9 @@ class SourceTextTest {
         val at = src.indexOf("private fun reattach()")
         assertTrue(at > 0, "`reattach` 를 못 찾았다 — 이 규칙이 빈 글을 본다")
         val body = src.substring(at, minOf(at + 1200, src.length))
-        assertTrue("Backoff.delayMs(" in body,
+        assertTrue("reconnect.request()" in body, "재접속이 단일 작업자를 거치지 않는다")
+        val worker = code(sources.first { it.name == "TranscriptReconnect.kt" })
+        assertTrue("Backoff.delayMs(" in worker,
             "재접속이 제 백오프를 쓴다 — 지터가 없으면 창 여럿이 같은 순간에 몰린다")
         assertTrue(
             Regex("""30_000|1_000""").find(body) == null,

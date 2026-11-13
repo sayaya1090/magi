@@ -178,9 +178,7 @@ class WireConformanceTest {
             "Request" to setOf("minutes", "room", "keep", "owner"),
             // `minutes`: 회의를 안 한다(위). `live` 는 여기 있었고, 그 자리를 만들며 지워졌다 —
             // 「면제도 늙는다」가 이 줄을 지우게 만든 첫 사례다.
-            // profile is the provider-detail response used by the web management screen.
-            // This client reads its provider roster and does not request that detail operation.
-            "Response" to setOf("minutes", "profile"),
+            "Response" to setOf("minutes"),
             // 플릿 행에 그 슬롯이 없다. 코어가 이 칸들을 로스터에 실은 사유는 「콘솔이 빈칸을
             // 그리고 못 보여 준 값을 바꾸라고 내놓던」 것인데, 이 판은 그 자리를 안 그린다 —
             // 슬롯을 만드는 날 같이 읽는다.
