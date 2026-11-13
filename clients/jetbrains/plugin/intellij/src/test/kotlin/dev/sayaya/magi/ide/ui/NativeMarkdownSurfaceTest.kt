@@ -22,7 +22,7 @@ class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
         val query = com.intellij.ui.jcef.JBCefJSQuery.create(browser)
         com.intellij.openapi.util.Disposer.register(testRootDisposable, query)
         query.addHandler { value -> state.set(value); null }
-        val inspect = query.inject("JSON.stringify({script:!!window.magiMermaid,ready:!!document.querySelector('.magi-diagram svg[role=img]'),buttons:document.querySelectorAll('.magi-diagram-action').length,text:document.body.innerText})")
+        val inspect = query.inject("JSON.stringify({diagrams:document.querySelectorAll('.magi-diagram svg[role=img]').length,script:!!window.magiMermaid,ready:!!document.querySelector('.magi-diagram svg[role=img]'),buttons:document.querySelectorAll('.magi-diagram-action').length,text:document.body.innerText})")
         val frame = JFrame("Magi native Mermaid test")
         frame.glassPane = com.intellij.openapi.wm.impl.IdeGlassPaneImpl(frame.rootPane, false)
         frame.contentPane = JPanel(BorderLayout()).apply { add(panel, BorderLayout.CENTER) }
@@ -48,6 +48,26 @@ class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
             assertTrue("Mermaid did not render: " + state.get(), state.get().contains("\"ready\":true"))
             assertTrue("icon toolbar missing: " + state.get(), state.get().contains("\"buttons\":5"))
             assertFalse("renderer error: " + state.get(), state.get().contains("Diagram could not be rendered"))
+            // A streamed replacement keeps the browser, then finishes with two
+            // diagrams. Exercise the production update and the idle transition.
+            val revised = md + "\n\n" + md.replace("Developer", "Updated")
+            assertSame(panel, renderer.panel(project, revised, "diagram", testRootDisposable, streaming = true))
+            assertSame(panel, renderer.panel(project, revised, "diagram", testRootDisposable, streaming = false))
+            val revisedFile = com.intellij.testFramework.LightVirtualFile("diagram.md", revised)
+            val revisedHtml = org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(revisedFile, revised, project)
+            browser.cefBrowser.executeJavaScript("document.body.innerHTML=" + kotlinx.serialization.json.JsonPrimitive(revisedHtml).toString() + ";window.magiMermaid && window.magiMermaid.scan();", browser.cefBrowser.url, 0)
+            state.set("")
+            val until = System.currentTimeMillis() + 10000
+            while (System.currentTimeMillis() < until && !state.get().contains("\"diagrams\":2")) {
+                com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+                browser.cefBrowser.executeJavaScript(inspect, browser.cefBrowser.url, 0)
+                Thread.sleep(50)
+            }
+            println("MAGI_NATIVE_MERMAID_UPDATED " + state.get())
+            assertTrue("two diagrams must finish rendering: " + state.get(), state.get().contains("\"diagrams\":2"))
+            assertTrue("updated diagrams missing: " + state.get(), state.get().contains("Updated"))
+            assertTrue("duplicate or missing toolbars: " + state.get(), state.get().contains("\"buttons\":10"))
+            assertFalse("updated renderer error: " + state.get(), state.get().contains("Diagram could not be rendered"))
         } finally { frame.dispose() }
     }
 

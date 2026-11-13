@@ -60,6 +60,10 @@ try {
  await page.waitForFunction(()=>document.body.innerText.includes('Use plain labels'));
  await insert('flowchart LR\n A-->B',true);
  assert.equal(await page.locator('code[data-streaming=true]').count(),1);
+ // Let the insertion observer settle; only the completion attribute changes next.
+ await page.waitForTimeout(250);
+ await page.locator('code[data-streaming=true]').evaluate(e=>e.dataset.streaming='false');
+ await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length===6,{},{timeout:2000});
  assert.equal(calls.length,0,'offline diagram must not request external resources');
  await page.setViewportSize({width:390,height:800});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'narrow viewport overflow');

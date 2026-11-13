@@ -117,6 +117,6 @@
   window.magiMermaid={mount,scan};
   let pending=false;
   const observer=new MutationObserver(()=>{if(!pending){pending=true;setTimeout(()=>{pending=false;scan();},100);}});
-  function start(){observer.observe(document.body,{childList:true,subtree:true,characterData:true});scan();}
+  function start(){observer.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['data-streaming']});scan();}
   if(document.body) start();else document.addEventListener('DOMContentLoaded',start,{once:true});
 })();
