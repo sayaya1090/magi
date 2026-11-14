@@ -11,6 +11,12 @@ while IFS= read -r line; do
     echo '{"type":"system","subtype":"informational","content":"Opus 5.5'\''s safeguards stopped the response above · continuing once with that noted"}'
     echo '{"type":"user","isMeta":true,"message":{"role":"user","content":"Your response above was stopped by a safety classifier — this is not a tool or API error."}}'
     echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"fallback_turn'"$n"'\n"}}}'
+  elif [[ "$line" == *MIDLINE_CALL* ]]; then
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Let me look. TOOL_C"}}}'
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ALL {\"name\":\"list_slides\",\"arguments\":{}}\n"}}}'
+  elif [[ "$line" == *NATIVE_INVOKE* ]]; then
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Checking.\n<invoke name=\"list_slides\">\n<parameter name=\"deck\">main</parameter>\n"}}}'
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"<parameter name=\"limit\">3</parameter>\n</invoke>\n"}}}'
   elif [[ "$line" == *CALLME* ]]; then
     echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Sure.\nTOOL_CALL {\"name\":\"list_slides\",\"arguments\":{}}\n"}}}'
   elif [[ "$line" == *OTHER_PROVIDER_ANSWER* && "$line" == *OTHER_PROVIDER_ARG* ]]; then

@@ -83,6 +83,27 @@ func TestClaudeCodeShimSessionReuseContextCapAndSafetyClassifier(t *testing.T) {
 		t.Fatalf("expected tool_call on turn 1:\n%s", f1)
 	}
 
+	// 1a. A call written after prose on the same line, split across stream deltas mid-marker, must
+	// run as a call and its text must not reach the reply (users saw TOOL_CALL text in the bubble).
+	fm := ask(`{"model":"opus","messages":[{"role":"user","content":"please MIDLINE_CALL"}],` + toolsJSON + `}`)
+	if !strings.Contains(fm, `"name":"list_slides"`) || !strings.Contains(fm, "Let me look.") {
+		t.Fatalf("a call after prose on one line did not become a tool call:\n%s", fm)
+	}
+	if strings.Contains(fm, "TOOL_C") || strings.Contains(fm, "ALL {") {
+		t.Fatalf("TOOL_CALL text leaked into the reply:\n%s", fm)
+	}
+
+	// 1b. The model sometimes calls a tool in its own <invoke> form instead of a TOOL_CALL line
+	// (Terminal-Bench circuit-fibsqrt: the turn ended in 3s with the block as prose). It must run as a
+	// tool call and its text must not reach the reply.
+	fi := ask(`{"model":"opus","messages":[{"role":"user","content":"please NATIVE_INVOKE"}],` + toolsJSON + `}`)
+	if !strings.Contains(fi, `"name":"list_slides"`) || !strings.Contains(fi, `\"deck\":\"main\"`) || !strings.Contains(fi, `\"limit\":3`) {
+		t.Fatalf("a native <invoke> block did not become a tool call:\n%s", fi)
+	}
+	if strings.Contains(fi, "invoke") || strings.Contains(fi, "parameter name") {
+		t.Fatalf("<invoke> text leaked into the reply:\n%s", fi)
+	}
+
 	// 2. Context window cap: fake-claude reported 1,000,000 in modelUsage, but /v1/models must cap at cfg_context (200,000).
 	mresp, err := http.Get(modelsURL)
 	if err != nil {
