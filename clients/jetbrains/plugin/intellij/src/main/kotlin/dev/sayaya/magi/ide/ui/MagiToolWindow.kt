@@ -83,7 +83,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         // 실행 중지(Stop) 버튼은 제목 표시줄 타이틀 액션으로 배치하여, 실행 중인 턴을 언제든 중지할 수 있으면서도 전송 버튼 옆 공간을 낭비하지 않도록 했습니다(TUI의 Esc 키와 동급).
         // 정보 카드는 **제목 표시줄** 아이콘으로 접어 둡니다(사용자 요구: Office 리본처럼 축소하여 빠른 접근 지원).
         // 기어 메뉴 대신 팝업 아이콘을 사용하는 이유는 단순 액션 목록이 아닌 상태 정보(상태 인디케이터 및 버전 번호)를 표시하는 전용 UI이기 때문입니다.
-        toolWindow.setTitleActions(listOf(view.infoAction(), object : com.intellij.openapi.actionSystem.AnAction(
+        toolWindow.setTitleActions(listOf(view.runtimeAction(), view.infoAction(), view.latestAction(), object : com.intellij.openapi.actionSystem.AnAction(
             MagiBundle.msg("chat.stop"), MagiBundle.msg("chat.stop.tip"), com.intellij.icons.AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                 MagiWindows.of(project)?.interruptFromTitle()
@@ -376,15 +376,26 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private data class RetryNotice(val until: Long, val attempt: String, val reason: String)
         @Volatile private var retryNotice: RetryNotice? = null
         private val runtimeLabel = JBLabel()
-        private val runtimeStop = JButton(MagiBundle.msg("chat.runtime.stop")).apply {
-            addActionListener { interrupt() }
+        fun runtimeAction() = object : com.intellij.openapi.actionSystem.AnAction() {
+            override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+            override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                val active = MagiWindows.of(project) ?: this@View
+                active.paintRuntime()
+                e.presentation.text = active.runtimeLabel.text
+                e.presentation.description = active.runtimeLabel.text
+                e.presentation.isEnabled = false
+            }
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {}
         }
-        private val latestButton = JButton(MagiBundle.msg("chat.latest")).apply {
-            addActionListener { tailScroll.followEnd() }
-        }
-        private val runtimeBar = javax.swing.JPanel(FlowLayout(FlowLayout.CENTER, 6, 2)).apply {
-            isOpaque = false
-            add(runtimeLabel); add(runtimeStop); add(latestButton)
+        fun latestAction() = object : com.intellij.openapi.actionSystem.AnAction(
+            MagiBundle.msg("chat.latest"), MagiBundle.msg("chat.latest"), com.intellij.icons.AllIcons.Actions.MoveDown) {
+            override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
+            override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                e.presentation.isEnabled = !(MagiWindows.of(project) ?: this@View).tailScroll.followingEnd
+            }
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                (MagiWindows.of(project) ?: this@View).tailScroll.followEnd()
+            }
         }
         private val runtimeTick = javax.swing.Timer(1000) { paintRuntime() }
         private fun paintRuntime() {
@@ -403,8 +414,6 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 shaper.open -> MagiBundle.msg("chat.runtime.working")
                 else -> MagiBundle.msg("chat.runtime.ready")
             }
-            runtimeStop.isVisible = connected && (shaper.open || retry != null)
-            latestButton.isVisible = !tailScroll.followingEnd
         }
         private var recoveryKey = ""
         private val dismissedRecoveries = linkedMapOf<String, String>()
@@ -987,7 +996,6 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 add(javax.swing.JPanel(BorderLayout()).apply {
                     isOpaque = false
                     add(recoveryStrip, BorderLayout.NORTH)
-                    add(runtimeBar, BorderLayout.SOUTH)
                 }, BorderLayout.SOUTH)
                 add(scroll, BorderLayout.CENTER)
             }, BorderLayout.CENTER)

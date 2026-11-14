@@ -325,7 +325,7 @@ ${idePaletteCss}
   #plan-strip[hidden] { display:none; }
   .diagram-node-chips { display:flex; flex-wrap:wrap; gap:4px; padding:4px 8px; max-height:20vh; overflow:auto; flex-shrink:0; }
   .diagram-node-chips[hidden] { display:none; }
-  .runtime-bar { display:flex; align-items:center; justify-content:center; gap:8px; padding:4px 8px; flex-wrap:wrap; flex-shrink:0; }
+  .runtime-bar { display:flex; align-items:center; justify-content:flex-start; padding:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; flex:1; }
   .runtime-bar[hidden] { display:none; }
   @media (max-height:300px) { .runtime-bar { display:none; } #restart-strip { max-height:20vh; } }
   #restart-strip { max-height:35vh; overflow:auto; flex-shrink:0; border-top:1px solid var(--vscode-panel-border); font-size:.9em; padding:4px 8px; background:var(--vscode-inputValidation-warningBackground); }

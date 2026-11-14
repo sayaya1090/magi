@@ -534,6 +534,7 @@ export const NodeSendResultSchema = v.object({
   kind:v.literal('nodeSendResult'), id:NonEmptyStringSchema, ok:v.boolean(),
 });
 export const HostToWebviewMessageSchema = v.union([
+  v.object({kind:v.literal("latest")}),
   NodeSendResultSchema,
   RowsMessageSchema,
   ComposeMessageSchema,

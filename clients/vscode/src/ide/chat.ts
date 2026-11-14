@@ -277,6 +277,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
    * `state` travels as the WORD, so the card can colour by it the way the console does — the state
    * is the class name there, and the colour is the stylesheet's business, not this file's.
    */
+  jumpToLatest(): void { this.post({kind:'latest'}); }
+
   refreshSetup(): void { this.tellInfo(); }
 
   private tellInfo(): void {

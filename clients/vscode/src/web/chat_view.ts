@@ -75,19 +75,17 @@ if (typeof ResizeObserver !== 'undefined') {
 }
 
 const runtimeBar=document.createElement('div');runtimeBar.setAttribute('role','status');
-const runtimeLabel=document.createElement('span'),runtimeStop=document.createElement('button');
-runtimeStop.type='button';runtimeStop.textContent=uiText.stop;runtimeStop.onclick=()=>vs.postMessage({kind:'run', command:'magi.interrupt', session:currentSession});
-const latestButton=document.createElement('button');latestButton.type='button';latestButton.textContent=uiText.latest;
-latestButton.onclick=()=>{followingTail=true;paintViewport(true);scrollEl.scrollTop=scrollEl.scrollHeight;lastScrollTop=scrollEl.scrollTop;};
-runtimeBar.append(runtimeLabel,runtimeStop,latestButton);scrollEl.after(runtimeBar);
+const runtimeLabel=document.createElement('span');
+runtimeBar.append(runtimeLabel);document.getElementById('topbar')!.prepend(runtimeBar);
 runtimeBar.className='runtime-bar';runtimeBar.hidden=true;
+function jumpToLatest() {
+  followingTail=true;paintViewport(true);scrollEl.scrollTop=scrollEl.scrollHeight;lastScrollTop=scrollEl.scrollTop;
+}
 let runtimeInfo: {kind:string;until?:number;attempt?:number;reason?:string}={kind:'ready'};
 let restoredUntil=0;
 function paintRuntime() {
- latestButton.hidden=followingTail;
  const r=runtimeInfo;
  const waiting=r.kind==='retry' && (r.until || 0)>Date.now();
- runtimeStop.hidden=!['retry','working','waiting'].includes(r.kind);
  runtimeLabel.textContent=waiting ?
    (r.reason==='rate_limit'?uiText.retryRate:r.reason==='network'?uiText.retryNetwork:uiText.retryBusy)+' · '+uiText.retryWait.replace('{seconds}',String(Math.max(0,Math.ceil(((r.until||0)-Date.now())/1000)))).replace('{attempt}',String(r.attempt||1)) :
    r.kind==='reconnecting'?uiText.reconnecting:r.kind==='loading'?uiText.loadingSession:r.kind==='waiting'?uiText.waiting:(r.kind==='working'||r.kind==='retry')?uiText.working:uiText.ready;
@@ -947,7 +945,7 @@ window.addEventListener('message', (e) => {
     for(const sent of nodeSends.values()) if(sent.context===previous) sent.context=next;
   }
   if(message?.kind==='nodeSendResult') {finishNodeSend(message.id,message.ok);return;}
-  dispatchHostMessage(e.data, receiveHandlers);
+  dispatchHostMessage(e.data, {...receiveHandlers,onLatest:jumpToLatest});
 });
 actions.ready();
 

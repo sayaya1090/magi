@@ -211,6 +211,12 @@
         "command": "magi.approvals",
         "title": "%command.approvals%",
         "category": "Magi"
+      },
+      {
+        "command": "magi.latest",
+        "title": "%magi.latest.title%",
+        "category": "Magi",
+        "icon": "$(go-to-bottom)"
       }
     ],
     "submenus": [
@@ -318,6 +324,11 @@
         {
           "command": "magi.profileMaintenance",
           "when": "view == magi.plan"
+        },
+        {
+          "command": "magi.latest",
+          "when": "view == magi.chat",
+          "group": "navigation@2.5"
         }
       ],
       "editor/context": [

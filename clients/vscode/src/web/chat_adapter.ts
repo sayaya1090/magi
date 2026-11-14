@@ -181,6 +181,7 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
 }
 
 export interface HostMessageHandlers {
+  onLatest?(): void;
   onRows?(payload: {
     runtime?: {kind:string;until?:number;attempt?:number;reason?:string};
     session: string;
@@ -246,6 +247,7 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
   const m = parseHostToWebviewMessage(raw);
   if (!m) return false;
 
+  if (m.kind === 'latest') { handlers.onLatest?.(); return true; }
   if (m.kind === 'rows') {
     handlers.onRows?.(m);
     return true;

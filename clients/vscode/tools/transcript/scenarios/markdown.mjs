@@ -331,8 +331,10 @@ export const markdownScenario = {
       await page.evaluate(()=>window.postMessage({kind:'rows',session:'reading-a',rows:[],refs:[],runtime:{kind:'retry',until:Date.now()+10000,attempt:2,reason:'network'}},'*'));
       await page.waitForTimeout(50);
       assert.match(await page.locator('.runtime-bar').innerText(),/2/);
-      await page.locator('.runtime-bar button').first().click();
-      assert.deepEqual(await page.evaluate(()=>window.__posted.filter(m=>m.command==='magi.interrupt').at(-1)),{kind:'run',command:'magi.interrupt',session:'reading-a'});
+      assert.equal(await page.locator('.runtime-bar button').count(),0,'no duplicate controls in the transcript');
+      assert.equal(await page.locator('#topbar .runtime-bar').count(),1);
+      await page.evaluate(()=>window.postMessage({kind:'latest'},'*'));
+
     } finally {
       page.off('request', onRequest);
     }
