@@ -30,7 +30,7 @@ class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
         try {
             frame.isVisible = true
             val file = com.intellij.testFramework.LightVirtualFile("diagram.md", md)
-            val html = org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(file, md, project)
+            val html = RichAnswer.documentHtml(org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(file, md, project), panel!!.getClientProperty("magi.document") as String)
             // Test application replaces the Markdown bootstrap URL; use its real generated HTML.
             val update = "document.body.innerHTML=" + kotlinx.serialization.json.JsonPrimitive(html).toString() + ";window.magiMermaid && window.magiMermaid.scan();"
             val start = System.currentTimeMillis()
@@ -112,7 +112,7 @@ class NativeMarkdownSurfaceTest : BasePlatformTestCase() {
             // The IDE test application substitutes the preview bootstrap URL with test.com.
             // Feed its generated HTML into that browser after startup, retaining production surface/height handlers.
             val file = com.intellij.testFramework.LightVirtualFile("sample.md", md)
-            val html = org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(file, md, project)
+            val html = RichAnswer.documentHtml(org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(file, md, project), panel!!.getClientProperty("magi.document") as String)
             val update = "document.body.innerHTML=" + kotlinx.serialization.json.JsonPrimitive(html).toString() + ";window.__magiMeasure && window.__magiMeasure();"
             val started = System.currentTimeMillis()
             var injected = false

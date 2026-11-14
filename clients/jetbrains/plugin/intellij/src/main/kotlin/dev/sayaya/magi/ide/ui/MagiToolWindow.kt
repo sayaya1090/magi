@@ -392,7 +392,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             MagiBundle.msg("chat.latest"), MagiBundle.msg("chat.latest"), com.intellij.icons.AllIcons.Actions.MoveDown) {
             override fun getActionUpdateThread() = com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
             override fun update(e: com.intellij.openapi.actionSystem.AnActionEvent) {
-                e.presentation.isEnabled = !(MagiWindows.of(project) ?: this@View).tailScroll.followingEnd
+                e.presentation.isEnabled = !(MagiWindows.of(project) ?: this@View).tailScroll.isAtEnd
             }
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                 (MagiWindows.of(project) ?: this@View).tailScroll.followEnd()
@@ -427,7 +427,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private val richAnswers = RichAnswer()
         private data class PaintedRow(val row: Row, val open: Boolean, val rich: Boolean, val session: String?, val user: String?, val panel: JBPanel<JBPanel<*>>)
         private var paintedRows = emptyList<PaintedRow>()
-        private fun richRenderKey(r: Row) = RowText.richKey(r) + ":" + (r.outputSeq?.toString() ?: r.text.hashCode().toString())
+        private fun richRenderKey(r: Row) = followedSid.orEmpty() + ":" + RowText.richKey(r) + ":" + (r.outputSeq?.toString() ?: r.text.hashCode().toString())
         // A replay is drawn once, when it ends. Rows are folded from every event, so the log must be
         // read from its start, but nothing is on screen for the rows it passes through. A daemon too
         // old to say caughtUp gets the grace period instead, then draws frame by frame as it used to.
@@ -438,9 +438,11 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             replayGrace.stop()
             if (replaying) {
                 replaying = false; redrawLog()
+                val restoreGeneration = TranscriptCoordinator.of(scroll).generation
                 SwingUtilities.invokeLater {
-                    restoreReading?.let { saved ->
+                    restoreReading?.takeIf { TranscriptCoordinator.of(scroll).generation == restoreGeneration }?.let { saved ->
                         tailScroll.restore(saved.top, saved.follow)
+                        if (!saved.follow) saved.anchor?.let { column.restore(it) }
                         redrawLog()
                     }
                     restoreReading = null
@@ -472,7 +474,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         }
         private val viewportChanged = javax.swing.event.ChangeListener { redrawLog() }
         private val tailScroll = TailScroll(scroll)
-        private data class ReadingPosition(val top: Int, val follow: Boolean, val opened: Set<String>, val closed: Set<String>)
+        private data class ReadingPosition(val top: Int, val follow: Boolean, val opened: Set<String>, val closed: Set<String>, val anchor: TranscriptGeometry.Anchor? = null)
         private val readingPositions = linkedMapOf<String, ReadingPosition>()
         private var restoreReading: ReadingPosition? = null
         private var restoredUntil = 0L
@@ -1195,7 +1197,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 val previous = followedSid
                 SwingUtilities.invokeLater {
                     previous?.let { readingPositions[it] = ReadingPosition(scroll.verticalScrollBar.value, tailScroll.followingEnd,
-                        synchronized(opened) { opened.toSet() }, synchronized(closed) { closed.toSet() }) }
+                        synchronized(opened) { opened.toSet() }, synchronized(closed) { closed.toSet() }, column.anchor()) }
                     if (readingPositions.size > 50) readingPositions.remove(readingPositions.keys.first())
                     val saved = readingPositions[sid]
                     opened.clear(); closed.clear()
@@ -1580,15 +1582,24 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
                 // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
                 val allRows = shaper.list()
-                fun identity(r: Row): String = if (r.msgId.isNotBlank() || r.callId.isNotBlank())
+                fun identity(r: Row): String = if (r.rowId.isNotEmpty()) "${followedSid}:${r.rowId}" else if (r.msgId.isNotBlank() || r.callId.isNotBlank())
                     "${r.msgId}:${r.who}:${r.callId}" else RowText.foldKey(r)
                 // Heights and the reading position follow each row, not its number (VirtualTranscript.rekey).
+                tailScroll.streaming(shaper.open)
                 column.rekey(allRows.map { identity(it) })
                 val extent = scroll.viewport.extentSize.height
                 val y = if (tailScroll.followingEnd) column.endPosition(allRows.size, extent) else scroll.viewport.viewPosition.y
                 val range = column.range(allRows.size, y, extent)
-                val rows0 = if (range.isEmpty()) emptyList() else allRows.subList(range.first, range.last + 1)
-                column.start(range.first.coerceAtLeast(0))
+                val focus = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+                fun selected(c: java.awt.Component): Boolean =
+                    (c is javax.swing.text.JTextComponent && c.selectionStart != c.selectionEnd) ||
+                        (c is java.awt.Container && c.components.any { selected(it) })
+                val pinnedIds = paintedRows.filter {
+                    (focus != null && SwingUtilities.isDescendingFrom(focus, it.panel)) || selected(it.panel)
+                }.map { identity(it.row) }.toSet()
+                val attached = (range.toList() + listOfNotNull(column.restorationIndex()) + allRows.indices.filter { identity(allRows[it]) in pinnedIds }).distinct().sorted()
+                val rows0 = attached.map { allRows[it] }
+                column.attach(attached)
                 val previous = paintedRows.associateBy { identity(it.row) }
                 // Completed rich renderers belong to this view. Drafts do not reload CEF
                 // or evict any completed answer while tokens arrive.
@@ -1598,8 +1609,14 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     .map { richRenderKey(it) }
                 val shown = column.visible(allRows.size, y, extent)
                 val richKeys = if (pinned != null) emptySet() else richRecent.see(
-                    richIn(rows0),
-                    if (shown.isEmpty()) emptyList() else richIn(allRows.subList(shown.first, shown.last + 1)),
+                    richIn(rows0.withIndex().sortedByDescending { (local, _) ->
+                        val index = attached[local]
+                        val distance = if (index < shown.first) shown.first - index else (index - shown.last).coerceAtLeast(0)
+                        val direction = TranscriptCoordinator.of(scroll).direction
+                        // see() retains the last entries: near rows ahead of travel get priority.
+                        distance * 2 + if ((direction > 0 && index < shown.first) || (direction < 0 && index > shown.last)) 1 else 0
+                    }.map { it.value }),
+                    (if (shown.isEmpty()) emptyList() else richIn(allRows.subList(shown.first, shown.last + 1))) + richIn(rows0.filter { identity(it) in pinnedIds }),
                 )
                 if (pinned == null) richAnswers.keepOnly(richKeys.toList())
                 // Delayed row sizing changes geometry, not the user's follow intent.

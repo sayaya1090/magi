@@ -59,6 +59,12 @@ internal class RichAnswer {
      */
     companion object {
         const val KEEP = 4
+        /** Keep the marker inside the body so IDE incremental body patches carry the revision. */
+        fun documentHtml(html: String, token: String): String {
+            val marker = "<meta name=\"magi-document\" content=\"$token\">"
+            val body = Regex("<body(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE).find(html)
+            return if (body == null) marker + html else html.substring(0, body.range.last + 1) + marker + html.substring(body.range.last + 1)
+        }
         private val diagramScript: String by lazy {
             listOf("mermaid.min.js", "view.js").joinToString("\n") { name ->
                 RichAnswer::class.java.getResourceAsStream("/magi-diagram/$name")?.bufferedReader()?.use { it.readText() } ?: ""
@@ -130,8 +136,10 @@ internal class RichAnswer {
             if (held.md == md && wasStreaming != streaming) held.measure()
             if (held.md != md) runCatching {
                 val vf = LightVirtualFile("magi-답.md", md)
-                held.setHtml(org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
-                    .generateMarkdownHtml(vf, md, project), vf)
+                val token = java.util.UUID.randomUUID().toString()
+                held.component.putClientProperty("magi.document", token)
+                held.setHtml(documentHtml(org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
+                    .generateMarkdownHtml(vf, md, project), token), vf)
                 held.md = md
                 // 임의의 기본값으로 재설정하지 않고 실측 기반으로 높이를 재계산한다 (리뷰 F6: 갱신 시 패널 높이 깜빡임 방지).
                 held.measure()
@@ -150,13 +158,15 @@ internal class RichAnswer {
             val htmlPanel = provider.createHtmlPanel(project, vf)
             Disposer.register(parent, htmlPanel)
             // 브라우저 로딩 전 HTML 주입 처리
-            htmlPanel.setHtml(html, 0, vf)
+            val token = java.util.UUID.randomUUID().toString()
+            htmlPanel.setHtml(documentHtml(html, token), 0, vf)
             // 브라우저의 실제 렌더링 높이가 확정되기 전까지 사용할 초기 추정 높이 계산
             val h = initialHeight(key, md)
             val holder = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>(
                 java.awt.BorderLayout(),
             ).apply {
                 isOpaque = false
+                putClientProperty("magi.document", token)
                 border = com.intellij.util.ui.JBUI.Borders.empty(3, 14, 0, 0)
                 preferredSize = java.awt.Dimension(0, h)
                 maximumSize = java.awt.Dimension(Integer.MAX_VALUE, h)
@@ -209,10 +219,13 @@ internal class RichAnswer {
         browser.setPageBackgroundColor("rgb(${surface.red},${surface.green},${surface.blue})")
         val query = runCatching { com.intellij.ui.jcef.JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase) }.getOrNull() ?: return {}
         com.intellij.openapi.util.Disposer.register(browser, query)
+        val reports = HeightReports()
+        var disposed = false
         var answered = false
         var transientLogged = false
         val forward = { delta: Double ->
             javax.swing.SwingUtilities.invokeLater {
+                if (disposed) return@invokeLater
                 val scroll = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, holder)
                     as? javax.swing.JScrollPane
                 scroll?.let { TailScroll.forwardWheel(it, delta) }
@@ -255,15 +268,27 @@ internal class RichAnswer {
             }
             if (said.startsWith("wheel:")) {
                 said.removePrefix("wheel:").toDoubleOrNull()?.takeIf { it.isFinite() }?.let { forward(it) }
-            } else said.trim().toIntOrNull()?.takeIf { it > 0 }?.let { px ->
-                answered = true
-                val h = (px.toLong() + holder.insets.top + holder.insets.bottom).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            } else if (said.startsWith("height:")) {
+                val fields = said.removePrefix("height:").split(':')
+                if (fields.size != 6) return@addHandler null
+                val generation = fields[0].toLongOrNull() ?: return@addHandler null
+                val width = fields[1].toIntOrNull() ?: return@addHandler null
+                val sequence = fields[2].toLongOrNull() ?: return@addHandler null
+                val px = fields[3].toIntOrNull() ?: return@addHandler null
+                val document = fields[4]
+                val phase = fields[5]
+                if (phase !in setOf("ready", "pending", "estimated")) return@addHandler null
                 javax.swing.SwingUtilities.invokeLater {
-                    val stable = sizing.accept(h, holder.width) ?: return@invokeLater
+                    if (disposed || document != holder.getClientProperty("magi.document")) return@invokeLater
+                    if (!reports.accept(generation, width, sequence, px, holder.width)) return@invokeLater
+                    answered = true
+                    if (phase == "pending") return@invokeLater
+                    val h = (px.toLong() + holder.insets.top + holder.insets.bottom).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    val stable = sizing.accept(h, width) ?: return@invokeLater
                     remember(key, stable)
                     if (stable != h && !transientLogged) {
                         transientLogged = true
-                        LOG.info("magi: streaming preview ignored transient height $h; keeping $stable at width ${holder.width}")
+                        LOG.info("magi: streaming preview ignored transient height $h; keeping $stable at width $width")
                     }
                     if (holder.preferredSize.height != stable) {
                         holder.preferredSize = java.awt.Dimension(0, stable)
@@ -310,11 +335,25 @@ internal class RichAnswer {
                     const h = Math.ceil(Math.max(0,
                         ...Array.from(body.children).map(e => e.getBoundingClientRect().bottom + window.scrollY)) +
                         (parseFloat(css.paddingBottom) || 0) + (parseFloat(css.marginBottom) || 0));
-                    if (h > 0 && h !== last) { last = h; ${query.inject("String(h)")} }
+                    const request = window.__magiHeightRequest;
+                    const documentId = document.querySelector('meta[name="magi-document"]')?.content;
+                    if (!request || request.document !== documentId) return;
+                    const measuredWidth = Math.round(window.innerWidth) + ${holder.insets.left + holder.insets.right};
+                    if (measuredWidth !== request.width) return;
+                    const pending = (document.fonts && document.fonts.status !== 'loaded') ||
+                        [...document.images].some(image => !image.complete) ||
+                        [...document.querySelectorAll('figure.magi-diagram')].some(figure => !figure.querySelector('svg[role="img"]') && !figure.querySelector('[role="status"]')?.textContent);
+                    const phase = !pending ? 'ready' : performance.now() - request.started >= 2500 ? 'estimated' : 'pending';
+                    const signature = request.generation + ':' + h + ':' + phase;
+                    if (h > 0 && signature !== last) {
+                        last = signature;
+                        ${query.inject("'height:' + request.generation + ':' + measuredWidth + ':' + (++request.sequence) + ':' + h + ':' + documentId + ':' + phase")}
+                    }
                 };
                 new ResizeObserver(measure).observe(document.body);
                 new MutationObserver(measure).observe(document.body, {childList:true,subtree:true,characterData:true});
                 document.addEventListener('load', measure, true);
+                document.fonts?.addEventListener('loadingdone', measure);
                 document.addEventListener('wheel', function(e) {
                     if (!e.deltaY || e.ctrlKey) return;
                     e.preventDefault();
@@ -326,10 +365,18 @@ internal class RichAnswer {
             })();
         """.trimIndent()
         // 단일 타이머 세트를 재사용하여 스트리밍 갱신 시 타이머 인스턴스 과다 생성(EDT 포화)을 방지한다 (리뷰 F6).
-        val ask = { runCatching {
-            browser.cefBrowser.executeJavaScript(viewerScript(themeJson), browser.cefBrowser.url, 0)
-            browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
-        } }
+        val ask = {
+            if (!disposed) {
+                val request = reports.begin(holder.width)
+                if (request != null) runCatching {
+                    val document = holder.getClientProperty("magi.document") as String
+                    val setup = "window.__magiHeightRequest={generation:${request.generation},width:${request.width},sequence:0,document:'$document',started:performance.now()};clearTimeout(window.__magiHeightTimeout);window.__magiHeightTimeout=setTimeout(()=>window.__magiMeasure?.(),2600);"
+                    browser.cefBrowser.executeJavaScript(viewerScript(themeJson), browser.cefBrowser.url, 0)
+                    browser.cefBrowser.executeJavaScript(setup + js, browser.cefBrowser.url, 0)
+                }
+            }
+            Unit
+        }
         val soon = javax.swing.Timer(350) { ask() }.apply { isRepeats = false }
         val later = javax.swing.Timer(1400) { ask() }.apply { isRepeats = false }
         // 2500ms 경과 후에도 무응답일 경우 추정 높이 유지 사실을 감사 로그에 기록한다 (리뷰 F7).
@@ -340,11 +387,11 @@ internal class RichAnswer {
         // 브라우저 문서 로드 완료 이벤트(onLoadEnd) 발생 시 응답 미수신 상태이면 즉시 높이 측정을 재수행한다.
         browser.jbCefClient.addLoadHandler(object : org.cef.handler.CefLoadHandlerAdapter() {
             override fun onLoadEnd(b: org.cef.browser.CefBrowser?, f: org.cef.browser.CefFrame?, code: Int) {
-                ask()
+                javax.swing.SwingUtilities.invokeLater { ask() }
             }
         }, browser.cefBrowser)
-        Disposer.register(browser) { soon.stop(); later.stop(); audit.stop() }
-        return { answered = false; soon.restart(); later.restart(); audit.restart() }
+        Disposer.register(browser) { disposed = true; reports.close(); soon.stop(); later.stop(); audit.stop() }
+        return { reports.invalidate(); answered = false; soon.restart(); later.restart(); audit.restart() }
     }
 
     /**

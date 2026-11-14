@@ -114,6 +114,8 @@ data class Row(
     val folded: Boolean = false,
     /** 접힌 줄에 붙은 그 순간의 구성([Rows.pinFoldContext]). 모르면 null 이고, 화면은 막대를 안 그린다. */
     val ctx: Rows.Ctx? = null,
+    /** Local replay-stable identity; independent of text and position. */
+    val rowId: String = "",
 )
 
 /**
@@ -129,7 +131,30 @@ class Rows(private val words: Words) {
      */
     fun interface Words { fun msg(key: String, vararg args: Any): String }
 
-    private val rows = mutableListOf<Row>()
+    private var sourceEvent = ""
+    private val rowOccurrences = HashMap<String, Int>()
+    private val rows = object : AbstractMutableList<Row>() {
+        private val entries = ArrayList<Row>()
+        override val size get() = entries.size
+        override fun clear() = entries.clear()
+        override fun get(index: Int) = entries[index]
+        override fun add(index: Int, element: Row) {
+            val row = if (element.rowId.isEmpty()) {
+                // Deltas are transient: message identity must survive replay without them.
+                val parts = if (element.who == Who.Council && element.member != null) listOf("council", element.round.toString(), element.member)
+                    else if (element.msgId.isNotBlank()) listOf("message", element.msgId, element.who.name, element.callId)
+                    else listOf("event", sourceEvent, element.who.name, element.callId)
+                val base = parts.joinToString(":") { "${it.length}:$it" }
+                val occurrence = rowOccurrences.getOrDefault(base, 0)
+                rowOccurrences[base] = occurrence + 1
+                element.copy(rowId = "$base:$occurrence")
+            } else element
+            entries.add(index, row)
+        }
+        override fun set(index: Int, element: Row): Row = entries.set(index,
+            if (element.rowId.isEmpty()) element.copy(rowId = entries[index].rowId) else element)
+        override fun removeAt(index: Int): Row = entries.removeAt(index)
+    }
     /** 이번 턴에 툴 결과 접기로 접은 개수 — 한 턴의 접기는 한 줄에 모은다([foldNote]). 턴이 끝나면 0. */
     private var elidedThisTurn = 0
     /** 이번 턴 접기 줄의 지금 문구 — 문구가 언어마다 달라 머리말 대신 이 글자로 같은 줄을 찾는다. */
@@ -225,6 +250,8 @@ class Rows(private val words: Words) {
     /** 스트림이 다시 시작했다(재접속 전량 재생, 세션 이동). 처음부터 다시 짓는다. */
     fun clear(): Unit = synchronized(rows) {
         rows.clear()
+        rowOccurrences.clear()
+        sourceEvent = ""
         openPrompt = null
         openedAt = null
         councilRound = null
@@ -251,6 +278,7 @@ class Rows(private val words: Words) {
      * 스트림 소유권과 같은 자리에 두어야 "누가 거르나"가 한 곳에 남는다.
      */
     fun feed(e: LogEvent): Boolean = synchronized(rows) {
+        sourceEvent = if (e.seq > 0) "seq:${e.seq}" else "${e.type}:${e.ts.orEmpty()}"
         when (e.type) {
             // 새 프롬프트 뒤의 접기는 새 줄 — 끝을 알리지 못하고 끝난 턴의 줄을 고치지 않는다.
             "prompt.submitted" -> { elidedThisTurn = 0; prompt(e) }
@@ -497,9 +525,9 @@ class Rows(private val words: Words) {
             "text" -> {
                 // 초안이 서 있으면 **그 자리에서** 사실로 덮는다 — 조각과 사실이 같은 말이라,
                 // 새 줄로 쌓으면 흐르는 동안 본 사람만 답을 두 벌 본다.
-                dropDraft(msg, Who.Agent)
+                val draftId = dropDraft(msg, Who.Agent)
                 rows += Row(Who.Agent, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg,
-                    outputText = part["text"]?.jsonPrimitive?.content, outputSeq = e.seq.takeIf { it > 0 })
+                    rowId = draftId, outputText = part["text"]?.jsonPrimitive?.content, outputSeq = e.seq.takeIf { it > 0 })
                 // 인라인로 답한 물음은 제 턴으로 재부상하지 않는다 — 그 물음 행을 이 답 위로
                 // 끌어와 [물음 → 답] 짝으로 읽히게 한다(터미널의 `moveUserBlockBefore` 그대로).
                 val reply = d["inReplyTo"]?.jsonPrimitive?.content
@@ -510,8 +538,8 @@ class Rows(private val words: Words) {
                 settle()
             }
             "reasoning" -> {
-                dropDraft(msg, Who.Thinking)
-                rows += Row(Who.Thinking, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg)
+                val draftId = dropDraft(msg, Who.Thinking)
+                rows += Row(Who.Thinking, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg, rowId = draftId)
             }
             "tool-call" -> {
                 val c = part["toolCall"]?.jsonObject ?: return false
@@ -572,9 +600,9 @@ class Rows(private val words: Words) {
     }
 
     /** 이 messageId 의 초안 행을 걷는다 — 사실이 그 자리를 대신한다. */
-    private fun dropDraft(msg: String, who: Who) {
+    private fun dropDraft(msg: String, who: Who): String {
         val i = rows.indexOfLast { it.draft && it.msgId == msg && it.who == who }
-        if (i >= 0) rows.removeAt(i)
+        return if (i >= 0) rows.removeAt(i).rowId else ""
     }
 
     private fun answered(e: LogEvent): Boolean {

@@ -209,5 +209,52 @@ class TranscriptReflowTest : BasePlatformTestCase() {
             assertEquals("one height for the verdict row, laid out again or rebuilt: $seen", 1, seen.toSet().size)
         } finally { f.tail.close() }
     }
+
+    /**
+     * Review of the refactor: two rows above the reader grew in one EDT tick (several rows measured in
+     * one streaming update, or council verdicts landing together). The first correction was only
+     * queued, the second layout read the stale viewport position against the new offsets, and its
+     * request was dropped: the view ended 70px off (850 instead of 920).
+     */
+    fun testTwoGrowthsAboveTheReaderInOneTickKeepTheReadingPoint() {
+        val f = Fixture()
+        try {
+            f.build(sizes)
+            f.tail.restore(800, false); f.flush()            // 300px into row 2
+            assertEquals(800, f.y)
+            f.panels[0].preferredSize = Dimension(100, 350); f.panels[0].revalidate(); f.column.doLayout()
+            f.panels[1].preferredSize = Dimension(100, 270); f.panels[1].revalidate(); f.column.doLayout()
+            f.flush()
+            assertEquals("both growths are corrected", 920, f.y)
+        } finally { f.tail.close() }
+    }
+
+    /** The reading point kept across a queued correction must not outlive it: a later pull to the end wins. */
+    fun testAQueuedCorrectionDoesNotPullBackAfterFollowingTheEnd() {
+        val f = Fixture()
+        try {
+            f.build(sizes)
+            f.tail.restore(800, false); f.flush()
+            f.panels[0].preferredSize = Dimension(100, 350); f.panels[0].revalidate(); f.column.doLayout()
+            f.tail.followEnd(); f.flush()
+            val end = f.pane.verticalScrollBar.maximum - f.pane.verticalScrollBar.visibleAmount
+            assertEquals(end, f.y)
+            f.panels[1].preferredSize = Dimension(100, 270); f.panels[1].revalidate(); f.column.revalidate(); f.flush()
+            assertEquals("still at the end after another growth", f.pane.verticalScrollBar.maximum - f.pane.verticalScrollBar.visibleAmount, f.y)
+        } finally { f.tail.close() }
+    }
+
+    /** A row above the reader that grows and shrinks back within one tick leaves the view where it was. */
+    fun testAGrowthUndoneInTheSameTickLeavesTheViewWhereItWas() {
+        val f = Fixture()
+        try {
+            f.build(sizes)
+            f.tail.restore(800, false); f.flush()
+            f.panels[0].preferredSize = Dimension(100, 350); f.panels[0].revalidate(); f.column.doLayout()
+            f.panels[0].preferredSize = Dimension(100, 300); f.panels[0].revalidate(); f.column.doLayout()
+            f.flush()
+            assertEquals(800, f.y)
+        } finally { f.tail.close() }
+    }
 }
 

@@ -18,26 +18,26 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
      * end under the pointer (sandbox: following=true, height 720->847, tail 3282->3447). Rows still
      * measured just after the turn are covered by [graceMs]; an explicit pull always goes once.
      */
-    private var streaming = true
-    private var quietSince = 0L
-    private var pinPending = false
-    private fun pulls() = pinPending || streaming || System.currentTimeMillis() - quietSince < graceMs
-
-    /** Whether a turn is open; height changes only pull to the end while it is (and for [graceMs] after). */
-    fun streaming(on: Boolean) {
-        if (on) streaming = true
-        else if (streaming) { streaming = false; quietSince = System.currentTimeMillis() }
-    }
+    private val policy = ScrollPolicy(graceMs)
+    private var pinPending: Boolean
+        get() = policy.pinPending
+        set(value) { policy.pinPending = value }
+    private fun pulls() = policy.pulls()
+    fun streaming(on: Boolean) = policy.streaming(on)
     // Every switch is recorded: a view thrown to the end has a follow 0->1 just before it.
-    private var following = true
+    private var following: Boolean
+        get() = policy.following
         set(v) {
-            if (field != v) ScrollTrace.note("follow", if (field) 1 else 0, if (v) 1 else 0,
+            if (policy.following != v) ScrollTrace.note("follow", if (policy.following) 1 else 0, if (v) 1 else 0,
                 "value=${pane.verticalScrollBar.value} max=${pane.verticalScrollBar.maximum} ext=${pane.verticalScrollBar.visibleAmount}")
-            field = v
+            policy.following = v
         }
+    private val coordinator = TranscriptCoordinator.of(pane)
     private var queued = false
     private var closed = false
-    private var dragging = false
+    private var dragging: Boolean
+        get() = policy.dragging
+        set(value) { policy.dragging = value }
     private var gesture = 0
     private val bar get() = pane.verticalScrollBar
 
@@ -45,7 +45,8 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
     // Intent (following) and fact are kept apart: after the turn a growing row leaves the view above
     // the end with following still on, and the latest button and the range must see that it is not
     // at the end (review: the button stayed off).
-    val followingEnd get() = following && !dragging && (pulls() || nearEnd())
+    val followingEnd get() = policy.headingToEnd(nearEnd())
+    val isAtEnd get() = nearEnd()
 
     /** Times the person moved the view themselves (wheel, keys, scrollbar, a wheel forwarded by a page). */
     internal var navigations = 0
@@ -63,7 +64,7 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
         if (!e.isShiftDown && e.preciseWheelRotation != 0.0) userNavigation(e.preciseWheelRotation > 0)
     }
     private val mouse = object : MouseAdapter() {
-        override fun mousePressed(e: MouseEvent) { gesture++; navigations++; dragging = true; following = false }
+        override fun mousePressed(e: MouseEvent) { gesture++; navigations++; coordinator.cancel(); dragging = true; following = false }
         override fun mouseReleased(e: MouseEvent) {
             dragging = false
             following = nearEnd()
@@ -92,6 +93,7 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
 
     private fun userNavigation(towardEnd: Boolean) {
         navigations++
+        coordinator.cancel(if (towardEnd) 1 else -1)
         val stamp = ++gesture
         following = false // cancels a pin queued before this gesture
         if (towardEnd) SwingUtilities.invokeLater {
@@ -110,22 +112,23 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
         SwingUtilities.invokeLater {
             queued = false
             if (!closed && following && !dragging && pulls()) {
-                val end = (bar.maximum - bar.visibleAmount).coerceAtLeast(bar.minimum)
-                if (bar.value != end) { ScrollTrace.note("tail", bar.value, end); bar.value = end }
+                coordinator.request(null, "tail")
                 pinPending = false
             }
         }
     }
 
     fun restore(position: Int, follow: Boolean) {
+        coordinator.cancel()
         gesture++; dragging = false; following = follow
-        if (follow) { pinPending = true; contentChanged() } else bar.value = position.coerceAtLeast(0)
+        if (follow) { pinPending = true; contentChanged() } else coordinator.request(position.coerceAtLeast(0), "restore")
     }
 
-    fun followEnd() { ScrollTrace.note("follow-end", bar.value, bar.value); gesture++; following = true; pinPending = true; contentChanged() }
+    fun followEnd() { coordinator.cancel(); ScrollTrace.note("follow-end", bar.value, bar.value); gesture++; following = true; pinPending = true; contentChanged() }
 
     override fun close() {
         closed = true
+        coordinator.cancel()
         gesture++
         bar.model.removeChangeListener(changed)
         pane.viewport.removeChangeListener(changed)

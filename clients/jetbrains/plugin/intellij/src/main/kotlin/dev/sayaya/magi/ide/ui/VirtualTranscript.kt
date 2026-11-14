@@ -7,143 +7,108 @@ import javax.swing.SwingConstants
 
 /** Only attached rows participate in Swing layout; other rows retain measured heights. */
 internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPanel<*>>(null), Scrollable {
-    private var heights = IntArray(0)
-    private var offsets = intArrayOf(0)
+    private val geometry = TranscriptGeometry()
     private var first = 0
+    private var attachedIndices: List<Int>? = null
     private var measuring = false
-
-    fun reset() { heights = IntArray(0); offsets = intArrayOf(0); keys = emptyList(); held = null }
-
+    private var emptyHeight = 0
+    private data class Measurement(val width: Int, val preferred: Dimension)
+    private val measured = java.util.WeakHashMap<java.awt.Component, Measurement>()
+    private var pendingAnchor: TranscriptGeometry.Anchor? = null
+    private var anchorGeneration = 0L
+    // The reading point of a correction that is queued but not applied yet. Until the coordinator
+    // commits it the viewport still shows the old position, which no longer names the same content.
+    private var awaited: TranscriptGeometry.Anchor? = null
+    private var awaitedGeneration = 0L
+    private var retained = IntRange.EMPTY
+    private val viewport get() = parent as? javax.swing.JViewport
+    private val coordinator get() = (viewport?.parent as? javax.swing.JScrollPane)?.let(TranscriptCoordinator::of)
+    private data class Held(val anchor: TranscriptGeometry.Anchor, val generation: Long, val at: Long)
+    private var held: Held? = null
     private companion object { const val HOLD_MS = 700L; const val MEASURE_PASSES = 3 }
 
-    private var keys: List<String> = emptyList()
-
-    /**
-     * A row measured shorter than the depth the reader was at, kept for a moment. The IDE preview
-     * re-patches an answer and its height is reported short and then whole again (idea.log:
-     * 1348->304->477); the view was cut to the short row and never came back. If the row grows past
-     * that depth again within [HOLD_MS] the reader returns to it; after that a shrink is real.
-     */
-    private class Held(val key: String?, val row: Int, val into: Int, val at: Long, val nav: Int)
-    private var held: Held? = null
-    /** A move the person made while a row was held cancels the return (review: a wheel to 600 went back to 1058). */
-    private fun navs(): Int = ((parent as? javax.swing.JViewport)?.parent as? javax.swing.JScrollPane)
-        ?.let { TailScroll.of(it)?.navigations } ?: 0
-
-    /**
-     * Rows say who they are before the range is asked for. Heights used to be kept by row number only,
-     * so a row leaving or arriving above the reader slid every height below it by one row and the
-     * anchor, also a row number, jumped by the difference (idea.log: 26->988, 988->26, ~900px). Heights
-     * now follow the row, and the viewport stays on the row it showed at the same depth.
-     */
+    fun reset() { measured.clear(); emptyHeight = 0; geometry.reset(); pendingAnchor = null; awaited = null; held = null; retained = IntRange.EMPTY; coordinator?.cancel() }
+    fun anchor(): TranscriptGeometry.Anchor? = geometry.anchor(viewport?.viewPosition?.y ?: 0)
+    /** What the person is reading: a restore in progress, a correction still queued, or what the viewport shows. */
+    private fun reading(): TranscriptGeometry.Anchor? {
+        val generation = coordinator?.generation ?: 0
+        return pendingAnchor?.takeIf { anchorGeneration == generation }
+            ?: awaited?.takeIf { awaitedGeneration == generation && coordinator?.awaiting == true }
+            ?: anchor()
+    }
+    fun restore(anchor: TranscriptGeometry.Anchor): Boolean {
+        val target = geometry.position(anchor, false) ?: return false
+        pendingAnchor = anchor
+        anchorGeneration = coordinator?.generation ?: 0
+        coordinator?.request(target, "restore")
+        return true
+    }
+    fun restorationIndex(): Int? = (pendingAnchor ?: held?.anchor)?.let { geometry.index(it.id).takeIf { i -> i >= 0 } }
     fun rekey(next: List<String>) {
-        val seen = HashMap<String, Int>()
-        val named = next.map { k -> val n = (seen[k] ?: 0) + 1; seen[k] = n; if (n == 1) k else "$k#$n" }
-        if (named == keys) return
-        if (keys.isEmpty() || keys.size != heights.size) { keys = named; return }
-        val viewport = parent as? javax.swing.JViewport
-        val beforeY = viewport?.viewPosition?.y ?: 0
-        val top = at(beforeY)
-        val topKey = keys[top]
-        val into = beforeY - offsets[top]
-        val old = HashMap<String, Int>(keys.size * 2)
-        keys.forEachIndexed { i, k -> old[k] = heights[i] }
-        heights = IntArray(named.size) { old[named[it]] ?: 100 }
-        keys = named
-        rebuild()
-        val moved = named.indexOf(topKey)
-        if (viewport != null && moved >= 0) {
-            val corrected = (offsets[moved].toLong() + into).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
-            if (corrected != beforeY) {
-                ScrollTrace.note("rekey", beforeY, corrected, "row=$top->$moved")
-                setSize(width, offsets.last())
-                viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, corrected)
-            }
-        }
+        if (geometry.matches(next)) return
+        pendingAnchor = geometry.replace(next, reading())
+        anchorGeneration = coordinator?.generation ?: 0
+        retained = IntRange.EMPTY
     }
-
+    // Compatibility for callers without row data (standalone layout fixtures).
     private fun sized(count: Int) {
-        if (count != heights.size) {
-            heights = IntArray(count) { heights.getOrElse(it) { 100 } }
-            rebuild()
-        }
+        if (geometry.size != count) rekey(List(count) { "row:$it" })
     }
-
-    private fun at(position: Int): Int {
-        val found = offsets.binarySearch(position.coerceAtLeast(0))
-        return (if (found >= 0) found else -found - 2).coerceIn(0, heights.lastIndex)
-    }
-
     fun range(count: Int, y: Int, extent: Int): IntRange {
         sized(count)
-        if (count == 0) return IntRange.EMPTY
-        if (count <= 30) return 0 until count
-        val margin = extent.coerceAtLeast(320)
-        return at(y - margin)..at(y + extent.coerceAtLeast(320) + margin)
+        val wanted = geometry.range(y, extent, coordinator?.direction ?: 0)
+        // Keep the attached range until a screen edge approaches its boundary.
+        val screen = extent.coerceAtLeast(320)
+        val guard = geometry.visible((y - screen).coerceAtLeast(0), screen * 3)
+        if (!retained.isEmpty() && guard.first >= retained.first && guard.last <= retained.last) return retained
+        retained = wanted
+        return wanted
     }
-
-    /** The rows the viewport itself shows at [y], without the margin [range] adds. */
-    fun visible(count: Int, y: Int, extent: Int): IntRange {
-        sized(count)
-        return if (count == 0) IntRange.EMPTY else at(y)..at(y + extent)
-    }
-
-    /** Where the viewport will stand once it reaches the end of [count] rows. */
-    fun endPosition(count: Int, extent: Int): Int {
-        sized(count)
-        return (offsets.last() - extent).coerceAtLeast(0)
-    }
-
-    fun start(index: Int) { first = index }
-
-    private fun rebuild() {
-        offsets = IntArray(heights.size + 1)
-        heights.indices.forEach { i -> offsets[i + 1] =
-            (offsets[i].toLong() + heights[i]).coerceAtMost(Int.MAX_VALUE.toLong() - 1).toInt() }
-    }
+    fun visible(count: Int, y: Int, extent: Int): IntRange { sized(count); return geometry.visible(y, extent) }
+    fun endPosition(count: Int, extent: Int): Int { sized(count); return (geometry.total - extent).coerceAtLeast(0) }
+    fun start(index: Int) { first = index; attachedIndices = null }
+    fun attach(indices: List<Int>) { attachedIndices = indices.toList() }
+    private fun index(local: Int) = attachedIndices?.getOrNull(local) ?: (first + local)
 
     override fun doLayout() {
-        if (heights.isEmpty()) {
+        if (measuring) return
+        if (geometry.size == 0) {
+            val next = components.maxOfOrNull { it.preferredSize.height } ?: 0
             components.forEach { it.setBounds(0, 0, width, it.preferredSize.height) }
+            if (emptyHeight != next) { emptyHeight = next; revalidate(); changed() }
             return
         }
-        if (measuring) return
         measuring = true
+        val before = reading()
+        pendingAnchor = null
         var updated = false
-        val viewport = parent as? javax.swing.JViewport
-        val beforeY = viewport?.viewPosition?.y ?: 0
-        val found = offsets.binarySearch(beforeY)
-        val anchor = (if (found >= 0) found else -found - 2).coerceIn(0, heights.lastIndex)
-        val anchorOffset = beforeY - offsets[anchor]
         try {
             updated = measure(0)
-            if (updated) {
-                rebuild()
-                val now = System.currentTimeMillis()
-                val back = held?.takeIf { now - it.at <= HOLD_MS && it.nav == navs() }?.let { h ->
-                    val row = h.key?.let { k -> keys.indexOf(k).takeIf { it >= 0 } } ?: h.row
-                    if (row in heights.indices && heights[row] > h.into) offsets[row] + h.into else null
-                }
-                if (held != null && (back != null || now - held!!.at > HOLD_MS || held!!.nav != navs())) held = null
-                if (viewport != null && back != null) {
-                    if (back != beforeY) {
-                        ScrollTrace.note("held", beforeY, back, "row=$anchor")
-                        viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, back)
-                    }
-                } else if (viewport != null) {
-                    if (anchorOffset >= heights[anchor] && held == null)
-                        held = Held(keys.getOrNull(anchor), anchor, anchorOffset, now, navs())
-                    val corrected = (offsets[anchor].toLong() + anchorOffset).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
-                    if (corrected != beforeY) {
-                        ScrollTrace.note("anchor", beforeY, corrected, "row=$anchor")
-                        viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, corrected)
-                    }
-                }
+            if (updated) geometry.rebuild()
+            val now = System.currentTimeMillis()
+            val generation = coordinator?.generation ?: 0
+            held = held?.takeIf { it.generation == generation && now - it.at <= HOLD_MS && geometry.position(it.anchor) != null }
+            val back = held?.takeIf { geometry.position(it.anchor) == geometry.position(it.anchor, false) }?.anchor
+            if (back != null) held = null
+            val target = back ?: before
+            if (target != null) {
+                if (held == null && geometry.position(target) != geometry.position(target, false))
+                    held = Held(target, generation, now)
+                // Temporary reflow retains depth; the coordinator clamps to the content bounds.
+                val y = geometry.position(target, false)
+                // While an earlier correction is queued it is replaced even when the target equals the
+                // current position (a row that grew and shrank back in one tick).
+                if (y != null && (y != viewport?.viewPosition?.y || coordinator?.awaiting == true)) {
+                    coordinator?.request(y, if (back != null) "held" else "anchor")
+                    awaited = target; awaitedGeneration = generation
+                } else awaited = null
             }
             components.forEachIndexed { local, component ->
-                val index = first + local
-                if (index in heights.indices) component.setBounds(0, offsets[index], width, heights[index])
+                val i = index(local)
+                if (i < geometry.size) component.setBounds(0, geometry.offset(i), width, geometry.height(i))
             }
+            // Publish size before the queued correction sees the scrollbar's bounds.
+            if (height != geometry.total) setSize(width, geometry.total)
         } finally { measuring = false }
         if (updated) { revalidate(); changed() }
     }
@@ -165,47 +130,45 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
     private fun measure(from: Int): Boolean {
         var updated = false
         components.forEachIndexed { local, component ->
-            val index = first + local
-            if (index !in heights.indices || index < from) return@forEachIndexed
+            val index = index(local)
+            if (index !in 0 until geometry.size || index < from) return@forEachIndexed
             // Lay the row out at this width before asking its height, with the layout caches emptied, and
             // again at the height it reports until the two agree. A wrapping text area that was never laid
             // out is 0px wide and reports one line (a System row flipped 36<->60), BoxLayout keeps its
             // children's sizes until invalidated, and in the IDE a council verdict body reported the size
             // it was last given: the row flipped 153<->281 and settled on the third pass (sandbox).
-            var given = heights[index]
+            val previous = measured[component]
+            if (component.isValid && previous?.width == width && previous.preferred == component.preferredSize) return@forEachIndexed
+            var given = geometry.height(index)
             var h = given
+            val samples = linkedSetOf(given)
+            var settled = false
             for (pass in 0 until MEASURE_PASSES) {
                 component.setSize(width.coerceAtLeast(1), given)
                 forgetLayout(component)
                 layOut(component)
                 h = component.preferredSize.height.coerceAtLeast(1)
-                if (h == given) break
+                if (h == given) { settled = true; break }
+                if (!samples.add(h)) break
                 given = h
             }
-            if (heights[index] != h) {
-                ScrollTrace.note("height", heights[index], h, "row=$index ${component.javaClass.simpleName}")
-                heights[index] = h; updated = true
+            if (!settled) {
+                // A cycle must not alternate the committed height on every subsequent layout.
+                h = samples.max()
+                if (geometry.height(index) != h) ScrollTrace.note("unsettled", geometry.height(index), h, "row=$index samples=$samples")
+            }
+            measured[component] = Measurement(width, Dimension(component.preferredSize))
+            if (geometry.height(index) != h) {
+                ScrollTrace.note("height", geometry.height(index), h, "row=$index ${component.javaClass.simpleName}")
+                geometry.measure(index, h); updated = true
             }
         }
         return updated
     }
 
-    /**
-     * The viewport sizes itself from this before [doLayout] runs, and the followed end is pulled
-     * there at once. A row that has just landed still counts as the 100px guess at that point, so
-     * the end jumped past it and fell back once it was measured — on every tool row of a turn.
-     * Rows below the top row cannot move what the viewport shows, so they are measured first.
-     */
-    override fun getPreferredSize(): Dimension {
-        if (isPreferredSizeSet) return super.getPreferredSize()
-        if (heights.isEmpty()) return Dimension(width.coerceAtLeast(1), components.maxOfOrNull { it.preferredSize.height } ?: 0)
-        if (!measuring && width > 0) {
-            measuring = true
-            val changed = try { measure(at((parent as? javax.swing.JViewport)?.viewPosition?.y ?: 0) + 1) } finally { measuring = false }
-            if (changed) { rebuild(); changed() }
-        }
-        return Dimension(width.coerceAtLeast(1), offsets.last())
-    }
+    /** Queries never measure, mutate geometry, or schedule work. */
+    override fun getPreferredSize(): Dimension = if (isPreferredSizeSet) super.getPreferredSize()
+        else Dimension(width.coerceAtLeast(1), if (geometry.size == 0) emptyHeight else geometry.total)
     override fun getPreferredScrollableViewportSize() = Dimension(480, 320)
     override fun getScrollableTracksViewportWidth() = true
     override fun getScrollableTracksViewportHeight() = false

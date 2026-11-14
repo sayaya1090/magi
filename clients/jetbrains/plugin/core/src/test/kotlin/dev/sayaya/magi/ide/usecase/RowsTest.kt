@@ -18,6 +18,27 @@ import org.junit.jupiter.api.Test
  * 사람이 친 글도 컴패니언의 답도 화면에 없는 채로 — 살아 있는 샌드박스에서 실측한 구멍이다.
  */
 class RowsTest {
+    @Test
+    fun `row identity survives content growth completion and replay`() {
+        val rows = Rows(BundleWords.of("ko"))
+        val events = listOf(
+            user("question", "q"),
+            ev("part.delta", """{"messageId":"m","kind":"text","text":"first"}"""),
+            ev("part.delta", """{"messageId":"m","kind":"text","text":" second"}"""),
+            answer("first second", "m"),
+        )
+        events.take(2).forEach(rows::feed)
+        val id = rows.list().last().rowId
+        assertTrue(id.isNotEmpty())
+        events.drop(2).forEach { rows.feed(it); assertEquals(id, rows.list().last().rowId) }
+        val identities = rows.list().map { it.rowId }
+        assertEquals(identities.size, identities.toSet().size)
+        rows.clear(); events.forEach(rows::feed)
+        assertEquals(identities, rows.list().map { it.rowId })
+        rows.clear(); events.filter { it.type != "part.delta" }.forEach(rows::feed)
+        assertEquals(identities, rows.list().map { it.rowId }, "persisted replay has no transient deltas")
+    }
+
     /** 도구창이 넘기는 것과 같은 한국어 번들 - 아래 한국어 단언들은 번들 문구를 검사한다. */
     private val ko = BundleWords.of("ko")
     private fun editSides(tool: String?, args: String?) = Rows.EditSides.of(tool, args, "변경")
@@ -451,6 +472,10 @@ class RowsTest {
         r.feed(v(11, "Melchior", "done")); r.feed(v(12, "Balthasar", "continue"))
         val live = r.list().filter { it.who == Who.Council && !it.opened }
         assertEquals(2, live.size, "2인 카운슬이 ${live.size} 행으로 그려졌다")
+        val replay = Rows(ko)
+        replay.feed(opened())
+        replay.feed(v(11, "Melchior", "done")); replay.feed(v(12, "Balthasar", "continue"))
+        assertEquals(live.map { it.rowId }, replay.list().filter { it.who == Who.Council && !it.opened }.map { it.rowId })
 
         // 사실이 이긴다: 반박 라운드가 표를 움직이므로, 프리뷰를 옆에 남기면 카운슬이 저 자신과
         // 안 맞는 것으로 보인다.

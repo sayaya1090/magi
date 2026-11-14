@@ -249,7 +249,7 @@ object RowText {
     fun foldsOnKey(focusOwner: Any?, rowPanel: Any?): Boolean =
         focusOwner != null && rowPanel != null && focusOwner === rowPanel
 
-    fun foldKey(r: Row): String = when (r.who) {
+    fun foldKey(r: Row): String = if (r.rowId.isNotEmpty()) "row:${r.rowId}" else when (r.who) {
         Who.Thinking -> {
             val id = r.msgId.ifBlank { r.callId.ifBlank { r.at.orEmpty() } }
             if (id.isNotBlank()) "${r.who}:$id" else "${r.who}:${r.text.hashCode()}"

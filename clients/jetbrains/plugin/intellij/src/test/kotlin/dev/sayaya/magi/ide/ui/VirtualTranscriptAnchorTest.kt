@@ -46,4 +46,70 @@ class VirtualTranscriptAnchorTest : BasePlatformTestCase() {
         assertEquals("still 10px into the row that was k5", rowFive - sizes[1] + 10, pane.viewport.viewPosition.y)
         assertEquals("total height follows the rows, not their old slots", sizes.sum() - sizes[1], column.preferredSize.height)
     }
+    fun testPreferredSizeQueriesDoNotMeasureOrScheduleWork() {
+        var changed = 0
+        var layouts = 0
+        val column = VirtualTranscript { changed++ }
+        val panel = object : JPanel() {
+            override fun doLayout() { layouts++; super.doLayout() }
+        }.apply { preferredSize = Dimension(100, 300) }
+        column.setSize(400, 100)
+        column.rekey(listOf("a")); column.start(0); column.add(panel); column.doLayout()
+        val before = layouts to changed
+        repeat(1000) { assertEquals(300, column.preferredSize.height) }
+        assertEquals(before, layouts to changed)
+    }
+
+    fun testNavigationInvalidatesQueuedCorrection() {
+        val body = JPanel().apply { preferredSize = Dimension(100, 4000) }
+        val pane = JScrollPane(body).apply { size = Dimension(200, 300) }
+        pane.doLayout(); pane.viewport.doLayout()
+        val coordinator = TranscriptCoordinator.of(pane)
+        coordinator.request(2000, "anchor")
+        coordinator.cancel(-1)
+        pane.verticalScrollBar.value = 400
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(400, pane.verticalScrollBar.value)
+    }
+
+    fun testFocusedRowsCanStayAttachedWithoutRenderingTheInterveningHistory() {
+        val column = VirtualTranscript {}
+        column.setSize(400, 100)
+        column.rekey(List(10_000) { "r$it" })
+        column.attach(listOf(2, 9999))
+        column.add(row(120)); column.add(row(150)); column.doLayout()
+        assertEquals(2, column.componentCount)
+        assertEquals(200, column.getComponent(0).y)
+        assertEquals(999920, column.getComponent(1).y)
+    }
+
+    fun testAnOscillatingRendererDoesNotKeepChangingCommittedGeometry() {
+        var changed = 0
+        val column = VirtualTranscript { changed++ }
+        val body = object : JPanel() {
+            override fun getPreferredSize() = Dimension(100, if (height >= 200) 100 else 300)
+        }
+        column.setSize(400, 100); column.rekey(listOf("a")); column.add(body)
+        column.doLayout()
+        val height = column.preferredSize.height
+        val count = changed
+        repeat(20) { column.doLayout(); assertEquals(height, column.preferredSize.height) }
+        assertEquals(count, changed)
+    }
+
+    fun testLogicalRestoreMeasuresTheTargetBeforeClampingItsDepth() {
+        val column = VirtualTranscript {}
+        val pane = JScrollPane(column).apply { size = Dimension(200, 300) }
+        val tail = TailScroll(pane)
+        try {
+            column.rekey(List(100) { "r$it" })
+            tail.restore(0, false)
+            assertTrue(column.restore(TranscriptGeometry.Anchor("r50", 700)))
+            assertEquals(50, column.restorationIndex())
+            column.attach(listOf(50)); column.add(row(1000))
+            flush(pane)
+            assertEquals(5700, pane.viewport.viewPosition.y)
+        } finally { tail.close() }
+    }
+
 }
