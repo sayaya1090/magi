@@ -1,6 +1,7 @@
 ---
 name: visual-explanation
 description: Explain complex software structure, UML relationships, request sequences, and state transitions with Mermaid and concise prose grounded in the code.
+clients: coding
 ---
 
 # Visual explanations

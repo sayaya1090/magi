@@ -164,7 +164,7 @@ func (a *App) coreBlockFor(sid session.SessionID) string {
 // which costs one line and leaves the prefix whole. Nothing is hidden: the model reads the frozen
 // list plus the notes, and the next session's prompt merges them at no cost.
 func (a *App) skillBlockFor(sid session.SessionID, workdir string) string {
-	sk := a.loadSkills(workdir)
+	sk := a.availableSkills(workdir)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
@@ -196,7 +196,7 @@ func renderSkillBlock(sk []port.Skill) string {
 // skillArrivals names skills that appeared after this session's head was written, once each, and
 // records them as told. The caller appends the note to the transcript rather than editing the head.
 func (a *App) skillArrivals(sid session.SessionID, workdir string) []string {
-	sk := a.loadSkills(workdir)
+	sk := a.availableSkills(workdir)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)

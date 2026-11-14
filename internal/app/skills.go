@@ -238,8 +238,8 @@ func (a *App) skillBody(workdir, name string) (string, bool) {
 			return s.Body, true
 		}
 	}
-	if body, ok := builtinSkills[name]; ok {
-		return body, true
+	if b, ok := builtinsFor(a.ClientKind(), builtinSkills)[name]; ok {
+		return b.body, true
 	}
 	return "", false
 }
@@ -251,3 +251,22 @@ func (a *App) skillBody(workdir, name string) (string, bool) {
 // second walk would have its own idea of where a skill lives — this one already knows about the
 // .claude layout and the machine-wide directory — and the two would agree until one was fixed.
 func (a *App) Skills(workdir string) []port.Skill { return a.loadSkills(workdir) }
+
+// availableSkills is what an agent of this kind is offered: the workspace skills (loadSkills) plus
+// the built-ins its kind is given (builtinsFor). Built-ins are listed like the others so the model
+// can reach them unprompted; a workspace skill of the same name wins.
+func (a *App) availableSkills(workdir string) []port.Skill {
+	disk := a.loadSkills(workdir)
+	out := append([]port.Skill(nil), disk...)
+	seen := map[string]bool{}
+	for _, s := range disk {
+		seen[s.Name] = true
+	}
+	for name, b := range builtinsFor(a.ClientKind(), builtinSkills) {
+		if !seen[name] {
+			out = append(out, port.Skill{Name: name, Description: b.description, Body: b.body})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}

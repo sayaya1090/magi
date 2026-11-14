@@ -328,7 +328,7 @@ func (a *App) assembledParts(sid session.SessionID, s session.Session, evs []eve
 	if dir := a.sessionLangDirective(sid, a.liveEvents(sid, evs)); dir != "" {
 		sys = dir + "\n\n" + sys
 	}
-	sys += renderSkillBlock(a.loadSkills(s.Workdir))
+	sys += renderSkillBlock(a.availableSkills(s.Workdir))
 	sh := event.PromptShape{System: len(sys) / 4, Tools: toolSpecTokens(a.toolSpecs(sid, agent))}
 	measureMessages(&sh, msgs)
 	return partsOf(sh), true
