@@ -225,5 +225,20 @@ class TailScrollTest : BasePlatformTestCase() {
             flush(pane); assertAtEnd(pane)
         } finally { tail.close() }
     }
+
+    /** Review: after the turn a growing row left the view above the end, yet followingEnd stayed true and the latest button stayed off. */
+    fun testAViewLeftAboveTheEndAfterTheTurnIsNotFollowingTheEnd() {
+        val body = JPanel().apply { preferredSize = Dimension(300, 4000) }
+        val pane = JScrollPane(body).apply { size = Dimension(400, 300) }
+        val tail = TailScroll(pane, graceMs = 0)
+        try {
+            flush(pane); tail.streaming(false)
+            body.preferredSize = Dimension(300, 4700); flush(pane)
+            assertTrue(pane.verticalScrollBar.value < pane.verticalScrollBar.maximum - pane.verticalScrollBar.visibleAmount)
+            assertFalse("the latest button must be offered away from the end", tail.followingEnd)
+            tail.followEnd(); flush(pane); assertAtEnd(pane)
+            assertTrue("at the end again it follows", tail.followingEnd)
+        } finally { tail.close() }
+    }
 }
 

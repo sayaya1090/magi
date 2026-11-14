@@ -42,7 +42,14 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
     private val bar get() = pane.verticalScrollBar
 
     /** The view is heading for the end, so the rows to build are the ones there, not the ones it passes. */
-    val followingEnd get() = following && !dragging
+    // Intent (following) and fact are kept apart: after the turn a growing row leaves the view above
+    // the end with following still on, and the latest button and the range must see that it is not
+    // at the end (review: the button stayed off).
+    val followingEnd get() = following && !dragging && (pulls() || nearEnd())
+
+    /** Times the person moved the view themselves (wheel, keys, scrollbar, a wheel forwarded by a page). */
+    internal var navigations = 0
+        private set
     private fun nearEnd() = bar.value.toLong() + bar.visibleAmount >= bar.maximum.toLong() - 48
     private var traced = 0
     private val changed = ChangeListener {
@@ -56,7 +63,7 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
         if (!e.isShiftDown && e.preciseWheelRotation != 0.0) userNavigation(e.preciseWheelRotation > 0)
     }
     private val mouse = object : MouseAdapter() {
-        override fun mousePressed(e: MouseEvent) { gesture++; dragging = true; following = false }
+        override fun mousePressed(e: MouseEvent) { gesture++; navigations++; dragging = true; following = false }
         override fun mouseReleased(e: MouseEvent) {
             dragging = false
             following = nearEnd()
@@ -84,6 +91,7 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
     }
 
     private fun userNavigation(towardEnd: Boolean) {
+        navigations++
         val stamp = ++gesture
         following = false // cancels a pin queued before this gesture
         if (towardEnd) SwingUtilities.invokeLater {
@@ -128,6 +136,9 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
     }
 
     companion object {
+        /** The follower installed on [pane], if any. */
+        fun of(pane: JScrollPane): TailScroll? = pane.getClientProperty(PROPERTY) as? TailScroll
+
         private const val PROPERTY = "magi.transcript.tail-scroll"
 
         /**

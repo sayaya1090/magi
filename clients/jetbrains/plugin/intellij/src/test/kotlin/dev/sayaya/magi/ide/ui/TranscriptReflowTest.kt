@@ -105,5 +105,19 @@ class TranscriptReflowTest : BasePlatformTestCase() {
             assertTrue(got[1], got[1].startsWith("magi: transcript scroll jump tail 1000->3600"))
         } finally { ScrollTrace.sink = null; ScrollTrace.reset() }
     }
+
+    /** Review: a wheel during the short measure was undone when the height came back (600 -> 1058). */
+    fun testScrollingDuringAShortMeasureDropsTheHeldPosition() {
+        val f = Fixture()
+        try {
+            f.build(sizes)
+            f.tail.restore(1400, false); f.flush()
+            f.resize(2, 304)
+            TailScroll.forwardWheel(f.pane, (600 - f.y).toDouble()); f.flush()
+            assertEquals(600, f.y)
+            f.resize(2, 1348)
+            assertEquals("the person moved during the short measure; the view stays where they put it", 600, f.y)
+        } finally { f.tail.close() }
+    }
 }
 

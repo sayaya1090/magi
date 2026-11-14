@@ -24,8 +24,11 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
      * 1348->304->477); the view was cut to the short row and never came back. If the row grows past
      * that depth again within [HOLD_MS] the reader returns to it; after that a shrink is real.
      */
-    private class Held(val key: String?, val row: Int, val into: Int, val at: Long)
+    private class Held(val key: String?, val row: Int, val into: Int, val at: Long, val nav: Int)
     private var held: Held? = null
+    /** A move the person made while a row was held cancels the return (review: a wheel to 600 went back to 1058). */
+    private fun navs(): Int = ((parent as? javax.swing.JViewport)?.parent as? javax.swing.JScrollPane)
+        ?.let { TailScroll.of(it)?.navigations } ?: 0
 
     /**
      * Rows say who they are before the range is asked for. Heights used to be kept by row number only,
@@ -117,11 +120,11 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
             if (updated) {
                 rebuild()
                 val now = System.currentTimeMillis()
-                val back = held?.takeIf { now - it.at <= HOLD_MS }?.let { h ->
+                val back = held?.takeIf { now - it.at <= HOLD_MS && it.nav == navs() }?.let { h ->
                     val row = h.key?.let { k -> keys.indexOf(k).takeIf { it >= 0 } } ?: h.row
                     if (row in heights.indices && heights[row] > h.into) offsets[row] + h.into else null
                 }
-                if (held != null && (back != null || now - held!!.at > HOLD_MS)) held = null
+                if (held != null && (back != null || now - held!!.at > HOLD_MS || held!!.nav != navs())) held = null
                 if (viewport != null && back != null) {
                     if (back != beforeY) {
                         ScrollTrace.note("held", beforeY, back, "row=$anchor")
@@ -129,7 +132,7 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
                     }
                 } else if (viewport != null) {
                     if (anchorOffset >= heights[anchor] && held == null)
-                        held = Held(keys.getOrNull(anchor), anchor, anchorOffset, now)
+                        held = Held(keys.getOrNull(anchor), anchor, anchorOffset, now, navs())
                     val corrected = (offsets[anchor].toLong() + anchorOffset).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
                     if (corrected != beforeY) {
                         ScrollTrace.note("anchor", beforeY, corrected, "row=$anchor")
