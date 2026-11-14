@@ -355,7 +355,7 @@ internal class RichAnswer {
                 document.addEventListener('load', measure, true);
                 document.fonts?.addEventListener('loadingdone', measure);
                 document.addEventListener('wheel', function(e) {
-                    if (!e.deltaY || e.ctrlKey) return;
+                    if (!e.deltaY || e.ctrlKey || e.shiftKey) return;
                     e.preventDefault();
                     const delta = e.deltaY * (e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? window.innerHeight : 1);
                     ${query.inject("'wheel:' + String(delta)")}

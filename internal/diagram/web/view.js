@@ -275,6 +275,16 @@
       scale(1);
     }
     button('zoomIn','Zoom in','확대',()=>scale(zoom*1.25)); button('zoomOut','Zoom out','축소',()=>scale(zoom/1.25)); button('fit','Fit','맞춤',fit);
+    // Shift+wheel over the diagram zooms it, steady for a trackpad's many small deltas and a mouse's
+    // notches alike (100px of wheel is one Zoom-in step). Browsers may turn Shift+wheel into a
+    // horizontal wheel, so deltaX stands in when deltaY is 0. A plain wheel stays the page's scroll.
+    canvas.addEventListener('wheel',e=>{
+      if(!e.shiftKey || !svg || e.ctrlKey) return;
+      const raw=e.deltaY||e.deltaX; if(!raw) return;
+      e.preventDefault();
+      const px=raw*(e.deltaMode===1?16:e.deltaMode===2?canvas.clientHeight||400:1);
+      scale(zoom*Math.min(2,Math.max(.5,Math.pow(1.25,-px/100))));
+    },{passive:false});
     async function copy(text) {
       try { await navigator.clipboard.writeText(text); note.textContent=say('Copied.','복사했습니다.'); }
       catch { sourceBox.open=true; note.textContent=say('Clipboard unavailable. Select and copy the source below.','클립보드를 사용할 수 없습니다. 아래 원본을 선택해 복사해 주세요.'); }

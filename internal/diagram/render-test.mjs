@@ -53,6 +53,18 @@ try {
  assert.ok(Math.abs(await zoomed()-fitWidth*1.25)<.01,'selecting a node keeps the zoom');
  await page.locator('.magi-edge-hit').first().dispatchEvent('click');
  assert.ok(Math.abs(await zoomed()-fitWidth*1.25)<.01,'selecting an arrow keeps the zoom');
+ // Shift+wheel over the diagram zooms it; a plain wheel leaves the zoom to the page scroll.
+ const overDiagram=await page.locator('.magi-diagram-canvas').first().boundingBox();
+ await page.mouse.move(overDiagram.x+overDiagram.width/2,overDiagram.y+overDiagram.height/2);
+ const beforeWheel=await zoomed();
+ await page.keyboard.down('Shift'); await page.mouse.wheel(0,-100); await page.keyboard.up('Shift');
+ await page.waitForFunction(w=>parseFloat(document.querySelector('.magi-diagram svg[role=img]').style.width)>w+.01,beforeWheel,{timeout:2000});
+ const grown=await zoomed();
+ await page.keyboard.down('Shift'); await page.mouse.wheel(0,100); await page.keyboard.up('Shift');
+ await page.waitForFunction(w=>parseFloat(document.querySelector('.magi-diagram svg[role=img]').style.width)<w-.01,grown,{timeout:2000});
+ const shrunk=await zoomed();
+ await page.mouse.wheel(0,-100); await page.waitForTimeout(100);
+ assert.ok(Math.abs(await zoomed()-shrunk)<.01,'a wheel without Shift does not zoom');
  await page.getByRole('button',{name:'Fit',exact:true}).click();
  await page.locator('.node').first().click();
  assert.equal(await page.getByRole('button',{name:'Copy question'}).isEnabled(),true);
