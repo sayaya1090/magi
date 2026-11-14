@@ -425,6 +425,30 @@ let currentSession = '';
 let currentGeneration: number | undefined = undefined;
 let currentWebviewId = '';
 const expandedCallIds = new Set<string>();
+const diagramHost = window as typeof window & {magiDiagramComposer?:boolean; magiDiagramTheme?:unknown; magiMermaid?:{setTheme(theme:unknown):void}};
+diagramHost.magiDiagramComposer = true;
+const nodeChoices = new Map<string,string[]>();
+const nodeChips = document.createElement('div');nodeChips.className='diagram-node-chips';nodeChips.hidden=true;
+document.getElementById('bar')!.before(nodeChips);
+const nodeContext = () => JSON.stringify([currentCompanionKey,currentSession]);
+function pickedNodes() { return nodeChoices.get(nodeContext()) || []; }
+function drawNodeChips() {
+  nodeChips.replaceChildren();const picked=pickedNodes();nodeChips.hidden=picked.length===0;
+  for(const name of picked) {
+    const button=document.createElement('button');button.type='button';button.textContent='◇ '+name+' ×';
+    button.title=uiText.nodeRemove;button.setAttribute('aria-label',uiText.nodeRemove+': '+name);
+    button.onclick=()=>{nodeChoices.set(nodeContext(),pickedNodes().filter(n=>n!==name));drawNodeChips();};
+    nodeChips.append(button);
+  }
+}
+window.addEventListener('magi-diagram-select',event=>{
+  const label=(event as CustomEvent).detail?.label;
+  if(typeof label!=='string' || !label.trim() || label.length>2000) return;
+  const picked=pickedNodes();
+  if(picked.includes(label.trim()) || picked.length>=50) return;
+  if(nodeChoices.size>=50 && !nodeChoices.has(nodeContext())) nodeChoices.delete(nodeChoices.keys().next().value!);
+  nodeChoices.set(nodeContext(),[...picked,label.trim()]);drawNodeChips();
+});
 const inputAdapter = createWebviewInputAdapter({
   say,
   sendBtn: document.getElementById('send') as HTMLElement,
@@ -435,6 +459,12 @@ const inputAdapter = createWebviewInputAdapter({
   hintEl: hint,
   askControlsEl,
   getCurrentAsk: () => currentAsk,
+  composeMessage: text => {
+    const picked=pickedNodes(); if(!picked.length) return text;
+    const names=picked.join(', ');
+    return text ? text+'\n\n'+uiText.nodeAbout+' '+names : uiText.nodeExplain+' '+names;
+  },
+  onMessageSubmitted: () => {nodeChoices.delete(nodeContext());drawNodeChips();},
 }, actions, answerState);
 const recoveryController = createWebviewRecoveryController({
   elements: {
@@ -562,6 +592,7 @@ function scheduleViewport() {
 scrollEl.addEventListener('scroll', scheduleViewport, { passive: true });
 window.addEventListener('resize', () => { rowHeights = []; offsetsForRows(); scheduleViewport(); });
 function draw(rs: ChatRows) {
+  drawNodeChips();
   const scope = JSON.stringify([currentCompanionKey, currentSession, currentGeneration, currentWebviewId]);
   if (scope !== transcriptScope) {
     transcriptScope = scope;
@@ -867,7 +898,7 @@ const receiveHandlers = createWebviewReceiveHandlers({
   drawFold,
   drawPlan,
   drawRestart,
-  drawInfo: (m) => { info = m; drawInfo(); },
+  drawInfo: (m) => { info = m; diagramHost.magiDiagramTheme=m.theme; diagramHost.magiMermaid?.setTheme(m.theme); drawInfo(); },
   drawEmptyNote,
   setNoteText: (t) => { noteEl.textContent = t; },
   getNoteText: () => noteEl.textContent,

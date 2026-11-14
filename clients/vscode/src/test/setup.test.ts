@@ -373,3 +373,11 @@ test('§6.10: the empty transcript speaks only about the transcript', () => {
   assert.equal(emptyTranscriptNote({ state: State.Attached }, false, true), '');
   assert.equal(emptyTranscriptNote({ state: State.Attached }, true, true), '');
 });
+
+test('theme-only status updates reach the diagram host', () => {
+  const first=setupOf({ok:true,theme:{dark:{primary:'#123456'}}});
+  const next=setupOf({ok:true,theme:{dark:{primary:'#abcdef'}}});
+  assert.deepEqual(first.theme,{dark:{primary:'#123456'}});
+  assert.equal(sameSetup(first,next),false);
+  assert.equal(sameSetup(first,setupOf({ok:true,theme:{dark:{primary:'#123456'}}})),true);
+});

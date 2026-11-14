@@ -51,7 +51,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     owner, companion, status, chat, plan, looking, hand, handoff,
     approvalSupport(companion),
     companion.onChanged((a) => status.draw(activity.withTurn(a, chat.turnIsOpenHere()))),
-    companion.onSetup((s) => status.show(s)),
+    companion.onSetup((s) => { status.show(s); chat.refreshSetup(); }),
 
     vscode.window.registerWebviewViewProvider(Chat.viewId, chat, {
       // Kept when hidden, because the guidelines say plainly that people minimise the panel, and

@@ -118,6 +118,7 @@ export function label(a: Activity): string {
  * them, and `model` is absent whenever the request named no session.
  */
 export interface Setup {
+  theme?: Response["theme"];
   model?: string;
   backend?: string;
   permission?: string;
@@ -151,10 +152,11 @@ export function setupOf(resp: Response | null): Setup {
   // Keys are left OUT rather than set to undefined. A caller that asks "did it say?" with `in` or
   // with Object.keys gets the true answer, and a screen that spreads this over a previous reading
   // does not overwrite what was known with nothing.
-  const put = (k: keyof Setup, v: string | undefined): void => {
+  const put = (k: Exclude<keyof Setup, "theme">, v: string | undefined): void => {
     const t = (v ?? '').trim();
     if (t) out[k] = t;
   };
+  if (resp.theme) out.theme = resp.theme;
   put('model', resp.model);
   put('backend', resp.backend);
   put('permission', resp.permission);
@@ -166,7 +168,7 @@ export function setupOf(resp: Response | null): Setup {
 
 /** Whether two readings say the same thing, so a screen redraws only when something moved. */
 export function sameSetup(a: Setup, b: Setup): boolean {
-  return a.model === b.model && a.backend === b.backend && a.permission === b.permission;
+  return a.model === b.model && a.backend === b.backend && a.permission === b.permission && JSON.stringify(a.theme) === JSON.stringify(b.theme);
 }
 
 /**

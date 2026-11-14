@@ -424,6 +424,7 @@ export const StateMessageSchema = v.pipe(
 export const InfoMessageSchema = v.pipe(
   v.object({
     kind: v.literal('info'),
+    theme: v.optional(v.object({dark:v.optional(v.record(v.string(),v.string())),light:v.optional(v.record(v.string(),v.string()))})),
     state: v.string(),
     label: v.string(),
     version: v.string(),
@@ -435,6 +436,7 @@ export const InfoMessageSchema = v.pipe(
   }),
   v.transform((m): {
     kind: 'info';
+    theme?: {dark?:Record<string,string>;light?:Record<string,string>};
     state: string;
     label: string;
     version: string;
@@ -445,6 +447,7 @@ export const InfoMessageSchema = v.pipe(
     socket?: string;
   } => ({
     kind: 'info',
+    ...(m.theme ? {theme:m.theme} : {}),
     state: m.state,
     label: m.label,
     version: m.version,

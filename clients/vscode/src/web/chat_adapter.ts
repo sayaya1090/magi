@@ -195,6 +195,7 @@ export interface HostMessageHandlers {
   onPlan?(payload: { kind: 'plan'; todos: { content: string; status: string }[] }): void;
   onRestart?(payload: { kind: 'restart'; state: RestartState | null }): void;
   onInfo?(payload: {
+    theme?: {dark?:Record<string,string>;light?:Record<string,string>};
     kind: 'info';
     state: string;
     label: string;
@@ -289,6 +290,8 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
 }
 
 export interface WebviewInputElements {
+  composeMessage?: (text:string) => string;
+  onMessageSubmitted?: () => void;
   say: HTMLTextAreaElement;
   sendBtn: HTMLElement;
   replyModeEl?: HTMLElement | null;
@@ -845,9 +848,10 @@ export function createWebviewInputAdapter(
 
   function send(): void {
     if (disposed) return;
-    const t = say.value.trim();
-    if (!t) return;
     const pending = answerState.getPendingQuestion();
+    const typed = say.value.trim();
+    const t = pending ? typed : (elements.composeMessage?.(typed) ?? typed);
+    if (!t) return;
     if (pending) {
       const replyTitle = (replyTargetEl?.textContent || '').trim() || undefined;
       const res = answerState.submitReply(pending, t, false, replyTitle);
@@ -895,6 +899,7 @@ export function createWebviewInputAdapter(
       if (!res.ok) return;
       clearAutoCompletion();
       actions.say(res.text ?? t, creationTaskId, currentSession);
+      elements.onMessageSubmitted?.();
       recall.remember(res.text ?? t);
       say.value = res.nextInputText ?? '';
       if (activeCreationTaskId && !currentSession) {
