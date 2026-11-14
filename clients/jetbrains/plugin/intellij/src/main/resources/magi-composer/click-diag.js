@@ -31,11 +31,20 @@
     var now = document.querySelector('input[name="' + esc(input.name) + '"][value="' + esc(input.value) + '"]');
     return now === input ? 'same' : (now ? 'replaced' : 'gone');
   }
+  function question(t) {
+    var fig = t.closest ? t.closest('figure.magi-diagram') : null;
+    var q = fig ? fig.querySelector('.magi-diagram-info label') : null;
+    if (!q) return '-';
+    var aside = q.closest('aside');
+    return getComputedStyle(q).display + (q.hidden ? '/hidden' : '') + (aside && aside.hidden ? '/aside-hidden' : '');
+  }
   function report(kind, phase, e, t, input) {
     if (left-- <= 0) return;
     var msg = kind + ':' + phase + ' target=' + describe(t) + ' prevented=' + e.defaultPrevented +
       ' checked=' + (input ? input.checked : '-') + ' connected=' + (input ? input.isConnected : '-') +
-      ' elem=' + elem(input) + ' pageFocus=' + document.hasFocus() + ' active=' + describe(document.activeElement);
+      ' elem=' + elem(input) + ' pageFocus=' + document.hasFocus() + ' active=' + describe(document.activeElement) +
+      ' html=' + (document.documentElement.className || '-') + ' composer=' + !!window.magiDiagramComposer +
+      ' question=' + question(t);
     MAGI_SEND
   }
   ['pointerdown', 'pointerup', 'click', 'input', 'change'].forEach(function (k) {

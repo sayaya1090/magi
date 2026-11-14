@@ -66,7 +66,14 @@
     .magi-diagram-info textarea::placeholder { color:var(--md-sys-color-on-surface-variant,GrayText);opacity:1; }
     .magi-diagram-info textarea:focus { outline:none;border-bottom-color:var(--magi-primary);box-shadow:inset 0 -2px 0 var(--magi-primary); }
     .magi-diagram .magi-diagram-toggle { display:inline-flex;align-items:center;min-height:40px;padding-right:12px;color:var(--magi-on-variant);cursor:pointer; }
-    .magi-diagram .magi-diagram-toggle input { width:18px;height:18px;margin:11px;accent-color:var(--magi-primary);cursor:pointer; }
+    /* Radios and checkboxes are drawn here, not by the native control: in the JetBrains preview
+       (JCEF off-screen) a checked radio stayed checked=true yet its dot never painted. M3 radio:
+       20dp ring, 2dp stroke, 10dp primary dot; checkbox: 18dp, 2dp corner, primary fill and tick. */
+    .magi-diagram .magi-diagram-toggle input { -webkit-appearance:none;appearance:none;box-sizing:border-box;flex:none;width:20px;height:20px;margin:10px;padding:0;border:2px solid var(--magi-on-variant);border-radius:50%;background:transparent no-repeat center;cursor:pointer; }
+    .magi-diagram .magi-diagram-toggle input[type=checkbox] { width:18px;height:18px;margin:11px;border-radius:2px; }
+    .magi-diagram .magi-diagram-toggle input:checked { border-color:var(--magi-primary); }
+    .magi-diagram .magi-diagram-toggle input[type=radio]:checked { background-image:radial-gradient(circle,var(--magi-primary) 0 5px,transparent 5.5px); }
+    .magi-diagram .magi-diagram-toggle input[type=checkbox]:checked { background-color:var(--magi-primary);background-image:linear-gradient(45deg,transparent 46%,var(--md-sys-color-on-primary,Canvas) 46% 58%,transparent 58%),linear-gradient(-45deg,transparent 46%,var(--md-sys-color-on-primary,Canvas) 46% 58%,transparent 58%);background-size:6px 8px,10px 12px;background-position:2px 5px,5px 1px; }
     .magi-diagram .magi-diagram-toggle input:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
     /* Mermaid's own #id .edge-pattern-solid sets stroke-dasharray:0 with an id selector, which hid
        the flow; !important lets the dash through. */
@@ -382,7 +389,7 @@
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
             description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
-            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer){questionLabel.hidden=true;ask.hidden=true;manualCopy.hidden=true;note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));fit();
+            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer||window.__magiNodeHook){questionLabel.hidden=true;questionLabel.style.setProperty('display','none','important');ask.hidden=true;manualCopy.hidden=true;note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));fit();
           };
           const followup=e=>{e.preventDefault();select();question.focus();};
           n.addEventListener('contextmenu',followup);
