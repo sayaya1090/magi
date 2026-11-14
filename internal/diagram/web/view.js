@@ -249,6 +249,25 @@
     // Arrows touching the selected node flow (data-id L_<from>_<to>_<n>); with nothing selected the
     // animate toggle, when the diagram has one, moves every arrow.
     const nodeKey=el=>((el.id||'').match(/flowchart-(.+)-\d+$/)||[])[1]||'';
+    // An arrow's ends as from_to node keys. Mermaid's own ids say so (L_<from>_<to>_<n>); an arrow the
+    // diagram named itself (A route@--> B) carries only that name, so its ends are the nodes nearest
+    // the first and last point of its path. Measured once per arrow.
+    const edgeKey=e=>{
+      if(e.__magiEdge!==undefined) return e.__magiEdge;
+      const id=e.getAttribute('data-id')||'', keys=new Set([...svg.querySelectorAll('.node')].map(nodeKey).filter(Boolean));
+      const auto=id.match(/^L_(.+)_\d+$/);
+      if(auto){ const body=auto[1]; for(const k of keys) if(body.startsWith(k+'_') && keys.has(body.slice(k.length+1))) return e.__magiEdge=body; }
+      let key='';
+      try {
+        const m=e.getScreenCTM(), len=e.getTotalLength();
+        const end=t=>{ const q=e.getPointAtLength(t); const x=m.a*q.x+m.c*q.y+m.e, y=m.b*q.x+m.d*q.y+m.f; let best='', dist=Infinity;
+          svg.querySelectorAll('.node').forEach(n=>{ const r=n.getBoundingClientRect(); const dx=Math.max(r.left-x,0,x-r.right), dy=Math.max(r.top-y,0,y-r.bottom), d=dx*dx+dy*dy; if(d<dist){dist=d;best=nodeKey(n);} });
+          return best; };
+        const a=end(0), b=end(len); if(a&&b) key=a+'_'+b;
+      } catch { /* no geometry: the arrow simply never moves on its own */ }
+      if(!key && auto) key=auto[1];
+      return e.__magiEdge=key;
+    };
     const flowPaint=()=>{
       if(!svg) return;
       const key=selectedNode?nodeKey(selectedNode):'';
@@ -262,7 +281,7 @@
       svg.querySelectorAll('.node').forEach(n=>n.classList.toggle('magi-linked', groupSet.has(nodeKey(n)) && n!==selectedNode));
       const moving=flowOn?flowOn():!matchMedia('(prefers-reduced-motion: reduce)').matches;
       svg.querySelectorAll('.flowchart-link').forEach(e=>{
-        const rest=(e.getAttribute('data-id')||'').replace(/^L_/,'').replace(/_\d+$/,'');
+        const rest=edgeKey(e);
         // An arrow moves when any trigger connected to it is on: a chosen case or the selected node.
         e.classList.toggle('magi-flow-near', pairs.has(rest) || (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key))));
       });

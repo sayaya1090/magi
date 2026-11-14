@@ -81,6 +81,9 @@ public class ConversationElement {
      */
     private final java.util.List<String> nodes = new java.util.ArrayList<>();
     private final HTMLElement nodeChips = el("md-chip-set");
+    /** 다른 대화의 칩 — 조준이 그 대화로 돌아오면 되살린다. A에서 고른 노드가 B의 말에 붙지 않게. */
+    private final java.util.Map<String, java.util.List<String>> nodesBySession = new java.util.HashMap<>();
+    private String nodesSession = "";
     private String lastSig = null;
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
@@ -140,6 +143,7 @@ public class ConversationElement {
             reach();
             paintFold();
             askPlan();
+            swapNodes();
             // 대화가 정해졌으니 그 대화의 초안이 있으면 되살린다 — 열쇠가 세션이라, 이 줄
             // 앞에서는 어느 초안을 되살릴지 알 수가 없다.
             restoreDraft();
@@ -433,16 +437,24 @@ public class ConversationElement {
      * 판정은 "말이 있느냐"다(운영에서 이것을 거짓과 비교했을 때, 거부된 옮기기 뒤로 보내기가
      * 그대로 따라간 적이 있다). 쓰던 말은 돌려준다 — 타이핑을 잃는 쪽이 늘 더 나쁘다.
      */
-    private void moveAndSend(String to, String text) {
+    private void moveAndSend(String to, String text, String typed, java.util.List<String> picked) {
         String session = aimed == null ? null : aimed.session;
         String from = session == null || session.isEmpty() ? tr("move.somewhere") : session;
         dialogs.confirm(tr("move.headline", "to", to),
                 tr("move.body", "from", from, "to", to),
                 tr("action.move_and_send"), "#i-ss-paper-plane", () -> {
                     value("");
+                    // 확인했으니 칩도 이 말과 함께 떠난다. 취소하면 이 블록이 안 돌아 칩은 그대로다.
+                    nodes.removeAll(picked);
+                    drawNodes();
                     clearSuggest();
                     store.resume(to, why -> {
-                        if (why != null && !why.isEmpty()) { value(text); return; }
+                        if (why != null && !why.isEmpty()) {
+                            value(typed);
+                            for (String n : picked) if (!nodes.contains(n)) nodes.add(n);
+                            drawNodes();
+                            return;
+                        }
                         store.submit(text, w -> { });
                         // 옮겼으니 그 대화가 곧 지금 대화다 — 읽던 층위를 접고 돌아간다.
                         GoSharing.past(null);
@@ -685,17 +697,18 @@ public class ConversationElement {
         java.util.List<String> picked = new java.util.ArrayList<>(nodes);
         if (typed.isEmpty() && picked.isEmpty()) return;
         String v = withNodes(typed, picked);
-        nodes.clear();
-        drawNodes();
         // 보낸 말 아래에 남은 제안은 방금 친 것에 대한 것이 아니다.
         clearSuggest();
         // 컴패니언이 있지 않은 대화라면, 보내기 전에 물어야 할 것이 하나 있다.
         String to = Moves.to(pastNow, aimed == null ? null : aimed.session);
         if (!to.isEmpty()) {
             if (Moves.blocked(to, aimed == null ? null : aimed.state)) return;
-            moveAndSend(to, v);
+            moveAndSend(to, v, typed, picked);
             return;
         }
+        // 보내는 순간에만 칩을 비운다 — 확인을 묻는 길(위)은 확인 뒤에 비운다.
+        nodes.clear();
+        drawNodes();
         // 비우고, 거부되면 되돌린다 — 타이핑을 잃는 쪽이 늘 더 나쁘다(기존 콘솔 규칙).
         value("");
         rememberDraft(); // 빈 값이므로 저장된 초안도 같이 지워진다
@@ -707,6 +720,19 @@ public class ConversationElement {
                 rememberDraft(); // 되돌린 글도 새로고침을 넘겨야 한다
             }
         });
+    }
+
+    /** 조준한 대화가 바뀌면 칩을 그 대화 몫으로 갈아 끼운다(떠나는 대화의 칩은 보관). */
+    private void swapNodes() {
+        String sid = aimed == null || aimed.session == null ? "" : aimed.session;
+        if (sid.equals(nodesSession)) return;
+        if (nodes.isEmpty()) nodesBySession.remove(nodesSession);
+        else nodesBySession.put(nodesSession, new java.util.ArrayList<>(nodes));
+        nodes.clear();
+        java.util.List<String> back = nodesBySession.remove(sid);
+        if (back != null) nodes.addAll(back);
+        nodesSession = sid;
+        drawNodes();
     }
 
     /** 다이어그램 노드 하나를 칩으로 세운다 — 같은 노드는 한 번만. */

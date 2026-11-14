@@ -133,5 +133,12 @@ try {
  await page.setViewportSize({width:390,height:800});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'details fit narrow screens');
  await interactive.screenshot({path:'/tmp/magi-diagram-details.png'});
+ // Named arrows (A route@--> B) carry only their name; flow cases must still move them.
+ const n=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('flowchart LR\n A[Start] route@--> B[Check]\n B save@--> C[Save]\n B --> D[Reject]\n%% magi-flows {"Case 1":["Start","Check","Save"]}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,n+1);
+ const named=page.locator('figure.magi-diagram').last();
+ await named.locator('.magi-diagram-cases input[value="Case 1"]').check();
+ assert.equal(await named.evaluate(f=>[...f.querySelectorAll('.flowchart-link')].filter(e=>getComputedStyle(e).animationName==='magi-flow').map(e=>e.getAttribute('data-id')).sort().join(',')),'route,save','named arrows follow their case');
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

@@ -309,6 +309,20 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#agentdetail[hidden]").count() shouldBe 0
             }
         }
+        When("노드 칩을 단 채 옮기고 보내기를 취소하면") {
+            page.evaluate("window.dispatchEvent(new CustomEvent('magi-diagram-select', {detail: {label: 'Start'}}))")
+            page.waitForSelector("#dock .nodechips .nodechip")
+            page.locator("#dock .composer #send").click()
+            page.waitForSelector("md-dialog.askconfirm")
+            page.locator("md-dialog.askconfirm md-text-button:not(.armed)").last().click()
+            Then("보내지 않았으니 칩도 친 말도 그대로 남는다") {
+                page.waitForTimeout(300.0)
+                page.evaluate("window.__magi_test_sent") shouldBe "keep going@/tmp/a1.sock"
+                page.locator("#dock .nodechips .nodechip").count() shouldBe 1
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe "carry this on"
+            }
+            page.locator("#dock md-input-chip.nodechip").evaluate("c => c.dispatchEvent(new Event('remove'))")
+        }
         When("옮기고 보내기를 누르면") {
             page.evaluate("delete window.__magi_test_resume_refuses; window.__magi_test_resumed = null")
             // 이 페이지에는 그림판이 없다(스프라이트는 구 콘솔이 굽는다) — 표가 어디에 붙는지를
@@ -374,6 +388,20 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForCondition { page.evaluate("document.querySelector('#log').previousElementSibling.hasAttribute('hidden')") == true }
                 page.evaluate("getComputedStyle(document.querySelector('#log').previousElementSibling).display") shouldBe "none"
             }
+        }
+        When("노드 칩을 고른 채 다른 대화로 조준을 옮기면") {
+            page.evaluate("window.dispatchEvent(new CustomEvent('magi-diagram-select', {detail: {label: 'Start'}}))")
+            page.waitForSelector("#dock .nodechips .nodechip")
+            page.evaluate("window.__magi_test_fleet('idle', 's_other')")
+            Then("그 대화의 다음 말에 붙지 않는다") {
+                page.waitForCondition { page.locator("#dock .nodechips .nodechip").count() == 0 }
+            }
+            page.evaluate("window.__magi_test_fleet('idle', 's_now')")
+            Then("돌아오면 그 대화에서 고른 칩이 되살아난다") {
+                page.waitForCondition { page.locator("#dock .nodechips .nodechip").count() == 1 }
+                page.locator("#dock md-input-chip.nodechip").getAttribute("data-node") shouldBe "Start"
+            }
+            page.locator("#dock md-input-chip.nodechip").evaluate("c => c.dispatchEvent(new Event('remove'))")
         }
         When("압축이 요약 조각 셋 중 하나를 끝냈으면") {
             page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 1, total: 3, chars: 840, elapsedMs: 12500})")
