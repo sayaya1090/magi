@@ -141,7 +141,6 @@ func TestMermaidFlowControlChoosesThePicker(t *testing.T) {
 	}
 }
 
-
 func TestMermaidFlowTriggersTravelWithTheirCase(t *testing.T) {
 	m := Mermaid{}
 	run := func(extra string) (string, bool) {

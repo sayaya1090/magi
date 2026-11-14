@@ -688,7 +688,7 @@ class RowsTest {
     }
 
     /**
-     * 코어는 결과(`compaction`)를 기록한 **뒤에** 「compacted — A → B tokens」 알림을 낸다(compact.go). 그 알림이
+     * 코어는 결과(`compaction`)를 기록한 **뒤에** 「compacted — A → B tokens」 알림을 낸다(internal/app/compact.go). 그 알림이
      * 빈 말풍선을 결과 아래에 새로 세우면 막대가 턴 끝까지 남는다 — 사용자가 본 화면(2026-11-12).
      */
     @Test
@@ -709,7 +709,7 @@ class RowsTest {
     }
 
     /**
-     * 창이 예산 경계에 걸려 있으면 툴 결과 접기는 툴 결과마다 1개씩 다시 돈다(compact.go maybeCompact). 한 턴의
+     * 창이 예산 경계에 걸려 있으면 툴 결과 접기는 툴 결과마다 1개씩 다시 돈다(internal/app/compact.go maybeCompact). 한 턴의
      * 접기는 처음 선 한 줄에 개수를 더할 뿐 줄을 쌓지 않는다 — 이미 그린 툴 결과는 그대로 둔다. 다음 턴은 새 줄이다.
      */
     @Test

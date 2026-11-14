@@ -176,7 +176,7 @@ class Rows(private val words: Words) {
     }
     private companion object {
         const val FOLD_CALL = "compact"
-        /** 코어(compact.go)가 요약 없이 끝날 때 내는 말의 머리 — 이것이 오면 압축은 실패로 끝났다. */
+        /** 코어(internal/app/compact.go)가 요약 없이 끝날 때 내는 말의 머리 — 이것이 오면 압축은 실패로 끝났다. */
         val FOLD_FAILED = listOf(
             "compaction did not produce a summary",
             "compact: the summarizer was refused",
