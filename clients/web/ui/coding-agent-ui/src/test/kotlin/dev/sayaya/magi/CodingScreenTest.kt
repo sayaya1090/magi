@@ -221,6 +221,26 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
             }
         }
+        When("다이어그램 노드를 고르면") {
+            page.evaluate("""['Start','Next','Start'].forEach(l => window.dispatchEvent(new CustomEvent('magi-diagram-select', {detail: {label: l}})))""")
+            Then("뷰어에게 컴포저가 받는다고 알리고, 노드는 지울 수 있는 칩으로 한 번씩 선다") {
+                page.evaluate("window.magiDiagramComposer") shouldBe true
+                page.waitForSelector("#dock .nodechips .nodechip")
+                page.locator("#dock .nodechips .nodechip").count() shouldBe 2
+                page.locator("#dock md-input-chip.nodechip[data-node='Next']").evaluate("c => c.dispatchEvent(new Event('remove'))")
+                page.locator("#dock .nodechips .nodechip").count() shouldBe 1
+            }
+            Then("빈 상자로 보내면 노드 이름으로 설명을 청하고, 칩은 비워진다") {
+                val before = page.evaluate("window.__magi_test_sent")
+                page.evaluate("window.__magi_test_sent = null")
+                page.locator("#dock .composer #send").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_sent") != null }
+                page.evaluate("window.__magi_test_sent") shouldBe "composer.node.explain Start@/tmp/a1.sock"
+                page.locator("#dock .nodechips .nodechip").count() shouldBe 0
+                // 뒤의 옮기기 시험은 앞선 「keep going」이 남긴 값을 읽는다 — 그 계약을 건드리지 않는다.
+                page.evaluate("v => { window.__magi_test_sent = v }", before)
+            }
+        }
         When("지난 일 층위(빈 past=목록)로 갈아타면") {
             page.evaluate("window.__magi_test_past('')")
             Then("지금-대화의 판들이 물러나고 목록이 선다 — 여는 길은 행이다") {

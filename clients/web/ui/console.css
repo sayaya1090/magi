@@ -4773,6 +4773,9 @@
     font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); margin-top:var(--magi-sys-space-100);
     padding-left:var(--magi-sys-space-50); overflow-wrap:anywhere;
   }
+  /* 다이어그램 노드 칩 — sayaya-ui md-input-chip(모양·상태는 컴포넌트의 것). 컴포저 줄 위에 선다. */
+  .nodechips { display:flex; flex-wrap:wrap; gap:8px; padding:0 0 8px; }
+  .nodechips[hidden] { display:none; }
   .composer {
     display:flex; gap:var(--magi-sys-space-200); align-items:center;
     /* outline-variant, which is the divider role. Drawn in the on-surface role this line was the

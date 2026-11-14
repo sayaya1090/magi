@@ -29,6 +29,9 @@ internal class RichRecency(private val cap: Int) {
 }
 
 internal class RichAnswer {
+    /** A Mermaid node the person selected in an answer; the tool window turns it into a composer chip. */
+    @Volatile var onNode: ((String) -> Unit)? = null
+
     // Heights outlive browsers, so a rebuilt one starts where its row already stands.
     private val measured = object : LinkedHashMap<String, Int>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?) = size > 256
@@ -183,6 +186,10 @@ internal class RichAnswer {
                 LOG.info("magi: markdown surface " + said.removePrefix("surface:"))
                 return@addHandler null
             }
+            if (said.startsWith("node:")) {
+                said.removePrefix("node:").trim().takeIf { it.isNotEmpty() }?.let { label -> onNode?.invoke(label) }
+                return@addHandler null
+            }
             if (said == "wheel-ready") {
                 pageForwardsWheel.set(true)
                 return@addHandler null
@@ -214,6 +221,16 @@ internal class RichAnswer {
         val js = """
             (function(){
                 if (!document.body) return;
+                // The diagram viewer hands a selected node to the composer below instead of its own
+                // question field, which this Markdown panel does not let anyone type into.
+                window.magiDiagramComposer = true;
+                if (!window.__magiNodeHook) {
+                    window.__magiNodeHook = true;
+                    window.addEventListener('magi-diagram-select', function(e) {
+                        const label = e.detail && e.detail.label;
+                        if (label) { ${query.inject("'node:' + label")} }
+                    });
+                }
                 if (window.__magiMeasure) { window.__magiMeasure(); return; }
                 const style = document.createElement('style');
                 style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important;background:transparent!important}' +

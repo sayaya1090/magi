@@ -127,4 +127,31 @@ class SendDraftTest : BasePlatformTestCase() {
         assertEquals("C", h.input.text)
         assertEquals(listOf(b), h.drafts.failures.single().attempt.refs)
     }
+
+    fun testDiagramNodeChipsGoWithTheMessageAndCanBeRemoved() = check { h ->
+        h.view.attachNode("Start"); h.view.attachNode("Next"); h.view.attachNode("Start")
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(listOf("Start", "Next"), h.field<List<String>>("nodes").toList())
+        val chips: java.awt.Container = h.field("chips")
+        assertTrue(chips.isVisible)
+        chips.components.filterIsInstance<javax.swing.JButton>().single { it.getClientProperty("node") == "Next" }.doClick()
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(listOf("Start"), h.field<List<String>>("nodes").toList())
+        h.submit("")
+        h.finish()
+        assertEquals(MagiBundle.msg("chat.node.explain", "Start"), h.seen.last { it.method in listOf("submit", "steer") }.text)
+        assertTrue(h.field<List<String>>("nodes").isEmpty())
+        h.view.attachNode("B"); UIUtil.dispatchAllInvocationEvents()
+        h.submit("why?")
+        h.finish(1)
+        assertEquals("why?\n\n" + MagiBundle.msg("chat.node.about", "B"), h.seen.last { it.method in listOf("submit", "steer") }.text)
+        assertTrue(h.field<List<String>>("nodes").isEmpty())
+    }
+    fun testDiagramNodeChipsSurviveAFailedSend() = check { h ->
+        h.view.attachNode("X"); UIUtil.dispatchAllInvocationEvents()
+        h.submit("q")
+        h.finish(ok = false)
+        assertEquals(listOf("X"), h.field<List<String>>("nodes").toList())
+        assertEquals(listOf("X"), h.drafts.failures.single().attempt.nodes)
+    }
 }

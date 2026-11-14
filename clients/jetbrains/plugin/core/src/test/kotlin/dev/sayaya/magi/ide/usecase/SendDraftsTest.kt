@@ -75,4 +75,10 @@ class SendDraftsTest {
         assertFalse(s.inFlight("s1"))
         assertTrue(s.canSend("s1"))
     }
+    @Test fun `diagram node names join the message and stand in for an empty one`() {
+        val about = { n: String -> "about $n" }; val explain = { n: String -> "explain $n" }
+        assertEquals("hi", SendDrafts.withNodes("hi", emptyList(), about, explain))
+        assertEquals("hi\n\nabout A, B", SendDrafts.withNodes("hi", listOf("A", "B"), about, explain))
+        assertEquals("explain A", SendDrafts.withNodes("  ", listOf("A"), about, explain))
+    }
 }

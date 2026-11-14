@@ -229,7 +229,7 @@
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
             description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
-            note.textContent=say('Selected: ','선택: ')+selected;fit();
+            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer){questionLabel.hidden=true;ask.hidden=true;manualCopy.hidden=true;note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));fit();
           };
           const followup=e=>{e.preventDefault();select();question.focus();};
           n.addEventListener('contextmenu',followup);

@@ -727,6 +727,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          * 본문 발췌 및 영속화는 코어 데몬이 담당하므로(`docs/CLIENTS.ko.md` §2), 클라이언트 UI는 칩(Chip) 형태의 라벨만 표시합니다.
          */
         private val refs = java.util.Collections.synchronizedList(mutableListOf<FileRef>())
+        /** Mermaid nodes selected in an answer — names only, carried by the next message like [refs]. */
+        private val nodes = java.util.Collections.synchronizedList(mutableListOf<String>())
         private val chips = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
             isOpaque = false
             isVisible = false
@@ -751,10 +753,20 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             drawChips()
         }
 
+        /** A diagram node selected in an answer becomes a chip; the same node stands once. */
+        fun attachNode(label: String) = SwingUtilities.invokeLater {
+            val name = label.trim()
+            if (name.isEmpty() || nodes.contains(name)) return@invokeLater
+            nodes.add(name)
+            drawChips()
+            input.requestFocusInWindow()
+        }
+
         private fun drawChips() {
             chips.removeAll()
             val snap = synchronized(refs) { refs.toList() }
-            chips.isVisible = snap.isNotEmpty()
+            val picked = synchronized(nodes) { nodes.toList() }
+            chips.isVisible = snap.isNotEmpty() || picked.isNotEmpty()
             snap.forEach { ref ->
                 val label = ref.path.substringAfterLast('/') + (ref.lines?.let { ":$it" } ?: "")
                 chips.add(JButton("$label ✕").apply {
@@ -765,11 +777,20 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     addActionListener { refs.remove(ref); drawChips() }
                 })
             }
+            picked.forEach { name ->
+                chips.add(JButton("\u25C7 $name \u2715").apply {
+                    margin = java.awt.Insets(0, 6, 0, 6)
+                    putClientProperty("node", name)
+                    toolTipText = MagiBundle.msg("chat.node.tip")
+                    addActionListener { nodes.remove(name); drawChips() }
+                })
+            }
             chips.revalidate(); chips.repaint()
         }
 
         init {
             head = ReviewSurface.frame(prompt, buttons).apply { isVisible = false }
+            richAnswers.onNode = { attachNode(it) }
 
             val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(link); add(sendButton) }
             val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
@@ -2337,14 +2358,16 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             inputGate.onExplicitAction()
             syncAnswerContext()
             if (answers.active != null) { submitAnswer(input.text); return }
-            val text = input.text.trim()
-            if (text.isEmpty()) return
+            val typed = input.text.trim()
+            val picked = synchronized(nodes) { nodes.toList() }
+            if (typed.isEmpty() && picked.isEmpty()) return
+            val text = dev.sayaya.magi.ide.usecase.SendDrafts.withNodes(typed, picked, { MagiBundle.msg("chat.node.about", it) }, { MagiBundle.msg("chat.node.explain", it) })
             val carry = synchronized(refs) { refs.toList() }
             if (closing.get() || project.isDisposed) return
             val target = currentSendSession()
             if (target.isNullOrBlank()) { report(MagiBundle.msg("chat.nosession")); return }
-            val attempt = sendDrafts.begin(target, input.text, carry) ?: return
-            recall.remember(text)
+            val attempt = sendDrafts.begin(target, input.text, carry, picked) ?: return
+            if (typed.isNotEmpty()) recall.remember(typed)
             val turnOpen = shaper.open
             invalidateComposer()
             updateComposerHint()
@@ -2400,6 +2423,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     tailScroll.followEnd()
                 }
                 synchronized(refs) { refs.removeAll(attempt.refs) }
+                synchronized(nodes) { nodes.removeAll(attempt.nodes) }
                 drawChips()
                 if (sendDrafts.failures.isEmpty()) clearNotice()
             } else if (error != null && outcome.sameSession) {
@@ -2424,6 +2448,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
             input.text = attempt.text
             synchronized(refs) { attempt.refs.forEach { if (!refs.contains(it)) refs.add(it) } }
+            synchronized(nodes) { attempt.nodes.forEach { if (!nodes.contains(it)) nodes.add(it) } }
             drawChips()
             sendDrafts.recovered(attempt.id)
             drawSendRecovery()

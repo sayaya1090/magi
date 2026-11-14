@@ -75,6 +75,12 @@ public class ConversationElement {
     private String planAsked = null;
     private Boolean planTurnOpen = null;
     private final HTMLElement box = el("div");   // form 안쪽의 .composer — 줄을 이루는 것
+    /**
+     * 다이어그램에서 고른 노드 — 이름만, 다음 말과 함께 간다. 뷰어 패널 안의 질문 칸 대신
+     * 이 컴포저가 받는다(뷰어는 window.magiDiagramComposer를 보고 제 칸을 감춘다).
+     */
+    private final java.util.List<String> nodes = new java.util.ArrayList<>();
+    private final HTMLElement nodeChips = el("md-chip-set");
     private String lastSig = null;
     private boolean wired = false;     // 재방문 마운트가 구독을 겹으로 쌓지 않게
 
@@ -629,7 +635,15 @@ public class ConversationElement {
         hint.setAttribute("aria-hidden", "true");
         foldBar.className = "foldbar";
         foldBar.setAttribute("hidden", "");
-        form.append(foldBar, box, hint, note);
+        nodeChips.className = "nodechips";
+        nodeChips.setAttribute("hidden", "");
+        form.append(foldBar, nodeChips, box, hint, note);
+        Js.asPropertyMap(DomGlobal.window).set("magiDiagramComposer", true);
+        DomGlobal.window.addEventListener("magi-diagram-select", evt -> {
+            Object detail = Js.asPropertyMap(evt).get("detail");
+            Object label = detail == null ? null : Js.asPropertyMap(detail).get("label");
+            if (label != null) addNode(String.valueOf(label));
+        });
         wireSuggest();
         // 이 상자가 지금 무엇을 하는 자리인지는 부모가 알린다 — 그 사실이 바뀔 때만 옷을 갈아입는다.
         store.listenForAsk(this::answerMode);
@@ -667,8 +681,12 @@ public class ConversationElement {
      * 두 손이 각자 적으면 한쪽만 고쳐지는 날이 온다(이동 확인이나 되돌리기 중 하나가 빠진 채로).
      */
     private void send() {
-        String v = value().trim();
-        if (v.isEmpty()) return;
+        String typed = value().trim();
+        java.util.List<String> picked = new java.util.ArrayList<>(nodes);
+        if (typed.isEmpty() && picked.isEmpty()) return;
+        String v = withNodes(typed, picked);
+        nodes.clear();
+        drawNodes();
         // 보낸 말 아래에 남은 제안은 방금 친 것에 대한 것이 아니다.
         clearSuggest();
         // 컴패니언이 있지 않은 대화라면, 보내기 전에 물어야 할 것이 하나 있다.
@@ -683,10 +701,46 @@ public class ConversationElement {
         rememberDraft(); // 빈 값이므로 저장된 초안도 같이 지워진다
         store.submit(v, why -> {
             if (why != null && !why.isEmpty() && value().trim().isEmpty()) {
-                value(v);
+                value(typed);
+                for (String n : picked) if (!nodes.contains(n)) nodes.add(n);
+                drawNodes();
                 rememberDraft(); // 되돌린 글도 새로고침을 넘겨야 한다
             }
         });
+    }
+
+    /** 다이어그램 노드 하나를 칩으로 세운다 — 같은 노드는 한 번만. */
+    private void addNode(String label) {
+        String name = label.trim();
+        if (name.isEmpty() || nodes.contains(name)) return;
+        nodes.add(name);
+        drawNodes();
+        Js.<HTMLElement>uncheckedCast(field).focus();
+    }
+
+    private void drawNodes() {
+        nodeChips.replaceChildren();
+        if (nodes.isEmpty()) { nodeChips.setAttribute("hidden", ""); return; }
+        nodeChips.removeAttribute("hidden");
+        for (String name : new java.util.ArrayList<>(nodes)) {
+            // sayaya-ui의 input chip — 후행 ×가 remove 이벤트를 낸다(AccessElement의 범위 칩과 같은 길).
+            HTMLElement chip = el("md-input-chip");
+            chip.className = "nodechip";
+            chip.setAttribute("label", "\u25C7 " + name);
+            chip.setAttribute("data-node", name);
+            chip.setAttribute("title", tr("composer.node.tip"));
+            chip.setAttribute("aria-label", tr("composer.node.remove") + " " + name);
+            chip.addEventListener("remove", evt -> { nodes.remove(name); drawNodes(); });
+            nodeChips.append(chip);
+        }
+    }
+
+    /** 보낼 말 — 친 말 뒤에 노드 이름 줄. 친 말이 없으면 노드 이름으로 설명을 청한다. */
+    private static String withNodes(String typed, java.util.List<String> picked) {
+        if (picked.isEmpty()) return typed;
+        String names = String.join(", ", picked);
+        return typed.isEmpty() ? tr("composer.node.explain") + " " + names
+                : typed + "\n\n" + tr("composer.node.about") + " " + names;
     }
 
     /** 지금 보는 컴패니언의 이름 — 스토어가 잘라 준 그 행의 것(없으면 빈 문자열). */
