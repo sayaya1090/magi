@@ -147,6 +147,21 @@ try {
  await page.setViewportSize({width:390,height:800});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'details fit narrow screens');
  await interactive.screenshot({path:'/tmp/magi-diagram-details.png'});
+ // Labels use M3 body-medium: 14px, 0.25px tracking, 20px between lines, the host's whole family list;
+ // edge labels sit on surface-container-highest and take on-surface (dark #E8E2D8).
+ const typeCount=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await page.evaluate(()=>{document.body.style.fontFamily='-apple-system, "Segoe UI", sans-serif';});
+ await insert('flowchart LR\n A["`Two line\nlabel`"] -->|check| B[One]');
+ await page.waitForFunction(c=>document.querySelectorAll('.magi-diagram svg[role=img]').length===c+1,typeCount);
+ const type=await page.locator('.magi-diagram').last().evaluate(box=>{const svg=box.querySelector('svg[role=img]'),t=svg.querySelector('.node text'),c=getComputedStyle(t);
+  const lines=[...t.children].filter(e=>e.tagName.toLowerCase()==='tspan').map(e=>e.getBoundingClientRect().top);
+  const r=t.closest('.node').querySelector('rect').getBoundingClientRect(),b=t.getBoundingClientRect();
+  return {fam:c.fontFamily,size:c.fontSize,ls:c.letterSpacing,gap:lines[1]-lines[0],inside:b.top>=r.top&&b.bottom<=r.bottom,edge:getComputedStyle(svg.querySelector('.edgeLabel text')).fill};});
+ assert.match(type.fam,/sans-serif/,'the host fallback list survives '+JSON.stringify(type));
+ assert.equal(type.size,'14px'); assert.equal(type.ls,'0.25px','body-medium tracking '+JSON.stringify(type));
+ assert.ok(Math.abs(type.gap-20)<0.6,'20px between label lines '+JSON.stringify(type));
+ assert.ok(type.inside,'re-spaced lines stay inside the node '+JSON.stringify(type));
+ assert.equal(type.edge,'rgb(232, 226, 216)','edge label text is on-surface '+JSON.stringify(type));
  // Named arrows (A route@--> B) carry only their name; flow cases must still move them.
  const n=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
  await insert('flowchart LR\n A[Start] route@--> B[Check]\n B save@--> C[Save]\n B --> D[Reject]\n%% magi-flows {"Case 1":["Start","Check","Save"]}');

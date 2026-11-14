@@ -97,6 +97,8 @@
        container was 1.00-1.22:1 against it, so nodes carry a 1dp outline (2.76:1 there). */
     .magi-diagram svg[role=img] .node :is(rect.label-container,:scope > rect) { rx:12px!important;ry:12px!important; }
     .magi-diagram svg[role=img] .node :is(text,tspan,.nodeLabel,.nodeLabel *,foreignObject *) { fill:var(--magi-node-text)!important;color:var(--magi-node-text)!important; }
+    /* Edge labels sit on surface-container-highest, so their text is on-surface (it was on-primary-container). */
+    .magi-diagram svg[role=img] .edgeLabel :is(text,tspan) { fill:var(--magi-edge-text)!important;color:var(--magi-edge-text)!important; }
     .magi-diagram svg[role=img] .cluster rect { fill:var(--magi-cluster-fill)!important;stroke:var(--magi-cluster-border)!important;stroke-width:1px!important; }
     .magi-diagram svg[role=img] .flowchart-link { stroke:var(--magi-edge)!important; }
     /* Arrows are picked like nodes: a wide transparent line takes the click, and the arrow lifts with
@@ -172,7 +174,11 @@
       signalColor:role('on-surface'),signalTextColor:role('on-surface'),labelBoxBkgColor:role('surface-container-high'),
       labelBoxBorderColor:role('outline'),labelTextColor:role('on-surface'),
       noteBkgColor:role('secondary-container'),noteTextColor:role('on-secondary-container'),noteBorderColor:role('outline-variant')};
-    return {vars,role,key:JSON.stringify(vars)};
+    // Mermaid measures label text outside the page, so type that changes widths goes into the SVG's own
+    // style (themeCSS): M3 body-medium tracking 0.25px and the host's whole family list, fallbacks included.
+    const fullFamily=(cs.getPropertyValue('--md-ref-typeface-plain').trim()||cs.fontFamily).replace(/[;{}<>]/g,'');
+    const css='text,tspan,.nodeLabel,.edgeLabel{letter-spacing:.25px;font-family:'+fullFamily+';}';
+    return {vars,role,css,key:JSON.stringify(vars)+css};
   }
   function mount(pre, source, nativeSVG) {
     const input=pre.querySelector('code')||pre;
@@ -353,7 +359,7 @@
           const theme=themeFor(box), key=theme.key+source;
           let rendered=cache.get(key);
           if (!rendered) {
-            window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'base',themeVariables:theme.vars,fontFamily:theme.vars.fontFamily,maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
+            window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'base',themeVariables:theme.vars,themeCSS:theme.css,fontFamily:theme.vars.fontFamily,maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
             rendered=(await window.mermaid.render('magiDiagram'+(++seq),source)).svg;
             if(cache.size>=32) cache.delete(cache.keys().next().value);
             cache.set(key,rendered);
@@ -369,11 +375,22 @@
           }));
           svg=document.importNode(parsed.documentElement,true);
         }
-        svg.setAttribute('role','img'); { const paint=()=>{ const th=themeFor(box), look=th.vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-node-border',th.role('outline')],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v);
+        svg.setAttribute('role','img'); { const paint=()=>{ const th=themeFor(box), look=th.vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-node-border',th.role('outline')],['--magi-edge-text',th.role('on-surface')],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v);
           svg.querySelectorAll('.node').forEach(n=>{ const c=colors[(n.textContent||'').trim()]; const p=c&&rolePaint(c.toLowerCase().startsWith('#')?c:c.toLowerCase(),th.role); if(!p) return;
             const shape=n.querySelector('.label-container')||n.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'); if(shape) shape.style.setProperty('fill',p.bg,'important');
             n.querySelectorAll('text,tspan,.nodeLabel,.nodeLabel *,foreignObject *').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
           box.__magiPaint=paint; paint(); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
+        // M3 body-medium is 14/20. Mermaid places each line of a wrapped label 1.1em apart through the
+        // tspan y attribute, which CSS line-height cannot change, so node and group labels are re-spaced
+        // to 20px and shifted up by half the added height to stay centred. Edge labels keep Mermaid's
+        // spacing: their background box is sized for it.
+        svg.querySelectorAll('.node text, .cluster-label text').forEach(t=>{
+          const lines=[...t.children].filter(c=>c.tagName.toLowerCase()==='tspan');
+          if(lines.length<2) return;
+          const step=20/14, lift=(lines.length-1)*(step-1.1)/2;
+          const first=parseFloat(lines[0].getAttribute('y'))||0;
+          lines.forEach((l,i)=>l.setAttribute('y',(first+i*step-lift).toFixed(4)+'em'));
+        });
         canvas.replaceChildren(svg); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
           const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
