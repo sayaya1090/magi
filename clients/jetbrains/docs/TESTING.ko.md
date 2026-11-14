@@ -2069,6 +2069,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 ./gradlew :intellij:test --tests '*TranscriptReflowTest' --no-daemon
 ```
 
+`TranscriptDumpReplayTest`는 idea.log 덤프 두 건을 재생합니다. 16:40:13 덤프처럼 1320px 답변 600px 안쪽을 읽는 중에 위의 75px 행이 빠지면 화면은 빠진 행만큼만(−75px) 움직여야 합니다. 행 번호로 앵커를 잡던 `94c23997b`에서는 같은 재생이 +659px 튀었습니다. 16:21:55 덤프처럼 끝에 닿은 대화창 위의 큰 휠(370px)은 막대가 움직이지 않으므로 `ScrollTrace`에 `jump cef-wheel`로 남지 않아야 합니다. 실제 IDE 화면은 이 시험이 확인하지 않습니다.
+
+```bash
+./gradlew :intellij:test --tests '*TranscriptDumpReplayTest' --no-daemon
+```
+
 `TranscriptViewport`는 채팅 입력창에 포커스가 있는 동안 새 읽기 전용 텍스트의 caret 표시 요청이 전사를 움직이지 못하게 합니다. 전사 자체에 포커스가 있으면 키보드 탐색에 필요한 표시 요청은 허용합니다. 실제 Swing 뷰포트 좌표로 두 경우를 검사합니다. 사용자가 휠로 위로 이동하면 새 내용이 추가되어도 위치를 유지하는 기존 `TailScrollTest`도 함께 실행합니다.
 
 이 검증은 공통 IntelliJ Platform 코드와 Swing 동작을 대상으로 합니다. PyCharm·WebStorm·GoLand 각각의 실물 UI 인수를 대신하지 않습니다. JCEF에서 일시적인 작은 높이를 억제하면 해당 응답당 한 번 `streaming preview ignored transient height`를 IDE 로그에 남깁니다.

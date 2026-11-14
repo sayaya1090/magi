@@ -124,10 +124,12 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
             if (!delta.isFinite() || delta == 0.0) return
             (pane.getClientProperty(PROPERTY) as? TailScroll)?.userNavigation(delta > 0)
             val bar = pane.verticalScrollBar
-            val next = bar.value.toLong() + kotlin.math.round(delta).toLong()
-            ScrollTrace.note("cef-wheel", bar.value, next.toInt())
-            bar.value = next.coerceIn(bar.minimum.toLong(),
+            // Record where the bar actually goes: a wheel at the end used to be logged as a 370px jump
+            // although the clamped bar never moved (idea.log 16:21:55).
+            val next = (bar.value.toLong() + kotlin.math.round(delta).toLong()).coerceIn(bar.minimum.toLong(),
                 (bar.maximum - bar.visibleAmount).coerceAtLeast(bar.minimum).toLong()).toInt()
+            ScrollTrace.note("cef-wheel", bar.value, next)
+            bar.value = next
         }
     }
 }
