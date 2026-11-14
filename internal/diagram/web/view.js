@@ -58,7 +58,16 @@
     .magi-diagram .magi-diagram-toggle { display:inline-flex;align-items:center;min-height:40px;padding-right:12px;color:var(--magi-on-variant);cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input { width:18px;height:18px;margin:11px;accent-color:var(--magi-primary);cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
-    .magi-diagram .magi-flow-active .flowchart-link { stroke-dasharray:8 5;animation:magi-flow 1s linear infinite; }
+    /* Mermaid's own #id .edge-pattern-solid sets stroke-dasharray:0 with an id selector, which hid
+       the flow; !important lets the dash through. */
+    .magi-diagram .magi-flow-active .flowchart-link { stroke-dasharray:8 5 !important;animation:magi-flow 1s linear infinite; }
+    /* Theme roles laid over every diagram, including SVG the IDE rendered itself. Nodes are filled
+       containers with no border (M3 filled card); clusters keep a 1dp outline-variant. A diagram's
+       classDef/style is written inline with !important by Mermaid and still wins. */
+    .magi-diagram svg[role=img] .node .label-container,.magi-diagram svg[role=img] .node > :is(rect,polygon,circle,ellipse,path) { fill:var(--magi-node-fill)!important;stroke:none!important; }
+    .magi-diagram svg[role=img] .node :is(text,tspan,.nodeLabel) { fill:var(--magi-node-text)!important;color:var(--magi-node-text)!important; }
+    .magi-diagram svg[role=img] .cluster rect { fill:var(--magi-cluster-fill)!important;stroke:var(--magi-cluster-border)!important;stroke-width:1px!important; }
+    .magi-diagram svg[role=img] .flowchart-link { stroke:var(--magi-edge)!important; }
     @keyframes magi-flow { to { stroke-dashoffset:-26; } }
     @media (prefers-reduced-motion:reduce) { .magi-diagram .magi-flow-active .flowchart-link { animation:none; } }
     @media (pointer:coarse) { .magi-diagram .magi-diagram-action { min-width:48px;min-height:48px; } }
@@ -202,7 +211,7 @@
           }));
           svg=document.importNode(parsed.documentElement,true);
         }
-        svg.setAttribute('role','img'); svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
+        svg.setAttribute('role','img'); { const look=themeFor(box).vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
         canvas.replaceChildren(svg); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
           const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
