@@ -37,7 +37,8 @@ object Markup {
      *
      * 이스케이프가 **먼저**다([text] 와 같은 사유) — 마크다운을 편 뒤에 이스케이프하면 우리가
      * 만든 태그가 같이 죽고, 안 하면 남의 글자가 태그로 먹힌다. 지원: ``` 펜스(고정폭 블록),
-     * `인라인 코드`, **굵게**, *기울임*, # 머리글, -·* 목록. 그 밖(링크·표·이미지)은 원문
+     * `인라인 코드`, **굵게**, *기울임*, # 머리글, -·* 목록(들여쓴 것 포함), 번호 목록, > 인용, 표(머리 줄 다음 구분선). 표는 스트리밍 중
+     * 파이프 원문이 그대로 보이던 자리라 편다(사용자: 「로우 데이터 뿌려질 때 당황스러워」). 그 밖(링크·이미지)은 원문
      * 글자 그대로 둔다 — 어설픈 반쪽 렌더보다 정직한 원문이 낫다.
      */
     fun markdown(s: String): String {
@@ -60,7 +61,26 @@ object Markup {
                 "<code>" + code[m.groupValues[1].toInt()] + "</code>"
             }
         }
-        for (line in esc.lines()) {
+        val lines = esc.lines()
+        val rule = Regex("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)*\\|?\\s*$")
+        fun cells(row: String): List<String> = row.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i++]
+            // 표: 파이프로 시작하는 머리 줄 다음에 구분선이 오면 그 아래 파이프 줄까지 한 표다.
+            if (!inFence && line.trimStart().startsWith("|") && i < lines.size && rule.matches(lines[i])) {
+                out.append("<table border=\"1\" cellspacing=\"0\" cellpadding=\"3\"><tr>")
+                cells(line).forEach { out.append("<th>").append(inline(it)).append("</th>") }
+                out.append("</tr>")
+                i++
+                while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                    out.append("<tr>")
+                    cells(lines[i++]).forEach { out.append("<td>").append(inline(it)).append("</td>") }
+                    out.append("</tr>")
+                }
+                out.append("</table>")
+                continue
+            }
             if (line.trimStart().startsWith("```")) {
                 if (inFence) {
                     out.append("<pre>").append(fenceBuf).append("</pre>")
@@ -70,11 +90,20 @@ object Markup {
                 continue
             }
             if (inFence) { fenceBuf.append(line).append("\n"); continue }
-            val h = Regex("^(#{1,6})\\s+(.*)").find(line)
+            // 들여쓰기를 걷고 판정한다 — 중첩 목록·들여쓴 머리글이 기호 원문으로 남던 자리(사용자:
+            // 「## 이나 * 같은게 그대로 보이던데」). 깊이는 목록 앞 여백으로 남긴다.
+            val t = line.trimStart()
+            val pad = "&nbsp;&nbsp;".repeat((line.length - t.length) / 2)
+            val h = Regex("^(#{1,6})\\s+(.*)").find(t)
+            val ol = Regex("^(\\d+)[.)]\\s+(.*)").find(t)
             when {
                 h != null -> out.append("<b>").append(inline(h.groupValues[2])).append("</b><br/>")
-                line.startsWith("- ") || line.startsWith("* ") ->
-                    out.append("&nbsp;&bull; ").append(inline(line.substring(2))).append("<br/>")
+                t.startsWith("- ") || t.startsWith("* ") ->
+                    out.append(pad).append("&nbsp;&bull; ").append(inline(t.substring(2))).append("<br/>")
+                ol != null ->
+                    out.append("&nbsp;").append(pad).append(ol.groupValues[1]).append(". ").append(inline(ol.groupValues[2])).append("<br/>")
+                t == "&gt;" || t.startsWith("&gt; ") ->
+                    out.append("&nbsp;&#9474; <i>").append(inline(t.removePrefix("&gt;").trimStart())).append("</i><br/>")
                 else -> out.append(inline(line)).append("<br/>")
             }
         }

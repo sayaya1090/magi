@@ -119,4 +119,28 @@ class StreamingHeightTest : BasePlatformTestCase() {
         } finally { tail.close() }
     }
 
+
+    fun testAStreamingMermaidFenceShowsAPlaceholderNotItsSource() {
+        val view = StreamingMarkdown("Intro\n\n```mermaid\nflowchart LR\n A --> B")
+        fun texts(c: java.awt.Container): List<String> = c.components.flatMap { k ->
+            listOfNotNull((k as? javax.swing.text.JTextComponent)?.document?.let { it.getText(0, it.length) }, (k as? javax.swing.JLabel)?.text) +
+                ((k as? java.awt.Container)?.let { texts(it) } ?: emptyList())
+        }
+        fun pending(c: java.awt.Container): Int = c.components.sumOf { k ->
+            (if ((k as? javax.swing.JComponent)?.getClientProperty("magi.diagram.pending") == true) 1 else 0) +
+                ((k as? java.awt.Container)?.let { pending(it) } ?: 0)
+        }
+        assertFalse(texts(view).toString(), texts(view).any { it.contains("flowchart") })
+        assertEquals(1, pending(view))
+        // The fence closes and prose follows: still a placeholder, and the prose is formatted.
+        view.update("Intro\n\n```mermaid\nflowchart LR\n A --> B\n```\n\n**Done**")
+        assertFalse(texts(view).toString(), texts(view).any { it.contains("flowchart") })
+        assertEquals(1, pending(view))
+        assertTrue(texts(view).toString(), texts(view).any { it.contains("Done") })
+        // An ordinary fence still shows its code.
+        view.update("```kotlin\nval x = 1")
+        assertEquals(0, pending(view))
+        assertTrue(texts(view).any { it.contains("val x = 1") })
+    }
 }
+

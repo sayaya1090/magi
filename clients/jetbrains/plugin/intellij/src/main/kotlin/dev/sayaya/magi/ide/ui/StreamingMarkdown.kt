@@ -22,11 +22,13 @@ internal class StreamingMarkdown(text: String) : JPanel() {
             .map { text.substring(it.startOffset, it.endOffset) }.filter { it.isNotBlank() }
         next.forEachIndexed { index, source ->
             if (blocks.getOrNull(index) == source) return@forEachIndexed
-            val body = Look.rich(source) as JEditorPane
+            val body = view(source)
             if (index < componentCount) {
                 val held = getComponent(index) as JPanel
-                // Preserve both the block component and its selection for unchanged blocks.
-                (held.getComponent(0) as JEditorPane).text = body.text
+                val now = held.getComponent(0)
+                // Preserve both the block component and its selection when the kind is unchanged.
+                if (now is JEditorPane && body is JEditorPane) now.text = body.text
+                else if (!(isPending(now) && isPending(body))) { held.removeAll(); held.add(body, BorderLayout.CENTER) }
             } else {
                 add(object : JPanel(BorderLayout()) {
                     init { isOpaque = false; alignmentX = LEFT_ALIGNMENT; add(body, BorderLayout.CENTER) }
@@ -38,4 +40,27 @@ internal class StreamingMarkdown(text: String) : JPanel() {
         blocks = next
         revalidate()
     }
+
+    /**
+     * A Mermaid fence is not shown as its source while the answer streams: a box holds its place
+     * and the finished answer draws the diagram (RichAnswer). Raw diagram text mid-stream read as
+     * something gone wrong.
+     */
+    private fun view(source: String): javax.swing.JComponent =
+        if (Regex("^```\\s*mermaid\\b", RegexOption.IGNORE_CASE).containsMatchIn(source.trimStart())) pending()
+        else Look.rich(source)
+
+    private fun isPending(c: java.awt.Component) = (c as? javax.swing.JComponent)?.getClientProperty(PENDING) == true
+
+    private fun pending(): javax.swing.JComponent = javax.swing.JLabel("\u25C7 " + MagiBundle.msg("chat.diagram.pending")).apply {
+        putClientProperty(PENDING, true)
+        foreground = Look.faint
+        border = javax.swing.BorderFactory.createCompoundBorder(
+            com.intellij.util.ui.JBUI.Borders.empty(3, 14, 3, 0),
+            javax.swing.BorderFactory.createCompoundBorder(
+                javax.swing.BorderFactory.createDashedBorder(Look.faint, 1f, 4f, 3f, true),
+                com.intellij.util.ui.JBUI.Borders.empty(16, 12)))
+    }
+
+    private companion object { const val PENDING = "magi.diagram.pending" }
 }

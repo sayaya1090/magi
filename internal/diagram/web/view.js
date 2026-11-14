@@ -51,6 +51,9 @@
     @media (prefers-reduced-motion:reduce) { .magi-diagram svg [role=button] { transition:none; } }
     .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
+    pre.magi-diagram-pending { background:transparent;border:1px dashed var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 30%,transparent));border-radius:12px;padding:16px 12px;min-height:48px; }
+    pre.magi-diagram-pending > code { display:none !important; }
+    pre.magi-diagram-pending::before { content:attr(data-magi-pending);color:var(--md-sys-color-on-surface-variant,currentColor);opacity:.8;font:inherit;white-space:normal; }
     /* Hosts whose composer takes a selected node (JetBrains, web console) draw no question field or copy button of their own. */
     .magi-composer-host .magi-diagram .magi-diagram-ask, .magi-composer-host .magi-diagram-info label { display:none !important; }
     /* Nodes the model linked to the selected one. */
@@ -359,7 +362,10 @@
   function scan() {
     document.querySelectorAll('pre > code').forEach(code=>{
       const lang=code.getAttribute('data-lang')||code.getAttribute('data-language')||(code.className||'').replace(/^language-/,'');
-      if(lang.trim().toLowerCase()!=='mermaid' || code.getAttribute('data-streaming')==='true') return;
+      if(lang.trim().toLowerCase()!=='mermaid') return;
+      // A fence still streaming shows a box holding its place, never its source; the finished
+      // fence is mounted below and replaces the box.
+      if(code.getAttribute('data-streaming')==='true') { const box=code.parentElement; if(box && !box.classList.contains('magi-diagram-pending')) { box.classList.add('magi-diagram-pending'); box.setAttribute('data-magi-pending','\u25C7 '+say('The diagram is drawn when the answer finishes','답이 끝나면 다이어그램을 그립니다')); } return; }
       const pre=code.parentElement, nativeSVG=code.querySelector('svg');
       if (nativeSVG) {
         // JetBrains keeps the UTF-8 source on its copy button even after native
