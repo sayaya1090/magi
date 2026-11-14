@@ -177,9 +177,10 @@
             if(typeof c==='string' && /^(primary|secondary|tertiary|error|neutral|#[0-9a-f]{6})$/i.test(c)) colors[label.trim()]=c;
       } catch { /* Optional malformed colours do not prevent rendering. */ }
     }
-    const flows=Object.create(null); let flowControl='radio';
+    const flows=Object.create(null), triggers=Object.create(null); let flowControl='radio';
     for(const line of source.split('\n')) {
       const c=line.match(/^\s*%% magi-flow-control (radio|checkbox|dropdown)\s*$/); if(c) flowControl=c[1];
+      const tm=line.match(/^\s*%% magi-flow-triggers (.+)$/); if(tm){ try { const t=JSON.parse(tm[1]); if(t && typeof t==='object' && !Array.isArray(t)) for(const [n,l] of Object.entries(t).slice(0,20)) if(Array.isArray(l)) triggers[n]=l.filter(x=>typeof x==='string').map(x=>x.trim()).slice(0,50); } catch { /* optional */ } }
       const match=line.match(/^\s*%% magi-flows (.+)$/);
       if(!match) continue;
       try {
@@ -226,9 +227,11 @@
     button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='', selectedNode=null, flowOn=null, activeCases=[], casesReset=()=>{};
     // Arrows of the chosen cases: consecutive labels of each path, as from_to node keys.
-    const caseEdges=()=>{ const set=new Set(), keyOf=Object.create(null); if(!svg) return set;
+    // A named animation is on while any trigger connected to it is true: its picker item or a
+    // selected node listed in its triggers.
+    const caseEdges=(names)=>{ const set=new Set(), keyOf=Object.create(null); if(!svg) return set;
       svg.querySelectorAll('.node').forEach(n=>{ keyOf[(n.textContent||'').trim()]=nodeKey(n); });
-      for(const name of activeCases){ const path=flows[name]||[];
+      for(const name of names){ const path=flows[name]||[];
         for(let i=0;i+1<path.length;i++){ const a=keyOf[path[i].trim()], b=keyOf[path[i+1].trim()]; if(a&&b) set.add(a+'_'+b); } }
       return set; };
     // Arrows touching the selected node flow (data-id L_<from>_<to>_<n>); with nothing selected the
@@ -237,7 +240,9 @@
     const flowPaint=()=>{
       if(!svg) return;
       const key=selectedNode?nodeKey(selectedNode):'';
-      const cases=activeCases.length?caseEdges():null;
+      const picked=selectedNode?(selectedNode.textContent||'').trim():'';
+      const named=[...new Set([...activeCases, ...Object.keys(triggers).filter(n=>flows[n] && picked && triggers[n].includes(picked))])];
+      const cases=named.length?caseEdges(named):null;
       const moving=flowOn?flowOn():!matchMedia('(prefers-reduced-motion: reduce)').matches;
       svg.querySelectorAll('.flowchart-link').forEach(e=>{
         const rest=(e.getAttribute('data-id')||'').replace(/^L_/,'').replace(/_\d+$/,'');

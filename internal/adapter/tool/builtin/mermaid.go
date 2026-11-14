@@ -34,10 +34,10 @@ func (m Mermaid) Description() string {
 	if m.Preview {
 		return "Create an offline interactive Mermaid HTML preview for this local terminal. Return ONLY the preview link and a short explanation to the user; never print the Mermaid source. Browser capability is checked before this tool is offered and again at execution."
 	}
-	return "Prepare a Mermaid diagram. Use it by default whenever you explain relationships, ordering or causation with two or more steps: architecture, component relations, request or data flows, sequences, state transitions, root-cause chains, the order of an operation, a change across several files, or a comparison of alternatives. Return the fenced diagram in your answer with a short explanation. This checks input limits and policy, not Mermaid grammar; the client renders and reports syntax errors. Load skill visual-explanation for UML guidance. Colour nodes by meaning with colors, choosing Material palette roles by their purpose (primary, secondary, tertiary, error, neutral); a #RRGGBB code only when a specific colour is required. Uncoloured nodes keep the theme. When a flowchart shows several cases on one drawing, name each case in flows (case name to the node labels it passes, in order) and the reader picks which case's arrows move, with flowControl radio (one case at a time, the default), checkbox (several together) or dropdown (many cases)."
+	return "Prepare a Mermaid diagram. Use it by default whenever you explain relationships, ordering or causation with two or more steps: architecture, component relations, request or data flows, sequences, state transitions, root-cause chains, the order of an operation, a change across several files, or a comparison of alternatives. Return the fenced diagram in your answer with a short explanation. This checks input limits and policy, not Mermaid grammar; the client renders and reports syntax errors. Load skill visual-explanation for UML guidance. Colour nodes by meaning with colors, choosing Material palette roles by their purpose (primary, secondary, tertiary, error, neutral); a #RRGGBB code only when a specific colour is required. Uncoloured nodes keep the theme. When a flowchart shows several cases on one drawing, name each case in flows (case name to the node labels it passes, in order) and the reader picks which case's arrows move, with flowControl radio (one case at a time, the default), checkbox (several together) or dropdown (many cases). triggers names, per case, the nodes whose selection also turns it on; a case moves while any of its triggers is on."
 }
 func (Mermaid) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"source":{"type":"string","description":"Mermaid source without fences. Plain labels; no HTML, URLs, click directives or configuration."},"descriptions":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional plain-text explanations keyed by the exact visible node label. Keep labels unique."},"colors":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional colour per exact visible node label. Prefer a Material palette role, chosen by purpose: primary = the subject of the explanation and its main path; secondary = supporting components; tertiary = what must stand out by contrast (an external system, a proposal, a change); error = failure, risk or root cause; neutral = background context or out of scope. The client paints each role with the person's theme in light or dark. Use #RRGGBB only when a specific colour is required."},"flows":{"type":"object","additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Optional cases on one flowchart: case name to the exact node labels it passes through, in order (2-50 labels, at most 20 cases). The reader selects a case and only its arrows animate."},"flowControl":{"type":"string","enum":["radio","checkbox","dropdown"],"description":"How the reader picks cases: radio = one case at a time (default), checkbox = several cases together, dropdown = one case from a long list."},"animate":{"type":"boolean","description":"Animate data-flow arrows in flowcharts only; use only when arrows represent data movement."}},"required":["title","source"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"source":{"type":"string","description":"Mermaid source without fences. Plain labels; no HTML, URLs, click directives or configuration."},"descriptions":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional plain-text explanations keyed by the exact visible node label. Keep labels unique."},"colors":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional colour per exact visible node label. Prefer a Material palette role, chosen by purpose: primary = the subject of the explanation and its main path; secondary = supporting components; tertiary = what must stand out by contrast (an external system, a proposal, a change); error = failure, risk or root cause; neutral = background context or out of scope. The client paints each role with the person's theme in light or dark. Use #RRGGBB only when a specific colour is required."},"flows":{"type":"object","additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Optional cases on one flowchart: case name to the exact node labels it passes through, in order (2-50 labels, at most 20 cases). The reader selects a case and only its arrows animate."},"triggers":{"type":"object","additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Optional, per flow case: exact node labels whose selection also turns that case on. A case animates its whole path while any of its triggers - its picker item or one of these nodes - is on, and stops when all are off."},"flowControl":{"type":"string","enum":["radio","checkbox","dropdown"],"description":"How the reader picks cases: radio = one case at a time (default), checkbox = several cases together, dropdown = one case from a long list."},"animate":{"type":"boolean","description":"Animate data-flow arrows in flowcharts only; use only when arrows represent data movement."}},"required":["title","source"],"additionalProperties":false}`)
 }
 
 // diagramColour is a node colour: a Material palette role the client paints from the person's theme,
@@ -54,6 +54,7 @@ func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		Colors       map[string]string   `json:"colors"`
 		Flows        map[string][]string `json:"flows"`
 		FlowControl  string              `json:"flowControl"`
+		Triggers     map[string][]string `json:"triggers"`
 		Animate      bool                `json:"animate"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -123,6 +124,23 @@ func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		if args.FlowControl != "" && args.FlowControl != "radio" {
 			args.Source += "\n%% magi-flow-control " + args.FlowControl
 		}
+	}
+	for name, labels := range args.Triggers {
+		if _, ok := args.Flows[name]; !ok || len(labels) == 0 || len(labels) > 50 {
+			return errResult("", "Each trigger names a flow case from flows and lists 1-50 node labels that turn it on."), nil
+		}
+		for _, label := range labels {
+			if strings.TrimSpace(label) == "" || len(label) > 200 || diagramUnsafe.MatchString(label) {
+				return errResult("", "Each trigger names a flow case from flows and lists 1-50 node labels that turn it on."), nil
+			}
+		}
+	}
+	if len(args.Triggers) > 0 {
+		metadata, err := json.Marshal(args.Triggers)
+		if err != nil {
+			return errResult("", "Could not encode flow triggers."), nil
+		}
+		args.Source += "\n%% magi-flow-triggers " + string(metadata)
 	}
 	if args.Animate {
 		args.Source += "\n%% magi-animate"

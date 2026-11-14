@@ -141,3 +141,24 @@ func TestMermaidFlowControlChoosesThePicker(t *testing.T) {
 	}
 }
 
+
+func TestMermaidFlowTriggersTravelWithTheirCase(t *testing.T) {
+	m := Mermaid{}
+	run := func(extra string) (string, bool) {
+		r, _ := m.Execute(context.Background(), json.RawMessage(`{"title":"t","source":"flowchart LR\n A[Start] --> B[Mid]","flows":{"c":["Start","Mid"]}`+extra+`}`), port.ToolEnv{})
+		var text string
+		_ = json.Unmarshal(r.Content, &text)
+		return text, r.IsError
+	}
+	if text, bad := run(`,"triggers":{"c":["Mid"]}`); bad || !strings.Contains(text, `%% magi-flow-triggers {"c":["Mid"]}`) {
+		t.Fatalf("triggers metadata missing (error=%v):\n%s", bad, text)
+	}
+	for _, bad := range []string{`,"triggers":{"nope":["Mid"]}`, `,"triggers":{"c":[]}`, `,"triggers":{"c":["<b>"]}`} {
+		if _, refused := run(bad); !refused {
+			t.Errorf("triggers %s accepted", bad)
+		}
+	}
+	if !strings.Contains(string(m.Schema()), `"triggers"`) || !strings.Contains(m.Description(), "triggers") {
+		t.Error("the tool does not tell the model about triggers")
+	}
+}
