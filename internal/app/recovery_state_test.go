@@ -134,3 +134,34 @@ func TestRecoveryThatCannotListSessionsSaysItCouldNotLook(t *testing.T) {
 		t.Fatalf("an unchecked workspace must not read as nothing to recover: %+v", st)
 	}
 }
+
+func TestRecoverySummaryComesFromRecordedWork(t *testing.T) {
+	ctx := context.Background()
+	a, store, sid, wd := crashedLog(t, "c_write")
+	a.RecoverInterrupted(ctx, wd)
+	st := a.RecoveryStateOf(ctx, sid)
+	if st.Task == "" || len(st.Uncertain) != 1 || st.Uncertain[0].Details == "" {
+		t.Fatalf("missing recorded summary or inspection: %+v", st)
+	}
+	evs, err := store.Read(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			var d event.PromptSubmittedData
+			if err := json.Unmarshal(e.Data, &d); err != nil {
+				t.Fatal(err)
+			}
+			if st.Task != recoveryExcerpt(d.Parts[0].Text) {
+				t.Fatal("task is not the saved prompt")
+			}
+		}
+	}
+	if got := recoveryExcerpt("  확인\n  작업  "); got != "확인 작업" {
+		t.Fatal(got)
+	}
+	if got := recoveryExcerpt(strings.Repeat("한", 241)); len([]rune(got)) != 241 || !strings.HasSuffix(got, "…") {
+		t.Fatal(got)
+	}
+}

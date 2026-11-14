@@ -92,3 +92,14 @@ Further discovery found a responding Claude Code adapter. `TestRemoteProviderDis
 The final run used temporary session `s_08f9b43f9abdb746a0fd5a66`: one user prompt, two model requests, 14 saved characters and 37 replay/live events after reconnection. The test completed in 5.81 seconds. Tools were not registered. No plugin was installed or restarted, and the existing conversation was not used.
 
 This verifies actual remote responses with a locally injected interruption, not a provider-wide outage, quota exhaustion or prolonged overload. The test is skipped by default. To run it deliberately, set `MAGI_VERIFY_REMOTE_URL` to an OpenAI-compatible base URL and `MAGI_VERIFY_REMOTE_MODEL` to a model, with optional `MAGI_VERIFY_REMOTE_KEY`, then run `go test -race ./internal/adapter/daemon -run '^TestRemoteProviderDisconnectRecovery$' -count=1 -v -timeout=150s`. It permits at most two upstream generation requests and may incur provider charges. Use a text-only model adapter; direct provider endpoints have not been verified by this run.
+
+
+## Recovery controls in IDEs
+
+JetBrains and VS Code show recovery controls below the conversation. **Resume task** continues from the saved progress; **Close** hides that notice without changing the recovery record. Both buttons are centered. Dismissal is kept for that session and recovery state while the panel remains open.
+
+The notice includes the saved request and the last successful tool operation when available. For uncertain operations, **Show saved operation** opens the recorded arguments and result as plain text. Inspect the actual external effect before choosing a verdict; a saved error is not proof that nothing ran.
+
+A status line shows reconnection, loading, work, requests for input and retry countdowns. Retry timing comes from the core. **Stop** cancels the turn. Returning to a session restores its scroll position and expanded rows; **Jump to latest** resumes following output. Reading positions are held for up to 50 sessions in the open panel and are not persisted across IDE restarts. Labels are available in English and Korean.
+
+VS Code includes the displayed session with send and stop requests. A stale send becomes a draft; a stale stop is ignored. An older daemon without a replay-complete marker uses a 1.5-second loading fallback.

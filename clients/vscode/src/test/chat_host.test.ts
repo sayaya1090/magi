@@ -966,3 +966,19 @@ test('resume button checks current recovery, rejects stale clicks and submits on
   assert.equal(companion.calls.filter((c:any)=>c.door==='submit').length,1);
   chat.dispose();
 });
+
+
+test('stale send and stop clicks never act on the newly selected session', async () => {
+  const companion: any = createMockCompanion();
+  const chat = new Chat(companion, {fsPath:'/ext',scheme:'file'} as any);
+  const saved: unknown[] = [];
+  (chat as any).sid='new'; (chat as any).post=()=>{};
+  (chat as any).giveBack=(...args:unknown[])=>saved.push(args);
+  await chat.fromView({kind:'say',text:'old draft',session:'old'});
+  await chat.fromView({kind:'run',command:'magi.interrupt',session:'old'});
+  assert.equal(companion.calls.length,0);
+  assert.equal(saved.length,1);
+  await chat.fromView({kind:'run',command:'magi.interrupt',session:'new'});
+  assert.deepEqual(companion.calls.map((c:any)=>({door:c.door,payload:c.payload})),[{door:'interrupt',payload:{session:'new'}}]);
+  chat.dispose();
+});

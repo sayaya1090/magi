@@ -48,6 +48,7 @@ func (v Verdict) settles() bool { return v == VerdictRan || v == VerdictNotRan |
 
 // UncertainCall is one call the person has to check: what it was and what it touched.
 type UncertainCall struct {
+	Details string  `json:"details,omitempty"`
 	CallID  string  `json:"callId"`
 	Tool    string  `json:"tool"`
 	Target  string  `json:"target,omitempty"`
@@ -56,7 +57,9 @@ type UncertainCall struct {
 
 // RecoveryState is the recovery standing of one conversation, as every screen should show it.
 type RecoveryState struct {
-	Kind RecoveryKind `json:"kind"`
+	Task          string       `json:"task,omitempty"`
+	LastCompleted string       `json:"lastCompleted,omitempty"`
+	Kind          RecoveryKind `json:"kind"`
 	// MessageID is the prompt of the interrupted turn: the last settled point a follow-up resumes.
 	MessageID string    `json:"messageId,omitempty"`
 	At        time.Time `json:"at,omitempty"`
@@ -218,6 +221,7 @@ func (a *App) RecoveryStateOf(ctx context.Context, sid session.SessionID) Recove
 func recoveryState(evs []event.Event) RecoveryState {
 	var st RecoveryState
 	calls := map[string]session.ToolCall{}
+	results := map[string]string{}
 	var order []string
 	mayHaveRun := map[string]bool{}
 	verdict := map[string]Verdict{}
@@ -230,6 +234,13 @@ func recoveryState(evs []event.Event) RecoveryState {
 				continue
 			}
 			st = RecoveryState{MessageID: d.MessageID}
+			results = map[string]string{}
+			for _, part := range d.Parts {
+				if part.Kind == session.PartText && part.Text != "" {
+					st.Task = recoveryExcerpt(part.Text)
+					break
+				}
+			}
 			calls, order, mayHaveRun, verdict = map[string]session.ToolCall{}, nil, map[string]bool{}, map[string]Verdict{}
 			interrupted, resumable = false, false
 		case event.TypePartAppended:
@@ -243,8 +254,16 @@ func recoveryState(evs []event.Event) RecoveryState {
 					order = append(order, d.Part.ToolCall.CallID)
 				}
 				calls[d.Part.ToolCall.CallID] = *d.Part.ToolCall
-			case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil && d.Part.ToolResult.MayHaveRun:
-				mayHaveRun[d.Part.ToolResult.CallID] = true
+			case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil:
+				result := d.Part.ToolResult
+				results[result.CallID] = string(result.Content)
+				if result.MayHaveRun {
+					mayHaveRun[result.CallID] = true
+				} else if !result.IsError {
+					if call, ok := calls[result.CallID]; ok {
+						st.LastCompleted = recoveryExcerpt(call.Name + " " + callTarget(call.Args))
+					}
+				}
 			}
 		case event.TypeError:
 			var d event.ErrorData
@@ -267,7 +286,7 @@ func recoveryState(evs []event.Event) RecoveryState {
 			continue
 		}
 		c := calls[id]
-		st.Uncertain = append(st.Uncertain, UncertainCall{CallID: id, Tool: c.Name, Target: callTarget(c.Args), Verdict: verdict[id]})
+		st.Uncertain = append(st.Uncertain, UncertainCall{Details: string(c.Args) + "\n\n" + results[id], CallID: id, Tool: c.Name, Target: callTarget(c.Args), Verdict: verdict[id]})
 	}
 	switch {
 	case len(st.Uncertain) > 0:
@@ -386,4 +405,13 @@ func (a *App) uncertainRepeat(ctx context.Context, sid session.SessionID, tc *se
 		return fmt.Sprintf("this repeats %s (%s), which may already have run before magi stopped; check its effect before allowing it again", tc.Name, id)
 	}
 	return ""
+}
+
+// Bound UI excerpts without splitting UTF-8; full details remain in the transcript.
+func recoveryExcerpt(text string) string {
+	chars := []rune(strings.Join(strings.Fields(text), " "))
+	if len(chars) > 240 {
+		return string(chars[:240]) + "…"
+	}
+	return string(chars)
 }

@@ -504,7 +504,7 @@ test('a stream that ends says so and is picked up again', () => {
   // survived — the guard was reading the wrong function's words.
   const closed = chat.slice(at, chat.indexOf('\n    };', at));
   assert.ok(closed.length > 50 && closed.length < 1600, `the ending block did not cut cleanly (${closed.length})`);
-  assert.ok(/kind: 'note'/.test(closed), 'the stream ends and the person is told nothing');
+  assert.ok(/this\.draw\(\)/.test(closed), 'the stream ending must repaint the connection status');
   assert.ok(/reattach\(/.test(closed), 'the stream ends and nothing tries to get it back');
   // Somebody else may already have moved on. Reattaching then would drag them back.
   assert.ok(/this\.stream !== s/.test(closed), 'an ending is reported for a stream we already replaced');
@@ -1175,9 +1175,9 @@ test('the end of the replay is drawn exactly where an empty panel is ambiguous',
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const arm = chat.match(/else if \(r\.live[^)]*\) \{[^}]*\}/);
   assert.ok(arm, 'the marker is not read — an event-less frame falls through and is dropped in silence');
-  assert.match(arm[0], /this\.events\.length === 0/,
-    'it speaks even with rows on screen — the rows are the evidence there, and notes have one line');
-  assert.match(arm[0], /kind: 'note'/, 'it is read and then nothing is said');
+  assert.match(arm[0], /this\.replayUntil = 0/, 'caught-up clears loading');
+  assert.match(arm[0], /this\.draw\(\)/, 'caught-up repaints the status');
+
 
   // The other direction: the arms that DO carry a payload are still ahead of it, so a real event or a
   // refusal is never swallowed by the caught-up branch.

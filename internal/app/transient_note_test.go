@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -18,6 +19,13 @@ func TestRetryNoteSaysWhyHowLongAndHowToStop(t *testing.T) {
 	for _, e := range evs {
 		if e.Type == event.TypeToolProgress && strings.Contains(string(e.Data), "retrying in") {
 			notes = append(notes, string(e.Data))
+			var progress event.ToolProgressData
+			if err := json.Unmarshal(e.Data, &progress); err != nil {
+				t.Fatal(err)
+			}
+			if progress.RetryUntil <= 0 || progress.RetryAttempt != len(notes) || progress.RetryKind != "rate_limit" {
+				t.Fatalf("missing structured retry status: %+v", progress)
+			}
 		}
 	}
 	if len(notes) != 2 {

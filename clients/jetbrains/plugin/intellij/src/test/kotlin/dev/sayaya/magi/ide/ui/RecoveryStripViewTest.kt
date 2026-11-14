@@ -33,8 +33,8 @@ class RecoveryStripViewTest : BasePlatformTestCase() {
 
             assertSame("the plan strip keeps the top of the conversation", field("planStrip"),
                 (root.layout as BorderLayout).getLayoutComponent(BorderLayout.NORTH))
-            val holder = strip.parent as JComponent
-            assertSame("the band sits above the conversation", strip, (holder.layout as BorderLayout).getLayoutComponent(BorderLayout.NORTH))
+            val holder = strip.parent.parent as JComponent
+            assertSame("the band sits below the conversation", strip.parent, (holder.layout as BorderLayout).getLayoutComponent(BorderLayout.SOUTH))
             assertSame("the conversation stays under the band", field("scroll"), (holder.layout as BorderLayout).getLayoutComponent(BorderLayout.CENTER))
             assertFalse("nothing left, no band", strip.isVisible)
 
@@ -57,6 +57,15 @@ class RecoveryStripViewTest : BasePlatformTestCase() {
             assertTrue(strip.isVisible)
             assertTrue(words(), words().contains(MagiBundle.msg("recovery.resumable")))
             assertTrue(buttons().none { it.getClientProperty("verdict") != null })
+            val close = buttons().single { it.getClientProperty("dismissRecovery") == true }
+            assertEquals(java.awt.FlowLayout.CENTER, (close.parent.layout as java.awt.FlowLayout).alignment)
+            close.doClick()
+            assertFalse(strip.isVisible)
+            show(RecoveryState(kind = "resumable"))
+            assertFalse("polling must not reopen a dismissed prompt", strip.isVisible)
+            assertEquals("dismissal sends nothing", listOf("s1"), asked)
+            show(RecoveryState(kind = "none"))
+            show(RecoveryState(kind = "resumable"))
             val resume = buttons().single { it.getClientProperty("resume") == true }
             resume.doClick(); resume.doClick()
             assertEquals("resume is dispatched once without editing the composer", listOf("s1", "s1"), asked)

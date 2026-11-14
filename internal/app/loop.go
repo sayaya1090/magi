@@ -692,7 +692,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if len(toolCalls) == 0 {
 			if res.cut && ctx.Err() == nil {
 				if err := cutRecovery.wait(ctx, res.cutCause, func(delay time.Duration, attempt int) {
-					a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("connection interrupted — continuing in %s (attempt %d of %d; stop the turn to cancel)", delay.Round(time.Millisecond), attempt, maxTransientRetries))
+					a.emitRetryProgress(sid, agentActor, agent.Name, fmt.Sprintf("connection interrupted — continuing in %s (attempt %d of %d; stop the turn to cancel)", delay.Round(time.Millisecond), attempt, maxTransientRetries), "network", delay, attempt)
 				}); err != nil {
 					if ctx.Err() == nil {
 						cause := res.cutCause

@@ -102,3 +102,26 @@ test('the strip names each call to check, offers four verdicts, and sends the on
   view.draw(null);
   assert.equal(strip.hidden, true, 'nothing left, no strip');
 });
+
+
+test('dismissal is local to a session and survives repeated recovery updates in both languages', () => {
+  for (const language of ['en', 'ko']) {
+    const strip = new FakeEl('div'), head = new FakeEl('div'), list = new FakeEl('div');
+    const sent: unknown[] = [];
+    const view = restartStripView({strip,head,list} as any,
+      {createElement:(tag:string)=>new FakeEl(tag)} as any, m=>sent.push(m), language);
+    const recovery = {kind:'resumable', reason:'', uncertain:[], task:'Fix retry',lastCompleted:'read main.go'};
+    view.draw(recovery,'a');
+    const close=all(list).find(e=>e.getAttribute('data-dismiss-recovery'))!;
+    assert.equal(close.textContent,language==='ko'?'닫기':'Close');
+    assert.equal(all(list).find(e=>e.getAttribute('data-resume'))!.textContent,language==='ko'?'작업 재개':'Resume task');
+    assert.ok(text(list).includes('read main.go'));
+    assert.ok(all(list).some(e=>e.className==='restart-actions'));
+    close.click();assert.equal(strip.hidden,true);
+    view.draw(recovery,'a');assert.equal(strip.hidden,true);
+    view.draw(recovery,'b');assert.equal(strip.hidden,false);
+    view.draw(recovery,'a');assert.equal(strip.hidden,true);
+    view.draw(null,'a');view.draw(recovery,'a');assert.equal(strip.hidden,false);
+    assert.deepEqual(sent,[]);
+  }
+});

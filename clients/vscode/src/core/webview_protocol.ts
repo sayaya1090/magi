@@ -45,12 +45,14 @@ export const DropMessageSchema = v.object({
 
 export const SayMessageSchema = v.object({
   kind: v.literal('say'),
+  session: v.optional(v.string()),
   text: v.string(),
   creationTaskId: v.optional(NonEmptyStringSchema),
 });
 
 export const RunMessageSchema = v.object({
   kind: v.literal('run'),
+  session: v.optional(v.string()),
   command: v.pipe(v.string(), v.minLength(1)),
 });
 
@@ -166,9 +168,9 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
 
   // Preserve exact legacy property contract for say (omit key if undefined)
   if (out.kind === 'say') {
-    return out.creationTaskId !== undefined
-      ? { kind: 'say', text: out.text, creationTaskId: out.creationTaskId }
-      : { kind: 'say', text: out.text };
+    return {kind:'say',text:out.text,
+      ...(out.creationTaskId !== undefined ? {creationTaskId:out.creationTaskId} : {}),
+      ...(out.session !== undefined ? {session:out.session} : {})};
   }
 
   return out;
@@ -244,6 +246,7 @@ export const StringArrayRefSchema = v.custom<string[]>((arr) => {
 export const RowsMessageSchema = v.pipe(
   v.object({
     kind: v.literal('rows'),
+    runtime: v.optional(v.object({kind:v.string(),until:v.optional(v.number()),attempt:v.optional(v.number()),reason:v.optional(v.string())})),
     session: v.string(),
     rows: v.array(PaintedRowSchema),
     ask: v.optional(NullableAskSchema),
@@ -255,6 +258,7 @@ export const RowsMessageSchema = v.pipe(
   v.transform((m) => {
     const res: {
       kind: 'rows';
+      runtime?: {kind:string;until?:number;attempt?:number;reason?:string};
       session: string;
       rows: PaintedRow[];
       ask: Ask | null;
@@ -264,6 +268,7 @@ export const RowsMessageSchema = v.pipe(
       webviewId?: string;
     } = {
       kind: 'rows',
+      ...(m.runtime ? {runtime:m.runtime} : {}),
       session: m.session,
       rows: m.rows,
       ask: m.ask ?? null,
@@ -490,15 +495,16 @@ export const PlanMessageSchema = v.pipe(
  */
 /** The restart state as the webview holds it: every field present, calls without an id dropped. */
 export type RestartWire = {
+ messageId?: string; task?: string; lastCompleted?: string;
   kind: string;
   reason: string;
-  uncertain: { callId: string; tool: string; target: string; verdict: string }[];
+  uncertain: { callId: string; tool: string; target: string; verdict: string; details?: string }[];
 };
 
 export const RestartMessageSchema = v.pipe(
   v.object({ kind: v.literal('restart'), state: v.unknown() }),
   v.transform((m): { kind: 'restart'; state: RestartWire | null } => {
-    const s = (m.state ?? null) as { kind?: unknown; reason?: unknown; uncertain?: unknown } | null;
+    const s = (m.state ?? null) as { kind?: unknown; reason?: unknown; uncertain?: unknown; messageId?: unknown; task?: unknown; lastCompleted?: unknown } | null;
     if (!s || typeof s !== 'object') return { kind: 'restart' as const, state: null };
     const str = (x: unknown): string => (typeof x === 'string' ? x : '');
     const calls = Array.isArray(s.uncertain) ? s.uncertain : [];
@@ -506,11 +512,14 @@ export const RestartMessageSchema = v.pipe(
       kind: 'restart' as const,
       state: {
         kind: str(s.kind) || 'none',
+        ...(str(s.messageId) ? {messageId:str(s.messageId)} : {}),
+        ...(str(s.task) ? {task:str(s.task)} : {}),
+        ...(str(s.lastCompleted) ? {lastCompleted:str(s.lastCompleted)} : {}),
         reason: str(s.reason),
         uncertain: calls
-          .map((c) => (c ?? {}) as { callId?: unknown; tool?: unknown; target?: unknown; verdict?: unknown })
+          .map((c) => (c ?? {}) as { callId?: unknown; tool?: unknown; target?: unknown; verdict?: unknown; details?: unknown })
           .filter((c) => str(c.callId) !== '')
-          .map((c) => ({ callId: str(c.callId), tool: str(c.tool), target: str(c.target), verdict: str(c.verdict) })),
+          .map((c) => ({ ...(str(c.details) ? {details:str(c.details)} : {}), callId: str(c.callId), tool: str(c.tool), target: str(c.target), verdict: str(c.verdict) })),
       },
     };
   }),

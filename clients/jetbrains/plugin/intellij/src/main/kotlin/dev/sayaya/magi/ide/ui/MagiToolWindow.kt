@@ -373,7 +373,41 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             add(recoveryHead, BorderLayout.NORTH)
             add(recoveryCalls, BorderLayout.CENTER)
         }
+        private data class RetryNotice(val until: Long, val attempt: String, val reason: String)
+        @Volatile private var retryNotice: RetryNotice? = null
+        private val runtimeLabel = JBLabel()
+        private val runtimeStop = JButton(MagiBundle.msg("chat.runtime.stop")).apply {
+            addActionListener { interrupt() }
+        }
+        private val latestButton = JButton(MagiBundle.msg("chat.latest")).apply {
+            addActionListener { tailScroll.followEnd() }
+        }
+        private val runtimeBar = javax.swing.JPanel(FlowLayout(FlowLayout.CENTER, 6, 2)).apply {
+            isOpaque = false
+            add(runtimeLabel); add(runtimeStop); add(latestButton)
+        }
+        private val runtimeTick = javax.swing.Timer(1000) { paintRuntime() }
+        private fun paintRuntime() {
+            val retry = retryNotice
+            val connected = mood.phase == Phase.Connected
+            if (!connected && everBegan) wasDisconnected = true
+            if (connected && !replaying && wasDisconnected) { restoredUntil = System.currentTimeMillis() + 4000; wasDisconnected = false }
+            runtimeLabel.text = when {
+                !connected -> MagiBundle.msg("chat.runtime.reconnecting")
+                replaying -> MagiBundle.msg("chat.session.loading")
+                answers.active != null -> MagiBundle.msg("chat.runtime.waiting")
+                retry != null && retry.until > System.currentTimeMillis() ->
+                    MagiBundle.msg("chat.runtime.retry", ((retry.until - System.currentTimeMillis() + 999) / 1000).toString(), retry.attempt,
+                        MagiBundle.msg("chat.runtime.reason." + retry.reason))
+                restoredUntil > System.currentTimeMillis() -> MagiBundle.msg("chat.link.restored")
+                shaper.open -> MagiBundle.msg("chat.runtime.working")
+                else -> MagiBundle.msg("chat.runtime.ready")
+            }
+            runtimeStop.isVisible = connected && (shaper.open || retry != null)
+            latestButton.isVisible = !tailScroll.followingEnd
+        }
         private var recoveryKey = ""
+        private val dismissedRecoveries = linkedMapOf<String, String>()
         private val debounce = javax.swing.Timer(SuggestCoordinator.DEBOUNCE_DELAY_MS) { askSuggestion() }.apply { isRepeats = false }
 
         /**
@@ -392,7 +426,16 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private fun beginReplay() { replaying = true; replayGrace.restart() }
         private fun finishReplay() {
             replayGrace.stop()
-            if (replaying) { replaying = false; redrawLog() }
+            if (replaying) {
+                replaying = false; redrawLog()
+                SwingUtilities.invokeLater {
+                    restoreReading?.let { saved ->
+                        tailScroll.restore(saved.top, saved.follow)
+                        redrawLog()
+                    }
+                    restoreReading = null
+                }
+            }
             // 대화를 열거나 갈아타거나 다시 붙은 뒤 - 그 대화에 지난 멈춤이 남긴 것을 데몬에 묻는다.
             askRecovery()
         }
@@ -419,6 +462,11 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         }
         private val viewportChanged = javax.swing.event.ChangeListener { redrawLog() }
         private val tailScroll = TailScroll(scroll)
+        private data class ReadingPosition(val top: Int, val follow: Boolean, val opened: Set<String>, val closed: Set<String>)
+        private val readingPositions = linkedMapOf<String, ReadingPosition>()
+        private var restoreReading: ReadingPosition? = null
+        private var restoredUntil = 0L
+        private var wasDisconnected = false
 
         /** 트랜스크립트 셰이퍼. 이벤트 파싱은 워커 스레드에서 수행하며, 렌더링은 EDT에서 스냅샷 기반으로 실행합니다. */
         private val shaper = Rows { key, args -> MagiBundle.msg(key, *args) }
@@ -641,6 +689,14 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     // 갓 비운 판에 옛 행이 서고 lastSeq 가 옛 seq 로 오염되면 다음 재접속이
                     // 그 사이를 조용히 건너뛴다.
                     if (e.session.isNotBlank() && e.session != followedSid) return
+                    if (e.type == "tool.progress") {
+                        val data = e.data as? kotlinx.serialization.json.JsonObject
+                        val until = (data?.get("retryUntil") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                        if (until != null) retryNotice = RetryNotice(until,
+                            (data["retryAttempt"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "1",
+                            (data["retryKind"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf { it in setOf("network", "rate_limit", "busy") } ?: "busy")
+                    } else if (e.type in setOf("part.delta", "part.appended", "turn.finished", "prompt.submitted")) retryNotice = null
+
                     // 대화가 옮겨 갔다(우측 판의 갈아타기·새 대화, 혹은 다른 화면에서). 이 스트림은
                     // 옛 대화의 것이라 여기 남으면 화면과 컨트롤이 서로 다른 대화를 믿는다 — 끊고
                     // 새 공표를 따라 다시 붙는다. close 가 ByUs 로 접히므로 재접속은 직접 건다.
@@ -928,13 +984,18 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             root.add(planStrip, BorderLayout.NORTH)
             root.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
-                add(recoveryStrip, BorderLayout.NORTH)
+                add(javax.swing.JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    add(recoveryStrip, BorderLayout.NORTH)
+                    add(runtimeBar, BorderLayout.SOUTH)
+                }, BorderLayout.SOUTH)
                 add(scroll, BorderLayout.CENTER)
             }, BorderLayout.CENTER)
             root.add(javax.swing.JPanel(BorderLayout()).apply {
                 isOpaque = false
                 add(bottom, BorderLayout.CENTER)
             }, BorderLayout.SOUTH)
+            runtimeTick.start()
             foldTick.start()
             updateComposerHint()
             // 못 붙으면 **말하고 다시 붙어 본다.** 바로 아래 [offerHand] 는 못 세운 것을
@@ -983,6 +1044,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          * 2. 이후 데몬으로 `detachHand` 요청을 비동기 전송합니다. 소켓 지연 등으로 전송에 실패하더라도 로컬 포트가 이미 닫혀 있으므로 오작동을 방지할 수 있습니다.
          */
         override fun dispose() {
+            runtimeTick.stop()
             // 마크다운 브라우저 및 에디터 변경 마커는 메인 패널(pinned == null)의 전유 리소스입니다.
             // 고정 세션 탭이 닫힐 때 메인 패널의 리소스가 함께 해제되는 것을 방지합니다(리뷰 F5).
             //
@@ -1099,9 +1161,20 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
             // 사유가 하나뿐이라 더 그럴듯해서 더 나쁘다.
             if (sid != followedSid) {
-                SwingUtilities.invokeLater { column.reset() }
+                retryNotice = null
+                val previous = followedSid
+                SwingUtilities.invokeLater {
+                    previous?.let { readingPositions[it] = ReadingPosition(scroll.verticalScrollBar.value, tailScroll.followingEnd,
+                        synchronized(opened) { opened.toSet() }, synchronized(closed) { closed.toSet() }) }
+                    if (readingPositions.size > 50) readingPositions.remove(readingPositions.keys.first())
+                    val saved = readingPositions[sid]
+                    opened.clear(); closed.clear()
+                    saved?.let { opened.addAll(it.opened); closed.addAll(it.closed) }
+                    restoreReading = saved
+                    column.reset()
+                    tailScroll.restore(saved?.top ?: 0, saved?.follow ?: true)
+                }
                 lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
-                SwingUtilities.invokeLater { tailScroll.followEnd() }
             }
             val since = lastSeq.takeIf { it > 0 }
             if (since == null) {
@@ -1306,17 +1379,24 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private fun paintRecovery(left: dev.sayaya.magi.ide.model.RecoveryState?) {
             val s = dev.sayaya.magi.ide.usecase.RecoveryStrip.of(left)
             if (s == null) {
+                dismissedRecoveries.remove(followedSid.orEmpty())
                 if (recoveryStrip.isVisible) { recoveryStrip.isVisible = false; recoveryKey = ""; recoveryStrip.parent?.revalidate() }
                 return
             }
-            val key = s.toString()
+            val key = left?.messageId.orEmpty() + ":" + s.toString()
+            val recoverySession = followedSid.orEmpty()
+            if (dismissedRecoveries[recoverySession] == key) { recoveryStrip.isVisible = false; return }
             if (key == recoveryKey && recoveryStrip.isVisible) return
             recoveryKey = key
             recoveryCalls.removeAll()
-            fun buttons() = javax.swing.JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0)).apply { isOpaque = false; alignmentX = 0f }
+            listOf("recovery.task" to s.task, "recovery.lastCompleted" to s.lastCompleted).forEach { (label, value) ->
+                if (value.isNotBlank()) recoveryCalls.add(JBLabel(MagiBundle.msg(label) + ": " + value).apply { toolTipText = Markup.text(value) })
+            }
+            fun buttons() = javax.swing.JPanel(FlowLayout(FlowLayout.CENTER, JBUI.scale(4), 0)).apply { isOpaque = false; alignmentX = 0f }
             when (s.kind) {
                 dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.Resumable -> {
                     recoveryHead.text = MagiBundle.msg("recovery.resumable")
+                    recoveryCalls.add(JBLabel(MagiBundle.msg("recovery.nextStep")))
                     val target = followedSid
                     recoveryCalls.add(buttons().apply {
                         add(javax.swing.JButton(MagiBundle.msg("recovery.resume")).apply {
@@ -1331,6 +1411,16 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                                 }
                             }
                         })
+                        add(javax.swing.JButton(MagiBundle.msg("recovery.close")).apply {
+                            putClientProperty("dismissRecovery", true)
+                            addActionListener {
+                                if (target != followedSid) return@addActionListener
+                                if (dismissedRecoveries.size >= 50) dismissedRecoveries.remove(dismissedRecoveries.keys.first())
+                                dismissedRecoveries[recoverySession] = key
+                                recoveryStrip.isVisible = false
+                                recoveryStrip.parent?.revalidate()
+                            }
+                        })
                     })
                 }
                 dev.sayaya.magi.ide.usecase.RecoveryStrip.Kind.NeedsCheck -> {
@@ -1340,6 +1430,14 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                             (if (c.deferred) "  " + MagiBundle.msg("recovery.deferred") else "")
                         recoveryCalls.add(JBLabel(what).apply { foreground = Look.body; border = JBUI.Borders.emptyTop(4) })
                         val row = buttons()
+                        if (c.details.isNotBlank()) row.add(JButton(MagiBundle.msg("recovery.inspect")).apply {
+                            addActionListener {
+                                val text = javax.swing.JTextArea(c.details, 12, 60).apply {
+                                    isEditable = false; lineWrap = true; wrapStyleWord = true; caretPosition = 0
+                                }
+                                javax.swing.JOptionPane.showMessageDialog(root, JBScrollPane(text), MagiBundle.msg("recovery.inspect"), javax.swing.JOptionPane.INFORMATION_MESSAGE)
+                            }
+                        })
                         dev.sayaya.magi.ide.usecase.RecoveryStrip.VERDICTS.forEach { v ->
                             row.add(javax.swing.JButton(MagiBundle.msg("recovery.verdict." + v)).apply {
                                 putClientProperty("verdict", v)

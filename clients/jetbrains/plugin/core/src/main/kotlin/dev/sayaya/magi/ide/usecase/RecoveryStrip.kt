@@ -19,11 +19,13 @@ data class RecoveryStrip(
     val calls: List<Call>,
     /** 복구가 실패한 까닭 — 데몬이 말한 그대로. 없으면 빈 문자열. */
     val reason: String,
+    val task: String = "",
+    val lastCompleted: String = "",
 ) {
     enum class Kind { Resumable, NeedsCheck, Failed }
 
     /** 호출 하나. [deferred] 는 사람이 이미 「보류」로 미뤄 둔 것이다. */
-    data class Call(val callId: String, val tool: String, val target: String, val deferred: Boolean)
+    data class Call(val callId: String, val tool: String, val target: String, val deferred: Boolean, val details: String = "")
 
     companion object {
         /** 데몬 `resolve-call` 문이 받는 판정 단어. 다른 낱말은 문이 말로 거절한다. */
@@ -38,9 +40,9 @@ data class RecoveryStrip(
                 else -> return null
             }
             val calls = if (kind != Kind.NeedsCheck) emptyList() else state.uncertain.map {
-                Call(it.callId, it.tool, it.target.orEmpty(), it.verdict == "deferred")
+                Call(it.callId, it.tool, it.target.orEmpty(), it.verdict == "deferred", it.details.orEmpty())
             }
-            return RecoveryStrip(kind, calls, state.reason.orEmpty())
+            return RecoveryStrip(kind, calls, state.reason.orEmpty(), state.task.orEmpty(), state.lastCompleted.orEmpty())
         }
     }
 }

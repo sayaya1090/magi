@@ -131,6 +131,7 @@ export interface PluginSlot {
 }
 
 export interface Response {
+  theme?: {dark?: Record<string,string>; light?: Record<string,string>};
   knowledge?: KnowledgeItem[];
   slots?: PluginSlot[];
   ok: boolean;

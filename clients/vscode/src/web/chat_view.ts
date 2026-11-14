@@ -74,6 +74,32 @@ if (typeof ResizeObserver !== 'undefined') {
   for (const element of [rowsEl, askBodyEl, scrollEl]) layoutObserver.observe(element);
 }
 
+const runtimeBar=document.createElement('div');runtimeBar.setAttribute('role','status');
+const runtimeLabel=document.createElement('span'),runtimeStop=document.createElement('button');
+runtimeStop.type='button';runtimeStop.textContent=uiText.stop;runtimeStop.onclick=()=>vs.postMessage({kind:'run', command:'magi.interrupt', session:currentSession});
+const latestButton=document.createElement('button');latestButton.type='button';latestButton.textContent=uiText.latest;
+latestButton.onclick=()=>{followingTail=true;paintViewport(true);scrollEl.scrollTop=scrollEl.scrollHeight;lastScrollTop=scrollEl.scrollTop;};
+runtimeBar.append(runtimeLabel,runtimeStop,latestButton);scrollEl.after(runtimeBar);
+runtimeBar.className='runtime-bar';runtimeBar.hidden=true;
+let runtimeInfo: {kind:string;until?:number;attempt?:number;reason?:string}={kind:'ready'};
+let restoredUntil=0;
+function paintRuntime() {
+ latestButton.hidden=followingTail;
+ const r=runtimeInfo;
+ const waiting=r.kind==='retry' && (r.until || 0)>Date.now();
+ runtimeStop.hidden=!['retry','working','waiting'].includes(r.kind);
+ runtimeLabel.textContent=waiting ?
+   (r.reason==='rate_limit'?uiText.retryRate:r.reason==='network'?uiText.retryNetwork:uiText.retryBusy)+' · '+uiText.retryWait.replace('{seconds}',String(Math.max(0,Math.ceil(((r.until||0)-Date.now())/1000)))).replace('{attempt}',String(r.attempt||1)) :
+   r.kind==='reconnecting'?uiText.reconnecting:r.kind==='loading'?uiText.loadingSession:r.kind==='waiting'?uiText.waiting:(r.kind==='working'||r.kind==='retry')?uiText.working:uiText.ready;
+ if(Date.now()<restoredUntil && r.kind!=='retry' && r.kind!=='reconnecting') runtimeLabel.textContent=uiText.reconnected;
+}
+const runtimeTimer=setInterval(paintRuntime,1000);
+window.addEventListener('pagehide',()=>clearInterval(runtimeTimer));
+function drawRuntime(value: typeof runtimeInfo) {
+ runtimeBar.hidden=false;
+ if(['reconnecting','loading'].includes(runtimeInfo.kind) && !['reconnecting','loading'].includes(value.kind)) restoredUntil=Date.now()+4000;
+ runtimeInfo=value;paintRuntime();
+}
 const replyModeEl = document.getElementById('reply-mode') as HTMLElement;
 const replyTargetEl = document.getElementById('reply-target') as HTMLElement;
 const replyCancelEl = document.getElementById('reply-cancel') as HTMLElement;
@@ -398,7 +424,7 @@ let currentCompanionKey = '';
 let currentSession = '';
 let currentGeneration: number | undefined = undefined;
 let currentWebviewId = '';
-const expandedCallIds = new Set();
+const expandedCallIds = new Set<string>();
 const inputAdapter = createWebviewInputAdapter({
   say,
   sendBtn: document.getElementById('send') as HTMLElement,
@@ -445,9 +471,9 @@ function drawPlan(_strip: { text: string } | null, todos: { content: string; sta
    in the adapter (restartStripView); a verdict goes to the host, which asks the daemon and sends back
    what it re-read. */
 const restartView = restartStripEl && restartHeadEl && restartListEl
-  ? restartStripView({ strip: restartStripEl, head: restartHeadEl, list: restartListEl }, document, (m) => vs.postMessage({...m, session: currentSession})) : null;
+  ? restartStripView({ strip: restartStripEl, head: restartHeadEl, list: restartListEl }, document, (m) => vs.postMessage({...m, session: currentSession}), document.documentElement.lang) : null;
 function drawRestart(state: Adapter.RestartState | null) {
-  restartView?.draw(state);
+  restartView?.draw(state, currentSession);
 }
 
 /* The compaction bar. Values only: the share and words are decided in the adapter (foldBar). With
@@ -541,7 +567,7 @@ function draw(rs: ChatRows) {
     transcriptScope = scope;
     rowHeights = [];
     paintedChatRows.clear();
-    expandedThinkingRows.clear();
+
   }
   transcriptRows = rs;
   rowHeights.length = rs.length;
@@ -653,13 +679,14 @@ function paintViewport(tail = followingTail) {
     if (r.who === 'thinking') {
       const details = document.createElement('details');
       details.className = 'thinking-details';
-      details.open = expandedThinkingRows.has(key);
+      const foldKey = String(index);
+      details.open = expandedThinkingRows.has(foldKey);
       const summary = document.createElement('summary');
       summary.textContent = r.label;
       details.append(summary, b);
       details.addEventListener('toggle', () => {
         if (!details.isConnected) return;
-        if (details.open) expandedThinkingRows.add(key); else expandedThinkingRows.delete(key);
+        if (details.open) expandedThinkingRows.add(foldKey); else expandedThinkingRows.delete(foldKey);
         scheduleViewport();
       });
       d.append(w, details);
@@ -804,6 +831,18 @@ function paintViewport(tail = followingTail) {
     }
   }
 }
+const readingPositions = new Map<string, {top:number; following:boolean; calls:string[]; thinking:string[]}>();
+function switchReadingContext(previous: string, next: string) {
+  readingPositions.set(previous, {top:scrollEl.scrollTop, following:scrollFollowing.beforeRender(),
+    calls:[...expandedCallIds], thinking:[...expandedThinkingRows]});
+  if(readingPositions.size>50) readingPositions.delete(readingPositions.keys().next().value!);
+  const saved=readingPositions.get(next) || {top:0,following:true,calls:[],thinking:[]};
+  expandedCallIds.clear();saved.calls.forEach(id=>expandedCallIds.add(id));
+  expandedThinkingRows.clear();saved.thinking.forEach(id=>expandedThinkingRows.add(id));
+  followingTail=saved.following;
+  scrollEl.scrollTop=saved.top;lastScrollTop=scrollEl.scrollTop;
+  return saved;
+}
 const receiveHandlers = createWebviewReceiveHandlers({
   inputAdapter,
   answerState,
@@ -820,6 +859,8 @@ const receiveHandlers = createWebviewReceiveHandlers({
   clearExpandedCallIds: () => expandedCallIds.clear(),
   resetCurrentAsk: () => { currentAsk = null; currentAskCallId = null; },
   drawRows: draw,
+  drawRuntime,
+  switchReadingContext,
   drawAsk,
   drawRefs,
   drawState,

@@ -490,9 +490,12 @@ type PartDeltaData struct {
 // condition). Transient and droppable — never persisted; the UI shows only the
 // latest note and drops it when the tool's result lands.
 type ToolProgressData struct {
-	CallID string `json:"callId"`
-	Name   string `json:"name"`
-	Text   string `json:"text"`
+	RetryUntil   int64  `json:"retryUntil,omitempty"`
+	RetryAttempt int    `json:"retryAttempt,omitempty"`
+	RetryKind    string `json:"retryKind,omitempty"`
+	CallID       string `json:"callId"`
+	Name         string `json:"name"`
+	Text         string `json:"text"`
 	// Progress is the measured count behind Text, when there is one, so a screen can draw a bar
 	// instead of parsing the sentence. Absent for notes that are words only.
 	Progress *Progress `json:"progress,omitempty"`

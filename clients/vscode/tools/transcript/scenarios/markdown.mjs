@@ -42,6 +42,18 @@ export const markdownScenario = {
       assert.equal(await page.locator('#say').inputValue(), '작업 초안 원문');
 
       await page.evaluate(() => window.postMessage({kind:'restart',state:{kind:'resumable'}}, '*'));
+      const placement=await page.locator('#restart-strip').evaluate(e=>({
+        top:e.getBoundingClientRect().top, scrollBottom:document.querySelector('#scroll').getBoundingClientRect().bottom,
+        align:getComputedStyle(e.querySelector('.restart-actions')).justifyContent
+      }));
+      assert.ok(placement.top>=placement.scrollBottom-1,'resume prompt belongs below the conversation');
+      assert.equal(placement.align,'center');
+      await page.locator('[data-dismiss-recovery=true]').click();
+      assert.equal(await page.locator('#restart-strip').isVisible(),false);
+      await page.evaluate(()=>window.postMessage({kind:'restart',state:{kind:'resumable'}},'*'));
+      await page.waitForTimeout(50);
+      assert.equal(await page.locator('#restart-strip').isVisible(),false);
+      await page.evaluate(()=>{window.postMessage({kind:'restart',state:null},'*');window.postMessage({kind:'restart',state:{kind:'resumable'}},'*');});
       const resume = page.locator('[data-resume=true]');
       await resume.click();
       assert.equal(await resume.isDisabled(),true);
@@ -265,6 +277,20 @@ export const markdownScenario = {
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode exited on Escape');
       assert.equal(await page.locator('#say').inputValue(), '작업 초안 원문', 'general draft must be restored on Escape');
+      const readingRows=Array.from({length:45},(_,i)=>({who:'agent',label:'magi',text:'Reading '+i+'\n\n'+('Paragraph. '.repeat(12))}));
+      const sendRows=async(session,rows,generation)=>{await page.evaluate(msg=>window.postMessage(msg,'*'),createRowsMessage({session,rows,refs:[],generation}));await page.waitForTimeout(100);};
+      await sendRows('reading-a',readingRows,1);
+      await page.locator('#scroll').evaluate(e=>e.scrollTop=300);
+      await page.waitForTimeout(50);
+      const savedTop=await page.locator('#scroll').evaluate(e=>e.scrollTop);
+      await sendRows('reading-b',[],2);
+      await sendRows('reading-a',readingRows,3);
+      assert.ok(Math.abs(await page.locator('#scroll').evaluate(e=>e.scrollTop)-savedTop)<3,'returning restores the reading position');
+      await page.evaluate(()=>window.postMessage({kind:'rows',session:'reading-a',rows:[],refs:[],runtime:{kind:'retry',until:Date.now()+10000,attempt:2,reason:'network'}},'*'));
+      await page.waitForTimeout(50);
+      assert.match(await page.locator('.runtime-bar').innerText(),/2/);
+      await page.locator('.runtime-bar button').first().click();
+      assert.deepEqual(await page.evaluate(()=>window.__posted.filter(m=>m.command==='magi.interrupt').at(-1)),{kind:'run',command:'magi.interrupt',session:'reading-a'});
     } finally {
       page.off('request', onRequest);
     }

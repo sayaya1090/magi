@@ -1,4 +1,13 @@
 const en = {
+  retryWait: 'Retrying in {seconds}s · attempt {attempt}', reconnecting: 'Reconnecting…', ready: 'Ready', stop: 'Stop', retryNetwork: 'Connection interrupted', retryRate: 'Provider rate limit', retryBusy: 'Provider temporarily unavailable',
+  sessionChanged: 'Conversation changed before sending. Your message was saved as a draft.', closeRecovery: 'Close', resumeTask: 'Resume task', resumeReady: 'The interrupted task is ready to resume.',
+  recoveryFailed: 'Recovery could not settle this conversation. Retry before starting new work.',
+  recoveryRetry: 'Retry recovery', checkCalls: 'Check uncertain operations before resuming',
+  checkTip: 'Inspect the command or file and its saved result before choosing. A verdict records your decision; it does not execute anything.',
+  verdictRan: 'Already ran', verdictNotRan: 'Did not run', verdictRerun: 'Allow rerun', verdictDeferred: 'Decide later',
+  task: 'Task', lastCompleted: 'Last completed operation', nextStep: 'Next: continue from saved progress', inspect: 'Show saved operation',
+  latest: 'Jump to latest', loadingSession: 'Loading conversation…', reconnected: 'Connection restored',
+
   connected: 'Daemon connected', working: 'Daemon connected · Working', waiting: 'Waiting for your response',
   disconnected: 'Daemon disconnected', unknown: 'Connection status unavailable', conversation: 'Chat',
   session: 'Current chat', newSession: 'New chat', provider: 'Provider', defaultProvider: 'Default provider', model: 'Model',
@@ -13,6 +22,15 @@ const en = {
   companionInfo: 'Show companion information and settings', copy: 'Copy', openOutput: 'Open in editor (read-only)',
 };
 const ko: typeof en = {
+  retryWait: '{seconds}초 후 재시도 · {attempt}회차', reconnecting: '재연결 중…', ready: '준비됨', stop: '중단', retryNetwork: '연결이 중단됨', retryRate: '제공자 요청 한도', retryBusy: '제공자 일시적 오류',
+  sessionChanged: '전송 전에 대화가 바뀌었습니다. 메시지는 초안으로 보관했습니다.', closeRecovery: '닫기', resumeTask: '작업 재개', resumeReady: '중단된 작업을 이어갈 수 있습니다.',
+  recoveryFailed: '대화 복구를 마치지 못했습니다. 새 작업 전에 복구를 다시 시도해 주세요.',
+  recoveryRetry: '복구 다시 시도', checkCalls: '재개 전에 실행 여부가 불확실한 작업을 확인하세요',
+  checkTip: '명령·파일과 저장된 결과를 확인한 뒤 판단해 주세요. 판정은 기록만 하며 작업을 실행하지 않습니다.',
+  verdictRan: '실행됨', verdictNotRan: '실행 안 됨', verdictRerun: '다시 실행 허용', verdictDeferred: '나중에 판단',
+  task: '작업', lastCompleted: '마지막 완료 작업', nextStep: '다음: 저장된 진행 상태에서 계속', inspect: '저장된 작업 보기',
+  latest: '최신 위치로', loadingSession: '대화 불러오는 중…', reconnected: '연결 복구됨',
+
   connected: '데몬 연결됨', working: '데몬 연결됨 · 작업 중', waiting: '사용자 응답 대기',
   disconnected: '데몬 연결 끊김', unknown: '연결 확인 불가', conversation: '대화',
   session: '현재 대화', newSession: '새 대화', provider: '프로바이더', defaultProvider: '기본 프로바이더', model: '모델',

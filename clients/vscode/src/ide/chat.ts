@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { panelText } from '../core/i18n';
 import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos, turnOpen, verdictWord } from '../core/transcript';
@@ -152,6 +153,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // letting two streams feed one transcript — see `opening`.
     if (mine !== this.opening) { s.close(); return; }
     this.stream = s;
+    this.replayUntil = Date.now()+1500;
+    setTimeout(() => { if(this.stream === s) { this.replayUntil=0; this.draw(); } },1500);
     // ⚠ **A stream that ends is not a conversation that ended.** The daemon restarts often — a
     // self-update, a crash, somebody stopping it — and until now this window just stopped
     // receiving: no new rows, no word, and a panel that looks like a companion with nothing to
@@ -170,7 +173,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       // `this.stream !== s` and stays a no-op — the same guard that already makes the two endings
       // idempotent.
       s.close();
-      this.post({ kind: 'note', text: 'lost the chat — reconnecting…' });
+      this.draw();
       void this.reattach();
     };
     // Two ways to learn it, and the socket is the less reliable one.
@@ -194,6 +197,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       if (r.event) {
         if (r.event.seq > 0 && r.event.seq <= this.lastSeq) return;
         if (r.event.seq > 0) this.lastSeq = r.event.seq;
+        const progress = r.event.data as {retryUntil?:number;retryAttempt?:number;retryKind?:string} | undefined;
+        if (r.event.type==='tool.progress' && typeof progress?.retryUntil==='number') {
+          this.runtimeRetry={until:progress.retryUntil,attempt:progress.retryAttempt||1,reason:progress.retryKind||'network'};
+        } else if (['part.delta','part.appended','turn.finished','prompt.submitted'].includes(r.event.type)) this.runtimeRetry=null;
         this.events.push(r.event);
         if (this.sid) {
           if (turnOpen(this.events)) {
@@ -212,20 +219,16 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         this.draw();
         this.post({ kind: 'note', text: r.why });
       }
-      /* The replay is over. Drawn ONLY when there is nothing to show, because that is the only place
-         it changes what a person sees: an empty panel is identical whether the conversation has not
-         arrived yet or nothing was ever said in it. With rows on screen the rows are the evidence,
-         and a note on every attach would be noise in the one line notes have.
-         Nothing is claimed when the marker does not come: an older daemon never sends it, and a panel
-         that waited for it would be worse than the ambiguity it was meant to fix. */
+      // The status line replaces loading when replay reaches the live stream.
       else if (r.over) ended();
-      else if (r.live && this.events.length === 0) {
-        // Korean like the empty-state line right above it — the two said the same thing in two languages.
-        this.post({ kind: 'note', text: '최신까지 받았습니다.' });
+      else if (r.live) {
+        this.replayUntil = 0; this.draw();
       }
     });
   }
 
+  private replayUntil = 0;
+  private runtimeRetry: {until:number;attempt:number;reason:string}|null = null;
   private draw(): void {
     const rawAsk = pendingAsk(this.events);
     const ask = rawAsk
@@ -235,6 +238,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     const rowTimes = new Map(this.events.filter(e => e.seq > 0).map(e => [e.seq, e.ts]));
     this.post({
       kind: 'rows',
+      runtime: {kind:!this.stream?'reconnecting':this.replayUntil>Date.now()?'loading':ask?'waiting':this.runtimeRetry?'retry':turnOpen(this.events)?'working':'ready',
+        ...(this.runtimeRetry || {})},
       session: this.session,
       rows: rows(this.events).map((r) => paint(r, this.companion.you, rowTimes.get(r.seq))),
       ask,
@@ -326,6 +331,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     stream?.close();
     this.lastSeq = 0;
     this.events = [];
+    this.runtimeRetry = null;
     this.sid = sid;
     this.companion.session = sid;
     this.sessionCreating = null;
@@ -501,6 +507,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'say': {
         const body = (m.text ?? '').trim();
         if (!body) break;
+        if (m.session !== undefined && m.session !== this.sid) {
+          this.giveBack(body, [], panelText(vscode.env.language).sessionChanged); break;
+        }
         // The references ride as `refs`, the field the door reads — NOT spliced into the person's
         // words. The core renders each excerpt inside the workspace jail, caps it, and persists it
         // with the prompt, so the transcript shows what the agent was actually shown. Cleared once
@@ -634,6 +643,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
        * card actually offers.
        */
       case 'run': {
+        if (m.command === 'magi.interrupt') {
+          if (m.session && m.session === this.sid) {
+            const reply = await this.companion.ask('interrupt', {session:m.session});
+            if (!reply?.ok) this.post({kind:'note', text:reply?.error || panelText(vscode.env.language).changeFailed});
+          }
+          break;
+        }
         const allowed = new Set(['magi.chooseModel', 'magi.chooseBackend', 'magi.choosePermission',
           'magi.compact', 'magi.restartDaemon', 'magi.updateCore']);
         const name = String(m.command ?? '');

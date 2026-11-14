@@ -616,6 +616,8 @@ data class ContextState(
  */
 @Serializable
 data class RecoveryState(
+    val task: String? = null,
+    val lastCompleted: String? = null,
     val kind: String = "none",
     val messageId: String? = null,
     val at: String? = null,
@@ -626,6 +628,7 @@ data class RecoveryState(
 /** 사람이 확인해야 하는 호출 하나. `verdict` 는 `deferred` 로 미뤄 둔 것만 차 있다. */
 @Serializable
 data class UncertainCall(
+    val details: String? = null,
     val callId: String,
     val tool: String,
     val target: String? = null,

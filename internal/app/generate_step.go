@@ -95,8 +95,8 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 				return false
 			}
 			transientWaited += wait
-			a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("backend cooling down \u2014 waiting %s before asking again (stop the turn to cancel)",
-				wait.Round(100*time.Millisecond)))
+			a.emitRetryProgress(sid, agentActor, agent.Name, fmt.Sprintf("backend cooling down \u2014 waiting %s before asking again (stop the turn to cancel)",
+				wait.Round(100*time.Millisecond)), "busy", wait, transientRetries+1)
 			return sleepCtx(ctx, wait)
 		}
 		if transientRetries >= maxTransientRetries {
@@ -120,8 +120,8 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		}
 		transientRetries++
 		transientWaited += d
-		a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("backend %s (%s) — retrying in %s (attempt %d of %d; stop the turn to cancel)",
-			cls.Kind, shortCause(cause), d.Round(100*time.Millisecond), transientRetries, maxTransientRetries))
+		a.emitRetryProgress(sid, agentActor, agent.Name, fmt.Sprintf("backend %s (%s) — retrying in %s (attempt %d of %d; stop the turn to cancel)",
+			cls.Kind, shortCause(cause), d.Round(100*time.Millisecond), transientRetries, maxTransientRetries), string(cls.Kind), d, transientRetries)
 		return sleepCtx(ctx, d)
 	}
 	for sAttempt := 0; ; sAttempt++ {

@@ -298,3 +298,9 @@ func (a *App) DoingProgress(sid session.SessionID) (event.Progress, bool) {
 	}
 	return *st.doingProgress, true
 }
+
+func (a *App) emitRetryProgress(sid session.SessionID, actor event.Actor, name, text, kind string, delay time.Duration, attempt int) {
+	a.noteDoing(sid, "", text)
+	d, _ := json.Marshal(event.ToolProgressData{Name: name, Text: text, RetryUntil: time.Now().Add(delay).UnixMilli(), RetryAttempt: attempt, RetryKind: kind})
+	a.publishTransient(sid, event.TypeToolProgress, actor, d)
+}

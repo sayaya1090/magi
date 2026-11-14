@@ -1,3 +1,4 @@
+import { panelText } from '../core/i18n';
 /**
  * Type-checked webview DOM and action adapter.
  *
@@ -50,7 +51,7 @@ export interface WebviewActionAdapter {
     attemptId: number,
     context: { companionKey: string; session: string; generation: number; webviewId: string }
   ): boolean;
-  say(text: string, creationTaskId?: string): boolean;
+  say(text: string, creationTaskId?: string, session?: string): boolean;
   act(command: string): boolean;
   suggest(text: string, reqId: number, target: string): boolean;
   mention(text: string, reqId: number, target: string): boolean;
@@ -137,10 +138,10 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
       return true;
     },
 
-    say(text: string, creationTaskId?: string): boolean {
+    say(text: string, creationTaskId?: string, session?: string): boolean {
       const trimmed = text.trim();
       if (!trimmed) return false;
-      const msg: WebviewToHostMessage = { kind: 'say', text: trimmed };
+      const msg: WebviewToHostMessage = { kind: 'say', text: trimmed, ...(session ? {session} : {}) };
       if (creationTaskId && typeof creationTaskId === 'string' && creationTaskId.trim().length > 0) {
         msg.creationTaskId = creationTaskId;
       }
@@ -181,6 +182,7 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
 
 export interface HostMessageHandlers {
   onRows?(payload: {
+    runtime?: {kind:string;until?:number;attempt?:number;reason?:string};
     session: string;
     rows: PaintedRow[];
     ask: Ask | null;
@@ -892,7 +894,7 @@ export function createWebviewInputAdapter(
       const res = answerState.submitSay(t);
       if (!res.ok) return;
       clearAutoCompletion();
-      actions.say(res.text ?? t, creationTaskId);
+      actions.say(res.text ?? t, creationTaskId, currentSession);
       recall.remember(res.text ?? t);
       say.value = res.nextInputText ?? '';
       if (activeCreationTaskId && !currentSession) {
@@ -1136,8 +1138,10 @@ export interface WebviewReceiveAdapterOptions {
   getCurrentWebviewId?: () => string;
   setCurrentWebviewId?: (w: string) => void;
   clearExpandedCallIds: () => void;
+  switchReadingContext?: (previous: string, next: string) => {top:number; following:boolean};
   resetCurrentAsk?: () => void;
   drawRows: (rows: PaintedRow[]) => void;
+  drawRuntime?: (value: {kind:string;until?:number;attempt?:number;reason?:string}) => void;
   drawAsk: (ask: Ask | null) => void;
   drawRefs: (refs: string[]) => void;
   drawState: (note: PanelNoteInfo) => void;
@@ -1177,8 +1181,10 @@ export function createWebviewReceiveHandlers(
         (Boolean(options.getCurrentCompanionKey) && currentCompanion !== boundCompanion) ||
         (Boolean(boundWebviewId) && currentWebview !== boundWebviewId);
 
+      const reading = contextChanged ? options.switchReadingContext?.(
+        JSON.stringify([currentCompanion,currentSession]), JSON.stringify([boundCompanion,boundSession])) : undefined;
       if (contextChanged) {
-        options.clearExpandedCallIds();
+        if (!options.switchReadingContext) options.clearExpandedCallIds();
         options.resetCurrentAsk?.();
         options.recoveryController?.onContextChange?.(boundCompanion, boundSession);
         options.inputAdapter.onContextChange(
@@ -1197,12 +1203,13 @@ export function createWebviewReceiveHandlers(
       }
 
       const scrollEl = options.scrollContainer;
-      const wasAtBottom = options.scrollFollowing
+      const wasAtBottom = reading ? reading.following : options.scrollFollowing
         ? options.scrollFollowing.beforeRender()
         : scrollEl ? scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40 : false;
-      const initialScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+      const initialScrollTop = reading ? reading.top : scrollEl ? scrollEl.scrollTop : 0;
 
       options.drawRows(payload.rows);
+      if(payload.runtime) options.drawRuntime?.(payload.runtime);
       options.drawAsk(payload.ask);
       /* ⚠ 이 둘은 **어느 쪽이 먼저 와도** 된다. 한쪽만 보고 그리면 늦게 온 쪽이 반영 안 된 화면이
          남는다 — 그래서 최신 조합을 들고 있다가 매번 다시 판정한다. 세션이 바뀌면 그 세션의
@@ -1482,14 +1489,14 @@ export function planStripView(els: PlanStripEls, doc: Document): { draw(todos: {
  * "restart" in this client because "recovery" already names the drafts kept for a send that never left.
  */
 export interface RestartState {
+  messageId?: string; task?: string; lastCompleted?: string;
   kind: string;
   reason: string;
-  uncertain: { callId: string; tool: string; target: string; verdict: string }[];
+  uncertain: { callId: string; tool: string; target: string; verdict: string; details?: string }[];
 }
 
 /** The four words a person can put on an uncertain call. A verdict records; it runs nothing. */
 export const RESTART_VERDICTS = ['ran', 'not_ran', 'rerun_ok', 'deferred'] as const;
-const RESTART_VERDICT_WORDS: Record<string, string> = { ran: '\uc2e4\ud589\ub428', not_ran: '\uc2e4\ud589 \uc548 \ub428', rerun_ok: '\ub2e4\uc2dc \uc2e4\ud589 \ud5c8\uc6a9', deferred: '\ubcf4\ub958' };
 
 export interface RestartStrip {
   kind: 'resumable' | 'needs_check' | 'recovery_failed';
@@ -1499,18 +1506,19 @@ export interface RestartStrip {
 }
 
 /** The strip's line, or null when there is nothing to show - including a kind this client does not know. */
-export function restartStrip(s: RestartState | null): RestartStrip | null {
+export function restartStrip(s: RestartState | null, language?: string): RestartStrip | null {
+  const words = panelText(language);
   if (!s) return null;
   if (s.kind === 'resumable') {
-    return { kind: 'resumable', reason: '', calls: [], text: '지난 작업을 이어갈 수 있습니다' };
+    return { kind: 'resumable', reason: '', calls: [], text: words.resumeReady };
   }
   if (s.kind === 'needs_check') {
     return { kind: 'needs_check', reason: '', calls: s.uncertain,
-      text: '\uba48\ucd94\uae30 \uc804\uc5d0 \uc2e4\ud589\ub410\uc744\uc9c0 \ubaa8\ub974\ub294 \ud638\ucd9c ' + s.uncertain.length + '\uac1c \u00b7 \uc774\uc5b4 \uac00\uae30 \uc804\uc5d0 \ud655\uc778\ud558\uc138\uc694' };
+      text: words.checkCalls + " (" + s.uncertain.length + ")" };
   }
   if (s.kind === 'recovery_failed') {
     return { kind: 'recovery_failed', reason: s.reason, calls: [],
-      text: '\ubcf5\uad6c\uac00 \uc774 \ub300\ud654\ub97c \ub2eb\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4. \ub2e4\uc2dc \uc2dc\ub3c4\ud574 \ub2eb\uae30 \uc804\uc5d0\ub294 \uc0c8 \uc791\uc5c5\uc744 \ubc1b\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4' };
+      text: words.recoveryFailed };
   }
   return null;
 }
@@ -1526,14 +1534,23 @@ export type RestartSettle = { kind: 'settle'; callId: string; verdict: (typeof R
  * a cut turn gets its line only; a failed recovery gets the daemon's own reason and one retry button.
  * Nothing left hides the strip. The page hands in its real elements; a test hands in fakes and clicks.
  */
-export function restartStripView(els: RestartStripEls, doc: Document, send: (m: RestartSettle) => void): { draw(state: RestartState | null): void } {
+export function restartStripView(els: RestartStripEls, doc: Document, send: (m: RestartSettle) => void, language?: string): { draw(state: RestartState | null, session?: string): void } {
+  const dismissed = new Map<string, string>();
   return {
-    draw(state) {
-      const s = restartStrip(state);
-      if (!s) { els.strip.hidden = true; els.list.replaceChildren(); return; }
+    draw(state, session = '') {
+      const words=panelText(language);
+      const s = restartStrip(state,language);
+      if (!s) { dismissed.delete(session); els.strip.hidden = true; els.list.replaceChildren(); return; }
+      const recoveryKey = JSON.stringify(state);
+      if (dismissed.get(session) === recoveryKey) { els.strip.hidden = true; return; }
       els.strip.setAttribute('data-kind', s.kind);
       els.head.textContent = s.text;
       const kids: HTMLElement[] = [];
+      for(const [label,value] of [[words.task,state?.task],[words.lastCompleted,state?.lastCompleted]]) {
+        if(value) {const p=doc.createElement('p');p.textContent=label+': '+value;kids.push(p);}
+      }
+      if(s.kind==='resumable') {const p=doc.createElement('p');p.textContent=words.nextStep;kids.push(p);}
+
       const button = (words: string, click: () => void): HTMLElement => {
         const b = doc.createElement('button');
         b.setAttribute('type', 'button');
@@ -1546,27 +1563,37 @@ export function restartStripView(els: RestartStripEls, doc: Document, send: (m: 
           const row = doc.createElement('div');
           row.className = 'restart-call';
           const what = doc.createElement('span');
-          what.textContent = c.tool + (c.target ? ' \u00b7 ' + c.target : '') + (c.verdict === 'deferred' ? ' (\ubcf4\ub958)' : '');
+          what.textContent = c.tool + (c.target ? ' \u00b7 ' + c.target : '') + (c.verdict === 'deferred' ? ' (' + words.verdictDeferred + ')' : '');
           const verdicts = RESTART_VERDICTS.map((v) => {
-            const b = button(RESTART_VERDICT_WORDS[v], () => send({ kind: 'settle', callId: c.callId, verdict: v }));
+            const b = button(({ran:words.verdictRan,not_ran:words.verdictNotRan,rerun_ok:words.verdictRerun,deferred:words.verdictDeferred})[v], () => send({ kind: 'settle', callId: c.callId, verdict: v }));
             b.setAttribute('data-call', c.callId);
             b.setAttribute('data-verdict', v);
             return b;
           });
-          row.replaceChildren(what, ...verdicts);
+          const inspection = doc.createElement('details'), summary = doc.createElement('summary'), saved = doc.createElement('pre');
+          summary.textContent = words.inspect; saved.textContent = c.details || c.target;
+          inspection.replaceChildren(summary, saved);
+          row.replaceChildren(what, inspection, ...verdicts);
           kids.push(row);
         }
         const tip = doc.createElement('p');
         tip.className = 'restart-tip';
-        tip.textContent = '\ud310\uc815\uc740 \ud655\uc778\ud55c \uac83\uc744 \uae30\ub85d\ud560 \ubfd0, \uc544\ubb34\uac83\ub3c4 \ub2e4\uc2dc \uc2e4\ud589\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4';
+        tip.textContent = words.checkTip;
         kids.push(tip);
       } else if (s.kind === 'resumable') {
-        const resume = button('작업 재개', () => {
+        const resume = button(words.resumeTask, () => {
           if ((resume as HTMLButtonElement).disabled) return;
           (resume as HTMLButtonElement).disabled = true;
           send({kind:'settle', resume:true});
         });
-        resume.setAttribute('data-resume','true');kids.push(resume);
+        resume.setAttribute('data-resume','true');
+        const close = button(words.closeRecovery, () => {
+          if (dismissed.size >= 50) dismissed.delete(dismissed.keys().next().value!);
+          dismissed.set(session, recoveryKey); els.strip.hidden = true;
+        });
+        close.setAttribute('data-dismiss-recovery','true');
+        const actions = doc.createElement('div'); actions.className = 'restart-actions';
+        actions.replaceChildren(resume, close); kids.push(actions);
       } else if (s.kind === 'recovery_failed') {
         if (s.reason) {
           const why = doc.createElement('p');
@@ -1574,7 +1601,7 @@ export function restartStripView(els: RestartStripEls, doc: Document, send: (m: 
           why.textContent = s.reason;
           kids.push(why);
         }
-        const retry = button('\ubcf5\uad6c \ub2e4\uc2dc \uc2dc\ub3c4', () => send({ kind: 'settle', retry: true }));
+        const retry = button(words.recoveryRetry, () => send({ kind: 'settle', retry: true }));
         retry.setAttribute('data-retry', 'true');
         kids.push(retry);
       }

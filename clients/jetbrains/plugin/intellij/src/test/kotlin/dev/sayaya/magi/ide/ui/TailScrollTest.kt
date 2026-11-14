@@ -9,6 +9,22 @@ import javax.swing.JPanel
 import javax.swing.JScrollPane
 
 class TailScrollTest : BasePlatformTestCase() {
+    fun testRestorePreservesReadingPositionAcrossGrowth() {
+        val body = JPanel().apply { preferredSize = Dimension(300, 4000) }
+        val pane = JScrollPane(body).apply { size = Dimension(400, 300) }
+        val tail = TailScroll(pane)
+        try {
+            flush(pane)
+            tail.restore(600, false)
+            flush(pane)
+            assertEquals(600, pane.verticalScrollBar.value)
+            body.preferredSize = Dimension(300, 8000)
+            flush(pane)
+            assertEquals(600, pane.verticalScrollBar.value)
+            tail.restore(0, true)
+            flush(pane); assertAtEnd(pane)
+        } finally { tail.close() }
+    }
     private fun flush(pane: JScrollPane) {
         pane.doLayout(); pane.viewport.doLayout(); UIUtil.dispatchAllInvocationEvents()
     }
