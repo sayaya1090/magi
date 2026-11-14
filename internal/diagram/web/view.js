@@ -65,11 +65,13 @@
        containers with no border (M3 filled card); clusters keep a 1dp outline-variant. A diagram's
        classDef/style is written inline with !important by Mermaid and still wins. */
     .magi-diagram svg[role=img] .node .label-container,.magi-diagram svg[role=img] .node > :is(rect,polygon,circle,ellipse,path) { fill:var(--magi-node-fill)!important;stroke:none!important; }
-    .magi-diagram svg[role=img] .node :is(text,tspan,.nodeLabel) { fill:var(--magi-node-text)!important;color:var(--magi-node-text)!important; }
+    .magi-diagram svg[role=img] .node :is(text,tspan,.nodeLabel,.nodeLabel *,foreignObject *) { fill:var(--magi-node-text)!important;color:var(--magi-node-text)!important; }
     .magi-diagram svg[role=img] .cluster rect { fill:var(--magi-cluster-fill)!important;stroke:var(--magi-cluster-border)!important;stroke-width:1px!important; }
     .magi-diagram svg[role=img] .flowchart-link { stroke:var(--magi-edge)!important; }
     @keyframes magi-flow { to { stroke-dashoffset:-26; } }
-    @media (prefers-reduced-motion:reduce) { .magi-diagram .magi-flow-active .flowchart-link { animation:none; } }
+    /* A selected node's arrows flow; the others stay still. */
+    .magi-diagram .magi-flow-focus .flowchart-link.magi-flow-near { stroke-dasharray:8 5 !important;animation:magi-flow 1s linear infinite; }
+    @media (prefers-reduced-motion:reduce) { .magi-diagram :is(.magi-flow-active .flowchart-link,.magi-flow-focus .flowchart-link.magi-flow-near) { animation:none; } }
     @media (pointer:coarse) { .magi-diagram .magi-diagram-action { min-width:48px;min-height:48px; } }
   `;
   document.head.append(style);
@@ -207,7 +209,21 @@
       catch { sourceBox.open=true; note.textContent=say('Clipboard unavailable. Select and copy the source below.','클립보드를 사용할 수 없습니다. 아래 원본을 선택해 복사해 주세요.'); }
     }
     button('copy','Copy source','원본 복사',()=>copy(source));
-    let selected='', selectedNode=null;
+    let selected='', selectedNode=null, flowOn=null;
+    // Arrows touching the selected node flow (data-id L_<from>_<to>_<n>); with nothing selected the
+    // animate toggle, when the diagram has one, moves every arrow.
+    const nodeKey=el=>((el.id||'').match(/flowchart-(.+)-\d+$/)||[])[1]||'';
+    const flowPaint=()=>{
+      if(!svg) return;
+      const key=selectedNode?nodeKey(selectedNode):'';
+      const moving=flowOn?flowOn():!matchMedia('(prefers-reduced-motion: reduce)').matches;
+      svg.querySelectorAll('.flowchart-link').forEach(e=>{
+        const rest=(e.getAttribute('data-id')||'').replace(/^L_/,'').replace(/_\d+$/,'');
+        e.classList.toggle('magi-flow-near', !!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key)));
+      });
+      svg.classList.toggle('magi-flow-active', !!flowOn && flowOn() && !key);
+      svg.classList.toggle('magi-flow-focus', !!key && moving);
+    };
     const ask=button('question','Copy question','질문 복사',async()=>{
       const text=(question.value.trim()||question.placeholder)+'\n\n```mermaid\n'+source+'\n```';
       try { await navigator.clipboard.writeText(text);note.textContent=say('Question copied. Paste it into the conversation to send.','질문을 복사했습니다. 대화 입력창에 붙여넣어 보내세요.'); }
@@ -246,21 +262,21 @@
         svg.setAttribute('role','img'); { const paint=()=>{ const th=themeFor(box), look=th.vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v);
           svg.querySelectorAll('.node').forEach(n=>{ const c=colors[(n.textContent||'').trim()]; const p=c&&rolePaint(c.toLowerCase().startsWith('#')?c:c.toLowerCase(),th.role); if(!p) return;
             const shape=n.querySelector('.label-container')||n.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'); if(shape) shape.style.setProperty('fill',p.bg,'important');
-            n.querySelectorAll('text,tspan,.nodeLabel').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
+            n.querySelectorAll('text,tspan,.nodeLabel,.nodeLabel *,foreignObject *').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
           box.__magiPaint=paint; paint(); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
         canvas.replaceChildren(svg); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
           const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
           toggle.checked=!matchMedia('(prefers-reduced-motion: reduce)').matches;
-          const update=()=>svg.classList.toggle('magi-flow-active',toggle.checked);
-          toggle.addEventListener('change',update);update();
+          flowOn=()=>toggle.checked;
+          toggle.addEventListener('change',flowPaint);flowPaint();
           label.append(toggle,document.createTextNode(say('Animate flow','흐름 애니메이션')));bar.append(label);
         } note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
             if(selectedNode && selectedNode!==n){selectedNode.classList.remove('magi-selected');selectedNode.setAttribute('aria-pressed','false');}
-            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;
+            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;flowPaint();
             const next=(n.textContent||'').trim();
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
