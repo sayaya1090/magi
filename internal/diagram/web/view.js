@@ -10,19 +10,36 @@
   const icons = {"zoomIn":{"viewBox":"0 0 512 512","path":"M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM184 296c0 13.3 10.7 24 24 24s24-10.7 24-24l0-64 64 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-64 0 0-64c0-13.3-10.7-24-24-24s-24 10.7-24 24l0 64-64 0c-13.3 0-24 10.7-24 24s10.7 24 24 24l64 0 0 64z"},"zoomOut":{"viewBox":"0 0 512 512","path":"M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM136 184c-13.3 0-24 10.7-24 24s10.7 24 24 24l144 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-144 0z"},"fit":{"viewBox":"0 0 448 512","path":"M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"},"copy":{"viewBox":"0 0 448 512","path":"M208 0L332.1 0c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1 33.9L448 336c0 26.5-21.5 48-48 48l-192 0c-26.5 0-48-21.5-48-48l0-288c0-26.5 21.5-48 48-48zM48 128l80 0 0 64-64 0 0 256 192 0 0-32 64 0 0 48c0 26.5-21.5 48-48 48L48 512c-26.5 0-48-21.5-48-48L0 176c0-26.5 21.5-48 48-48z"},"question":{"viewBox":"0 0 512 512","path":"M512 240c0 114.9-114.6 208-256 208c-37.1 0-72.3-6.4-104.1-17.9c-11.9 8.7-31.3 20.6-54.3 30.6C73.6 471.1 44.7 480 16 480c-6.5 0-12.3-3.9-14.8-9.9c-2.5-6-1.1-12.8 3.4-17.4c0 0 0 0 0 0s0 0 0 0s0 0 0 0c0 0 0 0 0 0l.3-.3c.3-.3 .7-.7 1.3-1.4c1.1-1.2 2.8-3.1 4.9-5.7c4.1-5 9.6-12.4 15.2-21.6c10-16.6 19.5-38.4 21.4-62.9C17.7 326.8 0 285.1 0 240C0 125.1 114.6 32 256 32s256 93.1 256 208z"}};
   const style = document.createElement('style');
   style.textContent = `
-    .magi-diagram { --magi-outline:var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 20%,transparent)); }
-    .magi-diagram .magi-diagram-action { position:relative;font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:8px;cursor:pointer; }
+    /* Material 3 (m3.material.io): outlined icon button small 40dp, icon 24dp, shape full, icon
+       on-surface-variant, outline 1dp outline-variant; state layer hover .08 / pressed .12; focus
+       ring 3dp at +2dp; plain tooltip 24dp on inverse-surface, body-small 12/16 tracking .4, shape 4;
+       outlined card shape 12dp; outlined text field shape 4, outline role, focus 3dp primary.
+       Hosts that define no --md-sys roles (VS Code, JetBrains JCEF) get fallbacks with the same
+       meaning: the tooltip inverts Canvas/CanvasText. */
+    .magi-diagram { --magi-outline:var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 20%,transparent));
+      --magi-field-outline:var(--md-sys-color-outline,color-mix(in srgb,currentColor 55%,transparent));
+      --magi-on-variant:var(--md-sys-color-on-surface-variant,currentColor);
+      --magi-primary:var(--md-sys-color-primary,Highlight); }
+    .magi-diagram .magi-diagram-action { position:relative;box-sizing:border-box;font:inherit;color:var(--magi-on-variant);background:transparent;border:1px solid var(--magi-outline);border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;cursor:pointer; }
     .magi-diagram .magi-diagram-action:hover:not(:disabled) { background:color-mix(in srgb,currentColor 8%,transparent); }
-    .magi-diagram .magi-diagram-action:focus-visible { outline:2px solid var(--md-sys-color-primary,Highlight);outline-offset:2px; }
+    .magi-diagram .magi-diagram-action:active:not(:disabled) { background:color-mix(in srgb,currentColor 12%,transparent); }
+    .magi-diagram .magi-diagram-action:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
     .magi-diagram .magi-diagram-action:disabled { opacity:.38;cursor:default; }
-    .magi-diagram .magi-diagram-action svg { width:18px;height:18px;fill:currentColor;flex:none; }
-    .magi-diagram .magi-diagram-tooltip { display:none;position:absolute;top:100%;left:0;z-index:2;white-space:nowrap;padding:4px 8px;border:1px solid var(--magi-outline);border-radius:4px;background:var(--md-sys-color-surface,Canvas);color:var(--md-sys-color-on-surface,CanvasText);font-size:12px;pointer-events:none; }
+    .magi-diagram .magi-diagram-action svg { width:24px;height:24px;fill:currentColor;flex:none; }
+    .magi-diagram .magi-diagram-tooltip { display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:2;box-sizing:border-box;min-height:24px;white-space:nowrap;padding:4px 8px;border-radius:4px;background:var(--md-sys-color-inverse-surface,CanvasText);color:var(--md-sys-color-inverse-on-surface,Canvas);font-size:12px;line-height:16px;letter-spacing:.4px;font-weight:400;pointer-events:none; }
     .magi-diagram-action:hover .magi-diagram-tooltip,.magi-diagram-action:focus-visible .magi-diagram-tooltip { display:block; }
     .magi-diagram-layout { display:flex;flex-wrap:wrap;gap:12px;align-items:start; }
     .magi-diagram-canvas { flex:2 1 280px;min-width:0; }
-    .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:8px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:8px; }
+    .magi-diagram svg [role=button] { cursor:pointer; }
+    .magi-diagram svg [role=button]:focus { outline:none; }
+    .magi-diagram svg [role=button]:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
+    .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
-    .magi-diagram-info textarea { width:100%;box-sizing:border-box;min-height:90px;font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:4px; }
+    .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:inherit;background:transparent;border:1px solid var(--magi-field-outline);border-radius:4px; }
+    .magi-diagram-info textarea:focus { outline:none;border-color:var(--magi-primary);box-shadow:inset 0 0 0 2px var(--magi-primary); }
+    .magi-diagram .magi-diagram-toggle { display:inline-flex;align-items:center;min-height:40px;padding-right:12px;color:var(--magi-on-variant);cursor:pointer; }
+    .magi-diagram .magi-diagram-toggle input { width:18px;height:18px;margin:11px;accent-color:var(--magi-primary);cursor:pointer; }
+    .magi-diagram .magi-diagram-toggle input:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
     .magi-diagram .magi-flow-active .flowchart-link { stroke-dasharray:8 5;animation:magi-flow 1s linear infinite; }
     @keyframes magi-flow { to { stroke-dashoffset:-26; } }
     @media (prefers-reduced-motion:reduce) { .magi-diagram .magi-flow-active .flowchart-link { animation:none; } }
@@ -40,8 +57,8 @@
     pre.dataset.magiDiagram = source;
     const box = document.createElement('figure');
     box.className = 'magi-diagram';
-    box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--magi-outline);border-radius:8px;max-width:100%;overflow:hidden;color:inherit';
-    const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+    box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--magi-outline);border-radius:12px;max-width:100%;overflow:hidden;color:inherit';
+    const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center';
     const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;max-height:min(420px,55vh);min-height:48px;max-width:100%';
     canvas.className='magi-diagram-canvas';
     const layout=document.createElement('div');layout.className='magi-diagram-layout';
@@ -136,7 +153,7 @@
         svg.setAttribute('role','img'); svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
         canvas.replaceChildren(svg); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
-          const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';
+          const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
           toggle.checked=!matchMedia('(prefers-reduced-motion: reduce)').matches;
           const update=()=>svg.classList.toggle('magi-flow-active',toggle.checked);
           toggle.addEventListener('change',update);update();
