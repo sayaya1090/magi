@@ -13,12 +13,12 @@
     /* Material 3 (m3.material.io): outlined icon button small 40dp, icon 24dp, shape full, icon
        on-surface-variant, outline 1dp outline-variant; state layer hover .08 / pressed .12; focus
        ring 3dp at +2dp; plain tooltip 24dp on inverse-surface, body-small 12/16 tracking .4, shape 4;
-       outlined card shape 12dp; outlined text field shape 4, outline role, focus 3dp primary; its container is filled
-       (surface-container-lowest, white on light) so it reads as an input against the panel.
+       outlined card shape 12dp; filled text field (md-filled-text-field tokens): container surface-container-highest,
+       shape extra-small top / none bottom, no side borders, 1dp on-surface-variant active indicator,
+       3dp primary on focus, hover state layer .08.
        Hosts that define no --md-sys roles (VS Code, JetBrains JCEF) get fallbacks with the same
        meaning: the tooltip inverts Canvas/CanvasText. */
     .magi-diagram { --magi-outline:var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 20%,transparent));
-      --magi-field-outline:var(--md-sys-color-outline,color-mix(in srgb,currentColor 55%,transparent));
       --magi-on-variant:var(--md-sys-color-on-surface-variant,currentColor);
       --magi-primary:var(--md-sys-color-primary,Highlight); }
     .magi-diagram .magi-diagram-action { position:relative;box-sizing:border-box;font:inherit;color:var(--magi-on-variant);background:transparent;border:1px solid var(--magi-outline);border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;cursor:pointer; }
@@ -51,9 +51,10 @@
     @media (prefers-reduced-motion:reduce) { .magi-diagram svg [role=button] { transition:none; } }
     .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
-    .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:var(--md-sys-color-on-surface,CanvasText);background:var(--md-sys-color-surface-container-lowest,Canvas);border:1px solid var(--magi-field-outline);border-radius:4px; }
+    .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:var(--md-sys-color-on-surface,CanvasText);background:var(--md-sys-color-surface-container-highest,color-mix(in srgb,CanvasText 8%,Canvas));border:0;border-bottom:1px solid var(--md-sys-color-on-surface-variant,color-mix(in srgb,CanvasText 70%,Canvas));border-radius:4px 4px 0 0; }
+    .magi-diagram-info textarea:hover:not(:focus) { border-bottom-color:var(--md-sys-color-on-surface,CanvasText);background-image:linear-gradient(color-mix(in srgb,var(--md-sys-color-on-surface,CanvasText) 8%,transparent),color-mix(in srgb,var(--md-sys-color-on-surface,CanvasText) 8%,transparent)); }
     .magi-diagram-info textarea::placeholder { color:var(--md-sys-color-on-surface-variant,GrayText);opacity:1; }
-    .magi-diagram-info textarea:focus { outline:none;border-color:var(--magi-primary);box-shadow:inset 0 0 0 2px var(--magi-primary); }
+    .magi-diagram-info textarea:focus { outline:none;border-bottom-color:var(--magi-primary);box-shadow:inset 0 -2px 0 var(--magi-primary); }
     .magi-diagram .magi-diagram-toggle { display:inline-flex;align-items:center;min-height:40px;padding-right:12px;color:var(--magi-on-variant);cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input { width:18px;height:18px;margin:11px;accent-color:var(--magi-primary);cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
