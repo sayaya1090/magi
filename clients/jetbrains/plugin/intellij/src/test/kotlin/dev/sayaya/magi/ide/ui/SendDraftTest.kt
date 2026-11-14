@@ -196,5 +196,11 @@ class SendDraftTest : BasePlatformTestCase() {
         val flag = script.indexOf("window.magiDiagramComposer = true")
         assertTrue(script, flag >= 0 && flag < script.indexOf("window.magiMermaid"))
     }
+    fun testClickDiagnosticsShipWithOneSendSlot() {
+        // Diagnostic for radios that stop responding after a node is selected: the page reports each
+        // pointerdown/click/change in a diagram through one query slot.
+        assertTrue(RichAnswer.clickDiag.contains("pointerdown"))
+        assertEquals(1, RichAnswer.clickDiag.split("MAGI_SEND").size - 1)
+    }
 }
 

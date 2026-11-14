@@ -66,6 +66,11 @@ internal class RichAnswer {
         }
 
         /** Page script that hands a selected diagram node to the composer; MAGI_SEND is the query call. */
+        /** Diagnostic page script for clicks in a diagram; MAGI_SEND is the query call (idea.log). */
+        val clickDiag: String by lazy {
+            RichAnswer::class.java.getResourceAsStream("/magi-composer/click-diag.js")?.bufferedReader()?.use { it.readText() } ?: ""
+        }
+
         val nodeHook: String by lazy {
             RichAnswer::class.java.getResourceAsStream("/magi-composer/node-hook.js")?.bufferedReader()?.use { it.readText() } ?: ""
         }
@@ -221,9 +226,23 @@ internal class RichAnswer {
                 forward(TailScroll.wheelPixels(e))
             }
         }
+        // Diagnostic: where focus is when the panel is pressed (radios stopped responding after a node
+        // was selected, which moves focus to the composer). At most 50 lines per panel.
+        var pressesLeft = 50
+        browser.browserComponent?.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mousePressed(e: java.awt.event.MouseEvent) {
+                if (pressesLeft-- <= 0) return
+                val owner = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+                LOG.info("magi: diagram panel press at ${e.x},${e.y} focusOwner=${owner?.javaClass?.name} browserFocused=${browser.browserComponent?.isFocusOwner}")
+            }
+        })
         query.addHandler { said ->
             if (said.startsWith("surface:")) {
                 LOG.info("magi: markdown surface " + said.removePrefix("surface:"))
+                return@addHandler null
+            }
+            if (said.startsWith("diag:")) {
+                LOG.info("magi: diagram click " + said.removePrefix("diag:").take(400))
                 return@addHandler null
             }
             if (said.startsWith("node:")) {
@@ -262,6 +281,7 @@ internal class RichAnswer {
             (function(){
                 if (!document.body) return;
                 ${nodeHook.replace("MAGI_SEND", query.inject("'node:' + label"))}
+                ${clickDiag.replace("MAGI_SEND", query.inject("'diag:' + msg"))}
                 if (window.__magiMeasure) { window.__magiMeasure(); return; }
                 const style = document.createElement('style');
                 style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important;background:transparent!important}' +
