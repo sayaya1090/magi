@@ -38,7 +38,7 @@ These checks establish prerequisites. They cannot guarantee a window will open. 
 
 ## Interaction
 
-VS Code adds a selected node as a removable chip above the message input. The chips belong to the displayed companion and session; returning to a conversation restores its selection while the webview remains open (up to 50 conversations, 50 nodes each). Sending includes the node names with the typed question, or asks for an explanation when only chips are selected. Failed sends use the existing draft recovery with the complete question text, including node names. Pending answers are sent unchanged and leave chips for the next general message. The controls have English and Korean labels.
+VS Code adds a selected node as a removable chip above the message input. The chips belong to the displayed companion and session; returning to a conversation restores its selection while the webview remains open (up to 50 conversations, 50 nodes each). Sending includes the node names with the typed question, or asks for an explanation when only chips are selected. Chips stay until the daemon accepts the message. A rejected send keeps its chips and restores the typed question separately, so retrying does not duplicate node names. Pending answers are sent unchanged and leave chips for the next general message. The controls have English and Korean labels.
 
 Fit preserves a small diagram’s intrinsic size and shrinks larger diagrams to the available width and a height of at most 420 pixels or 55% of the viewport. Zoom remains available for reading dense charts. Icon controls show labels on hover and keyboard focus.
 

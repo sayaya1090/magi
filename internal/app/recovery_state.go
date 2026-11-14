@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -256,7 +257,7 @@ func recoveryState(evs []event.Event) RecoveryState {
 				calls[d.Part.ToolCall.CallID] = *d.Part.ToolCall
 			case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil:
 				result := d.Part.ToolResult
-				results[result.CallID] = string(result.Content)
+				results[result.CallID] = recoveryDetail(result.Content)
 				if result.MayHaveRun {
 					mayHaveRun[result.CallID] = true
 				} else if !result.IsError {
@@ -286,7 +287,7 @@ func recoveryState(evs []event.Event) RecoveryState {
 			continue
 		}
 		c := calls[id]
-		st.Uncertain = append(st.Uncertain, UncertainCall{Details: string(c.Args) + "\n\n" + results[id], CallID: id, Tool: c.Name, Target: callTarget(c.Args), Verdict: verdict[id]})
+		st.Uncertain = append(st.Uncertain, UncertainCall{Details: recoveryDetail(c.Args) + "\n\n" + results[id], CallID: id, Tool: c.Name, Target: callTarget(c.Args), Verdict: verdict[id]})
 	}
 	switch {
 	case len(st.Uncertain) > 0:
@@ -414,4 +415,24 @@ func recoveryExcerpt(text string) string {
 		return string(chars[:240]) + "…"
 	}
 	return string(chars)
+}
+
+// Bound each inspection section to 8 KiB. The complete record remains in the transcript.
+func recoveryDetail(raw json.RawMessage) string {
+	text := string(raw)
+	if len(raw) > 0 && raw[0] == '"' {
+		var decoded string
+		if json.Unmarshal(raw, &decoded) == nil {
+			text = decoded
+		}
+	}
+	const limit = 8 * 1024
+	if len(text) <= limit {
+		return text
+	}
+	end := limit - len("…")
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end] + "…"
 }

@@ -449,6 +449,37 @@ window.addEventListener('magi-diagram-select',event=>{
   if(nodeChoices.size>=50 && !nodeChoices.has(nodeContext())) nodeChoices.delete(nodeChoices.keys().next().value!);
   nodeChoices.set(nodeContext(),[...picked,label.trim()]);drawNodeChips();
 });
+let nodeSendSequence=0;
+const nodeSends=new Map<string,{context:string;nodes:string[];typed:string;composed:string}>();
+const failedNodeDrafts=new Map<string,string[]>();
+const sendWithoutNodes=actions.say;
+actions.say=(text,creationTaskId,session)=>{
+  const nodes=[...pickedNodes()];
+  if(!nodes.length) return sendWithoutNodes(text,creationTaskId,session);
+  const id=String(++nodeSendSequence);
+  nodeSends.set(id,{context:nodeContext(),nodes,typed:say.value,composed:text});
+  vs.postMessage({kind:'say',text,nodeSendId:id,...(creationTaskId?{creationTaskId}:{}),...(session?{session}:{})});
+  return true;
+};
+function finishNodeSend(id:string,ok:boolean) {
+  const sent=nodeSends.get(id);if(!sent) return;nodeSends.delete(id);
+  if(ok) {
+    const current=nodeChoices.get(sent.context)||[];
+    nodeChoices.set(sent.context,current.filter(n=>!sent.nodes.includes(n)));
+  } else {
+    const drafts=failedNodeDrafts.get(sent.context)||[];
+    if(sent.typed.trim()) drafts.push(sent.typed);
+    failedNodeDrafts.set(sent.context,drafts);
+  }
+  drawNodeChips();
+  restoreNodeDrafts();
+}
+function restoreNodeDrafts() {
+  const drafts=failedNodeDrafts.get(nodeContext());
+  if(!drafts?.length) return;
+  failedNodeDrafts.delete(nodeContext());
+  for(const text of drafts) inputAdapter.handleCompose(text);
+}
 const inputAdapter = createWebviewInputAdapter({
   say,
   sendBtn: document.getElementById('send') as HTMLElement,
@@ -464,7 +495,7 @@ const inputAdapter = createWebviewInputAdapter({
     const names=picked.join(', ');
     return text ? text+'\n\n'+uiText.nodeAbout+' '+names : uiText.nodeExplain+' '+names;
   },
-  onMessageSubmitted: () => {nodeChoices.delete(nodeContext());drawNodeChips();},
+
 }, actions, answerState);
 const recoveryController = createWebviewRecoveryController({
   elements: {
@@ -592,7 +623,7 @@ function scheduleViewport() {
 scrollEl.addEventListener('scroll', scheduleViewport, { passive: true });
 window.addEventListener('resize', () => { rowHeights = []; offsetsForRows(); scheduleViewport(); });
 function draw(rs: ChatRows) {
-  drawNodeChips();
+  drawNodeChips();restoreNodeDrafts();
   const scope = JSON.stringify([currentCompanionKey, currentSession, currentGeneration, currentWebviewId]);
   if (scope !== transcriptScope) {
     transcriptScope = scope;
@@ -906,6 +937,16 @@ const receiveHandlers = createWebviewReceiveHandlers({
   scrollFollowing,
 });
 window.addEventListener('message', (e) => {
+  const message=parseHostToWebviewMessage(e.data);
+  if(message?.kind==='sessionCreated') {
+    const previous=JSON.stringify([message.companionKey,'']), next=JSON.stringify([message.companionKey,message.session]);
+    if(nodeChoices.has(previous)) {
+      nodeChoices.set(next,[...new Set([...(nodeChoices.get(next)||[]),...nodeChoices.get(previous)!])]);
+      nodeChoices.delete(previous);
+    }
+    for(const sent of nodeSends.values()) if(sent.context===previous) sent.context=next;
+  }
+  if(message?.kind==='nodeSendResult') {finishNodeSend(message.id,message.ok);return;}
   dispatchHostMessage(e.data, receiveHandlers);
 });
 actions.ready();

@@ -510,8 +510,16 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'say': {
         const body = (m.text ?? '').trim();
         if (!body) break;
+        const rejectSend = (refs: Ref[], why: string) => {
+          if (!m.nodeSendId) {this.giveBack(body,refs,why);return;}
+          if (!m.session || m.session === this.sid) {
+            for(const ref of refs) if(!this.refs.some(x=>refText(x)===refText(ref))) this.refs.push(ref);
+          }
+          this.post({kind:'note',text:why});
+          this.post({kind:'nodeSendResult',id:m.nodeSendId,ok:false});
+        };
         if (m.session !== undefined && m.session !== this.sid) {
-          this.giveBack(body, [], panelText(vscode.env.language).sessionChanged); break;
+          rejectSend([], panelText(vscode.env.language).sessionChanged); break;
         }
         // The references ride as `refs`, the field the door reads — NOT spliced into the person's
         // words. The core renders each excerpt inside the workspace jail, caps it, and persists it
@@ -595,7 +603,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
             try {
               resolvedSid = await pendingCreation;
             } catch (e: any) {
-              this.giveBack(body, sent, e?.message ?? 'the companion could not open a chat.');
+              rejectSend(sent, e?.message ?? 'the companion could not open a chat.');
               break;
             }
             if (this.generation === creationGen && !this.sid) {
@@ -606,7 +614,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           }
 
           if (!resolvedSid) {
-            this.giveBack(body, sent, 'the companion could not determine target session.');
+            rejectSend(sent, 'the companion could not determine target session.');
             break;
           }
 
@@ -620,8 +628,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           const r = await this.companion.ask(door, refs.length ? { session: resolvedSid, text: body, refs } : { session: resolvedSid, text: body });
           if (!r?.ok) {
             this.sessionActiveTurns.delete(resolvedSid);
-            this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
+            rejectSend(sent, r?.error ?? 'no companion is listening on this workspace.');
           } else {
+            if(m.nodeSendId) this.post({kind:"nodeSendResult",id:m.nodeSendId,ok:true});
             // Once submit succeeds, mark turn active immediately even before first stream chunk lands
             this.sessionActiveTurns.add(resolvedSid);
             void this.sendPrompts();
@@ -629,6 +638,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           if (this.sid === resolvedSid) {
             this.draw();
           }
+        } catch (error) {
+          rejectSend(sent, error instanceof Error ? error.message : String(error));
         } finally {
           resolveQueue();
         }

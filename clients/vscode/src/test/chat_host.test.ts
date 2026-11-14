@@ -982,3 +982,17 @@ test('stale send and stop clicks never act on the newly selected session', async
   assert.deepEqual(companion.calls.map((c:any)=>({door:c.door,payload:c.payload})),[{door:'interrupt',payload:{session:'new'}}]);
   chat.dispose();
 });
+
+test('node sends acknowledge success and rejection without composing merged text', async () => {
+  const companion:any=createMockCompanion();
+  let ok=false;companion.ask=async()=>({ok,error:ok?undefined:'refused'});
+  const chat=new Chat(companion,{fsPath:'/ext',scheme:'file'} as any);
+  const posted:any[]=[];(chat as any).sid='s1';(chat as any).post=(m:any)=>posted.push(m);(chat as any).draw=()=>{};
+  await chat.fromView({kind:'say',text:'Question with nodes',session:'s1',nodeSendId:'1'});
+  assert.ok(posted.some(m=>m.kind==='nodeSendResult'&&m.id==='1'&&!m.ok));
+  assert.ok(!posted.some(m=>m.kind==='compose'));
+  ok=true;
+  await chat.fromView({kind:'say',text:'Question with nodes',session:'s1',nodeSendId:'2'});
+  assert.ok(posted.some(m=>m.kind==='nodeSendResult'&&m.id==='2'&&m.ok));
+  chat.dispose();
+});

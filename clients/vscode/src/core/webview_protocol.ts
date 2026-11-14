@@ -45,6 +45,7 @@ export const DropMessageSchema = v.object({
 
 export const SayMessageSchema = v.object({
   kind: v.literal('say'),
+  nodeSendId: v.optional(NonEmptyStringSchema),
   session: v.optional(v.string()),
   text: v.string(),
   creationTaskId: v.optional(NonEmptyStringSchema),
@@ -169,6 +170,7 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
   // Preserve exact legacy property contract for say (omit key if undefined)
   if (out.kind === 'say') {
     return {kind:'say',text:out.text,
+      ...(out.nodeSendId ? {nodeSendId:out.nodeSendId} : {}),
       ...(out.creationTaskId !== undefined ? {creationTaskId:out.creationTaskId} : {}),
       ...(out.session !== undefined ? {session:out.session} : {})};
   }
@@ -528,7 +530,11 @@ export const RestartMessageSchema = v.pipe(
   }),
 );
 
+export const NodeSendResultSchema = v.object({
+  kind:v.literal('nodeSendResult'), id:NonEmptyStringSchema, ok:v.boolean(),
+});
 export const HostToWebviewMessageSchema = v.union([
+  NodeSendResultSchema,
   RowsMessageSchema,
   ComposeMessageSchema,
   MentionsMessageSchema,

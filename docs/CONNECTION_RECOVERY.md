@@ -98,7 +98,7 @@ This verifies actual remote responses with a locally injected interruption, not 
 
 JetBrains and VS Code show recovery controls below the conversation. **Resume task** continues from the saved progress; **Close** hides that notice without changing the recovery record. Both buttons are centered. Dismissal is kept for that session and recovery state while the panel remains open.
 
-The notice includes the saved request and the last successful tool operation when available. For uncertain operations, **Show saved operation** opens the recorded arguments and result as plain text. Inspect the actual external effect before choosing a verdict; a saved error is not proof that nothing ran.
+The notice includes the saved request and the last successful tool operation when available. For uncertain operations, **Show saved operation** opens the recorded arguments and result as plain text, limited to 8 KiB each with an ellipsis when truncated. JSON string results are decoded for reading; the complete record remains in the transcript. Inspect the actual external effect before choosing a verdict; a saved error is not proof that nothing ran.
 
 A status line shows reconnection, loading, work, requests for input and retry countdowns. Retry timing comes from the core. **Stop** cancels the turn. Returning to a session restores its scroll position and expanded rows; **Jump to latest** resumes following output. Reading positions are held for up to 50 sessions in the open panel and are not persisted across IDE restarts. Labels are available in English and Korean.
 

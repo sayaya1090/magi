@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
@@ -162,6 +163,23 @@ func TestRecoverySummaryComesFromRecordedWork(t *testing.T) {
 		t.Fatal(got)
 	}
 	if got := recoveryExcerpt(strings.Repeat("한", 241)); len([]rune(got)) != 241 || !strings.HasSuffix(got, "…") {
+		t.Fatal(got)
+	}
+}
+
+func TestRecoveryDetailsBoundLargeDecodedResults(t *testing.T) {
+	raw, err := json.Marshal("first line\n" + strings.Repeat("한", 1000000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := recoveryDetail(raw)
+	if len(got) > 8192 || !utf8.ValidString(got) || !strings.HasPrefix(got, "first line\n") || !strings.HasSuffix(got, "…") {
+		t.Fatalf("invalid inspection excerpt: %d bytes", len(got))
+	}
+	if got := recoveryDetail(json.RawMessage(`"small\nresult"`)); got != "small\nresult" {
+		t.Fatal(got)
+	}
+	if got := recoveryDetail(json.RawMessage(`{"command":"pwd"}`)); got != `{"command":"pwd"}` {
 		t.Fatal(got)
 	}
 }

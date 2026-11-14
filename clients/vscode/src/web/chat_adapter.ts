@@ -291,7 +291,6 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
 
 export interface WebviewInputElements {
   composeMessage?: (text:string) => string;
-  onMessageSubmitted?: () => void;
   say: HTMLTextAreaElement;
   sendBtn: HTMLElement;
   replyModeEl?: HTMLElement | null;
@@ -899,7 +898,6 @@ export function createWebviewInputAdapter(
       if (!res.ok) return;
       clearAutoCompletion();
       actions.say(res.text ?? t, creationTaskId, currentSession);
-      elements.onMessageSubmitted?.();
       recall.remember(res.text ?? t);
       say.value = res.nextInputText ?? '';
       if (activeCreationTaskId && !currentSession) {
