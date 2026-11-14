@@ -5,7 +5,7 @@ description: Explain complex software structure, UML relationships, request sequ
 
 # Visual explanations
 
-Use a diagram when relationships or ordering are difficult to follow in prose. Start with the conclusion, present one focused diagram, then explain the important arrows and tradeoffs. Simple edits and single facts usually need no diagram.
+Use a diagram by default whenever the explanation involves relationships, ordering or causation with two or more steps. That includes root-cause chains, the order of an operation, a change across several files and a comparison of alternatives, not only architecture. Start with the conclusion, present one focused diagram, then explain the important arrows and tradeoffs.
 
 Read the relevant code first. Use actual module, type and method names. Label proposals and assumptions explicitly; do not present an inferred call as an observed one. Name the source files after the diagram. Split large views into a system overview and a separate focused flow.
 
@@ -13,6 +13,7 @@ Choose the notation that answers the developer's question:
 
 - Components and dependencies: `flowchart`; say whether an arrow means calls, data flow or ownership. Keep deployment nodes distinct from code modules.
 - A request across components: `sequenceDiagram`; order calls and results, and use `alt`, `opt` or `loop` for actual branches.
+- Causes, operation steps and alternatives: `flowchart`; label each arrow with what leads to what, and put the options being compared side by side.
 - Lifecycle and recovery: `stateDiagram-v2`; show trigger, success, failure and cancellation paths.
 - Types and GoF patterns: `classDiagram`; use real responsibilities and relationships. Explain the problem a pattern solves and its cost before recommending it.
 - OOAD: distinguish domain concepts (analysis, no software operations) from design classes. Derive design operations from sequence messages. Keep system sequence diagrams black-box; internal objects belong in design sequences.

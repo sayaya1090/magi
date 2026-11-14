@@ -2,11 +2,11 @@
 
 [English](MERMAID.md) · [한국어](MERMAID.ko.md) · [Documentation map](README.md)
 
-Status: implementation reference and remaining scope. 2026-11-13.
+Status: implementation reference and remaining scope. 2026-11-14.
 
 ## Purpose and agent guidance
 
-Prefer a short explanation together with a Mermaid diagram for complex architecture, component relationships, request flows and state transitions. Simple answers do not need a diagram. Use actual code names and distinguish the implementation from proposals.
+Use a Mermaid diagram by default, with a short explanation, whenever an answer explains relationships, ordering or causation with two or more steps. This covers architecture, component relationships, request and data flows, state transitions, root-cause chains, the order of an operation, changes that span several files and comparisons of alternatives. Use actual code names and distinguish the implementation from proposals.
 
 The `skill` tool can load `visual-explanation`. This built-in guide covers flowcharts, sequences, states and classes, the OOAD analysis/design distinction, and explaining GoF responsibilities and costs. Private course materials are not distributed. A workspace skill with the same name takes precedence. Load additional OOAD or architecture skills only when available and relevant.
 
