@@ -96,3 +96,48 @@ func TestMermaidColorsTravelAsRolesOrHex(t *testing.T) {
 		t.Error("the tool does not tell the model the palette roles")
 	}
 }
+
+func TestMermaidFlowsTravelAsCases(t *testing.T) {
+	m := Mermaid{}
+	run := func(flows string) (string, bool) {
+		r, err := m.Execute(context.Background(), json.RawMessage(`{"title":"t","source":"flowchart LR\n A[Start] --> B[Mid]\n B --> C[End]","flows":`+flows+`}`), port.ToolEnv{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text string
+		_ = json.Unmarshal(r.Content, &text)
+		return text, r.IsError
+	}
+	text, bad := run(`{"Case 1":["Start","Mid","End"],"Case 2":["Start","Mid"]}`)
+	if bad || !strings.Contains(text, `%% magi-flows {"Case 1":["Start","Mid","End"],"Case 2":["Start","Mid"]}`) {
+		t.Fatalf("flows metadata missing (error=%v):\n%s", bad, text)
+	}
+	for _, f := range []string{`{"one":["Start"]}`, `{"":["Start","Mid"]}`, `{"x":["Start",""]}`, `{"x":["<b>","Mid"]}`, `{"x":"Start"}`} {
+		if _, bad := run(f); !bad {
+			t.Errorf("flows %s accepted", f)
+		}
+	}
+	if !strings.Contains(string(m.Schema()), `"flows"`) || !strings.Contains(m.Description(), "flows") {
+		t.Error("the tool does not tell the model about flows")
+	}
+}
+
+func TestMermaidFlowControlChoosesThePicker(t *testing.T) {
+	m := Mermaid{}
+	run := func(control string) (string, bool) {
+		r, _ := m.Execute(context.Background(), json.RawMessage(`{"title":"t","source":"flowchart LR\n A[Start] --> B[Mid]","flows":{"c":["Start","Mid"]},"flowControl":"`+control+`"}`), port.ToolEnv{})
+		var text string
+		_ = json.Unmarshal(r.Content, &text)
+		return text, r.IsError
+	}
+	if text, bad := run("checkbox"); bad || !strings.Contains(text, "%% magi-flow-control checkbox") {
+		t.Fatalf("checkbox not carried (error=%v): %s", bad, text)
+	}
+	if text, bad := run("radio"); bad || strings.Contains(text, "magi-flow-control") {
+		t.Fatalf("radio is the default and needs no comment (error=%v): %s", bad, text)
+	}
+	if _, bad := run("slider"); !bad {
+		t.Error("unknown control accepted")
+	}
+}
+

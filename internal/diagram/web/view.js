@@ -60,6 +60,9 @@
     .magi-diagram .magi-diagram-toggle input:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
     /* Mermaid's own #id .edge-pattern-solid sets stroke-dasharray:0 with an id selector, which hid
        the flow; !important lets the dash through. */
+    .magi-diagram .magi-diagram-cases { display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px; }
+    .magi-diagram .magi-diagram-cases select { min-height:40px;padding:0 12px;font:inherit;color:inherit;background:transparent;border:1px solid var(--magi-outline);border-radius:4px;cursor:pointer; }
+    .magi-diagram .magi-diagram-cases select:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
     .magi-diagram .magi-flow-active .flowchart-link { stroke-dasharray:8 5 !important;animation:magi-flow 1s linear infinite; }
     /* Theme roles laid over every diagram, including SVG the IDE rendered itself. Nodes are filled
        containers with no border (M3 filled card); clusters keep a 1dp outline-variant. A diagram's
@@ -174,6 +177,18 @@
             if(typeof c==='string' && /^(primary|secondary|tertiary|error|neutral|#[0-9a-f]{6})$/i.test(c)) colors[label.trim()]=c;
       } catch { /* Optional malformed colours do not prevent rendering. */ }
     }
+    const flows=Object.create(null); let flowControl='radio';
+    for(const line of source.split('\n')) {
+      const c=line.match(/^\s*%% magi-flow-control (radio|checkbox|dropdown)\s*$/); if(c) flowControl=c[1];
+      const match=line.match(/^\s*%% magi-flows (.+)$/);
+      if(!match) continue;
+      try {
+        const parsed=JSON.parse(match[1]);
+        if(parsed && !Array.isArray(parsed) && typeof parsed==='object')
+          for(const [name,path] of Object.entries(parsed).slice(0,20))
+            if(Array.isArray(path) && path.length>=2 && path.every(l=>typeof l==='string')) flows[name]=path.slice(0,50);
+      } catch { /* Optional malformed cases do not prevent rendering. */ }
+    }
     const note = document.createElement('div'); note.setAttribute('role','status'); note.style.cssText = 'white-space:pre-wrap;font:inherit';
     const sourceBox = document.createElement('details'), summary = document.createElement('summary'), code = document.createElement('pre');
     summary.textContent = say('Source', '원본'); code.textContent = source; sourceBox.append(summary, code);
@@ -209,20 +224,28 @@
       catch { sourceBox.open=true; note.textContent=say('Clipboard unavailable. Select and copy the source below.','클립보드를 사용할 수 없습니다. 아래 원본을 선택해 복사해 주세요.'); }
     }
     button('copy','Copy source','원본 복사',()=>copy(source));
-    let selected='', selectedNode=null, flowOn=null;
+    let selected='', selectedNode=null, flowOn=null, activeCases=[], casesReset=()=>{};
+    // Arrows of the chosen cases: consecutive labels of each path, as from_to node keys.
+    const caseEdges=()=>{ const set=new Set(), keyOf=Object.create(null); if(!svg) return set;
+      svg.querySelectorAll('.node').forEach(n=>{ keyOf[(n.textContent||'').trim()]=nodeKey(n); });
+      for(const name of activeCases){ const path=flows[name]||[];
+        for(let i=0;i+1<path.length;i++){ const a=keyOf[path[i].trim()], b=keyOf[path[i+1].trim()]; if(a&&b) set.add(a+'_'+b); } }
+      return set; };
     // Arrows touching the selected node flow (data-id L_<from>_<to>_<n>); with nothing selected the
     // animate toggle, when the diagram has one, moves every arrow.
     const nodeKey=el=>((el.id||'').match(/flowchart-(.+)-\d+$/)||[])[1]||'';
     const flowPaint=()=>{
       if(!svg) return;
       const key=selectedNode?nodeKey(selectedNode):'';
+      const cases=activeCases.length?caseEdges():null;
       const moving=flowOn?flowOn():!matchMedia('(prefers-reduced-motion: reduce)').matches;
       svg.querySelectorAll('.flowchart-link').forEach(e=>{
         const rest=(e.getAttribute('data-id')||'').replace(/^L_/,'').replace(/_\d+$/,'');
-        e.classList.toggle('magi-flow-near', !!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key)));
+        // An arrow moves when any trigger connected to it is on: a chosen case or the selected node.
+        e.classList.toggle('magi-flow-near', (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key))));
       });
-      svg.classList.toggle('magi-flow-active', !!flowOn && flowOn() && !key);
-      svg.classList.toggle('magi-flow-focus', !!key && moving);
+      svg.classList.toggle('magi-flow-active', !!flowOn && flowOn() && !key && !cases);
+      svg.classList.toggle('magi-flow-focus', (!!key || !!cases) && moving);
     };
     const ask=button('question','Copy question','질문 복사',async()=>{
       const text=(question.value.trim()||question.placeholder)+'\n\n```mermaid\n'+source+'\n```';
@@ -272,6 +295,33 @@
           toggle.addEventListener('change',flowPaint);flowPaint();
           label.append(toggle,document.createTextNode(say('Animate flow','흐름 애니메이션')));bar.append(label);
         } note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
+        if(Object.keys(flows).length && /^\s*(?:flowchart|graph)\b/m.test(source)) {
+          // The reader picks which case moves: radio (one), checkbox (several) or dropdown (one of many).
+          const names=Object.keys(flows), group=document.createElement('div');
+          group.className='magi-diagram-cases'; group.setAttribute('aria-label',say('Flow cases','흐름 케이스'));
+          const pick=list=>{ activeCases=list.filter(n=>flows[n]);
+            flowPaint(); };
+          const choices=[['',say('All','전체')],...names.map(n=>[n,n])];
+          if(flowControl==='dropdown') {
+            const sel=document.createElement('select'); sel.setAttribute('aria-label',say('Flow case','흐름 케이스'));
+            for(const [v,t] of choices){ const o=document.createElement('option'); o.value=v; o.textContent=t; sel.append(o); }
+            sel.addEventListener('change',()=>pick(sel.value?[sel.value]:[])); casesReset=()=>{ sel.value=''; }; group.append(sel);
+          } else if(flowControl==='checkbox') {
+            const boxes=names.map(n=>{ const l=document.createElement('label'); l.className='magi-diagram-toggle';
+              const c=document.createElement('input'); c.type='checkbox'; c.value=n;
+              c.addEventListener('change',()=>pick(boxes.filter(b=>b.checked).map(b=>b.value)));
+              l.append(c,document.createTextNode(n)); group.append(l); return c; });
+            casesReset=()=>boxes.forEach(b=>{ b.checked=false; });
+          } else {
+            group.setAttribute('role','radiogroup'); const rname='magiCase'+(++seq);
+            const radios=choices.map(([v,t])=>{ const l=document.createElement('label'); l.className='magi-diagram-toggle';
+              const r=document.createElement('input'); r.type='radio'; r.name=rname; r.value=v; r.checked=v==='';
+              r.addEventListener('change',()=>{ if(r.checked) pick(v?[v]:[]); });
+              l.append(r,document.createTextNode(t)); group.append(l); return r; });
+            casesReset=()=>radios.forEach(r=>{ r.checked=r.value===''; });
+          }
+          bar.append(group);
+        }
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
