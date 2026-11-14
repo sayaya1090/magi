@@ -8,7 +8,7 @@ Status: implementation reference and remaining scope. 2026-11-14.
 
 Use a Mermaid diagram by default, with a short explanation, whenever an answer explains relationships, ordering or causation with two or more steps. This covers architecture, component relationships, request and data flows, state transitions, root-cause chains, the order of an operation, changes that span several files and comparisons of alternatives. Use actual code names and distinguish the implementation from proposals.
 
-The `skill` tool can load `visual-explanation`. This built-in guide covers flowcharts, sequences, states and classes, the OOAD analysis/design distinction, and explaining GoF responsibilities and costs. Private course materials are not distributed. A workspace skill with the same name takes precedence. Load additional OOAD or architecture skills only when available and relevant.
+The `skill` tool can load `visual-explanation`. This built-in guide covers flowcharts, sequences, states and classes, the OOAD analysis/design distinction, and explaining GoF responsibilities and costs. Private course materials are not distributed. A workspace skill with the same name takes precedence. The built-in `ooad` skill covers Unified Process artifacts: phases, the order from use cases to design class diagram, system sequence diagrams, domain and design class diagrams, relationship notation and its Mermaid syntax, and a review checklist. `visual-explanation` points to it. Load other OOAD or architecture skills only when available and relevant.
 
 ## Tools and surfaces
 

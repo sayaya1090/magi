@@ -16,7 +16,7 @@ Choose the notation that answers the developer's question:
 - Causes, operation steps and alternatives: `flowchart`; label each arrow with what leads to what, and put the options being compared side by side.
 - Lifecycle and recovery: `stateDiagram-v2`; show trigger, success, failure and cancellation paths.
 - Types and GoF patterns: `classDiagram`; use real responsibilities and relationships. Explain the problem a pattern solves and its cost before recommending it.
-- OOAD: distinguish domain concepts (analysis, no software operations) from design classes. Derive design operations from sequence messages. Keep system sequence diagrams black-box; internal objects belong in design sequences.
+- OOAD: distinguish domain concepts (analysis, no software operations) from design classes. Derive design operations from sequence messages. Keep system sequence diagrams black-box; internal objects belong in design sequences. For Unified Process artifacts, their order, notation and a review checklist, load the built-in `ooad` skill.
 
 Mermaid is not a complete UML implementation. Do not invent unsupported use-case notation; use a labeled flowchart or prose and say what it represents. Do not claim a diagram is executable or formally verified.
 

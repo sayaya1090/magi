@@ -238,8 +238,8 @@ func (a *App) skillBody(workdir, name string) (string, bool) {
 			return s.Body, true
 		}
 	}
-	if name == "visual-explanation" {
-		return visualExplanationSkill, true
+	if body, ok := builtinSkills[name]; ok {
+		return body, true
 	}
 	return "", false
 }
