@@ -52,6 +52,7 @@
     .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
     .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:var(--md-sys-color-on-surface,CanvasText);background:var(--md-sys-color-surface-container-lowest,Canvas);border:1px solid var(--magi-field-outline);border-radius:4px; }
+    .magi-diagram-info textarea::placeholder { color:var(--md-sys-color-on-surface-variant,GrayText);opacity:1; }
     .magi-diagram-info textarea:focus { outline:none;border-color:var(--magi-primary);box-shadow:inset 0 0 0 2px var(--magi-primary); }
     .magi-diagram .magi-diagram-toggle { display:inline-flex;align-items:center;min-height:40px;padding-right:12px;color:var(--magi-on-variant);cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input { width:18px;height:18px;margin:11px;accent-color:var(--magi-primary);cursor:pointer; }
@@ -166,7 +167,7 @@
     button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='', selectedNode=null;
     const ask=button('question','Copy question','질문 복사',async()=>{
-      const text=question.value+'\n\n```mermaid\n'+source+'\n```';
+      const text=(question.value.trim()||question.placeholder)+'\n\n```mermaid\n'+source+'\n```';
       try { await navigator.clipboard.writeText(text);note.textContent=say('Question copied. Paste it into the conversation to send.','질문을 복사했습니다. 대화 입력창에 붙여넣어 보내세요.'); }
       catch { manualCopy.hidden=false;manualCopy.value=text;manualCopy.focus();manualCopy.select();note.textContent=say('Clipboard unavailable. Copy the selected question manually.','클립보드를 사용할 수 없습니다. 선택된 질문을 직접 복사하세요.'); }
     }); ask.disabled=true;
@@ -215,7 +216,7 @@
             if(selectedNode && selectedNode!==n){selectedNode.classList.remove('magi-selected');selectedNode.setAttribute('aria-pressed','false');}
             n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;
             const next=(n.textContent||'').trim();
-            if(next!==selected) question.value=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;
+            if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
             description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
             note.textContent=say('Selected: ','선택: ')+selected;fit();
