@@ -72,6 +72,11 @@
     .magi-diagram .magi-diagram-toggle input { -webkit-appearance:none;appearance:none;box-sizing:border-box;flex:none;width:20px;height:20px;margin:10px;padding:0;border:2px solid var(--magi-on-variant);border-radius:50%;background:transparent no-repeat center;cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input[type=checkbox] { width:18px;height:18px;margin:11px;border-radius:2px; }
     .magi-diagram .magi-diagram-toggle input:checked { border-color:var(--magi-primary); }
+    /* The same look from a class on the label: in the JetBrains preview the radio switched to
+       checked=true but the dot stayed on the old one, so the paint does not hang on :checked alone. */
+    .magi-diagram .magi-diagram-toggle.magi-on input { border-color:var(--magi-primary); }
+    .magi-diagram .magi-diagram-toggle.magi-on input[type=radio] { background-image:radial-gradient(circle,var(--magi-primary) 0 5px,transparent 5.5px); }
+    .magi-diagram .magi-diagram-toggle:not(.magi-on) input[type=radio] { background-image:none; }
     .magi-diagram .magi-diagram-toggle input[type=radio]:checked { background-image:radial-gradient(circle,var(--magi-primary) 0 5px,transparent 5.5px); }
     .magi-diagram .magi-diagram-toggle input[type=checkbox]:checked { background-color:var(--magi-primary);background-image:linear-gradient(45deg,transparent 46%,var(--md-sys-color-on-primary,Canvas) 46% 58%,transparent 58%),linear-gradient(-45deg,transparent 46%,var(--md-sys-color-on-primary,Canvas) 46% 58%,transparent 58%);background-size:6px 8px,10px 12px;background-position:2px 5px,5px 1px; }
     .magi-diagram .magi-diagram-toggle input:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
@@ -171,7 +176,10 @@
     const questionLabel=document.createElement('label'), question=document.createElement('textarea');
     questionLabel.textContent=say('Follow-up question','추가 질문');questionLabel.append(question);
     const manualCopy=document.createElement('textarea');manualCopy.readOnly=true;manualCopy.hidden=true;manualCopy.setAttribute('aria-label',say('Question to copy','복사할 질문'));
-    info.append(heading,description,questionLabel,manualCopy);layout.append(canvas,info);
+    // Where the host's own composer takes a selected node (JetBrains, the web console) the panel has no
+    // question field, copy button or copy box at all: hiding them still left a field painted in JCEF.
+    const composerMounted=!!(window.magiDiagramComposer||window.__magiNodeHook);
+    info.append(heading,description);if(!composerMounted) info.append(questionLabel,manualCopy);layout.append(canvas,info);
     const descriptions=Object.create(null);
     for(const line of source.split('\n')) {
       const match=line.match(/^\s*%% magi-descriptions (.+)$/);
@@ -355,7 +363,10 @@
           // The reader picks which case moves: radio (one), checkbox (several) or dropdown (one of many).
           const names=Object.keys(flows), group=document.createElement('div');
           group.className='magi-diagram-cases'; group.setAttribute('aria-label',say('Flow cases','흐름 케이스'));
-          const pick=list=>{ activeCases=list.filter(n=>flows[n]); remember({cases:activeCases});
+          // Picking a case lets go of the selected node, so the arrows shown are the case's alone.
+          const pick=list=>{ activeCases=list.filter(n=>flows[n]);
+            if(selectedNode){ selectedNode.classList.remove('magi-selected'); selectedNode.setAttribute('aria-pressed','false'); selectedNode=null; selected=''; info.hidden=true; }
+            remember({cases:activeCases,node:''});
             flowPaint(); };
           const was=(kept.cases||[]).filter(n=>flows[n]);
           const choices=[['',say('All','전체')],...names.map(n=>[n,n])];
@@ -378,8 +389,14 @@
             casesReset=()=>radios.forEach(r=>{ r.checked=r.value===''; });
           }
           bar.append(group);
+          // Mirror every toggle's state onto its label and touch the group so the host repaints it.
+          const mark=()=>{ group.querySelectorAll('.magi-diagram-toggle').forEach(l=>{ const i=l.querySelector('input'); l.classList.toggle('magi-on',!!(i&&i.checked)); });
+            group.style.outline=group.style.outline?'':'0 solid transparent'; void group.offsetWidth; };
+          group.addEventListener('change',()=>{ mark(); requestAnimationFrame(mark); }); mark();
+          const resetOnly=casesReset; casesReset=()=>{ resetOnly(); mark(); };
           activeCases=flowControl==='checkbox'?was:was.slice(0,1);
         }
+        if(composerMounted) ask.remove();
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
@@ -389,7 +406,7 @@
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
             description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
-            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer||window.__magiNodeHook){questionLabel.hidden=true;questionLabel.style.setProperty('display','none','important');ask.hidden=true;manualCopy.hidden=true;note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));fit();
+            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer||window.__magiNodeHook){questionLabel.remove();ask.remove();manualCopy.remove();note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));fit();
           };
           const followup=e=>{e.preventDefault();select();question.focus();};
           n.addEventListener('contextmenu',followup);

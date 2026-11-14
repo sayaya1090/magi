@@ -148,5 +148,18 @@ try {
  const shown=page.locator('#hiddenbox figure.magi-diagram');
  await shown.locator('.magi-diagram-cases input[value="Case 1"]').check();
  assert.equal(await shown.evaluate(f=>[...f.querySelectorAll('.flowchart-link')].filter(e=>getComputedStyle(e).animationName==='magi-flow').map(e=>e.getAttribute('data-id')).sort().join(',')),'route,save','named arrows drawn while hidden follow their case once shown');
+ // A composer host (JetBrains, the web console) gets no question field at all, and picking a case
+ // lets go of the selected node.
+ await page.evaluate(()=>{window.magiDiagramComposer=true;});
+ const c0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('flowchart LR\n A[Start] --> B[Check]\n B --> C[Save]\n%% magi-flows {"Case 1":["Start","Check","Save"]}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,c0+1);
+ const host=page.locator('figure.magi-diagram').last();
+ await host.locator('svg .node').filter({hasText:'Check'}).first().click();
+ assert.equal(await host.evaluate(f=>f.querySelectorAll('textarea').length+f.querySelectorAll('.magi-diagram-info label').length),0,'composer host has no question field');
+ assert.equal(await host.getByRole('button',{name:'Copy question'}).count(),0,'composer host has no copy button');
+ assert.equal(await host.locator('svg .magi-selected').count(),1);
+ await host.locator('.magi-diagram-cases label').filter({hasText:'Case 1'}).click();
+ assert.equal(await host.locator('svg .magi-selected').count(),0,'picking a case lets go of the node');
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

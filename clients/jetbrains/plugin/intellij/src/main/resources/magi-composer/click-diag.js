@@ -2,7 +2,7 @@
 // pointerdown, pointerup, click, input and change inside a diagram is reported three times - in the
 // capture phase, after propagation ends (later listeners may cancel) and on the next frame - with its
 // target, whether it was cancelled, the radio's checked and isConnected, and whether the radio with the
-// same name and value is still the same element (a re-patched preview replaces it). At most 300 lines
+// same name and value is still the same element (a re-patched preview replaces it). At most 1500 lines
 // per page. RichAnswer fills the send slot with the JBCefJSQuery call that writes the line to idea.log.
 //   no events            -> Swing/JCEF did not deliver the click
 //   checked true, then back -> default action cancelled or DOM rebuilt
@@ -11,7 +11,7 @@
 (function () {
   if (window.__magiClickDiag) return;
   window.__magiClickDiag = true;
-  var left = 300;
+  var left = 1500;
   function describe(el) {
     if (!el || !el.tagName) return String(el);
     var s = el.tagName.toLowerCase();
@@ -38,13 +38,20 @@
     var aside = q.closest('aside');
     return getComputedStyle(q).display + (q.hidden ? '/hidden' : '') + (aside && aside.hidden ? '/aside-hidden' : '');
   }
+  function group(t) {
+    var g = t.closest ? t.closest('.magi-diagram-cases') : null;
+    if (!g) return '-';
+    var on = [];
+    g.querySelectorAll('input').forEach(function (i) { if (i.checked) on.push(i.value || '(all)'); });
+    return on.join('|') || 'none';
+  }
   function report(kind, phase, e, t, input) {
     if (left-- <= 0) return;
     var msg = kind + ':' + phase + ' target=' + describe(t) + ' prevented=' + e.defaultPrevented +
       ' checked=' + (input ? input.checked : '-') + ' connected=' + (input ? input.isConnected : '-') +
       ' elem=' + elem(input) + ' pageFocus=' + document.hasFocus() + ' active=' + describe(document.activeElement) +
       ' html=' + (document.documentElement.className || '-') + ' composer=' + !!window.magiDiagramComposer +
-      ' question=' + question(t);
+      ' question=' + question(t) + ' group=' + group(t);
     MAGI_SEND
   }
   ['pointerdown', 'pointerup', 'click', 'input', 'change'].forEach(function (k) {
