@@ -47,6 +47,12 @@ try {
  const fitWidth=await page.locator('.magi-diagram svg[role=img]').evaluate(e=>parseFloat(e.style.width));
  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
  assert.ok(Math.abs(await page.locator('.magi-diagram svg[role=img]').evaluate(e=>parseFloat(e.style.width))-fitWidth*1.25)<.01);
+ // Selecting a node or an arrow keeps the reader's zoom; only Fit resets it.
+ const zoomed=()=>page.locator('.magi-diagram svg[role=img]').evaluate(e=>parseFloat(e.style.width));
+ await page.locator('.node').first().click();
+ assert.ok(Math.abs(await zoomed()-fitWidth*1.25)<.01,'selecting a node keeps the zoom');
+ await page.locator('.magi-edge-hit').first().dispatchEvent('click');
+ assert.ok(Math.abs(await zoomed()-fitWidth*1.25)<.01,'selecting an arrow keeps the zoom');
  await page.getByRole('button',{name:'Fit',exact:true}).click();
  await page.locator('.node').first().click();
  assert.equal(await page.getByRole('button',{name:'Copy question'}).isEnabled(),true);

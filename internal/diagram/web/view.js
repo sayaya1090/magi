@@ -258,6 +258,9 @@
         svg.style.display='block'; svg.style.maxWidth=zoom===1?'100%':'none';
       }
     }
+    // Re-measure the width a diagram fits to (the notes below it may have changed the column) while
+    // keeping the reader's zoom: selecting a node or an arrow must not undo it. Only Fit resets it.
+    function refit() { const kept=zoom; fit(); scale(kept); }
     function fit() {
       if(!svg) return;
       const vb=svg.viewBox.baseVal;
@@ -482,7 +485,7 @@
             description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
             note.textContent=say('Selected: ','선택: ')+selected;
             if(window.magiDiagramComposer||window.__magiNodeHook){ questionLabel.remove(); ask.remove(); manualCopy.remove(); note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected; }
-            window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}})); fit();
+            window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}})); refit();
           };
           const lift=on=>e.classList.toggle('magi-edge-hover',on);
           h.addEventListener('click',choose);
@@ -503,7 +506,7 @@
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
             description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
-            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer||window.__magiNodeHook){questionLabel.remove();ask.remove();manualCopy.remove();note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));fit();
+            note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer||window.__magiNodeHook){questionLabel.remove();ask.remove();manualCopy.remove();note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));refit();
           };
           const followup=e=>{e.preventDefault();select();question.focus();};
           n.addEventListener('contextmenu',followup);
