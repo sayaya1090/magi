@@ -154,4 +154,22 @@ class SendDraftTest : BasePlatformTestCase() {
         assertEquals(listOf("X"), h.field<List<String>>("nodes").toList())
         assertEquals(listOf("X"), h.drafts.failures.single().attempt.nodes)
     }
+    fun testAnswerPageNodeMessagesBecomeComposerChips() = check { h ->
+        // The page script the answer browser runs: it opts the viewer into the composer and has one
+        // slot where the JBCefJSQuery call goes.
+        assertTrue(RichAnswer.nodeHook.contains("window.magiDiagramComposer = true"))
+        assertEquals(1, RichAnswer.nodeHook.split("MAGI_SEND").size - 1)
+        assertEquals("Start", RichAnswer.nodeLabel("node: Start "))
+        assertNull(RichAnswer.nodeLabel("node:  "))
+        assertNull(RichAnswer.nodeLabel("wheel:12"))
+        // What the query handler hands on is what the tool window wired: a chip, once per node.
+        val answers: Any = h.field("richAnswers")
+        @Suppress("UNCHECKED_CAST")
+        val onNode = answers.javaClass.getDeclaredField("onNode").apply { isAccessible = true }.get(answers) as (String) -> Unit
+        onNode(RichAnswer.nodeLabel("node:Start")!!); onNode(RichAnswer.nodeLabel("node:Start")!!)
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(listOf("Start"), h.field<List<String>>("nodes").toList())
+        val chips: java.awt.Container = h.field("chips")
+        assertEquals(1, chips.components.count { (it as? javax.swing.JButton)?.getClientProperty("node") == "Start" })
+    }
 }

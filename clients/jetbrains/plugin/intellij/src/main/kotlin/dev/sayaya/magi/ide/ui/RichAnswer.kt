@@ -50,6 +50,15 @@ internal class RichAnswer {
             }
         }
 
+        /** Page script that hands a selected diagram node to the composer; MAGI_SEND is the query call. */
+        val nodeHook: String by lazy {
+            RichAnswer::class.java.getResourceAsStream("/magi-composer/node-hook.js")?.bufferedReader()?.use { it.readText() } ?: ""
+        }
+
+        /** The node a `node:<label>` page message names, or null when it names none. */
+        fun nodeLabel(said: String): String? =
+            said.takeIf { it.startsWith("node:") }?.removePrefix("node:")?.trim()?.takeIf { it.isNotEmpty() }
+
         /**
          * 경량 렌더러에서 지원하지 못하는 복합 마크다운 서식(펜스, 인용, 표, 링크, 이미지) 포함 여부를 판별한다.
          */
@@ -187,7 +196,7 @@ internal class RichAnswer {
                 return@addHandler null
             }
             if (said.startsWith("node:")) {
-                said.removePrefix("node:").trim().takeIf { it.isNotEmpty() }?.let { label -> onNode?.invoke(label) }
+                nodeLabel(said)?.let { label -> onNode?.invoke(label) }
                 return@addHandler null
             }
             if (said == "wheel-ready") {
@@ -221,16 +230,7 @@ internal class RichAnswer {
         val js = """
             (function(){
                 if (!document.body) return;
-                // The diagram viewer hands a selected node to the composer below instead of its own
-                // question field, which this Markdown panel does not let anyone type into.
-                window.magiDiagramComposer = true;
-                if (!window.__magiNodeHook) {
-                    window.__magiNodeHook = true;
-                    window.addEventListener('magi-diagram-select', function(e) {
-                        const label = e.detail && e.detail.label;
-                        if (label) { ${query.inject("'node:' + label")} }
-                    });
-                }
+                ${nodeHook.replace("MAGI_SEND", query.inject("'node:' + label"))}
                 if (window.__magiMeasure) { window.__magiMeasure(); return; }
                 const style = document.createElement('style');
                 style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important;background:transparent!important}' +
