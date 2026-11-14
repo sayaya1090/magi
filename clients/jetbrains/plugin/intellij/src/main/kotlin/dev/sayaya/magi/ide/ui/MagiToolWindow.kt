@@ -794,7 +794,12 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private val refs = java.util.Collections.synchronizedList(mutableListOf<FileRef>())
         /** Mermaid nodes selected in an answer — names only, carried by the next message like [refs]. */
         private val nodes = java.util.Collections.synchronizedList(mutableListOf<String>())
-        private val chips = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
+        // The same gap between chips as between rows of chips (it was 6 across, 2 down).
+        private val chips = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 6, 6)).apply {
+            // The row of chips lines up with the input below (12px left, 8px right): FlowLayout adds its
+            // 6px gap before the first chip, so the panel gives the rest. Without it the chips stood 6px
+            // further left than the input.
+            border = JBUI.Borders.empty(0, 6, 0, 2)
             isOpaque = false
             isVisible = false
         }
@@ -830,6 +835,18 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             input.requestFocusInWindow()
         }
 
+        /**
+         * A composer chip with the same space on all four sides. The IDE button border added its own
+         * room to the margin (measured 3 above, 5 below, 26 beside the label); the chip takes the
+         * answer bubble's 1px rounded edge (3px insets) plus 3px inside, 6px each way.
+         */
+        private fun chip(text: String) = JButton(text).apply {
+            border = javax.swing.BorderFactory.createCompoundBorder(Look.BubbleBorder(Look.bubbleEdge(Look.primary)), JBUI.Borders.empty(3))
+            margin = java.awt.Insets(0, 0, 0, 0)
+            isContentAreaFilled = false
+            isOpaque = false
+        }
+
         private fun drawChips() {
             chips.removeAll()
             val snap = synchronized(refs) { refs.toList() }
@@ -837,8 +854,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             chips.isVisible = snap.isNotEmpty() || picked.isNotEmpty()
             snap.forEach { ref ->
                 val label = ref.path.substringAfterLast('/') + (ref.lines?.let { ":$it" } ?: "")
-                chips.add(JButton("$label ✕").apply {
-                    margin = java.awt.Insets(0, 6, 0, 6)
+                chips.add(chip("$label ✕").apply {
                     // 경로와 **언제 나가는지** 둘 다 — 칩은 「지금 보낸 것」이 아니라 「다음
                     // 메시지에 실릴 것」이라, 그 사실이 어디에도 안 적혀 있었다.
                     toolTipText = ref.path + " — " + MagiBundle.msg("chat.attach.tip")
@@ -846,8 +862,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 })
             }
             picked.forEach { name ->
-                chips.add(JButton("\u25C7 $name \u2715").apply {
-                    margin = java.awt.Insets(0, 6, 0, 6)
+                chips.add(chip("\u25C7 $name \u2715").apply {
                     putClientProperty("node", name)
                     toolTipText = MagiBundle.msg("chat.node.tip")
                     addActionListener { nodes.remove(name); drawChips() }

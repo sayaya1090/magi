@@ -147,6 +147,22 @@ class SendDraftTest : BasePlatformTestCase() {
         assertEquals("why?\n\n" + MagiBundle.msg("chat.node.about", "B"), h.seen.last { it.method in listOf("submit", "steer") }.text)
         assertTrue(h.field<List<String>>("nodes").isEmpty())
     }
+    /** A node chip had 0px above and below its label but 6px beside it, and 2px between rows but 6px between chips. */
+    fun testANodeChipHasTheSameSpaceOnAllFourSides() = check { h ->
+        h.view.attachNode("Start"); UIUtil.dispatchAllInvocationEvents()
+        val chips: java.awt.Container = h.field("chips")
+        val chip = chips.components.filterIsInstance<javax.swing.JButton>().single { it.getClientProperty("node") == "Start" }
+        val inner = chip.insets
+        val flow = chips.layout as java.awt.FlowLayout
+        println("CHIP insets=$inner margin=${chip.margin} hgap=${flow.hgap} vgap=${flow.vgap}")
+        assertEquals("inside: top and bottom match left and right", listOf(inner.left, inner.left, inner.left), listOf(inner.top, inner.bottom, inner.right))
+        assertEquals("outside: the gap between rows matches the gap between chips", flow.hgap, flow.vgap)
+        // The chips do not stand out of the input row: the first chip starts where the input starts
+        // (12px) and the row ends where the input ends (8px).
+        assertEquals("chips start at the input's left edge", 12, chips.insets.left + flow.hgap)
+        assertEquals("chips end at the input's right edge", 8, chips.insets.right + flow.hgap)
+    }
+
     fun testDiagramNodeChipsSurviveAFailedSend() = check { h ->
         h.view.attachNode("X"); UIUtil.dispatchAllInvocationEvents()
         h.submit("q")
