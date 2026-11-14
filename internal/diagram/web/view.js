@@ -51,6 +51,10 @@
     @media (prefers-reduced-motion:reduce) { .magi-diagram svg [role=button] { transition:none; } }
     .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
+    /* Hosts whose composer takes a selected node (JetBrains, web console) draw no question field or copy button of their own. */
+    .magi-composer-host .magi-diagram .magi-diagram-ask, .magi-composer-host .magi-diagram-info label { display:none !important; }
+    /* Nodes the model linked to the selected one. */
+    .magi-diagram svg [role=button].magi-linked { filter:var(--magi-elevation-1);outline:2px dashed var(--magi-primary);outline-offset:2px; }
     .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:var(--md-sys-color-on-surface,CanvasText);background:var(--md-sys-color-surface-container-highest,color-mix(in srgb,CanvasText 8%,Canvas));border:0;border-bottom:1px solid var(--md-sys-color-on-surface-variant,color-mix(in srgb,CanvasText 70%,Canvas));border-radius:4px 4px 0 0; }
     .magi-diagram-info textarea:hover:not(:focus) { border-bottom-color:var(--md-sys-color-on-surface,CanvasText);background-image:linear-gradient(color-mix(in srgb,var(--md-sys-color-on-surface,CanvasText) 8%,transparent),color-mix(in srgb,var(--md-sys-color-on-surface,CanvasText) 8%,transparent)); }
     .magi-diagram-info textarea::placeholder { color:var(--md-sys-color-on-surface-variant,GrayText);opacity:1; }
@@ -177,8 +181,9 @@
             if(typeof c==='string' && /^(primary|secondary|tertiary|error|neutral|#[0-9a-f]{6})$/i.test(c)) colors[label.trim()]=c;
       } catch { /* Optional malformed colours do not prevent rendering. */ }
     }
-    const flows=Object.create(null), triggers=Object.create(null); let flowControl='radio';
+    const flows=Object.create(null), triggers=Object.create(null), links=Object.create(null); let flowControl='radio';
     for(const line of source.split('\n')) {
+      const lk=line.match(/^\s*%% magi-links (.+)$/); if(lk){ try { const t=JSON.parse(lk[1]); if(t && typeof t==='object' && !Array.isArray(t)) for(const [n,l] of Object.entries(t).slice(0,100)) if(Array.isArray(l)) links[n.trim()]=l.filter(x=>typeof x==='string').map(x=>x.trim()).slice(0,50); } catch { /* optional */ } }
       const c=line.match(/^\s*%% magi-flow-control (radio|checkbox|dropdown)\s*$/); if(c) flowControl=c[1];
       const tm=line.match(/^\s*%% magi-flow-triggers (.+)$/); if(tm){ try { const t=JSON.parse(tm[1]); if(t && typeof t==='object' && !Array.isArray(t)) for(const [n,l] of Object.entries(t).slice(0,20)) if(Array.isArray(l)) triggers[n]=l.filter(x=>typeof x==='string').map(x=>x.trim()).slice(0,50); } catch { /* optional */ } }
       const match=line.match(/^\s*%% magi-flows (.+)$/);
@@ -243,11 +248,16 @@
       const picked=selectedNode?(selectedNode.textContent||'').trim():'';
       const named=[...new Set([...activeCases, ...Object.keys(triggers).filter(n=>flows[n] && picked && triggers[n].includes(picked))])];
       const cases=named.length?caseEdges(named):null;
+      // The model may link a node to others that animate with it: they lift, and arrows among them move.
+      const keyOfLabel=Object.create(null); svg.querySelectorAll('.node').forEach(n=>{ keyOfLabel[(n.textContent||'').trim()]=nodeKey(n); });
+      const group=picked && links[picked] ? [picked,...links[picked]].map(l=>keyOfLabel[l]).filter(Boolean) : [];
+      const groupSet=new Set(group), pairs=new Set(); for(const a of group) for(const b of group) if(a!==b) pairs.add(a+'_'+b);
+      svg.querySelectorAll('.node').forEach(n=>n.classList.toggle('magi-linked', groupSet.has(nodeKey(n)) && n!==selectedNode));
       const moving=flowOn?flowOn():!matchMedia('(prefers-reduced-motion: reduce)').matches;
       svg.querySelectorAll('.flowchart-link').forEach(e=>{
         const rest=(e.getAttribute('data-id')||'').replace(/^L_/,'').replace(/_\d+$/,'');
         // An arrow moves when any trigger connected to it is on: a chosen case or the selected node.
-        e.classList.toggle('magi-flow-near', (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key))));
+        e.classList.toggle('magi-flow-near', pairs.has(rest) || (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key))));
       });
       svg.classList.toggle('magi-flow-active', !!flowOn && flowOn() && !key && !cases);
       svg.classList.toggle('magi-flow-focus', (!!key || !!cases) && moving);
@@ -256,7 +266,7 @@
       const text=(question.value.trim()||question.placeholder)+'\n\n```mermaid\n'+source+'\n```';
       try { await navigator.clipboard.writeText(text);note.textContent=say('Question copied. Paste it into the conversation to send.','질문을 복사했습니다. 대화 입력창에 붙여넣어 보내세요.'); }
       catch { manualCopy.hidden=false;manualCopy.value=text;manualCopy.focus();manualCopy.select();note.textContent=say('Clipboard unavailable. Copy the selected question manually.','클립보드를 사용할 수 없습니다. 선택된 질문을 직접 복사하세요.'); }
-    }); ask.disabled=true;
+    }); ask.disabled=true; ask.classList.add('magi-diagram-ask');
     box.append(bar,layout,note,sourceBox); pre.replaceWith(box);
     note.textContent=say('Rendering diagram…','다이어그램을 그리는 중…');
     queue=queue.catch(()=>{}).then(async()=>{
@@ -373,6 +383,12 @@
     hostTheme=t && typeof t==='object' ? {dark:t.dark||null, light:t.light||null} : null;
     document.querySelectorAll('figure.magi-diagram').forEach(b=>{ if(typeof b.__magiPaint==='function') b.__magiPaint(); });
   }
+  // A host sets magiDiagramComposer when its own composer takes a selected node; it may do so
+  // before or after this script, so the flag is watched rather than read once.
+  let composerHost=!!window.magiDiagramComposer;
+  const markComposer=()=>{ if(composerHost) document.documentElement.classList.add('magi-composer-host'); };
+  try { Object.defineProperty(window,'magiDiagramComposer',{configurable:true,get:()=>composerHost,set:v=>{ composerHost=!!v; markComposer(); }}); } catch { /* keep the plain flag */ }
+  markComposer();
   window.magiMermaid={mount,scan,setTheme};
   // A page that received its palette before this script loaded left it here.
   if(window.magiDiagramTheme) setTheme(window.magiDiagramTheme);

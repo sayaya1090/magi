@@ -162,3 +162,24 @@ func TestMermaidFlowTriggersTravelWithTheirCase(t *testing.T) {
 		t.Error("the tool does not tell the model about triggers")
 	}
 }
+
+func TestMermaidLinksTravelPerNode(t *testing.T) {
+	m := Mermaid{}
+	run := func(links string) (string, bool) {
+		r, _ := m.Execute(context.Background(), json.RawMessage(`{"title":"t","source":"flowchart LR\n A[Start] --> B[Mid]","links":`+links+`}`), port.ToolEnv{})
+		var text string
+		_ = json.Unmarshal(r.Content, &text)
+		return text, r.IsError
+	}
+	if text, bad := run(`{"Mid":["Start"]}`); bad || !strings.Contains(text, `%% magi-links {"Mid":["Start"]}`) {
+		t.Fatalf("links metadata missing (error=%v):\n%s", bad, text)
+	}
+	for _, bad := range []string{`{"Mid":[]}`, `{"":["Start"]}`, `{"Mid":["<b>"]}`} {
+		if _, refused := run(bad); !refused {
+			t.Errorf("links %s accepted", bad)
+		}
+	}
+	if !strings.Contains(string(m.Schema()), `"links"`) || !strings.Contains(m.Description(), "links") {
+		t.Error("the tool does not tell the model about links")
+	}
+}
