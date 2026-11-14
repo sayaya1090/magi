@@ -163,5 +163,21 @@ try {
  assert.equal(await host.locator('svg .magi-selected').count(),1);
  await host.locator('.magi-diagram-cases label').filter({hasText:'Case 1'}).click();
  assert.equal(await host.locator('svg .magi-selected').count(),0,'picking a case lets go of the node');
+ // Arrows are picked like nodes: chip label "A → B", notes below, only that arrow flows, and it lifts.
+ const e0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await page.evaluate(()=>{window.__picked=[];addEventListener('magi-diagram-select',e=>window.__picked.push(e.detail.label));});
+ await insert('flowchart LR\n A[Start] --> B[Check]\n B --> C[Save]');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,e0+1);
+ const arrows=page.locator('figure.magi-diagram').last();
+ await arrows.locator('.magi-edge-hit[data-edge-of="L_A_B_0"]').click({force:true,timeout:3000});
+ const got=await arrows.evaluate(f=>({heading:f.querySelector('aside strong').textContent,near:[...f.querySelectorAll('.flowchart-link.magi-flow-near')].map(e=>e.getAttribute('data-id')).join(','),sel:f.querySelectorAll('svg .magi-selected').length,lift:getComputedStyle(f.querySelector('.flowchart-link.magi-edge-selected')).filter,hitW:getComputedStyle(f.querySelector('.magi-edge-hit')).strokeWidth}));
+ assert.equal(got.heading,'Start → Check','arrow notes '+JSON.stringify(got));
+ assert.equal(got.near,'L_A_B_0','only the picked arrow flows '+JSON.stringify(got));
+ assert.equal(got.sel,0,'no node stays selected');
+ assert.notEqual(got.lift,'none','picked arrow is elevated');
+ assert.equal(got.hitW,'14px','arrow hit area');
+ assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Start → Check','arrow chip label');
+ await arrows.locator('svg .node').filter({hasText:'Save'}).first().click();
+ assert.equal(await arrows.locator('.flowchart-link.magi-edge-selected').count(),0,'picking a node lets go of the arrow');
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

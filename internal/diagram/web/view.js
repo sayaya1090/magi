@@ -96,6 +96,14 @@
     .magi-diagram svg[role=img] .node :is(text,tspan,.nodeLabel,.nodeLabel *,foreignObject *) { fill:var(--magi-node-text)!important;color:var(--magi-node-text)!important; }
     .magi-diagram svg[role=img] .cluster rect { fill:var(--magi-cluster-fill)!important;stroke:var(--magi-cluster-border)!important;stroke-width:1px!important; }
     .magi-diagram svg[role=img] .flowchart-link { stroke:var(--magi-edge)!important; }
+    /* Arrows are picked like nodes: a wide transparent line takes the click, and the arrow lifts with
+       the same M3 elevation as a node (1 on hover or focus, 2 when picked, 3 picked and focused). */
+    .magi-diagram svg .magi-edge-hit { fill:none!important;stroke:transparent!important;stroke-width:14px!important;pointer-events:stroke;cursor:pointer;outline:none; }
+    .magi-diagram svg[role=img] .flowchart-link { transition:filter 200ms cubic-bezier(.2,0,0,1); }
+    .magi-diagram svg[role=img] .flowchart-link.magi-edge-hover { filter:var(--magi-elevation-1); }
+    .magi-diagram svg[role=img] .flowchart-link.magi-edge-selected { stroke:var(--magi-primary)!important;filter:var(--magi-elevation-2); }
+    .magi-diagram svg[role=img] .flowchart-link.magi-edge-selected.magi-edge-hover { filter:var(--magi-elevation-3); }
+    @media (prefers-reduced-motion:reduce) { .magi-diagram svg[role=img] .flowchart-link { transition:none; } }
     @keyframes magi-flow { to { stroke-dashoffset:-26; } }
     /* A selected node's arrows flow; the others stay still. */
     .magi-diagram .magi-flow-focus .flowchart-link.magi-flow-near { stroke-dasharray:8 5 !important;animation:magi-flow 1s linear infinite; }
@@ -260,6 +268,10 @@
     }
     button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='', selectedNode=null, flowOn=null, activeCases=[], casesReset=()=>{};
+    let selectedEdge=null;
+    const clearEdge=()=>{ if(!selectedEdge) return; selectedEdge.classList.remove('magi-edge-selected');
+      if(selectedEdge.__magiHit) selectedEdge.__magiHit.setAttribute('aria-pressed','false');
+      selectedEdge=null; if(!selectedNode){ selected=''; info.hidden=true; } };
     const kept=memory.get(source)||{}, remember=p=>memory.set(source,Object.assign({},memory.get(source),p));
     // Arrows of the chosen cases: consecutive labels of each path, as from_to node keys.
     // A named animation is on while any trigger connected to it is true: its picker item or a
@@ -310,10 +322,10 @@
       svg.querySelectorAll('.flowchart-link').forEach(e=>{
         const rest=edgeKey(e);
         // An arrow moves when any trigger connected to it is on: a chosen case or the selected node.
-        e.classList.toggle('magi-flow-near', pairs.has(rest) || (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key))));
+        e.classList.toggle('magi-flow-near', selectedEdge ? e===selectedEdge : (pairs.has(rest) || (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key)))));
       });
-      svg.classList.toggle('magi-flow-active', !!flowOn && flowOn() && !key && !cases);
-      svg.classList.toggle('magi-flow-focus', (!!key || !!cases) && moving);
+      svg.classList.toggle('magi-flow-active', !!flowOn && flowOn() && !key && !cases && !selectedEdge);
+      svg.classList.toggle('magi-flow-focus', (!!key || !!cases || !!selectedEdge) && moving);
     };
     const ask=button('question','Copy question','질문 복사',async()=>{
       const text=(question.value.trim()||question.placeholder)+'\n\n```mermaid\n'+source+'\n```';
@@ -370,6 +382,7 @@
           // Picking a case lets go of the selected node, so the arrows shown are the case's alone.
           const pick=list=>{ activeCases=list.filter(n=>flows[n]);
             if(selectedNode){ selectedNode.classList.remove('magi-selected'); selectedNode.setAttribute('aria-pressed','false'); selectedNode=null; selected=''; info.hidden=true; }
+            clearEdge();
             remember({cases:activeCases,node:''});
             flowPaint(); };
           const was=(kept.cases||[]).filter(n=>flows[n]);
@@ -401,9 +414,40 @@
           activeCases=flowControl==='checkbox'?was:was.slice(0,1);
         }
         if(composerMounted) ask.remove();
+        // Arrows are picked like nodes. A wide transparent line over each arrow takes the click and the
+        // keyboard; picking one sends 'A → B' to the composer, shows its notes and moves only that arrow.
+        const labelOfKey=Object.create(null), nodeKeys=new Set();
+        svg.querySelectorAll('.node').forEach(n=>{ const k=nodeKey(n); if(k){ labelOfKey[k]=(n.textContent||'').trim(); nodeKeys.add(k); } });
+        const edgeLabel=e=>{ const rest=edgeKey(e); for(const k of nodeKeys) if(rest.startsWith(k+'_') && nodeKeys.has(rest.slice(k.length+1))) return labelOfKey[k]+' → '+labelOfKey[rest.slice(k.length+1)]; return ''; };
+        svg.querySelectorAll('.flowchart-link').forEach(e=>{
+          const d=e.getAttribute('d'); if(!d) return;
+          const h=document.createElementNS('http://www.w3.org/2000/svg','path');
+          h.setAttribute('d',d); h.setAttribute('class','magi-edge-hit'); h.setAttribute('data-edge-of',e.getAttribute('data-id')||'');
+          h.setAttribute('tabindex','0'); h.setAttribute('role','button'); h.setAttribute('aria-pressed','false'); h.setAttribute('aria-label',say('Arrow','화살표'));
+          const tr=e.getAttribute('transform'); if(tr) h.setAttribute('transform',tr);
+          e.__magiHit=h; e.after(h);
+          const choose=()=>{
+            if(selectedNode){ selectedNode.classList.remove('magi-selected'); selectedNode.setAttribute('aria-pressed','false'); selectedNode=null; }
+            const next=edgeLabel(e); if(!next) return;
+            if(selectedEdge && selectedEdge!==e) clearEdge();
+            selectedEdge=e; e.classList.add('magi-edge-selected'); h.setAttribute('aria-pressed','true'); h.setAttribute('aria-label',next); remember({node:''}); flowPaint();
+            if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
+            manualCopy.hidden=true;selected=next;ask.disabled=false;info.hidden=false;heading.textContent=selected;
+            description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
+            note.textContent=say('Selected: ','선택: ')+selected;
+            if(window.magiDiagramComposer||window.__magiNodeHook){ questionLabel.remove(); ask.remove(); manualCopy.remove(); note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected; }
+            window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}})); fit();
+          };
+          const lift=on=>e.classList.toggle('magi-edge-hover',on);
+          h.addEventListener('click',choose);
+          h.addEventListener('keydown',ev=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); choose(); } });
+          h.addEventListener('mouseenter',()=>lift(true)); h.addEventListener('mouseleave',()=>lift(false));
+          h.addEventListener('focus',()=>lift(true)); h.addEventListener('blur',()=>lift(false));
+        });
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
+            clearEdge();
             if(selectedNode && selectedNode!==n){selectedNode.classList.remove('magi-selected');selectedNode.setAttribute('aria-pressed','false');}
             n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;remember({node:(n.textContent||'').trim()});flowPaint();
             const next=(n.textContent||'').trim();
