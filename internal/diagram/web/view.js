@@ -33,6 +33,21 @@
     .magi-diagram svg [role=button] { cursor:pointer; }
     .magi-diagram svg [role=button]:focus { outline:none; }
     .magi-diagram svg [role=button]:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
+    /* Material 3 elevation for interaction (m3 applying-elevation: shadows lift an element on focus or
+       selection and drop again). The two layers are md-elevation's own recipe, key at .3 and ambient
+       at .15 of the shadow role; SVG has no box-shadow, so they become drop-shadow, which has no
+       spread. Hover level 1, focus or selected level 2, both level 3. */
+    .magi-diagram { --magi-shadow:var(--md-sys-color-shadow,#000);
+      --magi-key:color-mix(in srgb,var(--magi-shadow) 30%,transparent);
+      --magi-ambient:color-mix(in srgb,var(--magi-shadow) 15%,transparent);
+      --magi-elevation-1:drop-shadow(0 1px 2px var(--magi-key)) drop-shadow(0 1px 3px var(--magi-ambient));
+      --magi-elevation-2:drop-shadow(0 1px 2px var(--magi-key)) drop-shadow(0 2px 6px var(--magi-ambient));
+      --magi-elevation-3:drop-shadow(0 1px 3px var(--magi-key)) drop-shadow(0 4px 8px var(--magi-ambient)); }
+    .magi-diagram svg [role=button] { transition:filter 200ms cubic-bezier(.2,0,0,1); }
+    .magi-diagram svg [role=button]:hover { filter:var(--magi-elevation-1); }
+    .magi-diagram svg [role=button]:focus-visible,.magi-diagram svg [role=button].magi-selected { filter:var(--magi-elevation-2); }
+    .magi-diagram svg [role=button].magi-selected:focus-visible { filter:var(--magi-elevation-3); }
+    @media (prefers-reduced-motion:reduce) { .magi-diagram svg [role=button] { transition:none; } }
     .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
     .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:inherit;background:transparent;border:1px solid var(--magi-field-outline);border-radius:4px; }
@@ -148,7 +163,7 @@
       catch { sourceBox.open=true; note.textContent=say('Clipboard unavailable. Select and copy the source below.','클립보드를 사용할 수 없습니다. 아래 원본을 선택해 복사해 주세요.'); }
     }
     button('copy','Copy source','원본 복사',()=>copy(source));
-    let selected='';
+    let selected='', selectedNode=null;
     const ask=button('question','Copy question','질문 복사',async()=>{
       const text=question.value+'\n\n```mermaid\n'+source+'\n```';
       try { await navigator.clipboard.writeText(text);note.textContent=say('Question copied. Paste it into the conversation to send.','질문을 복사했습니다. 대화 입력창에 붙여넣어 보내세요.'); }
@@ -194,8 +209,10 @@
           label.append(toggle,document.createTextNode(say('Animate flow','흐름 애니메이션')));bar.append(label);
         } note.textContent=say('Select a node to prepare a question.','노드를 선택하면 질문을 준비할 수 있습니다.');
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
-          n.setAttribute('tabindex','0'); n.setAttribute('role','button');
+          n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
+            if(selectedNode && selectedNode!==n){selectedNode.classList.remove('magi-selected');selectedNode.setAttribute('aria-pressed','false');}
+            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;
             const next=(n.textContent||'').trim();
             if(next!==selected) question.value=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
