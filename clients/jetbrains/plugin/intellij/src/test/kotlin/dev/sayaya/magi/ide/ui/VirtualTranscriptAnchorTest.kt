@@ -112,4 +112,23 @@ class VirtualTranscriptAnchorTest : BasePlatformTestCase() {
         } finally { tail.close() }
     }
 
+
+    /**
+     * IDE log 21:10:35: scrolling up through a big answer while another answer streamed, the view jumped
+     * -1395 then +2498 as a row entered at the 100px guess. Every streamed row rekeyed the column, which
+     * dropped the retained range, so output below a view that is not at the end re-attached and
+     * re-measured rows above it. Rows appended after the existing ones leave the attached range alone.
+     */
+    fun testRowsAppendedBelowAViewOffTheEndKeepTheAttachedRange() {
+        val column = VirtualTranscript {}
+        val pane = javax.swing.JScrollPane(column).apply { size = java.awt.Dimension(300, 400) }
+        val ids = (0 until 200).map { "r$it" }
+        column.rekey(ids)
+        val before = column.range(200, 10000, 400)
+        TranscriptCoordinator.of(pane).cancel(-1)            // the person is scrolling up
+        column.rekey(ids + "r200")
+        assertEquals("output below the view does not recompute the attached range", before, column.range(201, 10000, 400))
+        column.rekey(listOf("r-1") + ids + "r200")
+        assertFalse("a row inserted above does recompute it", before == column.range(202, 10000, 400))
+    }
 }

@@ -12,6 +12,8 @@ internal class TranscriptGeometry {
     fun height(index: Int) = heights[index]
     fun offset(index: Int) = pixel(offsets[index])
     fun matches(next: List<String>) = ids == next
+    /** [next] keeps every current row in place and only adds rows after them. */
+    fun extendedBy(next: List<String>) = ids.isNotEmpty() && next.size > ids.size && next.subList(0, ids.size) == ids
     fun reset() { ids = emptyList(); heights = IntArray(0); offsets = longArrayOf(0) }
     fun anchor(y: Int): Anchor? = if (size == 0) null else at(y).let { Anchor(ids[it], y - offset(it)) }
     fun position(anchor: Anchor, clamp: Boolean = true): Int? {

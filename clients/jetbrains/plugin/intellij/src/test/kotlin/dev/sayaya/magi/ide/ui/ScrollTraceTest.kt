@@ -50,4 +50,16 @@ class ScrollTraceTest : BasePlatformTestCase() {
         assertEquals(dumps.toString(), 1, dumps.size)
         assertTrue(dumps[0], dumps[0].startsWith("magi: transcript scroll jump cef-wheel 3000->3800"))
     }
+
+    /** A large move nobody marked (IDE 21:10:35, -1395 then +2498) names its caller in idea.log. */
+    fun testALargeMoveRecordsTheCallerThatMadeIt() {
+        ScrollTrace.moved(5000, 4980)
+        assertTrue("small moves write nothing: $dumps", dumps.isEmpty())
+        ScrollTrace.moved(5000, 3605)
+        assertEquals(dumps.toString(), 1, dumps.size)
+        assertTrue(dumps[0], dumps[0].startsWith("magi: transcript scroll move 5000->3605 by"))
+        assertTrue("the stack names the caller: ${dumps[0]}", "testALargeMoveRecordsTheCallerThatMadeIt" in dumps[0])
+        ScrollTrace.moved(3605, 6103)
+        assertEquals("one stack per 1.5s", 1, dumps.size)
+    }
 }

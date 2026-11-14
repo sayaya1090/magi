@@ -55,6 +55,7 @@ internal class TailScroll(private val pane: JScrollPane, private val graceMs: Lo
     private var traced = 0
     private val changed = ChangeListener {
         if (bar.value != traced) {
+            ScrollTrace.moved(traced, bar.value)
             ScrollTrace.note("model", traced, bar.value, "max=${bar.maximum} ext=${bar.visibleAmount} following=$following")
             traced = bar.value
         }

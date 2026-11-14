@@ -24,7 +24,23 @@ internal object ScrollTrace {
     private const val GAP_MS = 1500L
     private var pending: javax.swing.Timer? = null
 
-    internal fun reset() { pending?.stop(); pending = null; ring.clear(); lastDump = 0L }
+    internal fun reset() { pending?.stop(); pending = null; ring.clear(); lastDump = 0L; lastStack = 0L }
+
+    private var lastStack = 0L
+    /**
+     * A move of [JUMP] or more names the call that made it. IDE 21:10:35 had -1395 then +2498 with no
+     * coordinator or wheel marker, so the dump could not say who moved the view.
+     */
+    fun moved(from: Int, to: Int) {
+        if (kotlin.math.abs(to - from) < JUMP) return
+        val now = System.currentTimeMillis()
+        if (now - lastStack < GAP_MS) return
+        lastStack = now
+        val frames = Throwable().stackTrace.drop(1).filter {
+            it.className.startsWith("dev.sayaya") || it.className.startsWith("javax.swing") || it.className.startsWith("java.awt")
+        }.take(24)
+        write("magi: transcript scroll move $from->$to by\n" + frames.joinToString("\n") { "  $it" })
+    }
 
     fun note(who: String, from: Int, to: Int, note: String = "") {
         val now = System.currentTimeMillis()

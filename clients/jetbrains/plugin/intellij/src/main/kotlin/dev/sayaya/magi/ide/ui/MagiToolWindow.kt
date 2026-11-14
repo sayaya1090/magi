@@ -1674,23 +1674,27 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     Look.welcome(MagiBundle.msg("chat.welcome.title"), mood.why, mood.colour, MagiBundle.msg("chat.welcome.hint"))
                 ) else next.map { it.panel }
                 var structureChanged = false
-                components.forEachIndexed { index, component ->
-                    if (index >= column.componentCount || column.getComponent(index) !== component) {
-                        structureChanged = true
-                        if (component.parent === column) column.setComponentZOrder(component, index)
-                        else {
-                            if (index < column.componentCount) column.remove(index)
-                            column.add(component, index)
+                // Swapping row components moves focus; its reveal must not move the view (TranscriptViewport.quietly).
+                fun arrange() {
+                    components.forEachIndexed { index, component ->
+                        if (index >= column.componentCount || column.getComponent(index) !== component) {
+                            structureChanged = true
+                            if (component.parent === column) column.setComponentZOrder(component, index)
+                            else {
+                                if (index < column.componentCount) column.remove(index)
+                                column.add(component, index)
+                            }
                         }
                     }
+                    while (column.componentCount > components.size) {
+                        structureChanged = true
+                        column.remove(column.componentCount - 1)
+                    }
+                    paintedRows = next
+                    column.doLayout()
+                    column.revalidate()
                 }
-                while (column.componentCount > components.size) {
-                    structureChanged = true
-                    column.remove(column.componentCount - 1)
-                }
-                paintedRows = next
-                column.doLayout()
-                column.revalidate()
+                (scroll.viewport as? TranscriptViewport)?.quietly { arrange() } ?: arrange()
                 // Text components repaint their changed region. Do not invalidate the whole
                 // transcript on each token or viewport notification (including native browsers).
                 if (structureChanged) column.repaint()

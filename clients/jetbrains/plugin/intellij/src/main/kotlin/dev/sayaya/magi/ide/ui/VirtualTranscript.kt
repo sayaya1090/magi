@@ -46,9 +46,14 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
     fun restorationIndex(): Int? = (pendingAnchor ?: held?.anchor)?.let { geometry.index(it.id).takeIf { i -> i >= 0 } }
     fun rekey(next: List<String>) {
         if (geometry.matches(next)) return
+        // Rows appended after the existing ones leave the indices of the retained range valid. Output
+        // below a view that is not at the end must not re-attach and re-measure rows above it (IDE
+        // 21:10:35: a row entered at the 100px guess while scrolling up, -1395 then +2498). Following
+        // the end still moves the range: its y passes the guard and the range is rebuilt there.
+        val appended = geometry.extendedBy(next)
         pendingAnchor = geometry.replace(next, reading())
         anchorGeneration = coordinator?.generation ?: 0
-        retained = IntRange.EMPTY
+        if (!appended) retained = IntRange.EMPTY
     }
     // Compatibility for callers without row data (standalone layout fixtures).
     private fun sized(count: Int) {

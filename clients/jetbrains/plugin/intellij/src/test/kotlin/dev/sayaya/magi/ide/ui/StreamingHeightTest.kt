@@ -142,5 +142,22 @@ class StreamingHeightTest : BasePlatformTestCase() {
         assertEquals(0, pending(view))
         assertTrue(texts(view).any { it.contains("val x = 1") })
     }
-}
 
+    /** Swapping row components moves focus; the row that receives it must not be scrolled into view. */
+    fun testRearrangingRowsCannotScrollAFocusedRowIntoView() {
+        val text = JTextArea("body")
+        val viewport = TranscriptViewport { text }
+        val content = JPanel().apply { add(text); preferredSize = Dimension(300, 4000) }
+        viewport.setView(content)
+        viewport.size = Dimension(300, 300)
+        viewport.doLayout()
+        viewport.viewPosition = Point(0, 3700)
+        viewport.quietly { viewport.scrollRectToVisible(Rectangle(0, -3700, 10, 20)) }
+        assertEquals("no reveal while rows are rearranged", 3700, viewport.viewPosition.y)
+        viewport.scrollRectToVisible(Rectangle(0, -3700, 10, 20))
+        assertEquals("nor from focus moved in the same tick", 3700, viewport.viewPosition.y)
+        com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+        viewport.scrollRectToVisible(Rectangle(0, -3700, 10, 20))
+        assertEquals("focused navigation is available again afterwards", 0, viewport.viewPosition.y)
+    }
+}
