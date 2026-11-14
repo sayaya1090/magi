@@ -177,5 +177,37 @@ class TranscriptReflowTest : BasePlatformTestCase() {
             assertEquals("a rebuilt copy of the same row keeps its height", first, f.column.getComponent(2).height)
         } finally { f.tail.close() }
     }
+
+    /**
+     * Sandbox on 541bde9c7: a long council verdict row (header over a BoxLayout body holding a wrapping
+     * Look.prose) measured 281 and 153 by turns (row 84: 1214 changes in about 10s) and the anchor shook
+     * the view each time. One row must measure one height, however often it is laid out or rebuilt.
+     */
+    fun testALongCouncilVerdictRowKeepsOneHeight() {
+        fun verdict() = JPanel(java.awt.BorderLayout(0, 2)).apply {
+            add(javax.swing.JLabel("\u2696 Balthasar [verification]"), java.awt.BorderLayout.NORTH)
+            add(JPanel().apply {
+                layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                add(Look.prose("\uADFC\uAC70 \uBB38\uC7A5\uC774 \uAE38\uAC8C \uC774\uC5B4\uC9D1\uB2C8\uB2E4. ".repeat(80)))
+                add(Look.aside("cite: NO-EVIDENCE"))
+            }, java.awt.BorderLayout.CENTER)
+        }
+        val f = Fixture()
+        try {
+            f.build(intArrayOf(120, 120))
+            f.column.add(verdict()); f.column.rekey(listOf("r0", "r1", "v")); f.column.range(3, 0, 400)
+            f.column.revalidate(); f.flush()
+            val seen = mutableListOf<Int>()
+            repeat(6) { f.column.revalidate(); f.flush(); seen += f.column.getComponent(2).height }
+            f.column.remove(2); f.column.add(verdict(), 2)
+            repeat(4) { f.column.revalidate(); f.flush(); seen += f.column.getComponent(2).height }
+            println("VERDICT heights=$seen")
+            // The body is a BoxLayout, which caches its children's sizes: it reported the size it was
+            // last given (sandbox: 243 when laid out at 115, 115 when laid out at 243), never the text's own.
+            val oneLine = javax.swing.JTextArea("x").preferredSize.height
+            assertTrue("the verdict row is measured wrapped, not one line: $seen", seen.first() > oneLine * 6)
+            assertEquals("one height for the verdict row, laid out again or rebuilt: $seen", 1, seen.toSet().size)
+        } finally { f.tail.close() }
+    }
 }
 
