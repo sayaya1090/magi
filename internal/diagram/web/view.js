@@ -98,16 +98,17 @@
     .magi-diagram svg[role=img] .flowchart-link { stroke:var(--magi-edge)!important; }
     /* Arrows are picked like nodes: a wide transparent line takes the click, and the arrow lifts with
        the same M3 elevation as a node (1 on hover or focus, 2 when picked, 3 picked and focused). */
+    .magi-diagram svg .messageText.magi-edge-text { cursor:pointer; }
     .magi-diagram svg .magi-edge-hit { fill:none!important;stroke:transparent!important;stroke-width:14px!important;pointer-events:stroke;cursor:pointer;outline:none; }
-    .magi-diagram svg[role=img] .flowchart-link { transition:filter 200ms cubic-bezier(.2,0,0,1); }
-    .magi-diagram svg[role=img] .flowchart-link.magi-edge-hover { filter:var(--magi-elevation-1); }
-    .magi-diagram svg[role=img] .flowchart-link.magi-edge-selected { stroke:var(--magi-primary)!important;filter:var(--magi-elevation-2); }
-    .magi-diagram svg[role=img] .flowchart-link.magi-edge-selected.magi-edge-hover { filter:var(--magi-elevation-3); }
-    @media (prefers-reduced-motion:reduce) { .magi-diagram svg[role=img] .flowchart-link { transition:none; } }
+    .magi-diagram svg[role=img] .magi-edge { transition:filter 200ms cubic-bezier(.2,0,0,1); }
+    .magi-diagram svg[role=img] .magi-edge.magi-edge-hover { filter:var(--magi-elevation-1); }
+    .magi-diagram svg[role=img] .magi-edge.magi-edge-selected { stroke:var(--magi-primary)!important;filter:var(--magi-elevation-2); }
+    .magi-diagram svg[role=img] .magi-edge.magi-edge-selected.magi-edge-hover { filter:var(--magi-elevation-3); }
+    @media (prefers-reduced-motion:reduce) { .magi-diagram svg[role=img] .magi-edge { transition:none; } }
     @keyframes magi-flow { to { stroke-dashoffset:-26; } }
     /* A selected node's arrows flow; the others stay still. */
-    .magi-diagram .magi-flow-focus .flowchart-link.magi-flow-near { stroke-dasharray:8 5 !important;animation:magi-flow 1s linear infinite; }
-    @media (prefers-reduced-motion:reduce) { .magi-diagram :is(.magi-flow-active .flowchart-link,.magi-flow-focus .flowchart-link.magi-flow-near) { animation:none; } }
+    .magi-diagram .magi-flow-focus .magi-edge.magi-flow-near { stroke-dasharray:8 5 !important;animation:magi-flow 1s linear infinite; }
+    @media (prefers-reduced-motion:reduce) { .magi-diagram :is(.magi-flow-active .flowchart-link,.magi-flow-focus .magi-edge.magi-flow-near) { animation:none; } }
     @media (pointer:coarse) { .magi-diagram .magi-diagram-action { min-width:48px;min-height:48px; } }
   `;
   document.head.append(style);
@@ -269,6 +270,9 @@
     button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='', selectedNode=null, flowOn=null, activeCases=[], casesReset=()=>{};
     let selectedEdge=null;
+    // Relation lines Mermaid draws, whatever the diagram: flowchart arrows and sequence messages.
+    // One list says which elements are relations; everything else about them is shared.
+    const EDGES='.flowchart-link,.messageLine0,.messageLine1';
     const clearEdge=()=>{ if(!selectedEdge) return; selectedEdge.classList.remove('magi-edge-selected');
       if(selectedEdge.__magiHit) selectedEdge.__magiHit.setAttribute('aria-pressed','false');
       selectedEdge=null; if(!selectedNode){ selected=''; info.hidden=true; } };
@@ -319,8 +323,8 @@
       const groupSet=new Set(group), pairs=new Set(); for(const a of group) for(const b of group) if(a!==b) pairs.add(a+'_'+b);
       svg.querySelectorAll('.node').forEach(n=>n.classList.toggle('magi-linked', groupSet.has(nodeKey(n)) && n!==selectedNode));
       const moving=flowOn?flowOn():!matchMedia('(prefers-reduced-motion: reduce)').matches;
-      svg.querySelectorAll('.flowchart-link').forEach(e=>{
-        const rest=edgeKey(e);
+      svg.querySelectorAll(EDGES).forEach(e=>{
+        const rest=e.classList.contains('flowchart-link')?edgeKey(e):'';
         // An arrow moves when any trigger connected to it is on: a chosen case or the selected node.
         e.classList.toggle('magi-flow-near', selectedEdge ? e===selectedEdge : (pairs.has(rest) || (!!cases && cases.has(rest)) || (!!key && (rest.startsWith(key+'_') || rest.endsWith('_'+key)))));
       });
@@ -419,16 +423,38 @@
         const labelOfKey=Object.create(null), nodeKeys=new Set();
         svg.querySelectorAll('.node').forEach(n=>{ const k=nodeKey(n); if(k){ labelOfKey[k]=(n.textContent||'').trim(); nodeKeys.add(k); } });
         const edgeLabel=e=>{ const rest=edgeKey(e); for(const k of nodeKeys) if(rest.startsWith(k+'_') && nodeKeys.has(rest.slice(k.length+1))) return labelOfKey[k]+' → '+labelOfKey[rest.slice(k.length+1)]; return ''; };
-        svg.querySelectorAll('.flowchart-link').forEach(e=>{
-          const d=e.getAttribute('d'); if(!d) return;
-          const h=document.createElementNS('http://www.w3.org/2000/svg','path');
-          h.setAttribute('d',d); h.setAttribute('class','magi-edge-hit'); h.setAttribute('data-edge-of',e.getAttribute('data-id')||'');
+        // Any relation line is an object: its ends are the selectable things nearest its first and last
+        // point (a flowchart node, a sequence participant's lifeline), and a sequence message also
+        // carries its text. Flowchart arrows keep the id parse in edgeLabel.
+        const msgs=[...svg.querySelectorAll('.messageLine0,.messageLine1')], texts=[...svg.querySelectorAll('.messageText')];
+        const objName=o=>{ if(!o.classList.contains('actor-line')) return (o.textContent||'').trim();
+          const x=+o.getAttribute('x1'); let best='', gap=Infinity;
+          svg.querySelectorAll('text.actor-box').forEach(t=>{ try { const b=t.getBBox(), g=Math.abs(b.x+b.width/2-x); if(g<gap){ gap=g; best=(t.textContent||'').trim(); } } catch { /* not laid out */ } });
+          return best||o.getAttribute('name')||''; };
+        const nearest=(x,y)=>{ let best=null, dist=Infinity;
+          svg.querySelectorAll('.node,line.actor-line').forEach(n=>{ const r=n.getBoundingClientRect(); const dx=Math.max(r.left-x,0,x-r.right), dy=Math.max(r.top-y,0,y-r.bottom), d=dx*dx+dy*dy; if(d<dist){ dist=d; best=n; } });
+          return best; };
+        const edgeName=e=>{
+          if(e.classList.contains('flowchart-link')) return edgeLabel(e);
+          let a=null, b=null;
+          try { const m=e.getScreenCTM(), len=e.getTotalLength();
+            const at=t=>{ const q=e.getPointAtLength(t); return nearest(m.a*q.x+m.c*q.y+m.e, m.b*q.x+m.d*q.y+m.f); };
+            a=at(0); b=at(len); } catch { /* no geometry */ }
+          if(!a||!b) return '';
+          const i=msgs.indexOf(e), said=msgs.length===texts.length&&i>=0?(texts[i].textContent||'').trim():'';
+          return objName(a)+' → '+objName(b)+(said?': '+said:''); };
+        svg.querySelectorAll(EDGES).forEach(e=>{
+          if(!e.getAttribute('d') && !e.hasAttribute('x1')) return;
+          e.classList.add('magi-edge');
+          const h=e.cloneNode(false);
+          for(const a of [...h.attributes]) if(!/^(d|x1|x2|y1|y2|transform)$/.test(a.name)) h.removeAttribute(a.name);
+          h.setAttribute('class','magi-edge-hit'); h.setAttribute('data-edge-of',e.getAttribute('data-id')||'');
           h.setAttribute('tabindex','0'); h.setAttribute('role','button'); h.setAttribute('aria-pressed','false'); h.setAttribute('aria-label',say('Arrow','화살표'));
           const tr=e.getAttribute('transform'); if(tr) h.setAttribute('transform',tr);
           e.__magiHit=h; e.after(h);
           const choose=()=>{
             if(selectedNode){ selectedNode.classList.remove('magi-selected'); selectedNode.setAttribute('aria-pressed','false'); selectedNode=null; }
-            const next=edgeLabel(e); if(!next) return;
+            const next=edgeName(e); if(!next) return;
             if(selectedEdge && selectedEdge!==e) clearEdge();
             selectedEdge=e; e.classList.add('magi-edge-selected'); h.setAttribute('aria-pressed','true'); h.setAttribute('aria-label',next); remember({node:''}); flowPaint();
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
@@ -443,6 +469,9 @@
           h.addEventListener('keydown',ev=>{ if(ev.key==='Enter'||ev.key===' '){ ev.preventDefault(); choose(); } });
           h.addEventListener('mouseenter',()=>lift(true)); h.addEventListener('mouseleave',()=>lift(false));
           h.addEventListener('focus',()=>lift(true)); h.addEventListener('blur',()=>lift(false));
+          // A message's text picks the same message.
+          const said=msgs.length===texts.length?texts[msgs.indexOf(e)]:null;
+          if(said){ said.classList.add('magi-edge-text'); said.addEventListener('click',choose); said.addEventListener('mouseenter',()=>lift(true)); said.addEventListener('mouseleave',()=>lift(false)); }
         });
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');

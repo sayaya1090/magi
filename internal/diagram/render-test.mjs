@@ -179,5 +179,18 @@ try {
  assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Start → Check','arrow chip label');
  await arrows.locator('svg .node').filter({hasText:'Save'}).first().click();
  assert.equal(await arrows.locator('.flowchart-link.magi-edge-selected').count(),0,'picking a node lets go of the arrow');
+ // Sequence messages are relation lines like flowchart arrows; the same path picks them.
+ const q0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('sequenceDiagram\n participant U as User\n participant D as Daemon\n U->>D: submit\n D-->>U: reply');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,q0+1);
+ const seq=page.locator('figure.magi-diagram').last();
+ await seq.locator('.magi-edge-hit[data-edge-of="i1"]').click({force:true,timeout:3000});
+ const sg=await seq.evaluate(f=>({heading:f.querySelector('aside strong').textContent,near:[...f.querySelectorAll('.magi-edge.magi-flow-near')].map(e=>e.getAttribute('data-id')).join(','),lift:getComputedStyle(f.querySelector('.magi-edge.magi-edge-selected')).filter}));
+ assert.equal(sg.heading,'Daemon → User: reply','message notes '+JSON.stringify(sg));
+ assert.equal(sg.near,'i1','only the picked message moves '+JSON.stringify(sg));
+ assert.notEqual(sg.lift,'none','picked message is elevated');
+ assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Daemon → User: reply','message chip label');
+ await seq.locator('.messageText').filter({hasText:'submit'}).click({force:true});
+ assert.equal(await seq.evaluate(f=>f.querySelector('aside strong').textContent),'User → Daemon: submit','message text picks its message');
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}
