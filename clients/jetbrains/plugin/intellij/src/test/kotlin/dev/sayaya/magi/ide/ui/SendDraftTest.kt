@@ -160,7 +160,33 @@ class SendDraftTest : BasePlatformTestCase() {
         // The chips do not stand out of the input row: the first chip starts where the input starts
         // (12px) and the row ends where the input ends (8px).
         assertEquals("chips start at the input's left edge", 12, chips.insets.left + flow.hgap)
-        assertEquals("chips end at the input's right edge", 8, chips.insets.right + flow.hgap)
+        // The row ends where the send button ends: 8px panel border plus the 8px gap after the button.
+        assertEquals("chips end at the send button's right edge", 16, chips.insets.right + flow.hgap)
+    }
+
+    /** The input had 10px above and below its text but 12px beside it, stood 14px under the chips (6px between chips), and the chip row ran 8px past the send button. */
+    fun testTheInputLinesUpWithTheChipsAndHasEvenPadding() = check { h ->
+        h.view.attachNode("Start"); UIUtil.dispatchAllInvocationEvents()
+        val input = h.input
+        var root: java.awt.Component = input
+        while (root.parent != null) root = root.parent
+        root.setSize(900, 700)
+        fun lay(c: java.awt.Component) { if (c is java.awt.Container) { c.doLayout(); c.components.forEach { lay(it) } } }
+        repeat(3) { lay(root); UIUtil.dispatchAllInvocationEvents() }
+        fun r(c: java.awt.Component) = javax.swing.SwingUtilities.convertRectangle(c.parent, c.bounds, root)
+        val chips: java.awt.Container = h.field("chips")
+        val flow = chips.layout as java.awt.FlowLayout
+        val chip = chips.components.first()
+        val sp = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, input) as javax.swing.JScrollPane
+        val send: java.awt.Component = h.field("sendButton")
+        val pad = listOf(sp.insets.top + input.insets.top, sp.insets.left + input.insets.left, sp.insets.bottom + input.insets.bottom, sp.insets.right + input.insets.right)
+        val gap = r(sp).y - (r(chip).y + r(chip).height)
+        val rowEnd = r(chips).x + r(chips).width - chips.insets.right - flow.hgap
+        println("INPUT pad(t,l,b,r)=$pad chip=${r(chip)} scroll=${r(sp)} send=${r(send)} gap=$gap rowEnd=$rowEnd")
+        assertEquals("input padding is the same on all four sides", List(4) { pad[0] }, pad)
+        assertEquals("chips start where the input box starts", r(sp).x, r(chip).x)
+        assertEquals("the input stands as far under the chips as chips stand apart", flow.vgap, gap)
+        assertEquals("the chip row ends where the send button ends", r(send).x + r(send).width, rowEnd)
     }
 
     fun testDiagramNodeChipsSurviveAFailedSend() = check { h ->

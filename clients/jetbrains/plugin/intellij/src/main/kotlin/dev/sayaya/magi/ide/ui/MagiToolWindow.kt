@@ -251,7 +251,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
 
         private val buttons = ReviewSurface.actions()
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
-        private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10); textEditMenu(this) }
+        // 8px plus the scroll pane's 2px edge: the same 10px around the text on every side (it was 10 by 12).
+        private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8); textEditMenu(this) }
         private fun updateComposerHint() {
             if (closing.get() || project.isDisposed) return
             val activeKey = answers.active
@@ -795,11 +796,14 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         /** Mermaid nodes selected in an answer — names only, carried by the next message like [refs]. */
         private val nodes = java.util.Collections.synchronizedList(mutableListOf<String>())
         // The same gap between chips as between rows of chips (it was 6 across, 2 down).
+        /** The input row; its top space gives way to the chip row's own 6px gap when chips stand above it. */
+        private var writingRow: javax.swing.JComponent? = null
         private val chips = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 6, 6)).apply {
             // The row of chips lines up with the input below (12px left, 8px right): FlowLayout adds its
             // 6px gap before the first chip, so the panel gives the rest. Without it the chips stood 6px
             // further left than the input.
-            border = JBUI.Borders.empty(0, 6, 0, 2)
+            // Right: the row ends where the send button ends (8px panel border + the 8px gap after the button).
+            border = JBUI.Borders.empty(0, 6, 0, 10)
             isOpaque = false
             isVisible = false
         }
@@ -852,6 +856,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             val snap = synchronized(refs) { refs.toList() }
             val picked = synchronized(nodes) { nodes.toList() }
             chips.isVisible = snap.isNotEmpty() || picked.isNotEmpty()
+            // Under chips the input stands 6px below them, the same as between chips (it was 6 + 8).
+            writingRow?.border = JBUI.Borders.empty(if (chips.isVisible) 0 else 8, 12, 0, 8)
             snap.forEach { ref ->
                 val label = ref.path.substringAfterLast('/') + (ref.lines?.let { ":$it" } ?: "")
                 chips.add(chip("$label ✕").apply {
@@ -878,6 +884,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(link); add(sendButton) }
             val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 border = JBUI.Borders.empty(8, 12, 0, 8)
+                writingRow = this
                 add(JBScrollPane(input), BorderLayout.CENTER)
                 add(acts, BorderLayout.EAST)
             }
