@@ -2057,6 +2057,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 
 `ScrollTraceTest`는 진단 기록 `ScrollTrace`를 검사합니다. 큰 말풍선 근처의 300px 이상 단발 이동(`anchor`)과 페이지가 넘긴 큰 휠 이동(`cef-wheel`)은 방향이 여러 번 뒤집히지 않아도 기록하고, 평범한 스크롤과 작은 보정은 아무것도 남기지 않는지 봅니다. 실제 IDE에서 그 기록이 남는지는 이 시험이 재지 않습니다.
 
+`VirtualTranscriptAnchorTest`는 가상 스크롤 전사(`VirtualTranscript`)가 행 높이와 읽던 위치를 **행 번호가 아니라 행의 정체**로 붙잡는지 검사합니다. 높이가 서로 다른 행 10개를 재고 5번 행 안쪽 10px을 보는 중에, 그 위의 1번 행(120px)이 빠지면 화면은 원래 5번 행의 같은 깊이에 남아야 하고(스크롤 위치가 정확히 120px 줄어듦), 전체 높이도 빠진 행만큼 줄어야 합니다. 예전에는 높이를 번호로만 들고 있어 위에서 행이 빠지면 아래 높이가 한 칸씩 밀리고 앵커가 그 차이만큼 튀었습니다(idea.log `jump anchor 551184->552081 row=5482`). 실제 IDE 화면에서의 효과는 이 시험이 확인하지 않습니다.
+
+```bash
+./gradlew :intellij:test --tests '*VirtualTranscriptAnchorTest' --no-daemon
+```
+
 `TranscriptViewport`는 채팅 입력창에 포커스가 있는 동안 새 읽기 전용 텍스트의 caret 표시 요청이 전사를 움직이지 못하게 합니다. 전사 자체에 포커스가 있으면 키보드 탐색에 필요한 표시 요청은 허용합니다. 실제 Swing 뷰포트 좌표로 두 경우를 검사합니다. 사용자가 휠로 위로 이동하면 새 내용이 추가되어도 위치를 유지하는 기존 `TailScrollTest`도 함께 실행합니다.
 
 이 검증은 공통 IntelliJ Platform 코드와 Swing 동작을 대상으로 합니다. PyCharm·WebStorm·GoLand 각각의 실물 UI 인수를 대신하지 않습니다. JCEF에서 일시적인 작은 높이를 억제하면 해당 응답당 한 번 `streaming preview ignored transient height`를 IDE 로그에 남깁니다.

@@ -1550,13 +1550,15 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
                 // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
                 val allRows = shaper.list()
+                fun identity(r: Row): String = if (r.msgId.isNotBlank() || r.callId.isNotBlank())
+                    "${r.msgId}:${r.who}:${r.callId}" else RowText.foldKey(r)
+                // Heights and the reading position follow each row, not its number (VirtualTranscript.rekey).
+                column.rekey(allRows.map { identity(it) })
                 val extent = scroll.viewport.extentSize.height
                 val y = if (tailScroll.followingEnd) column.endPosition(allRows.size, extent) else scroll.viewport.viewPosition.y
                 val range = column.range(allRows.size, y, extent)
                 val rows0 = if (range.isEmpty()) emptyList() else allRows.subList(range.first, range.last + 1)
                 column.start(range.first.coerceAtLeast(0))
-                fun identity(r: Row): String = if (r.msgId.isNotBlank() || r.callId.isNotBlank())
-                    "${r.msgId}:${r.who}:${r.callId}" else RowText.foldKey(r)
                 val previous = paintedRows.associateBy { identity(it.row) }
                 // Completed rich renderers belong to this view. Drafts do not reload CEF
                 // or evict any completed answer while tokens arrive.

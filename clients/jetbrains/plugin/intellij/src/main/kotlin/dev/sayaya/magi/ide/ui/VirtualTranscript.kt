@@ -12,7 +12,41 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
     private var first = 0
     private var measuring = false
 
-    fun reset() { heights = IntArray(0); offsets = intArrayOf(0) }
+    fun reset() { heights = IntArray(0); offsets = intArrayOf(0); keys = emptyList() }
+
+    private var keys: List<String> = emptyList()
+
+    /**
+     * Rows say who they are before the range is asked for. Heights used to be kept by row number only,
+     * so a row leaving or arriving above the reader slid every height below it by one row and the
+     * anchor, also a row number, jumped by the difference (idea.log: 26->988, 988->26, ~900px). Heights
+     * now follow the row, and the viewport stays on the row it showed at the same depth.
+     */
+    fun rekey(next: List<String>) {
+        val seen = HashMap<String, Int>()
+        val named = next.map { k -> val n = (seen[k] ?: 0) + 1; seen[k] = n; if (n == 1) k else "$k#$n" }
+        if (named == keys) return
+        if (keys.isEmpty() || keys.size != heights.size) { keys = named; return }
+        val viewport = parent as? javax.swing.JViewport
+        val beforeY = viewport?.viewPosition?.y ?: 0
+        val top = at(beforeY)
+        val topKey = keys[top]
+        val into = beforeY - offsets[top]
+        val old = HashMap<String, Int>(keys.size * 2)
+        keys.forEachIndexed { i, k -> old[k] = heights[i] }
+        heights = IntArray(named.size) { old[named[it]] ?: 100 }
+        keys = named
+        rebuild()
+        val moved = named.indexOf(topKey)
+        if (viewport != null && moved >= 0) {
+            val corrected = (offsets[moved].toLong() + into).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+            if (corrected != beforeY) {
+                ScrollTrace.note("rekey", beforeY, corrected, "row=$top->$moved")
+                setSize(width, offsets.last())
+                viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, corrected)
+            }
+        }
+    }
 
     private fun sized(count: Int) {
         if (count != heights.size) {
