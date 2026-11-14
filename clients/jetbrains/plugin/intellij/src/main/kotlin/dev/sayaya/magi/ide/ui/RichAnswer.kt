@@ -70,6 +70,14 @@ internal class RichAnswer {
             RichAnswer::class.java.getResourceAsStream("/magi-composer/node-hook.js")?.bufferedReader()?.use { it.readText() } ?: ""
         }
 
+        /**
+         * The viewer, its palette and the composer flag in one run. The flag used to be set only by the
+         * measuring script, which some panels never run (idea.log: no height answer); there a selected
+         * node opened a question field the Markdown preview does not let anyone type into.
+         */
+        fun viewerScript(theme: String?): String =
+            themeScript(theme) + "window.magiDiagramComposer = true;\nif (!window.magiMermaid) {\n" + diagramScript + "\n}"
+
         /** The palette as the page script takes it, or null when the daemon sent none. */
         fun themeJson(theme: dev.sayaya.magi.ide.model.Theme?): String? =
             theme?.let { dev.sayaya.magi.ide.model.Wire.json.encodeToString(dev.sayaya.magi.ide.model.Theme.serializer(), it) }
@@ -299,7 +307,7 @@ internal class RichAnswer {
         """.trimIndent()
         // 단일 타이머 세트를 재사용하여 스트리밍 갱신 시 타이머 인스턴스 과다 생성(EDT 포화)을 방지한다 (리뷰 F6).
         val ask = { runCatching {
-            browser.cefBrowser.executeJavaScript(themeScript(themeJson) + "if (!window.magiMermaid) {\n" + diagramScript + "\n}", browser.cefBrowser.url, 0)
+            browser.cefBrowser.executeJavaScript(viewerScript(themeJson), browser.cefBrowser.url, 0)
             browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
         } }
         val soon = javax.swing.Timer(350) { ask() }.apply { isRepeats = false }

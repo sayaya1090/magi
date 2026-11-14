@@ -189,4 +189,12 @@ class SendDraftTest : BasePlatformTestCase() {
         h.view.useTheme(theme)
         assertTrue(answers.themeJson.orEmpty().contains("#123456"))
     }
+    fun testTheViewerScriptTurnsTheComposerOnBeforeTheViewerLoads() {
+        // The measuring script can fail to run in a panel (idea.log: no height answer); the composer flag
+        // must not depend on it, or the panel shows a question field nobody can type into.
+        val script = RichAnswer.viewerScript(null)
+        val flag = script.indexOf("window.magiDiagramComposer = true")
+        assertTrue(script, flag >= 0 && flag < script.indexOf("window.magiMermaid"))
+    }
 }
+

@@ -5,6 +5,9 @@
   const say = (en, kr) => ko ? kr : en;
   let seq = 0, queue = Promise.resolve();
   const cache = new Map();
+  // What a reader chose in a diagram, by its source: the IDE preview re-patches the page on every
+  // answer update, which re-mounts the diagram, and the chosen case and node must survive that.
+  const memory = new Map();
   // Font Awesome Free 6.7.2 by Fonticons, Inc. (CC BY 4.0 for icons).
   // https://fontawesome.com — see FONT-AWESOME-LICENSE. Bundled for offline IDE previews.
   const icons = {"zoomIn":{"viewBox":"0 0 512 512","path":"M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM184 296c0 13.3 10.7 24 24 24s24-10.7 24-24l0-64 64 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-64 0 0-64c0-13.3-10.7-24-24-24s-24 10.7-24 24l0 64-64 0c-13.3 0-24 10.7-24 24s10.7 24 24 24l64 0 0 64z"},"zoomOut":{"viewBox":"0 0 512 512","path":"M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM136 184c-13.3 0-24 10.7-24 24s10.7 24 24 24l144 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-144 0z"},"fit":{"viewBox":"0 0 448 512","path":"M32 32C14.3 32 0 46.3 0 64l0 96c0 17.7 14.3 32 32 32s32-14.3 32-32l0-64 64 0c17.7 0 32-14.3 32-32s-14.3-32-32-32L32 32zM64 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 96c0 17.7 14.3 32 32 32l96 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-64 0 0-64zM320 32c-17.7 0-32 14.3-32 32s14.3 32 32 32l64 0 0 64c0 17.7 14.3 32 32 32s32-14.3 32-32l0-96c0-17.7-14.3-32-32-32l-96 0zM448 352c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 64-64 0c-17.7 0-32 14.3-32 32s14.3 32 32 32l96 0c17.7 0 32-14.3 32-32l0-96z"},"copy":{"viewBox":"0 0 448 512","path":"M208 0L332.1 0c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1 33.9L448 336c0 26.5-21.5 48-48 48l-192 0c-26.5 0-48-21.5-48-48l0-288c0-26.5 21.5-48 48-48zM48 128l80 0 0 64-64 0 0 256 192 0 0-32 64 0 0 48c0 26.5-21.5 48-48 48L48 512c-26.5 0-48-21.5-48-48L0 176c0-26.5 21.5-48 48-48z"},"question":{"viewBox":"0 0 512 512","path":"M512 240c0 114.9-114.6 208-256 208c-37.1 0-72.3-6.4-104.1-17.9c-11.9 8.7-31.3 20.6-54.3 30.6C73.6 471.1 44.7 480 16 480c-6.5 0-12.3-3.9-14.8-9.9c-2.5-6-1.1-12.8 3.4-17.4c0 0 0 0 0 0s0 0 0 0s0 0 0 0c0 0 0 0 0 0l.3-.3c.3-.3 .7-.7 1.3-1.4c1.1-1.2 2.8-3.1 4.9-5.7c4.1-5 9.6-12.4 15.2-21.6c10-16.6 19.5-38.4 21.4-62.9C17.7 326.8 0 285.1 0 240C0 125.1 114.6 32 256 32s256 93.1 256 208z"}};
@@ -238,6 +241,7 @@
     }
     button('copy','Copy source','원본 복사',()=>copy(source));
     let selected='', selectedNode=null, flowOn=null, activeCases=[], casesReset=()=>{};
+    const kept=memory.get(source)||{}, remember=p=>memory.set(source,Object.assign({},memory.get(source),p));
     // Arrows of the chosen cases: consecutive labels of each path, as from_to node keys.
     // A named animation is on while any trigger connected to it is true: its picker item or a
     // selected node listed in its triggers.
@@ -340,34 +344,36 @@
           // The reader picks which case moves: radio (one), checkbox (several) or dropdown (one of many).
           const names=Object.keys(flows), group=document.createElement('div');
           group.className='magi-diagram-cases'; group.setAttribute('aria-label',say('Flow cases','흐름 케이스'));
-          const pick=list=>{ activeCases=list.filter(n=>flows[n]);
+          const pick=list=>{ activeCases=list.filter(n=>flows[n]); remember({cases:activeCases});
             flowPaint(); };
+          const was=(kept.cases||[]).filter(n=>flows[n]);
           const choices=[['',say('All','전체')],...names.map(n=>[n,n])];
           if(flowControl==='dropdown') {
             const sel=document.createElement('select'); sel.setAttribute('aria-label',say('Flow case','흐름 케이스'));
             for(const [v,t] of choices){ const o=document.createElement('option'); o.value=v; o.textContent=t; sel.append(o); }
-            sel.addEventListener('change',()=>pick(sel.value?[sel.value]:[])); casesReset=()=>{ sel.value=''; }; group.append(sel);
+            sel.addEventListener('change',()=>pick(sel.value?[sel.value]:[])); casesReset=()=>{ sel.value=''; }; if(was[0]) sel.value=was[0]; group.append(sel);
           } else if(flowControl==='checkbox') {
             const boxes=names.map(n=>{ const l=document.createElement('label'); l.className='magi-diagram-toggle';
-              const c=document.createElement('input'); c.type='checkbox'; c.value=n;
+              const c=document.createElement('input'); c.type='checkbox'; c.value=n; c.checked=was.includes(n);
               c.addEventListener('change',()=>pick(boxes.filter(b=>b.checked).map(b=>b.value)));
               l.append(c,document.createTextNode(n)); group.append(l); return c; });
             casesReset=()=>boxes.forEach(b=>{ b.checked=false; });
           } else {
             group.setAttribute('role','radiogroup'); const rname='magiCase'+(++seq);
             const radios=choices.map(([v,t])=>{ const l=document.createElement('label'); l.className='magi-diagram-toggle';
-              const r=document.createElement('input'); r.type='radio'; r.name=rname; r.value=v; r.checked=v==='';
+              const r=document.createElement('input'); r.type='radio'; r.name=rname; r.value=v; r.checked=was[0]?v===was[0]:v==='';
               r.addEventListener('change',()=>{ if(r.checked) pick(v?[v]:[]); });
               l.append(r,document.createTextNode(t)); group.append(l); return r; });
             casesReset=()=>radios.forEach(r=>{ r.checked=r.value===''; });
           }
           bar.append(group);
+          activeCases=flowControl==='checkbox'?was:was.slice(0,1);
         }
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
             if(selectedNode && selectedNode!==n){selectedNode.classList.remove('magi-selected');selectedNode.setAttribute('aria-pressed','false');}
-            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;flowPaint();
+            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;remember({node:(n.textContent||'').trim()});flowPaint();
             const next=(n.textContent||'').trim();
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
@@ -379,6 +385,11 @@
           n.addEventListener('keydown',e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')) followup(e);});
           n.addEventListener('click',select);n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});
         });
+        // Bring back what was chosen before the re-mount, without announcing the node again (its chip
+        // is already in the composer).
+        if(kept.node){ const back=[...svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup')].find(n=>(n.textContent||'').trim()===kept.node);
+          if(back){ back.classList.add('magi-selected'); back.setAttribute('aria-pressed','true'); selectedNode=back; selected=kept.node; } }
+        flowPaint();
       } catch(e) { note.textContent=say('Diagram could not be rendered: ','다이어그램을 표시할 수 없습니다: ')+e.message; sourceBox.open=true; }
     });
   }
