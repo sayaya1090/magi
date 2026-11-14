@@ -152,7 +152,7 @@
     box.className = 'magi-diagram';
     box.style.cssText = 'margin:8px 0;padding:8px;border:1px solid var(--magi-outline);border-radius:12px;max-width:100%;overflow:hidden;color:inherit';
     const bar = document.createElement('div'); bar.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center';
-    const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;max-height:min(420px,55vh);min-height:48px;max-width:100%';
+    const canvas = document.createElement('div'); canvas.style.cssText = 'overflow:auto;min-height:48px;max-width:100%';
     canvas.className='magi-diagram-canvas';
     const layout=document.createElement('div');layout.className='magi-diagram-layout';
     const info=document.createElement('aside');info.className='magi-diagram-info';info.hidden=true;
@@ -223,8 +223,12 @@
       const vb=svg.viewBox.baseVal;
       const width=vb.width || svg.getBoundingClientRect().width || canvas.clientWidth;
       const height=vb.height || svg.getBoundingClientRect().height || 48;
-      // Never enlarge a small diagram merely to fill the transcript column.
-      fitWidth=width*Math.min(1,Math.max(1,canvas.clientWidth)/width,Math.min(420,innerHeight*.55)/height);
+      // Never enlarge a small diagram merely to fill the transcript column, and fit it to the width
+      // only. A height cap squeezed sequence diagrams and long TD flows (measured: a 1050x723
+      // sequence drawn 610px wide in an 866px column) until their text could not be read, and a
+      // scroll inside the box does not work where the host takes the wheel (JetBrains), so the
+      // diagram shows whole and the page scrolls.
+      fitWidth=width*Math.min(1,Math.max(1,canvas.clientWidth)/width);
       scale(1);
     }
     button('zoomIn','Zoom in','확대',()=>scale(zoom*1.25)); button('zoomOut','Zoom out','축소',()=>scale(zoom/1.25)); button('fit','Fit','맞춤',fit);

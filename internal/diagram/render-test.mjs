@@ -73,7 +73,10 @@ try {
  await insert('flowchart TD\n'+Array.from({length:25},(_,i)=>`N${i} --> N${i+1}`).join('\n'));
  await page.waitForFunction(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length===7);
  const tall=page.locator('.magi-diagram svg[role=img]').last();
- assert.ok(await tall.evaluate(e=>e.getBoundingClientRect().height<=Math.min(420,innerHeight*.55)+1),'tall chart fits height');
+ // A tall chart (a sequence diagram, a long TD flow) is fitted to the column's width, not shrunk
+ // into a short box where its text cannot be read; the whole of it shows and the page scrolls.
+ assert.ok(await tall.evaluate(e=>{const c=e.closest('.magi-diagram-canvas'),w=e.viewBox.baseVal.width;return e.getBoundingClientRect().width>=Math.min(w,c.clientWidth)-1;}),'tall chart keeps a readable width');
+ assert.ok(await tall.evaluate(e=>{const c=e.closest('.magi-diagram-canvas');return c.scrollHeight<=c.clientHeight+1;}),'tall chart is not clipped inside its box');
  assert.equal(calls.length,0,'offline diagram must not request external resources');
  await page.setViewportSize({width:390,height:800});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'narrow viewport overflow');
