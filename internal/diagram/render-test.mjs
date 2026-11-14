@@ -153,7 +153,9 @@ try {
  assert.equal(await edge.evaluate(e=>getComputedStyle(e).animationName),'none');
  await page.emulateMedia({reducedMotion:'no-preference'});
  await interactive.locator('.node').last().click();
- assert.match(await interactive.locator('aside p').textContent(),/No explanation was supplied/);
+ // Without notes of its own, an element still opens the follow-up question here, but no filler text.
+ assert.equal(await interactive.locator('aside').evaluate(e=>e.hidden),false,'the question field stays reachable');
+ assert.equal(await interactive.locator('aside p').evaluate(e=>e.hidden||!e.textContent),true,'no "no explanation" filler');
  await node.focus();await page.keyboard.press('Shift+F10');
  assert.equal(await interactive.getByLabel('Follow-up question').evaluate(e=>e===document.activeElement),true);
  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('denied');}}}));
@@ -237,5 +239,40 @@ try {
  assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Daemon → User: reply','message chip label');
  await seq.locator('.messageText').filter({hasText:'submit'}).click({force:true});
  assert.equal(await seq.evaluate(f=>f.querySelector('aside strong').textContent),'User → Daemon: submit','message text picks its message');
+ // Only elements that have notes carry an (i) badge and a hover preview; a legend says what it means.
+ // Every element stays pickable (its chip still goes to the composer), but one without notes opens
+ // no empty notes, and opening or closing notes never changes the diagram's height.
+ const d0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('flowchart LR\n P[Plain] --> T[Told]\n%% magi-descriptions {"Told":"Has notes.","Plain → Told":"Arrow notes."}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,d0+1);
+ const desc=page.locator('figure.magi-diagram').last();
+ const look=await desc.evaluate(f=>{const n=t=>[...f.querySelectorAll('svg .node')].find(n=>n.textContent.trim()===t);return {badges:f.querySelectorAll('svg .magi-note-badge').length,told:n('Told').querySelectorAll('.magi-note-badge').length,plain:n('Plain').querySelectorAll('.magi-note-badge').length,label:n('Told').textContent.trim(),aria:n('Told').getAttribute('aria-label')||'',legend:f.querySelectorAll('.magi-diagram-legend').length};});
+ assert.equal(look.badges,2,'one badge per described node and arrow '+JSON.stringify(look));
+ assert.equal(look.told,1,'the described node carries a badge '+JSON.stringify(look));
+ assert.equal(look.plain,0,'a node without notes carries none '+JSON.stringify(look));
+ assert.equal(look.label,'Told','the badge does not change the label (or the chip) '+JSON.stringify(look));
+ assert.match(look.aria,/has notes/,'the badge is announced');
+ assert.equal(look.legend,1,'a diagram with notes shows the legend');
+ assert.equal(await page.locator('figure.magi-diagram').filter({hasText:'Daemon'}).locator('.magi-diagram-legend').count(),0,'a diagram without notes shows no legend');
+ const figH=()=>desc.evaluate(f=>Math.round(f.getBoundingClientRect().height));
+ const h0=await figH();
+ await desc.locator('svg .node').filter({hasText:'Told'}).first().hover();
+ await page.waitForTimeout(600);
+ assert.equal(await desc.locator('.magi-diagram-peek').isVisible(),true,'hovering a described node previews its notes');
+ assert.equal(await desc.locator('.magi-diagram-peek').textContent(),'Has notes.');
+ await page.mouse.move(1,1); await page.waitForTimeout(100);
+ assert.equal(await desc.locator('.magi-diagram-peek').isVisible(),false,'the preview leaves with the pointer');
+ await desc.locator('svg .node').filter({hasText:'Plain'}).first().click();
+ assert.equal(await desc.locator('svg .magi-selected').count(),1,'a node without notes is still picked');
+ assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Plain','its chip still goes to the composer');
+ assert.equal(await desc.locator('aside').evaluate(e=>e.hidden),true,'a node without notes opens no empty notes');
+ const h1=await figH();
+ await desc.locator('svg .node').filter({hasText:'Told'}).first().click();
+ assert.equal(await desc.locator('aside').evaluate(e=>e.hidden),false,'a described node opens its notes');
+ assert.equal(await desc.locator('aside p').textContent(),'Has notes.');
+ const h2=await figH();
+ await desc.locator('svg[role=img]').click({position:{x:2,y:2}});
+ const h3=await figH();
+ assert.deepEqual([h1,h2,h3],[h0,h0,h0],'opening and closing notes keeps the diagram height');
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

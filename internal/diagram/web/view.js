@@ -57,6 +57,14 @@
     .magi-diagram-notes-title { display:block;font-size:12px;line-height:16px;letter-spacing:.5px;color:var(--magi-on-variant);margin-bottom:4px; }
     .magi-diagram-info { flex:none;width:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
+    .magi-diagram-slot { flex:none;width:100%;min-width:0; }
+    .magi-diagram svg .magi-note-badge { pointer-events:none; }
+    .magi-diagram svg .magi-note-badge .b { fill:var(--magi-primary)!important;stroke:var(--magi-node-fill,Canvas)!important;stroke-width:2px!important; }
+    .magi-diagram svg .magi-note-badge .g { fill:var(--md-sys-color-on-primary,Canvas)!important;stroke:none!important; }
+    .magi-diagram-peek { position:absolute;z-index:3;max-width:280px;box-sizing:border-box;padding:4px 8px;border-radius:4px;background:var(--md-sys-color-inverse-surface,CanvasText);color:var(--md-sys-color-inverse-on-surface,Canvas);font-size:12px;line-height:16px;letter-spacing:.4px;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden; }
+    .magi-diagram-peek[hidden] { display:none; }
+    .magi-diagram-legend { display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--magi-on-variant); }
+    .magi-diagram-legend b { display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--magi-primary);color:var(--md-sys-color-on-primary,Canvas);font:700 11px/1 serif; }
     pre.magi-diagram-pending { background:transparent;border:1px dashed var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 30%,transparent));border-radius:12px;padding:16px 12px;min-height:48px; }
     pre.magi-diagram-pending > code { display:none !important; }
     pre.magi-diagram-pending::before { content:attr(data-magi-pending);color:var(--md-sys-color-on-surface-variant,currentColor);opacity:.8;font:inherit;white-space:normal; }
@@ -201,7 +209,7 @@
     // Where the host's own composer takes a selected node (JetBrains, the web console) the panel has no
     // question field, copy button or copy box at all: hiding them still left a field painted in JCEF.
     const composerMounted=!!(window.magiDiagramComposer||window.__magiNodeHook);
-    info.append(notesTitle,heading,description);if(!composerMounted) info.append(questionLabel,manualCopy);layout.append(canvas,info);
+    info.append(notesTitle,heading,description);if(!composerMounted) info.append(questionLabel,manualCopy);const slot=document.createElement('div');slot.className='magi-diagram-slot';slot.append(info);layout.append(canvas,slot);
     const descriptions=Object.create(null);
     for(const line of source.split('\n')) {
       const match=line.match(/^\s*%% magi-descriptions (.+)$/);
@@ -358,7 +366,7 @@
       try { await navigator.clipboard.writeText(text);note.textContent=say('Question copied. Paste it into the conversation to send.','질문을 복사했습니다. 대화 입력창에 붙여넣어 보내세요.'); }
       catch { manualCopy.hidden=false;manualCopy.value=text;manualCopy.focus();manualCopy.select();note.textContent=say('Clipboard unavailable. Copy the selected question manually.','클립보드를 사용할 수 없습니다. 선택된 질문을 직접 복사하세요.'); }
     }); ask.disabled=true; ask.classList.add('magi-diagram-ask');
-    box.append(bar,layout,note,sourceBox); pre.replaceWith(box);
+    box.style.position='relative';box.append(bar,layout,note,sourceBox); pre.replaceWith(box);
     note.textContent=say('Rendering diagram…','다이어그램을 그리는 중…');
     queue=queue.catch(()=>{}).then(async()=>{
       if (!box.isConnected) return;
@@ -476,6 +484,17 @@
           if(!a||!b) return '';
           const i=msgs.indexOf(e), said=msgs.length===texts.length&&i>=0?(texts[i].textContent||'').trim():'';
           return objName(a)+' → '+objName(b)+(said?': '+said:''); };
+        // Elements with notes carry an (i) badge and preview their notes on hover or focus. The badge is
+        // drawn over the picture, so labels, box sizes and chips stay as they were.
+        const peek=document.createElement('div');peek.className='magi-diagram-peek';peek.setAttribute('role','tooltip');peek.hidden=true;box.append(peek);
+        let peekTimer=0, marked=0;
+        const hidePeek=()=>{clearTimeout(peekTimer);peek.hidden=true;};
+        const showPeek=(el,text)=>{clearTimeout(peekTimer);peekTimer=setTimeout(()=>{const r=el.getBoundingClientRect(),f=box.getBoundingClientRect();peek.textContent=text;peek.style.left=Math.max(0,r.left-f.left)+'px';peek.style.top=(r.bottom-f.top+6)+'px';peek.hidden=false;},300);};
+        const badge=(parent,cx,cy,tr)=>{const ns='http://www.w3.org/2000/svg',g=document.createElementNS(ns,'g');g.setAttribute('class','magi-note-badge');g.setAttribute('aria-hidden','true');if(tr) g.setAttribute('transform',tr);
+          const put=(t,a)=>{const e=document.createElementNS(ns,t);for(const k in a) e.setAttribute(k,a[k]);g.append(e);};
+          put('circle',{class:'b',cx,cy,r:8});put('circle',{class:'g',cx,cy:cy-3.2,r:1.3});put('rect',{class:'g',x:cx-1.1,y:cy-1.2,width:2.2,height:5.2,rx:1});parent.append(g);};
+        const invite=(el,label,text)=>{marked++;el.classList.add('magi-described');el.setAttribute('aria-label',label+say(', has notes',', 설명 있음'));
+          el.addEventListener('mouseenter',()=>showPeek(el,text));el.addEventListener('mouseleave',hidePeek);el.addEventListener('focus',()=>showPeek(el,text));el.addEventListener('blur',hidePeek);el.addEventListener('click',hidePeek);};
         svg.querySelectorAll(EDGES).forEach(e=>{
           if(!e.getAttribute('d') && !e.hasAttribute('x1')) return;
           e.classList.add('magi-edge');
@@ -485,6 +504,8 @@
           h.setAttribute('tabindex','0'); h.setAttribute('role','button'); h.setAttribute('aria-pressed','false'); h.setAttribute('aria-label',say('Arrow','화살표'));
           const tr=e.getAttribute('transform'); if(tr) h.setAttribute('transform',tr);
           e.__magiHit=h; e.after(h);
+          { const named=edgeName(e), told=named&&descriptions[named];
+            if(told && e.getTotalLength){ const L=e.getTotalLength(), p=L?e.getPointAtLength(L/2):null; if(p) badge(h.parentNode,p.x,p.y,tr); invite(h,named,told); } }
           const choose=()=>{
             if(selectedNode){ selectedNode.classList.remove('magi-selected'); selectedNode.setAttribute('aria-pressed','false'); selectedNode=null; }
             const next=edgeName(e); if(!next) return;
@@ -492,7 +513,7 @@
             selectedEdge=e; e.classList.add('magi-edge-selected'); h.setAttribute('aria-pressed','true'); h.setAttribute('aria-label',next); remember({node:''}); flowPaint();
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=false;info.hidden=false;heading.textContent=selected;
-            description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
+            description.textContent=descriptions[selected]||'';description.hidden=!description.textContent;if(composerMounted&&!description.textContent) info.hidden=true;hidePeek();
             note.textContent=say('Selected: ','선택: ')+selected;
             if(window.magiDiagramComposer||window.__magiNodeHook){ questionLabel.remove(); ask.remove(); manualCopy.remove(); note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected; }
             window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}})); refit();
@@ -515,7 +536,7 @@
             const next=(n.textContent||'').trim();
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
-            description.textContent=descriptions[selected]||say('No explanation was supplied for this element. You can ask a follow-up question below.','이 요소의 설명이 제공되지 않았습니다. 아래에서 추가 질문을 작성할 수 있습니다.');
+            description.textContent=descriptions[selected]||'';description.hidden=!description.textContent;if(composerMounted&&!description.textContent) info.hidden=true;hidePeek();
             note.textContent=say('Selected: ','선택: ')+selected;if(window.magiDiagramComposer||window.__magiNodeHook){questionLabel.remove();ask.remove();manualCopy.remove();note.textContent=say('Added to the message: ','메시지에 넣었습니다: ')+selected;}if(selected) window.dispatchEvent(new CustomEvent('magi-diagram-select',{detail:{label:selected}}));refit();
           };
           const followup=e=>{e.preventDefault();select();question.focus();};
@@ -523,6 +544,14 @@
           n.addEventListener('keydown',e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')) followup(e);});
           n.addEventListener('click',select);n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});
         });
+        svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
+          const name=(n.textContent||'').trim(), told=descriptions[name]; if(!told) return;
+          const group=n.tagName.toLowerCase()==='g', shape=group?(n.querySelector('.label-container')||n.querySelector(':scope > rect,:scope > circle,:scope > ellipse,:scope > polygon,:scope > path')||n):n;
+          try { const bb=shape.getBBox(); badge(group?n:n.parentNode,bb.x+bb.width-3,bb.y+3,group?'':n.getAttribute('transform')); } catch { /* not measurable yet */ }
+          invite(n,name,told);
+        });
+        if(marked){ const legend=document.createElement('span'),mark=document.createElement('b');legend.className='magi-diagram-legend';mark.textContent='i';
+          legend.append(mark,say(composerMounted?'has notes · pick any element to attach it':'has notes · pick any element to ask about it',composerMounted?'설명 있음 · 아무 요소나 눌러 질문에 첨부':'설명 있음 · 아무 요소나 눌러 질문'));bar.append(legend); }
         // A click on the background lets go of what was picked, so its elevation drops again.
         svg.addEventListener('click',ev=>{
           if(ev.target.closest('[role=button],.magi-edge-hit,.magi-edge-text')) return;
@@ -536,6 +565,20 @@
         // is already in the composer).
         if(kept.node){ const back=[...svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup')].find(n=>(n.textContent||'').trim()===kept.node);
           if(back){ back.classList.add('magi-selected'); back.setAttribute('aria-pressed','true'); selectedNode=back; selected=kept.node; } }
+        // The notes have their room from the start: the slot is as tall as the tallest notes this diagram
+        // can open, so opening or closing them never moves what is below.
+        const reserve=()=>{
+          const width=layout.offsetWidth; if(!width||width===reserve.width) return; reserve.width=width;
+          const keys=Object.keys(descriptions).filter(k=>descriptions[k]);
+          if(!composerMounted) keys.push(keys.length?keys[0]:'');
+          const keep=[info.hidden,heading.textContent,description.textContent,description.hidden];let most=0;
+          if(keys.length){ info.style.visibility='hidden';info.hidden=false;
+            for(const k of keys){ heading.textContent=k||'·';description.textContent=descriptions[k]||'';description.hidden=!description.textContent;most=Math.max(most,info.offsetHeight); }
+            info.style.visibility=''; }
+          [info.hidden,heading.textContent,description.textContent,description.hidden]=keep;
+          slot.style.minHeight=most?most+'px':'';
+        };
+        reserve(); if(window.ResizeObserver) new ResizeObserver(()=>reserve()).observe(layout);
         flowPaint();
       } catch(e) { note.textContent=say('Diagram could not be rendered: ','다이어그램을 표시할 수 없습니다: ')+e.message; sourceBox.open=true; }
     });
