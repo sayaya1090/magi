@@ -26,9 +26,12 @@ class MarkdownTest {
     }
 
     @Test
-    fun `모르는 문법은 원문 그대로 — 어설픈 반쪽 렌더보다 정직한 원문`() {
-        val md = "[이름](http://x) 그대로"
-        assertTrue(Markup.markdown(md).contains("[이름](http://x)"))
+    fun `링크 이미지 취소선도 편다 — 스트리밍 중 괄호와 물결 원문이 안 보이게`() {
+        // 옛 계약(「모르는 문법은 원문 그대로」)은 사용자 요청 「엠디는 바로바로 서식화」로 바뀌었다.
+        assertEquals("<u>이름</u> 그대로", Markup.markdown("[이름](http://x) 그대로"))
+        assertEquals("<i>그림</i> 끝", Markup.markdown("![그림](a.png) 끝"))
+        assertEquals("<s>취소</s>", Markup.markdown("~~취소~~"))
+        assertEquals("<code>[a](b) ~~c~~</code>", Markup.markdown("`[a](b) ~~c~~`"))
     }
 
     @Test
