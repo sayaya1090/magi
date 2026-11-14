@@ -440,6 +440,21 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             page.evaluate("window.__magi_test_fleet('idle', 's_now')")
         }
+        When("과거 대화에서 노드 칩을 고른 뒤 다른 과거 대화로 옮기면") {
+            page.evaluate("window.__magi_test_past('s_old')")
+            page.evaluate("window.dispatchEvent(new CustomEvent('magi-diagram-select', {detail: {label: 'Start'}}))")
+            page.waitForSelector("#dock .nodechips .nodechip")
+            page.evaluate("window.__magi_test_past('s_older')")
+            Then("그 대화의 질문에 붙지 않는다") {
+                page.waitForCondition { page.locator("#dock .nodechips .nodechip").count() == 0 }
+            }
+            page.evaluate("window.__magi_test_past('s_old')")
+            Then("처음 대화로 돌아오면 그 칩이 되살아난다") {
+                page.waitForCondition { page.locator("#dock .nodechips .nodechip").count() == 1 }
+                page.locator("#dock md-input-chip.nodechip").getAttribute("data-node") shouldBe "Start"
+            }
+            page.locator("#dock md-input-chip.nodechip").evaluate("c => c.dispatchEvent(new Event('remove'))")
+        }
         When("지금 대화로 돌아오면") {
             page.evaluate("window.__magi_test_past(null)")
             Then("전사와 컴포저가 돌아온다") {

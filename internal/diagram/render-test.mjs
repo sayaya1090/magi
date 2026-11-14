@@ -140,5 +140,13 @@ try {
  const named=page.locator('figure.magi-diagram').last();
  await named.locator('.magi-diagram-cases input[value="Case 1"]').check();
  assert.equal(await named.evaluate(f=>[...f.querySelectorAll('.flowchart-link')].filter(e=>getComputedStyle(e).animationName==='magi-flow').map(e=>e.getAttribute('data-id')).sort().join(',')),'route,save','named arrows follow their case');
+ // A diagram drawn while hidden must not freeze its named arrows' ends (all nodes measure 0 then).
+ const m=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await page.evaluate(()=>{const d=document.createElement('div');d.id='hiddenbox';d.style.display='none';d.innerHTML='<pre><code class="language-mermaid"></code></pre>';d.querySelector('code').textContent='flowchart LR\n A[Start] route@--> B[Check]\n B save@--> C[Save]\n%% magi-flows {"Case 1":["Start","Check","Save"]}';document.body.append(d);});
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,m+1);
+ await page.evaluate(()=>{document.getElementById('hiddenbox').style.display='block';});
+ const shown=page.locator('#hiddenbox figure.magi-diagram');
+ await shown.locator('.magi-diagram-cases input[value="Case 1"]').check();
+ assert.equal(await shown.evaluate(f=>[...f.querySelectorAll('.flowchart-link')].filter(e=>getComputedStyle(e).animationName==='magi-flow').map(e=>e.getAttribute('data-id')).sort().join(',')),'route,save','named arrows drawn while hidden follow their case once shown');
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

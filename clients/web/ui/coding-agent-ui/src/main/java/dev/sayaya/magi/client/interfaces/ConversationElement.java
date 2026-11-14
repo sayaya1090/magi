@@ -182,6 +182,8 @@ public class ConversationElement {
     private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
         pastNow = ctx == null ? null : ctx.past;
         subNow = ctx == null || ctx.sub == null || ctx.sub.isEmpty() ? null : ctx.sub;
+        // 칩은 보고 있는 대화의 것이다 — 지난 일 A에서 B로 넘어가도 조준한 세션은 그대로라 여기서 갈아 끼운다.
+        swapNodes();
         // 지난 일과 자식은 <b>같은 자리</b>를 대신한다 — 둘 다 지금 대화를 물리고 그 자리에 선다.
         boolean layered = pastNow != null || subNow != null;
         // 빈 past는 목록이다 — 고른 대화가 아직 없으니 보낼 곳도 없다.
@@ -724,7 +726,9 @@ public class ConversationElement {
 
     /** 조준한 대화가 바뀌면 칩을 그 대화 몫으로 갈아 끼운다(떠나는 대화의 칩은 보관). */
     private void swapNodes() {
-        String sid = aimed == null || aimed.session == null ? "" : aimed.session;
+        // 화면에 열린 지난 대화가 있으면 그 대화, 없으면 조준한 세션 — 말이 갈 곳과 같은 기준이다.
+        String sid = pastNow != null && !pastNow.isEmpty() ? pastNow
+                : aimed == null || aimed.session == null ? "" : aimed.session;
         if (sid.equals(nodesSession)) return;
         if (nodes.isEmpty()) nodesBySession.remove(nodesSession);
         else nodesBySession.put(nodesSession, new java.util.ArrayList<>(nodes));

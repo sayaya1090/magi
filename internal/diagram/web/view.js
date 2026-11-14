@@ -261,8 +261,11 @@
       const id=e.getAttribute('data-id')||'', keys=new Set([...svg.querySelectorAll('.node')].map(nodeKey).filter(Boolean));
       const auto=id.match(/^L_(.+)_\d+$/);
       if(auto){ const body=auto[1]; for(const k of keys) if(body.startsWith(k+'_') && keys.has(body.slice(k.length+1))) return e.__magiEdge=body; }
-      let key='';
+      // A diagram drawn while hidden has every node at size 0, and the nearest node to both ends
+      // is the same one: such a guess is not kept, and the next paint measures again.
+      let key='', measured=false;
       try {
+        measured=[...svg.querySelectorAll('.node')].some(n=>{ const r=n.getBoundingClientRect(); return r.width>0||r.height>0; });
         const m=e.getScreenCTM(), len=e.getTotalLength();
         const end=t=>{ const q=e.getPointAtLength(t); const x=m.a*q.x+m.c*q.y+m.e, y=m.b*q.x+m.d*q.y+m.f; let best='', dist=Infinity;
           svg.querySelectorAll('.node').forEach(n=>{ const r=n.getBoundingClientRect(); const dx=Math.max(r.left-x,0,x-r.right), dy=Math.max(r.top-y,0,y-r.bottom), d=dx*dx+dy*dy; if(d<dist){dist=d;best=nodeKey(n);} });
@@ -270,6 +273,7 @@
         const a=end(0), b=end(len); if(a&&b) key=a+'_'+b;
       } catch { /* no geometry: the arrow simply never moves on its own */ }
       if(!key && auto) key=auto[1];
+      if(!measured) return key;
       return e.__magiEdge=key;
     };
     const flowPaint=()=>{
