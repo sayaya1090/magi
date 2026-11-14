@@ -83,3 +83,12 @@ A detached checkout of `bbc501ed`, with the resume button’s local variable ren
 The JSONL race suite and recovery process tests passed with the persistent metadata cache. Tests cover corrupt and unwritable caches, external append, atomic replacement and in-place edits that restore the original size and modification time. Windows and Linux test binaries were cross-compiled; this is not runtime validation on those operating systems. With 64 logs totaling 16 MiB, a new store followed by a cached disk listing measured 1.66ms; a warm in-memory listing measured 0.16ms (Apple M4 Pro, 20 iterations).
 
 Remote-provider verification could not proceed with the available configuration: the Gemini profile endpoint was unreachable, and the configured cloud model was absent from the responding server’s model list. Only local models were listed. This is a connection prerequisite check, not a successful remote outage/recovery test.
+
+
+## Live remote response recovery (2026-11-14)
+
+Further discovery found a responding Claude Code adapter. `TestRemoteProviderDisconnectRecovery` passed with its `haiku` model under Go’s race detector. It sent a short text-only request through the real provider, forwarded the first content fragment through a local proxy, then truncated the response. The continuation request contained the saved prefix. A live transcript subscription was disconnected during recovery and reattached from its durable cursor; it received the final answer without duplicated durable events or user resubmission.
+
+The final run used temporary session `s_08f9b43f9abdb746a0fd5a66`: one user prompt, two model requests, 14 saved characters and 37 replay/live events after reconnection. The test completed in 5.81 seconds. Tools were not registered. No plugin was installed or restarted, and the existing conversation was not used.
+
+This verifies actual remote responses with a locally injected interruption, not a provider-wide outage, quota exhaustion or prolonged overload. The test is skipped by default. To run it deliberately, set `MAGI_VERIFY_REMOTE_URL` to an OpenAI-compatible base URL and `MAGI_VERIFY_REMOTE_MODEL` to a model, with optional `MAGI_VERIFY_REMOTE_KEY`, then run `go test -race ./internal/adapter/daemon -run '^TestRemoteProviderDisconnectRecovery$' -count=1 -v -timeout=150s`. It permits at most two upstream generation requests and may incur provider charges. Use a text-only model adapter; direct provider endpoints have not been verified by this run.
