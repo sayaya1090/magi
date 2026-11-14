@@ -223,6 +223,8 @@ class TailScrollTest : BasePlatformTestCase() {
             tail.streaming(true)
             body.preferredSize = Dimension(300, 4600)
             flush(pane); assertAtEnd(pane)
+            // The virtual range (MagiToolWindow: y = if (followingEnd) endPosition else viewPosition) keeps the end base while streaming.
+            assertTrue("streaming at the end keeps the end as the range base", tail.followingEnd)
         } finally { tail.close() }
     }
 

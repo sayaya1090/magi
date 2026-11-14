@@ -119,5 +119,40 @@ class TranscriptReflowTest : BasePlatformTestCase() {
             assertEquals("the person moved during the short measure; the view stays where they put it", 600, f.y)
         } finally { f.tail.close() }
     }
+
+    /** Review: keys during the short measure must cancel the held return, like the wheel. */
+    fun testAKeyMoveDuringAShortMeasureDropsTheHeldPosition() {
+        val f = Fixture()
+        try {
+            f.build(sizes)
+            f.tail.restore(1400, false); f.flush()
+            f.resize(2, 304)
+            val keys = TailScroll::class.java.getDeclaredField("keys").apply { isAccessible = true }.get(f.tail) as java.awt.KeyEventDispatcher
+            keys.dispatchKeyEvent(java.awt.event.KeyEvent(f.column, java.awt.event.KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0,
+                java.awt.event.KeyEvent.VK_PAGE_UP, java.awt.event.KeyEvent.CHAR_UNDEFINED))
+            f.pane.verticalScrollBar.value = 600; f.flush()   // Swing's own Page Up action moves the bar
+            assertEquals(600, f.y)
+            f.resize(2, 1348)
+            assertEquals("a key move during the short measure keeps the view where the person put it", 600, f.y)
+        } finally { f.tail.close() }
+    }
+
+    /** Review: a scrollbar press during the short measure must cancel the held return, like the wheel. */
+    fun testAScrollbarMoveDuringAShortMeasureDropsTheHeldPosition() {
+        val f = Fixture()
+        try {
+            f.build(sizes)
+            f.tail.restore(1400, false); f.flush()
+            f.resize(2, 304)
+            val bar = f.pane.verticalScrollBar
+            val t = System.currentTimeMillis()
+            bar.dispatchEvent(java.awt.event.MouseEvent(bar, java.awt.event.MouseEvent.MOUSE_PRESSED, t, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1))
+            bar.dispatchEvent(java.awt.event.MouseEvent(bar, java.awt.event.MouseEvent.MOUSE_RELEASED, t + 1, 0, 5, 5, 1, false, java.awt.event.MouseEvent.BUTTON1))
+            bar.value = 600; f.flush()                       // where the drag left the bar
+            assertEquals(600, f.y)
+            f.resize(2, 1348)
+            assertEquals("a scrollbar move during the short measure keeps the view where the person put it", 600, f.y)
+        } finally { f.tail.close() }
+    }
 }
 
