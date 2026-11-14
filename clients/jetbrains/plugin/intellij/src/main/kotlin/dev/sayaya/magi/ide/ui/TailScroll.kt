@@ -11,7 +11,23 @@ import javax.swing.SwingUtilities
 import javax.swing.event.ChangeListener
 
 /** Follow delayed row sizing until the person scrolls away. All state belongs to the EDT. */
-internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
+internal class TailScroll(private val pane: JScrollPane, private val graceMs: Long = 1500L) : AutoCloseable {
+    /**
+     * Following the end is for an answer still arriving. After the turn a diagram node or radio pick
+     * grows or shrinks a row (the notes under the diagram), and the view used to be pulled to the new
+     * end under the pointer (sandbox: following=true, height 720->847, tail 3282->3447). Rows still
+     * measured just after the turn are covered by [graceMs]; an explicit pull always goes once.
+     */
+    private var streaming = true
+    private var quietSince = 0L
+    private var pinPending = false
+    private fun pulls() = pinPending || streaming || System.currentTimeMillis() - quietSince < graceMs
+
+    /** Whether a turn is open; height changes only pull to the end while it is (and for [graceMs] after). */
+    fun streaming(on: Boolean) {
+        if (on) streaming = true
+        else if (streaming) { streaming = false; quietSince = System.currentTimeMillis() }
+    }
     // Every switch is recorded: a view thrown to the end has a follow 0->1 just before it.
     private var following = true
         set(v) {
@@ -81,23 +97,24 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
     }
 
     fun contentChanged() {
-        if (closed || !following || dragging || queued) return
+        if (closed || !following || dragging || queued || !pulls()) return
         queued = true
         SwingUtilities.invokeLater {
             queued = false
-            if (!closed && following && !dragging) {
+            if (!closed && following && !dragging && pulls()) {
                 val end = (bar.maximum - bar.visibleAmount).coerceAtLeast(bar.minimum)
                 if (bar.value != end) { ScrollTrace.note("tail", bar.value, end); bar.value = end }
+                pinPending = false
             }
         }
     }
 
     fun restore(position: Int, follow: Boolean) {
         gesture++; dragging = false; following = follow
-        if (follow) contentChanged() else bar.value = position.coerceAtLeast(0)
+        if (follow) { pinPending = true; contentChanged() } else bar.value = position.coerceAtLeast(0)
     }
 
-    fun followEnd() { ScrollTrace.note("follow-end", bar.value, bar.value); gesture++; following = true; contentChanged() }
+    fun followEnd() { ScrollTrace.note("follow-end", bar.value, bar.value); gesture++; following = true; pinPending = true; contentChanged() }
 
     override fun close() {
         closed = true

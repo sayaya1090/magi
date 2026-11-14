@@ -192,4 +192,38 @@ class TailScrollTest : BasePlatformTestCase() {
         assertEquals(30.0, TailScroll.wheelPixels(wheel(3, 1.0)), 1e-9)
         assertEquals(-1.5, TailScroll.wheelPixels(wheel(1, -0.15)), 1e-9)
     }
+
+    /**
+     * A diagram node or radio picked after the answer ended shows or hides the notes under the diagram,
+     * and the row grows or shrinks. Sandbox repro: following=true, height 720->847, tail 3282->3447 -
+     * the diagram under the pointer jumped 165px. Following the end is for an answer still arriving.
+     */
+    fun testGrowthAfterTheTurnEndedDoesNotPullTheViewToTheEnd() {
+        val body = JPanel().apply { preferredSize = Dimension(300, 4000) }
+        val pane = JScrollPane(body).apply { size = Dimension(400, 300) }
+        val tail = TailScroll(pane, graceMs = 0)
+        try {
+            flush(pane); assertAtEnd(pane)
+            tail.streaming(false)
+            val before = pane.verticalScrollBar.value
+            body.preferredSize = Dimension(300, 4127)
+            flush(pane)
+            assertEquals("a height change after the turn leaves the reader where they are", before, pane.verticalScrollBar.value)
+            tail.followEnd()
+            flush(pane); assertAtEnd(pane)
+        } finally { tail.close() }
+    }
+
+    fun testGrowthWhileTheTurnStreamsStillFollowsTheEnd() {
+        val body = JPanel().apply { preferredSize = Dimension(300, 4000) }
+        val pane = JScrollPane(body).apply { size = Dimension(400, 300) }
+        val tail = TailScroll(pane, graceMs = 0)
+        try {
+            flush(pane); assertAtEnd(pane)
+            tail.streaming(true)
+            body.preferredSize = Dimension(300, 4600)
+            flush(pane); assertAtEnd(pane)
+        } finally { tail.close() }
+    }
 }
+

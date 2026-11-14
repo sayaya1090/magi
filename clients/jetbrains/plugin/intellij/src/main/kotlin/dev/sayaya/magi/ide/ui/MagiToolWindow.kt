@@ -1647,6 +1647,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 // Text components repaint their changed region. Do not invalidate the whole
                 // transcript on each token or viewport notification (including native browsers).
                 if (structureChanged) column.repaint()
+                // Only an answer still arriving pulls the view to the end (TailScroll.streaming).
+                tailScroll.streaming(shaper.open)
                 tailScroll.contentChanged()
             }
         }
