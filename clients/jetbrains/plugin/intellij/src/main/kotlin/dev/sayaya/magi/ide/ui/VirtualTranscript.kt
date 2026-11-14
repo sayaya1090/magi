@@ -148,6 +148,12 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
         if (updated) { revalidate(); changed() }
     }
 
+    private fun layOut(c: java.awt.Component) {
+        if (c !is java.awt.Container) return
+        c.doLayout()
+        c.components.forEach { layOut(it) }
+    }
+
     /** Measures attached rows from [from] on; true when any height changed. */
     private fun measure(from: Int): Boolean {
         var updated = false
@@ -155,6 +161,11 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
             val index = first + local
             if (index !in heights.indices || index < from) return@forEachIndexed
             component.setSize(width.coerceAtLeast(1), heights[index])
+            // Lay the row out at this width before asking its height: a wrapping text area that has
+            // never been laid out is 0px wide and reports one line. A rebuilt row measured one line,
+            // then its laid-out copy three, and the row flipped 36<->60 for as long as rows were
+            // rebuilt (sandbox: a 491-character System row while an answer streamed).
+            layOut(component)
             val h = component.preferredSize.height.coerceAtLeast(1)
             if (heights[index] != h) {
                 ScrollTrace.note("height", heights[index], h, "row=$index ${component.javaClass.simpleName}")

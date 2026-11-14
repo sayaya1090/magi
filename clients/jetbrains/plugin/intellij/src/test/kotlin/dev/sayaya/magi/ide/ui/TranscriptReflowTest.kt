@@ -154,5 +154,28 @@ class TranscriptReflowTest : BasePlatformTestCase() {
             assertEquals("a scrollbar move during the short measure keeps the view where the person put it", 600, f.y)
         } finally { f.tail.close() }
     }
+
+    /**
+     * Sandbox (19:11:47): a System row with 491 wrapped characters measured 36px when freshly built
+     * (its text area still 0px wide: one line) and 60px once laid out (1266px wide: three lines). Rows
+     * are rebuilt while an answer streams, so it flipped 36<->60 without end and the anchor shook the view.
+     */
+    fun testAFreshlyBuiltWrappedRowMeasuresItsWrappedHeight() {
+        fun wrapped() = JPanel(java.awt.BorderLayout(0, 2)).apply {
+            add(javax.swing.JTextArea("orchestrator note: " + "a wrapped line of text ".repeat(30)).apply { lineWrap = true; wrapStyleWord = true }, java.awt.BorderLayout.CENTER)
+            add(JPanel().apply { preferredSize = Dimension(24, 20) }, java.awt.BorderLayout.EAST)
+        }
+        val oneLine = javax.swing.JTextArea("x").preferredSize.height
+        val f = Fixture()
+        try {
+            f.build(intArrayOf(120, 120))
+            f.column.add(wrapped()); f.column.rekey(listOf("r0", "r1", "w")); f.column.range(3, 0, 400)
+            f.column.revalidate(); f.flush()
+            val first = f.column.getComponent(2).height
+            assertTrue("a fresh wrapped row is measured wrapped (was one line: $first)", first > oneLine * 3)
+            f.column.remove(2); f.column.add(wrapped(), 2); f.column.revalidate(); f.flush()
+            assertEquals("a rebuilt copy of the same row keeps its height", first, f.column.getComponent(2).height)
+        } finally { f.tail.close() }
+    }
 }
 
