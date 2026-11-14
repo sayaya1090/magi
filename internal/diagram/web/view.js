@@ -51,6 +51,39 @@
     if (/%%\s*\{|^\s*---|^\s*click\s|<\s*\/?\s*[a-z]|https?:\/\//im.test(source))
       throw Error(say('Use plain labels without HTML, links, click directives or configuration.', 'HTML, 링크, click 지시문, 설정 없이 일반 라벨을 사용해 주세요.'));
   }
+  // Material 3 default theme: colors from the host's --md-sys-color roles (m3.material.io color
+  // roles), type at body-medium 14/20 in the host typeface. Mermaid derives shades from real color
+  // values, so the roles are read as computed values. A host that defines none (VS Code, JetBrains
+  // JCEF) gets MAGI's console palette for the light or dark side its text color is on. Node shapes
+  // keep Mermaid's meaning. A diagram's own classDef and style lines still win over the theme.
+  const palette={
+    dark:{'primary':'#FF7A1A','primary-container':'#4A2E0B','on-primary-container':'#FFD9B8','secondary-container':'#2B251C','on-secondary-container':'#E8E2D8','surface':'#14110D','on-surface':'#E8E2D8','on-surface-variant':'#C9C2B8','surface-container':'#211B14','surface-container-high':'#2B251C','surface-container-highest':'#352E24','outline':'#72675C','outline-variant':'#463E34'},
+    light:{'primary':'#B45309','primary-container':'#F8D9A8','on-primary-container':'#3A1B00','secondary-container':'#ECE5D9','on-secondary-container':'#221D16','surface':'#FBF8F3','on-surface':'#221D16','on-surface-variant':'#4A453C','surface-container':'#F2ECE2','surface-container-high':'#ECE5D9','surface-container-highest':'#E6DED1','outline':'#8A7E6E','outline-variant':'#D8CFC0'}
+  };
+  const colorValue=v=>/^(#[0-9a-f]{3,8}|rgba?[(][0-9., %]+[)])$/i.test(v)?v:'';
+  function themeFor(el) {
+    const cs=getComputedStyle(el);
+    const rgb=(cs.color.match(/[0-9.]+/g)||['0','0','0']).map(Number);
+    const dark=(0.2126*rgb[0]+0.7152*rgb[1]+0.0722*rgb[2])/255>0.5;
+    const base=palette[dark?'dark':'light'];
+    const role=n=>colorValue(cs.getPropertyValue('--md-sys-color-'+n).trim())||base[n];
+    // Mermaid's sanitizer blanks a theme value holding characters such as a hyphen, so families
+    // like ui-monospace are left out rather than losing the whole list.
+    const family=(cs.getPropertyValue('--md-ref-typeface-plain').trim()||cs.fontFamily).split(',')
+      .map(f=>f.trim()).filter(f=>/^[A-Za-z0-9 ."]+$/.test(f)).join(', ')||'Arial';
+    const vars={darkMode:dark,background:role('surface'),fontFamily:family,fontSize:'14px',
+      primaryColor:role('primary-container'),primaryTextColor:role('on-primary-container'),primaryBorderColor:role('primary'),
+      secondaryColor:role('secondary-container'),secondaryTextColor:role('on-secondary-container'),secondaryBorderColor:role('outline'),
+      tertiaryColor:role('surface-container-high'),tertiaryTextColor:role('on-surface'),tertiaryBorderColor:role('outline-variant'),
+      mainBkg:role('primary-container'),nodeBorder:role('primary'),nodeTextColor:role('on-primary-container'),
+      textColor:role('on-surface'),titleColor:role('on-surface'),lineColor:role('on-surface-variant'),
+      clusterBkg:role('surface-container'),clusterBorder:role('outline-variant'),edgeLabelBackground:role('surface-container-highest'),
+      actorBkg:role('primary-container'),actorBorder:role('primary'),actorTextColor:role('on-primary-container'),actorLineColor:role('outline'),
+      signalColor:role('on-surface'),signalTextColor:role('on-surface'),labelBoxBkgColor:role('surface-container-high'),
+      labelBoxBorderColor:role('outline'),labelTextColor:role('on-surface'),
+      noteBkgColor:role('secondary-container'),noteTextColor:role('on-secondary-container'),noteBorderColor:role('outline-variant')};
+    return {vars,key:JSON.stringify(vars)};
+  }
   function mount(pre, source, nativeSVG) {
     const input=pre.querySelector('code')||pre;
     if ((!nativeSVG && input.querySelector('svg, img, iframe, object')) || pre.dataset.magiDiagram === source) return;
@@ -132,12 +165,13 @@
           // and theme. Never parse its CSS/text as Mermaid or render it twice.
           svg=nativeSVG;
         } else {
-          let rendered=cache.get(source);
+          const theme=themeFor(box), key=theme.key+source;
+          let rendered=cache.get(key);
           if (!rendered) {
-            window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'neutral',maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
+            window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'base',themeVariables:theme.vars,fontFamily:theme.vars.fontFamily,maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
             rendered=(await window.mermaid.render('magiDiagram'+(++seq),source)).svg;
             if(cache.size>=32) cache.delete(cache.keys().next().value);
-            cache.set(source,rendered);
+            cache.set(key,rendered);
           }
           if(!box.isConnected) return;
           // Only Mermaid's strict-mode output enters this isolated SVG parse boundary.

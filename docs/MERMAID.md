@@ -24,6 +24,8 @@ The `skill` tool can load `visual-explanation`. This built-in guide covers flowc
 
 TUI answers contain a short explanation and the HTML link only. Do not expand the source. Source copying is available inside the preview. Files are saved under `magi/diagrams` in the user cache; no browser is launched automatically. Users can remove these files through their cache cleanup policy.
 
+Default look: graphical clients draw diagrams with the Mermaid `base` theme filled from Material 3 color roles. Nodes use primary-container with an on-primary-container label and a primary border, edges use on-surface-variant, and clusters use surface-container. Roles are read from the host's `--md-sys-color-*` values. A host that defines none (VS Code, JetBrains JCEF) gets the web console palette for its light or dark side, chosen by its text color. Text uses the host typeface (`--md-ref-typeface-plain`, otherwise the page font) at body-medium 14px. A diagram's own `classDef` and `style` lines take precedence, and `%%{init}` configuration stays blocked. When JetBrains has already rendered the SVG itself, its IDE theme is kept.
+
 ## Browser availability
 
 Check before registering the TUI tool and again when executing it. Exclude SSH and CI. On macOS, require a console session owned by the current user and Safari discoverable through Launch Services. On Linux, require DISPLAY or WAYLAND_DISPLAY, xdg-open, a default browser setting and a known browser executable. Windows TUI preview remains hidden.

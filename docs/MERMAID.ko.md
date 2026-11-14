@@ -24,6 +24,8 @@
 
 TUI 답변에는 짧은 설명과 HTML 링크만 제공합니다. 원본은 펼쳐 표시하지 않습니다. 링크를 열면 원본 복사가 가능합니다. 파일은 사용자 캐시의 `magi/diagrams` 아래 저장되며 브라우저를 자동 실행하지 않습니다. 캐시 파일은 사용자 캐시 정리 정책에 따라 제거할 수 있습니다.
 
+기본 모양: 그래픽 클라이언트는 Mermaid `base` 테마에 Material 3 색 롤을 채워 그립니다. 노드는 primary-container 바탕에 on-primary-container 글자와 primary 테두리를 쓰고, 연결선은 on-surface-variant, 묶음은 surface-container를 씁니다. 롤은 호스트의 `--md-sys-color-*` 값에서 읽습니다. 롤을 정의하지 않는 호스트(VS Code, JetBrains JCEF)는 글자색으로 라이트와 다크를 가려 웹 콘솔 팔레트를 씁니다. 글자는 호스트 서체(`--md-ref-typeface-plain`, 없으면 페이지 서체)로 body-medium 14px입니다. 다이어그램의 `classDef`와 `style` 줄이 우선하고, `%%{init}` 설정은 계속 막습니다. JetBrains가 SVG를 직접 그린 경우에는 IDE 테마를 그대로 둡니다.
+
 ## 브라우저 지원 확인
 
 TUI 도구 등록 전과 실행 시 확인합니다. SSH 또는 CI 환경은 제외합니다. macOS는 현재 사용자에게 콘솔 세션이 있고 Safari를 Launch Services에서 찾을 수 있어야 합니다. Linux는 DISPLAY 또는 WAYLAND_DISPLAY, xdg-open, 기본 브라우저 설정, 알려진 브라우저 실행 파일이 필요합니다. Windows TUI 미리보기는 현재 숨깁니다.
