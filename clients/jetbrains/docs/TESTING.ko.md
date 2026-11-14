@@ -2063,6 +2063,12 @@ ProcessCanceledException과 CancellationException은 패치·두 면 비교·원
 ./gradlew :intellij:test --tests '*VirtualTranscriptAnchorTest' --no-daemon
 ```
 
+`TranscriptReflowTest`는 읽고 있는 답변 행의 높이가 발밑에서 바뀔 때를 실제 `JScrollPane`·`VirtualTranscript`·`TailScroll`로 검사합니다. JCEF가 보내는 높이는 행의 `preferredSize`로 흉내 냅니다. 다이어그램 노드를 골라 비고가 나타나 행이 커져도 위치와 끝 따라가기가 그대로인지, IDE 미리보기 재패치로 행이 잠깐 짧게 재졌다가(1348→304→1348) 원래대로 커지면 읽던 줄로 돌아오는지, 실제로 줄어든 답(477)은 빈칸 없이 줄어드는지 봅니다. 끝 따라가기가 켜지는 순간 `ScrollTrace`가 그 앞 2초의 이동(300px 미만 포함)을 함께 덤프하는지도 확인합니다. 실제 JCEF의 높이 보고 순서와 IDE 화면은 이 시험이 확인하지 않습니다.
+
+```bash
+./gradlew :intellij:test --tests '*TranscriptReflowTest' --no-daemon
+```
+
 `TranscriptViewport`는 채팅 입력창에 포커스가 있는 동안 새 읽기 전용 텍스트의 caret 표시 요청이 전사를 움직이지 못하게 합니다. 전사 자체에 포커스가 있으면 키보드 탐색에 필요한 표시 요청은 허용합니다. 실제 Swing 뷰포트 좌표로 두 경우를 검사합니다. 사용자가 휠로 위로 이동하면 새 내용이 추가되어도 위치를 유지하는 기존 `TailScrollTest`도 함께 실행합니다.
 
 이 검증은 공통 IntelliJ Platform 코드와 Swing 동작을 대상으로 합니다. PyCharm·WebStorm·GoLand 각각의 실물 UI 인수를 대신하지 않습니다. JCEF에서 일시적인 작은 높이를 억제하면 해당 응답당 한 번 `streaming preview ignored transient height`를 IDE 로그에 남깁니다.

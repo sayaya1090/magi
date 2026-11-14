@@ -28,10 +28,13 @@ internal object ScrollTrace {
         val now = System.currentTimeMillis()
         ring.addLast(Entry(now, who, from, to, note))
         while (ring.size > 200 || (ring.isNotEmpty() && now - ring.first().at > WINDOW_MS)) ring.removeFirst()
-        if ((who == "anchor" || who == "cef-wheel") && kotlin.math.abs(to - from) >= JUMP &&
-            pending == null && now - lastDump >= 5000) {
+        // A large correction, a forwarded page wheel, a rekey move, or following switching on: dumped a
+        // second later with the whole window, so moves under the jump size are in the record as well.
+        val jump = (who == "anchor" || who == "cef-wheel" || who == "rekey") && kotlin.math.abs(to - from) >= JUMP
+        val followOn = who == "follow" && from == 0 && to == 1
+        if ((jump || followOn) && pending == null && now - lastDump >= 5000) {
             lastDump = now
-            val title = "magi: transcript scroll jump $who $from->$to $note"
+            val title = if (followOn) "magi: transcript scroll following on $note" else "magi: transcript scroll jump $who $from->$to $note"
             pending = javax.swing.Timer(1000) { pending = null; dump(title) }.apply { isRepeats = false; start() }
             return
         }

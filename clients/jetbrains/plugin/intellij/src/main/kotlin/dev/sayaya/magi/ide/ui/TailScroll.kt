@@ -12,7 +12,13 @@ import javax.swing.event.ChangeListener
 
 /** Follow delayed row sizing until the person scrolls away. All state belongs to the EDT. */
 internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
+    // Every switch is recorded: a view thrown to the end has a follow 0->1 just before it.
     private var following = true
+        set(v) {
+            if (field != v) ScrollTrace.note("follow", if (field) 1 else 0, if (v) 1 else 0,
+                "value=${pane.verticalScrollBar.value} max=${pane.verticalScrollBar.maximum} ext=${pane.verticalScrollBar.visibleAmount}")
+            field = v
+        }
     private var queued = false
     private var closed = false
     private var dragging = false

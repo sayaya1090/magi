@@ -12,9 +12,20 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
     private var first = 0
     private var measuring = false
 
-    fun reset() { heights = IntArray(0); offsets = intArrayOf(0); keys = emptyList() }
+    fun reset() { heights = IntArray(0); offsets = intArrayOf(0); keys = emptyList(); held = null }
+
+    private companion object { const val HOLD_MS = 700L }
 
     private var keys: List<String> = emptyList()
+
+    /**
+     * A row measured shorter than the depth the reader was at, kept for a moment. The IDE preview
+     * re-patches an answer and its height is reported short and then whole again (idea.log:
+     * 1348->304->477); the view was cut to the short row and never came back. If the row grows past
+     * that depth again within [HOLD_MS] the reader returns to it; after that a shrink is real.
+     */
+    private class Held(val key: String?, val row: Int, val into: Int, val at: Long)
+    private var held: Held? = null
 
     /**
      * Rows say who they are before the range is asked for. Heights used to be kept by row number only,
@@ -105,7 +116,20 @@ internal class VirtualTranscript(private val changed: () -> Unit) : JBPanel<JBPa
             updated = measure(0)
             if (updated) {
                 rebuild()
-                if (viewport != null) {
+                val now = System.currentTimeMillis()
+                val back = held?.takeIf { now - it.at <= HOLD_MS }?.let { h ->
+                    val row = h.key?.let { k -> keys.indexOf(k).takeIf { it >= 0 } } ?: h.row
+                    if (row in heights.indices && heights[row] > h.into) offsets[row] + h.into else null
+                }
+                if (held != null && (back != null || now - held!!.at > HOLD_MS)) held = null
+                if (viewport != null && back != null) {
+                    if (back != beforeY) {
+                        ScrollTrace.note("held", beforeY, back, "row=$anchor")
+                        viewport.viewPosition = java.awt.Point(viewport.viewPosition.x, back)
+                    }
+                } else if (viewport != null) {
+                    if (anchorOffset >= heights[anchor] && held == null)
+                        held = Held(keys.getOrNull(anchor), anchor, anchorOffset, now)
                     val corrected = (offsets[anchor].toLong() + anchorOffset).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
                     if (corrected != beforeY) {
                         ScrollTrace.note("anchor", beforeY, corrected, "row=$anchor")
