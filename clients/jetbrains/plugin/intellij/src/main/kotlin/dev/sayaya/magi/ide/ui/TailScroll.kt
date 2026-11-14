@@ -97,7 +97,7 @@ internal class TailScroll(private val pane: JScrollPane) : AutoCloseable {
         if (follow) contentChanged() else bar.value = position.coerceAtLeast(0)
     }
 
-    fun followEnd() { gesture++; following = true; contentChanged() }
+    fun followEnd() { ScrollTrace.note("follow-end", bar.value, bar.value); gesture++; following = true; contentChanged() }
 
     override fun close() {
         closed = true

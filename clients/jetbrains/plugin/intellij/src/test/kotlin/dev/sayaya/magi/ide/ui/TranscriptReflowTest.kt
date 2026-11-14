@@ -87,4 +87,23 @@ class TranscriptReflowTest : BasePlatformTestCase() {
             assertTrue("the small move before it is in the dump: " + got[0], got[0].contains("anchor 1000->1120"))
         } finally { ScrollTrace.sink = null; ScrollTrace.reset() }
     }
+
+    fun testATailPullToTheEndIsDumpedSoonAfterAnEarlierDump() {
+        // A radio or node pick in a diagram dropped the view to the bottom, but the tail pull left no
+        // dump: tail moves were never a trigger, and a send 4s earlier had used up the 5s gap.
+        val got = mutableListOf<String>()
+        ScrollTrace.reset(); ScrollTrace.sink = { got += it }
+        try {
+            ScrollTrace.note("follow", 0, 1, "value=1000 max=4000 ext=400")
+            fun wait(n: Int) { val until = System.currentTimeMillis() + 3000
+                while (got.size < n && System.currentTimeMillis() < until) { Thread.sleep(50); UIUtil.dispatchAllInvocationEvents() } }
+            wait(1)
+            Thread.sleep(600); UIUtil.dispatchAllInvocationEvents()
+            ScrollTrace.note("tail", 1000, 3600)
+            wait(2)
+            assertEquals(got.joinToString("\n---\n"), 2, got.size)
+            assertTrue(got[1], got[1].startsWith("magi: transcript scroll jump tail 1000->3600"))
+        } finally { ScrollTrace.sink = null; ScrollTrace.reset() }
+    }
 }
+

@@ -20,6 +20,8 @@ internal object ScrollTrace {
     private fun write(text: String) = sink?.invoke(text) ?: log.info(text)
 
     private const val JUMP = 300
+    /** Between dumps; 5s let a send just before hide the move a person reported. */
+    private const val GAP_MS = 1500L
     private var pending: javax.swing.Timer? = null
 
     internal fun reset() { pending?.stop(); pending = null; ring.clear(); lastDump = 0L }
@@ -30,15 +32,18 @@ internal object ScrollTrace {
         while (ring.size > 200 || (ring.isNotEmpty() && now - ring.first().at > WINDOW_MS)) ring.removeFirst()
         // A large correction, a forwarded page wheel, a rekey move, or following switching on: dumped a
         // second later with the whole window, so moves under the jump size are in the record as well.
-        val jump = (who == "anchor" || who == "cef-wheel" || who == "rekey") && kotlin.math.abs(to - from) >= JUMP
+        // tail and model too: a diagram radio or node pick dropped the view to the bottom through a tail
+        // pull, which was never a trigger, so that moment left no record.
+        val jump = (who == "anchor" || who == "cef-wheel" || who == "rekey" || who == "tail" || who == "model") &&
+            kotlin.math.abs(to - from) >= JUMP
         val followOn = who == "follow" && from == 0 && to == 1
-        if ((jump || followOn) && pending == null && now - lastDump >= 5000) {
+        if ((jump || followOn) && pending == null && now - lastDump >= GAP_MS) {
             lastDump = now
             val title = if (followOn) "magi: transcript scroll following on $note" else "magi: transcript scroll jump $who $from->$to $note"
             pending = javax.swing.Timer(1000) { pending = null; dump(title) }.apply { isRepeats = false; start() }
             return
         }
-        if (who != "model" || now - lastDump < 5000) return
+        if (who != "model" || now - lastDump < GAP_MS) return
         val moves = ring.filter { it.who == "model" && it.to != it.from }.map { Integer.signum(it.to - it.from) }
         val reversals = moves.zipWithNext().count { (a, b) -> a != b }
         if (reversals < REVERSALS) return
