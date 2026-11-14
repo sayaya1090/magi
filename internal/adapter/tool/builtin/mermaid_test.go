@@ -71,3 +71,28 @@ func TestMermaidDescriptionLimits(t *testing.T) {
 		t.Fatalf("accepted oversized combined source: %+v %v", r, err)
 	}
 }
+
+func TestMermaidColorsTravelAsRolesOrHex(t *testing.T) {
+	m := Mermaid{}
+	run := func(colors string) (string, bool) {
+		r, err := m.Execute(context.Background(), json.RawMessage(`{"title":"t","source":"flowchart LR\n A[Start] --> B[Fail]","colors":`+colors+`}`), port.ToolEnv{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text string
+		_ = json.Unmarshal(r.Content, &text)
+		return text, r.IsError
+	}
+	text, bad := run(`{"Start":"primary","Fail":"error","Odd":"#1A2B3C"}`)
+	if bad || !strings.Contains(text, `%% magi-colors {"Fail":"error","Odd":"#1A2B3C","Start":"primary"}`) {
+		t.Fatalf("colors metadata missing (error=%v):\n%s", bad, text)
+	}
+	for _, c := range []string{`"orange"`, `"#12345"`, `"var(--x)"`, `""`} {
+		if _, bad := run(`{"Start":` + c + `}`); !bad {
+			t.Errorf("colour %s accepted", c)
+		}
+	}
+	if !strings.Contains(m.Description(), "colors") || !strings.Contains(string(m.Schema()), "tertiary") {
+		t.Error("the tool does not tell the model the palette roles")
+	}
+}

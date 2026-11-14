@@ -576,6 +576,11 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 	if m, ok := eng.(ModelNamer); ok {
 		resp.Model = m.ModelOf(session.SessionID(req.Session))
 	}
+	if tt, ok := eng.(ThemeTeller); ok {
+		if dark, light := tt.ThemePalettes(); len(dark) > 0 || len(light) > 0 {
+			resp.Theme = &Theme{Dark: dark, Light: light}
+		}
+	}
 	return resp
 }
 

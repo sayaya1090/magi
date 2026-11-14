@@ -183,6 +183,8 @@ data class Response(
      * 모르는 것을 아는 척하게 된다(§0.5-7) — 그래서 `Boolean?` 이다.
      */
     val council: Boolean? = null,
+    /** 이 데몬의 `[theme]` 설정이 풀린 색 역할(어두운/밝은 쪽, 역할 이름→hex). 다이어그램을 사람의 팔레트로 칠한다. */
+    val theme: Theme? = null,
     /**
      * `context` 문의 답 — 이 대화의 창이 얼마나 찼나.
      *
@@ -819,4 +821,11 @@ data class PendingPrompt(
     val session: String,
     val requester: String,
     val prompt: Waiting,
+)
+
+/** 풀린 색 팔레트 — 모드마다 역할 이름→hex. 낡은 데몬은 안 보낸다(null). */
+@Serializable
+data class Theme(
+    val dark: Map<String, String>? = null,
+    val light: Map<String, String>? = null,
 )

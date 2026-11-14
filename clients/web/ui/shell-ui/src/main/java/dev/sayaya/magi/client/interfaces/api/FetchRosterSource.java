@@ -107,6 +107,16 @@ public class FetchRosterSource implements RosterSource {
     private void open() {
         final int mine = ++generation;
         es = dev.sayaya.magi.bridge.Console.stream("/events" + q());
+        // 조준한 데몬이 사람의 [theme] 설정에서 푼 팔레트 — 다이어그램 뷰어가 그것으로 칠한다.
+        // 뷰어 스크립트가 아직 안 떴으면 창에 두고, 뷰어가 뜰 때 집어 간다(view.js).
+        if (socket != null) dev.sayaya.magi.bridge.Console.fetchList("/theme" + q(), parsed -> {
+            if (generation != mine || parsed == null) return;
+            JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+            win.set("magiDiagramTheme", parsed);
+            Object viewer = win.get("magiMermaid");
+            if (viewer != null && Js.asPropertyMap(viewer).get("setTheme") != null)
+                Js.<elemental2.core.Function>uncheckedCast(Js.asPropertyMap(viewer).get("setTheme")).call(viewer, parsed);
+        });
         es.addEventListener("open", evt -> {
             // 붙었다 — 다음 끊김은 다시 1초부터다. 안 지우면 한참 뒤의 첫 끊김이 30초를 기다린다.
             attempt = 0;

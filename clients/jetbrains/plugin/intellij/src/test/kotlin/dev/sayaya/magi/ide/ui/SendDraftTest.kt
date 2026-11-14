@@ -172,4 +172,21 @@ class SendDraftTest : BasePlatformTestCase() {
         val chips: java.awt.Container = h.field("chips")
         assertEquals(1, chips.components.count { (it as? javax.swing.JButton)?.getClientProperty("node") == "Start" })
     }
+    fun testTheDaemonsThemeReachesTheAnswerBrowsers() = check { h ->
+        val wire = dev.sayaya.magi.ide.model.Wire.json.decodeFromString(Response.serializer(),
+            """{"ok":true,"theme":{"dark":{"primary":"#123456"},"light":{"primary":"#ABCDEF"}}}""")
+        assertEquals("#123456", wire.theme?.dark?.get("primary"))
+        val comp = Companion(object : Daemon {
+            override fun exchange(request: Request): Response = wire
+            override fun stream(request: Request, each: (Response) -> Boolean) {}
+            override fun close() {}
+        }, "s1")
+        val theme = comp.facts().theme
+        assertEquals("#ABCDEF", theme?.light?.get("primary"))
+        val script = RichAnswer.themeScript(RichAnswer.themeJson(theme))
+        assertTrue(script, script.contains("window.magiDiagramTheme") && script.contains("setTheme") && script.contains("#ABCDEF"))
+        val answers: RichAnswer = h.field("richAnswers")
+        h.view.useTheme(theme)
+        assertTrue(answers.themeJson.orEmpty().contains("#123456"))
+    }
 }

@@ -34,11 +34,15 @@ func (m Mermaid) Description() string {
 	if m.Preview {
 		return "Create an offline interactive Mermaid HTML preview for this local terminal. Return ONLY the preview link and a short explanation to the user; never print the Mermaid source. Browser capability is checked before this tool is offered and again at execution."
 	}
-	return "Prepare a Mermaid diagram. Use it by default whenever you explain relationships, ordering or causation with two or more steps: architecture, component relations, request or data flows, sequences, state transitions, root-cause chains, the order of an operation, a change across several files, or a comparison of alternatives. Return the fenced diagram in your answer with a short explanation. This checks input limits and policy, not Mermaid grammar; the client renders and reports syntax errors. Load skill visual-explanation for UML guidance."
+	return "Prepare a Mermaid diagram. Use it by default whenever you explain relationships, ordering or causation with two or more steps: architecture, component relations, request or data flows, sequences, state transitions, root-cause chains, the order of an operation, a change across several files, or a comparison of alternatives. Return the fenced diagram in your answer with a short explanation. This checks input limits and policy, not Mermaid grammar; the client renders and reports syntax errors. Load skill visual-explanation for UML guidance. Colour nodes by meaning with colors, choosing Material palette roles by their purpose (primary, secondary, tertiary, error, neutral); a #RRGGBB code only when a specific colour is required. Uncoloured nodes keep the theme."
 }
 func (Mermaid) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"source":{"type":"string","description":"Mermaid source without fences. Plain labels; no HTML, URLs, click directives or configuration."},"descriptions":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional plain-text explanations keyed by the exact visible node label. Keep labels unique."},"animate":{"type":"boolean","description":"Animate data-flow arrows in flowcharts only; use only when arrows represent data movement."}},"required":["title","source"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"source":{"type":"string","description":"Mermaid source without fences. Plain labels; no HTML, URLs, click directives or configuration."},"descriptions":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional plain-text explanations keyed by the exact visible node label. Keep labels unique."},"colors":{"type":"object","additionalProperties":{"type":"string"},"description":"Optional colour per exact visible node label. Prefer a Material palette role, chosen by purpose: primary = the subject of the explanation and its main path; secondary = supporting components; tertiary = what must stand out by contrast (an external system, a proposal, a change); error = failure, risk or root cause; neutral = background context or out of scope. The client paints each role with the person's theme in light or dark. Use #RRGGBB only when a specific colour is required."},"animate":{"type":"boolean","description":"Animate data-flow arrows in flowcharts only; use only when arrows represent data movement."}},"required":["title","source"],"additionalProperties":false}`)
 }
+
+// diagramColour is a node colour: a Material palette role the client paints from the person's theme,
+// or a #RRGGBB code for the rare node that needs a specific colour.
+var diagramColour = regexp.MustCompile(`^(primary|secondary|tertiary|error|neutral|#[0-9A-Fa-f]{6})$`)
 
 var diagramUnsafe = regexp.MustCompile("(?im)%%\\s*\\{|^\\s*---|^\\s*click\\s|<\\s*/?\\s*[a-z]|https?://|```")
 
@@ -47,6 +51,7 @@ func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		Title        string            `json:"title"`
 		Source       string            `json:"source"`
 		Descriptions map[string]string `json:"descriptions"`
+		Colors       map[string]string `json:"colors"`
 		Animate      bool              `json:"animate"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -72,6 +77,21 @@ func (m Mermaid) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 			return errResult("", "Could not encode node descriptions."), nil
 		}
 		args.Source += "\n%% magi-descriptions " + string(metadata)
+	}
+	if len(args.Colors) > 100 {
+		return errResult("", "Provide at most 100 node colours."), nil
+	}
+	for label, colour := range args.Colors {
+		if strings.TrimSpace(label) == "" || len(label) > 200 || diagramUnsafe.MatchString(label) || !diagramColour.MatchString(colour) {
+			return errResult("", "Colour each node label (1–200 bytes) with a palette role — primary, secondary, tertiary, error or neutral — or, only when a specific colour is required, #RRGGBB."), nil
+		}
+	}
+	if len(args.Colors) > 0 {
+		metadata, err := json.Marshal(args.Colors)
+		if err != nil {
+			return errResult("", "Could not encode node colours."), nil
+		}
+		args.Source += "\n%% magi-colors " + string(metadata)
 	}
 	if args.Animate {
 		args.Source += "\n%% magi-animate"

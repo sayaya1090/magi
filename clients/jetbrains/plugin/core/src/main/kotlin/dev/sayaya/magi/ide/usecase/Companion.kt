@@ -369,6 +369,7 @@ class Companion(
             user = it.user?.takeIf { u -> u.isNotBlank() },
             council = it.council,
             profile = it.profile,
+            theme = it.theme,
         )
     }
 
@@ -407,6 +408,8 @@ class Companion(
         /** `doing` 뒤의 센 값. 막대를 그릴 수 있을 때만 있다. */
         val progress: Progress? = null,
         val profile: String? = null,
+        /** 데몬이 사람의 `[theme]` 에서 푼 팔레트. 낡은 데몬이면 null. */
+        val theme: dev.sayaya.magi.ide.model.Theme? = null,
     )
 
     /**

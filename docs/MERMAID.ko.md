@@ -26,6 +26,8 @@ TUI 답변에는 짧은 설명과 HTML 링크만 제공합니다. 원본은 펼�
 
 기본 모양: 그래픽 클라이언트는 Mermaid `base` 테마에 Material 3 색 롤을 채워 그립니다. 노드는 primary-container 바탕에 on-primary-container 글자를 쓰고 테두리는 없으며, 연결선은 on-surface-variant, 묶음은 surface-container를 씁니다. 롤은 호스트의 `--md-sys-color-*` 값에서 읽습니다. 롤을 정의하지 않는 호스트(VS Code, JetBrains JCEF)는 글자색으로 라이트와 다크를 가려 웹 콘솔 팔레트를 씁니다. 글자는 호스트 서체(`--md-ref-typeface-plain`, 없으면 페이지 서체)로 body-medium 14px입니다. 다이어그램의 `classDef`와 `style` 줄이 우선하고, `%%{init}` 설정은 계속 막습니다. 선택할 수 있는 노드는 Material 3 elevation 그림자로 뜹니다. hover는 레벨 1, 포커스나 선택은 레벨 2, 둘을 함께 받으면 레벨 3입니다. 선택된 노드에는 `aria-pressed`를 붙이고, `prefers-reduced-motion`이면 전환 애니메이션을 하지 않습니다. JetBrains가 SVG를 직접 그린 경우에도 노드, 묶음, 연결선에 같은 롤 색을 덧입힙니다.
 
+노드 색: `mermaid` 도구는 선택 인자 `colors`를 받습니다. 화면에 보이는 노드 라벨을 키로 색을 지정합니다. 값은 용도에 따라 고르는 Material 팔레트 롤입니다. `primary`는 설명의 중심과 주 경로, `secondary`는 보조 구성요소, `tertiary`는 대비로 눈에 띄워야 할 것(외부 시스템, 제안, 변경점), `error`는 실패·위험·원인, `neutral`은 배경 맥락이나 범위 밖입니다. 특정 색이 꼭 필요할 때만 `#RRGGBB`를 받습니다. 도구는 이 선택을 `%% magi-colors` 주석으로 싣습니다. 뷰어는 각 롤을 컨테이너와 on-컨테이너 짝으로 칠합니다. 롤 값은 데몬이 `[theme]` 설정에서 푼 팔레트를 먼저 쓰고, 다음으로 호스트의 `--md-sys-color-*`, 마지막으로 내장 팔레트를 씁니다. 데몬은 이 팔레트를 status 응답(`theme`)에 실어 보냅니다. 웹 콘솔은 `/theme`으로, JetBrains는 이미 읽는 status로 받습니다. VS Code는 아직 전달하지 않습니다.
+
 ## 브라우저 지원 확인
 
 TUI 도구 등록 전과 실행 시 확인합니다. SSH 또는 CI 환경은 제외합니다. macOS는 현재 사용자에게 콘솔 세션이 있고 Safari를 Launch Services에서 찾을 수 있어야 합니다. Linux는 DISPLAY 또는 WAYLAND_DISPLAY, xdg-open, 기본 브라우저 설정, 알려진 브라우저 실행 파일이 필요합니다. Windows TUI 미리보기는 현재 숨깁니다.

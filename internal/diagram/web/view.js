@@ -84,16 +84,37 @@
   // JCEF) gets MAGI's console palette for the light or dark side its text color is on. Node shapes
   // keep Mermaid's meaning. A diagram's own classDef and style lines still win over the theme.
   const palette={
-    dark:{'primary':'#FF7A1A','primary-container':'#4A2E0B','on-primary-container':'#FFD9B8','secondary-container':'#2B251C','on-secondary-container':'#E8E2D8','surface':'#14110D','on-surface':'#E8E2D8','on-surface-variant':'#C9C2B8','surface-container':'#211B14','surface-container-high':'#2B251C','surface-container-highest':'#352E24','outline':'#72675C','outline-variant':'#463E34'},
-    light:{'primary':'#B45309','primary-container':'#F8D9A8','on-primary-container':'#3A1B00','secondary-container':'#ECE5D9','on-secondary-container':'#221D16','surface':'#FBF8F3','on-surface':'#221D16','on-surface-variant':'#4A453C','surface-container':'#F2ECE2','surface-container-high':'#ECE5D9','surface-container-highest':'#E6DED1','outline':'#8A7E6E','outline-variant':'#D8CFC0'}
+    dark:{'secondary':'#E8B89F','tertiary':'#5CD8E6','error':'#F2B8B5','primary':'#FF7A1A','primary-container':'#4A2E0B','on-primary-container':'#FFD9B8','secondary-container':'#2B251C','on-secondary-container':'#E8E2D8','surface':'#14110D','on-surface':'#E8E2D8','on-surface-variant':'#C9C2B8','surface-container':'#211B14','surface-container-high':'#2B251C','surface-container-highest':'#352E24','outline':'#72675C','outline-variant':'#463E34'},
+    light:{'secondary':'#82604F','tertiary':'#0E7490','error':'#B3261E','primary':'#B45309','primary-container':'#F8D9A8','on-primary-container':'#3A1B00','secondary-container':'#ECE5D9','on-secondary-container':'#221D16','surface':'#FBF8F3','on-surface':'#221D16','on-surface-variant':'#4A453C','surface-container':'#F2ECE2','surface-container-high':'#ECE5D9','surface-container-highest':'#E6DED1','outline':'#8A7E6E','outline-variant':'#D8CFC0'}
   };
   const colorValue=v=>/^(#[0-9a-f]{3,8}|rgba?[(][0-9., %]+[)])$/i.test(v)?v:'';
+  let hostTheme=null;
+  const camel=n=>n.replace(/-([a-z])/g,(_,c)=>c.toUpperCase());
+  // A node coloured by meaning gets its role's container and the text that goes on it. Roles whose
+  // container the palette does not name are tinted onto the surface, keeping on-surface text.
+  function rolePaint(name, role) {
+    if(/^#[0-9a-f]{6}$/i.test(name)) {
+      const n=parseInt(name.slice(1),16), y=(0.2126*(n>>16)+0.7152*((n>>8)&255)+0.0722*(n&255))/255;
+      return {bg:name, fg:y>0.55?'#000000':'#FFFFFF'};
+    }
+    if(name==='primary') return {bg:role('primary-container'), fg:role('on-primary-container')};
+    if(name==='neutral') return {bg:role('surface-container-high'), fg:role('on-surface')};
+    if(['secondary','tertiary','error'].includes(name)) {
+      const own=colorValue(String(role(name+'-container')||''));
+      return {bg:own||'color-mix(in srgb, '+role(name)+' 24%, '+role('surface-container')+')', fg:own?(role('on-'+name+'-container')||role('on-surface')):role('on-surface')};
+    }
+    return null;
+  }
   function themeFor(el) {
     const cs=getComputedStyle(el);
     const rgb=(cs.color.match(/[0-9.]+/g)||['0','0','0']).map(Number);
     const dark=(0.2126*rgb[0]+0.7152*rgb[1]+0.0722*rgb[2])/255>0.5;
     const base=palette[dark?'dark':'light'];
-    const role=n=>colorValue(cs.getPropertyValue('--md-sys-color-'+n).trim())||base[n];
+    const given=hostTheme&&hostTheme[dark?'dark':'light'];
+    // The person's [theme] (from the daemon) wins, then the host's roles, then the built-in palette.
+    // tertiary is called accent in MAGI's palette.
+    const fromConfig=n=>given?colorValue(String(given[camel(n)]||(n==='tertiary'?given.accent:'')||'')):'';
+    const role=n=>fromConfig(n)||colorValue(cs.getPropertyValue('--md-sys-color-'+n).trim())||base[n];
     // Mermaid's sanitizer blanks a theme value holding characters such as a hyphen, so families
     // like ui-monospace are left out rather than losing the whole list.
     const family=(cs.getPropertyValue('--md-ref-typeface-plain').trim()||cs.fontFamily).split(',')
@@ -109,7 +130,7 @@
       signalColor:role('on-surface'),signalTextColor:role('on-surface'),labelBoxBkgColor:role('surface-container-high'),
       labelBoxBorderColor:role('outline'),labelTextColor:role('on-surface'),
       noteBkgColor:role('secondary-container'),noteTextColor:role('on-secondary-container'),noteBorderColor:role('outline-variant')};
-    return {vars,key:JSON.stringify(vars)};
+    return {vars,role,key:JSON.stringify(vars)};
   }
   function mount(pre, source, nativeSVG) {
     const input=pre.querySelector('code')||pre;
@@ -139,6 +160,17 @@
           for(const [label,text] of Object.entries(parsed).slice(0,100))
             if(typeof text==='string' && text.length<=2000) descriptions[label.trim()]=text;
       } catch { /* Optional malformed descriptions do not prevent rendering. */ }
+    }
+    const colors=Object.create(null);
+    for(const line of source.split('\n')) {
+      const match=line.match(/^\s*%% magi-colors (.+)$/);
+      if(!match) continue;
+      try {
+        const parsed=JSON.parse(match[1]);
+        if(parsed && !Array.isArray(parsed) && typeof parsed==='object')
+          for(const [label,c] of Object.entries(parsed).slice(0,100))
+            if(typeof c==='string' && /^(primary|secondary|tertiary|error|neutral|#[0-9a-f]{6})$/i.test(c)) colors[label.trim()]=c;
+      } catch { /* Optional malformed colours do not prevent rendering. */ }
     }
     const note = document.createElement('div'); note.setAttribute('role','status'); note.style.cssText = 'white-space:pre-wrap;font:inherit';
     const sourceBox = document.createElement('details'), summary = document.createElement('summary'), code = document.createElement('pre');
@@ -211,7 +243,11 @@
           }));
           svg=document.importNode(parsed.documentElement,true);
         }
-        svg.setAttribute('role','img'); { const look=themeFor(box).vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
+        svg.setAttribute('role','img'); { const paint=()=>{ const th=themeFor(box), look=th.vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v);
+          svg.querySelectorAll('.node').forEach(n=>{ const c=colors[(n.textContent||'').trim()]; const p=c&&rolePaint(c.toLowerCase().startsWith('#')?c:c.toLowerCase(),th.role); if(!p) return;
+            const shape=n.querySelector('.label-container')||n.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'); if(shape) shape.style.setProperty('fill',p.bg,'important');
+            n.querySelectorAll('text,tspan,.nodeLabel').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
+          box.__magiPaint=paint; paint(); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
         canvas.replaceChildren(svg); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
           const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
@@ -260,7 +296,15 @@
       mount(pre,code.textContent||'');
     });
   }
-  window.magiMermaid={mount,scan};
+  // A client hands over the palette its daemon resolved from the person's [theme] (status.theme:
+  // {dark,light}, role name to hex); diagrams already drawn are repainted.
+  function setTheme(t) {
+    hostTheme=t && typeof t==='object' ? {dark:t.dark||null, light:t.light||null} : null;
+    document.querySelectorAll('figure.magi-diagram').forEach(b=>{ if(typeof b.__magiPaint==='function') b.__magiPaint(); });
+  }
+  window.magiMermaid={mount,scan,setTheme};
+  // A page that received its palette before this script loaded left it here.
+  if(window.magiDiagramTheme) setTheme(window.magiDiagramTheme);
   let pending=false;
   const observer=new MutationObserver(()=>{if(!pending){pending=true;setTimeout(()=>{pending=false;scan();},100);}});
   function start(){observer.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['data-streaming']});scan();}

@@ -693,7 +693,7 @@ func (c *Client) Status(sid string) (Status, error) {
 		return Status{}, err
 	}
 	return Status{Asking: resp.Waiting, Doing: resp.Doing, Progress: resp.Progress, Permission: resp.Permission,
-		Backend: resp.Backend, Profile: resp.Profile, User: resp.User, Model: resp.Model, Council: resp.Council}, nil
+		Backend: resp.Backend, Profile: resp.Profile, User: resp.User, Model: resp.Model, Council: resp.Council, Theme: resp.Theme}, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:

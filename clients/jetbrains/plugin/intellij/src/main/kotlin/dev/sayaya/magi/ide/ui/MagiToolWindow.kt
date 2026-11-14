@@ -753,6 +753,9 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             drawChips()
         }
 
+        /** The daemon's palette, for diagrams in answers. */
+        fun useTheme(theme: dev.sayaya.magi.ide.model.Theme?) = richAnswers.useTheme(theme)
+
         /** A diagram node selected in an answer becomes a chip; the same node stands once. */
         fun attachNode(label: String) = SwingUtilities.invokeLater {
             val name = label.trim()
@@ -2325,7 +2328,9 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         @Volatile private var youName: String? = null
 
         private fun redraw(comp: Companion) {
-            youName = comp.facts().user
+            val facts = comp.facts()
+            youName = facts.user
+            useTheme(facts.theme)
             val w = comp.waiting()
             SwingUtilities.invokeLater { drawPrompt(w, comp.session) }
             say(if (w == null) Level.Attached else Level.Waiting)

@@ -2673,6 +2673,9 @@ type daemonEngine struct {
 	// a write goes to, and those are not derivable from the workspace alone.
 	configDir string
 	obs       *pluginObserver
+	// theme is this daemon's [theme] config. A daemon never calls tui.SetThemePalettes — it draws
+	// nothing — so the status answer is the only way a viewer learns the person's palette.
+	theme config.ThemeConfig
 }
 
 // SessionsHere satisfies daemon.ConversationKeeper: this workspace's conversations, for the

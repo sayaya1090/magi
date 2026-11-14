@@ -800,6 +800,9 @@ type Response struct {
 	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
 	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
 	User string `json:"user,omitempty"`
+	// Theme is the colour roles this daemon's [theme] config resolves to, light and dark. On the
+	// status answer because only this process read that config; a viewer paints diagrams with it.
+	Theme *Theme `json:"theme,omitempty"`
 	// Council says whether this companion ends a working turn by declaring to a council. It is here
 	// for the reason Permission is: it is settable per companion, and something OUTSIDE the daemon
 	// has to be able to tell the model the truth about it.
@@ -1194,6 +1197,7 @@ type Taker interface {
 // A struct rather than a return list. This was three values, then four, and the fifth would have
 // made every call site unpack positions it does not use to reach the one it does.
 type Status struct {
+	Theme *Theme
 	// Asking is the prompt it is blocked on, or nil.
 	Asking *Waiting
 	// Doing is what a still-running tool last reported about itself.
@@ -1274,4 +1278,17 @@ type ProfileSelector interface {
 type SessionProviderTeller interface {
 	SessionBackend(session.SessionID) (string, string)
 	ListSessionModels(context.Context, session.SessionID) ([]string, error)
+}
+
+// Theme is a resolved colour palette, role name to hex, for each mode.
+type Theme struct {
+	Dark  map[string]string `json:"dark,omitempty"`
+	Light map[string]string `json:"light,omitempty"`
+}
+
+// ThemeTeller is an engine that knows the colour roles its config resolves to. Optional, like
+// UserNamer: an engine that cannot answer leaves the status without a theme and viewers keep the
+// palette they already had.
+type ThemeTeller interface {
+	ThemePalettes() (dark, light map[string]string)
 }

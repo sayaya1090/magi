@@ -32,6 +32,21 @@ internal class RichAnswer {
     /** A Mermaid node the person selected in an answer; the tool window turns it into a composer chip. */
     @Volatile var onNode: ((String) -> Unit)? = null
 
+    /** 데몬이 준 팔레트(JSON). 다이어그램 뷰어가 그것으로 칠한다 — 새로 뜨는 브라우저는 주입 때 받는다. */
+    @Volatile var themeJson: String? = null
+
+    /** 팔레트가 바뀌었으면 살아 있는 답변 브라우저에 바로 건넨다. */
+    fun useTheme(theme: dev.sayaya.magi.ide.model.Theme?) {
+        val json = themeJson(theme) ?: return
+        if (json == themeJson) return
+        themeJson = json
+        live.values.forEach { held ->
+            (held.panel as? com.intellij.ui.jcef.JBCefBrowser)?.let { b ->
+                runCatching { b.cefBrowser.executeJavaScript(themeScript(json), b.cefBrowser.url, 0) }
+            }
+        }
+    }
+
     // Heights outlive browsers, so a rebuilt one starts where its row already stands.
     private val measured = object : LinkedHashMap<String, Int>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?) = size > 256
@@ -54,6 +69,14 @@ internal class RichAnswer {
         val nodeHook: String by lazy {
             RichAnswer::class.java.getResourceAsStream("/magi-composer/node-hook.js")?.bufferedReader()?.use { it.readText() } ?: ""
         }
+
+        /** The palette as the page script takes it, or null when the daemon sent none. */
+        fun themeJson(theme: dev.sayaya.magi.ide.model.Theme?): String? =
+            theme?.let { dev.sayaya.magi.ide.model.Wire.json.encodeToString(dev.sayaya.magi.ide.model.Theme.serializer(), it) }
+
+        /** Page script handing the palette to the diagram viewer, now or when it loads (view.js). */
+        fun themeScript(json: String?): String = if (json.isNullOrBlank()) "" else
+            "window.magiDiagramTheme=" + json + ";if(window.magiMermaid&&window.magiMermaid.setTheme)window.magiMermaid.setTheme(window.magiDiagramTheme);"
 
         /** The node a `node:<label>` page message names, or null when it names none. */
         fun nodeLabel(said: String): String? =
@@ -276,7 +299,7 @@ internal class RichAnswer {
         """.trimIndent()
         // 단일 타이머 세트를 재사용하여 스트리밍 갱신 시 타이머 인스턴스 과다 생성(EDT 포화)을 방지한다 (리뷰 F6).
         val ask = { runCatching {
-            browser.cefBrowser.executeJavaScript("if (!window.magiMermaid) {\n" + diagramScript + "\n}", browser.cefBrowser.url, 0)
+            browser.cefBrowser.executeJavaScript(themeScript(themeJson) + "if (!window.magiMermaid) {\n" + diagramScript + "\n}", browser.cefBrowser.url, 0)
             browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
         } }
         val soon = javax.swing.Timer(350) { ask() }.apply { isRepeats = false }

@@ -184,11 +184,23 @@ func SetThemePalettes(dark, light map[string]string) {
 // resolvePalette returns the active palette for the mode: built-in defaults
 // overlaid with any config override (non-empty values only).
 func resolvePalette(isDark bool) palette {
-	base, over := nervLight, themeLightOverride
+	over := themeLightOverride
 	if isDark {
-		base, over = nervDark, themeDarkOverride
+		over = themeDarkOverride
 	}
-	p := make(palette, len(base))
+	return palette(ResolvedPalette(isDark, over))
+}
+
+// ResolvedPalette is the palette for one mode with the given overrides (a config [theme] table)
+// laid over the built-in NERV/MAGI roles; empty values are ignored and the defaults are not
+// modified. Exported so a daemon can hand the same roles to viewers outside the terminal — the
+// diagram viewer paints with them — instead of each client keeping its own copy.
+func ResolvedPalette(isDark bool, over map[string]string) map[string]string {
+	base := nervLight
+	if isDark {
+		base = nervDark
+	}
+	p := make(map[string]string, len(base)+len(over))
 	for k, v := range base {
 		p[k] = v
 	}

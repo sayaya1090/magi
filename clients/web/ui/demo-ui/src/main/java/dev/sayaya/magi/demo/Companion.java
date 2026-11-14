@@ -77,6 +77,7 @@ final class Companion {
             // 지난 멈춤이 남긴 것 — 데모의 대화는 멈춘 적이 없다. 판정·재시도(POST)도 같은 답을 받아
             // 띠가 걷힌다: 데몬이 다시 읽은 상태로 다시 서는 것이 화면의 약속이라서.
             case "/recovery": return Mock.json("{\"kind\":\"none\"}");
+            case "/theme": return Mock.json("null");
             case "/plan": return Mock.json("[{\"content\":\"read what the empty states do now\",\"status\":\"completed\"},"
                         + "{\"content\":\"write the spec\",\"status\":\"completed\"},"
                         + "{\"content\":\"name the tokens it uses\",\"status\":\"in_progress\"},"

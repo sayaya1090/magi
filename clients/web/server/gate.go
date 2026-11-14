@@ -140,7 +140,7 @@ var mayRead = map[string]auth.Capability{
 // openToRead is every route that only looks. Named rather than derived, so that adding a route and
 // forgetting it is a refusal instead of an opening.
 var openToRead = map[string]bool{
-	"/fleet": true, "/events": true, "/transcript": true, "/history": true, "/search": true,
+	"/fleet": true, "/events": true, "/theme": true, "/transcript": true, "/history": true, "/search": true,
 	"/context": true, "/plan": true, "/handoffs": true, "/subagents": true, "/jobs": true,
 	"/council": true, "/loop": true, "/tools": true, "/console": true, "/slots": true,
 	// The workspace, through the companion's own read-only tools. `read`, and not more: everything
