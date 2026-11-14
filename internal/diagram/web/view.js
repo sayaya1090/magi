@@ -32,8 +32,10 @@
     .magi-diagram .magi-diagram-action svg { width:24px;height:24px;fill:currentColor;flex:none; }
     .magi-diagram .magi-diagram-tooltip { display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:2;box-sizing:border-box;min-height:24px;white-space:nowrap;padding:4px 8px;border-radius:4px;background:var(--md-sys-color-inverse-surface,CanvasText);color:var(--md-sys-color-inverse-on-surface,Canvas);font-size:12px;line-height:16px;letter-spacing:.4px;font-weight:400;pointer-events:none; }
     .magi-diagram-action:hover .magi-diagram-tooltip,.magi-diagram-action:focus-visible .magi-diagram-tooltip { display:block; }
-    .magi-diagram-layout { display:flex;flex-wrap:wrap;gap:12px;align-items:start; }
-    .magi-diagram-canvas { flex:2 1 280px;min-width:0; }
+    /* The details of a selected element sit below the picture as notes, never beside it: a side
+       panel took the column width from the diagram (a sequence diagram shrank from 1066px to 649px). */
+    .magi-diagram-layout { display:flex;flex-direction:column;gap:8px; }
+    .magi-diagram-canvas { flex:none;width:100%;min-width:0; }
     .magi-diagram svg [role=button] { cursor:pointer; }
     .magi-diagram svg [role=button]:focus { outline:none; }
     .magi-diagram svg [role=button]:focus-visible { outline:3px solid var(--magi-primary);outline-offset:2px; }
@@ -52,7 +54,8 @@
     .magi-diagram svg [role=button]:focus-visible,.magi-diagram svg [role=button].magi-selected { filter:var(--magi-elevation-2); }
     .magi-diagram svg [role=button].magi-selected:focus-visible { filter:var(--magi-elevation-3); }
     @media (prefers-reduced-motion:reduce) { .magi-diagram svg [role=button] { transition:none; } }
-    .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
+    .magi-diagram-notes-title { display:block;font-size:12px;line-height:16px;letter-spacing:.5px;color:var(--magi-on-variant);margin-bottom:4px; }
+    .magi-diagram-info { flex:none;width:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
     pre.magi-diagram-pending { background:transparent;border:1px dashed var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 30%,transparent));border-radius:12px;padding:16px 12px;min-height:48px; }
     pre.magi-diagram-pending > code { display:none !important; }
@@ -172,6 +175,7 @@
     const layout=document.createElement('div');layout.className='magi-diagram-layout';
     const info=document.createElement('aside');info.className='magi-diagram-info';info.hidden=true;
     info.setAttribute('aria-label',say('Element details','요소 설명'));
+    const notesTitle=document.createElement('span');notesTitle.className='magi-diagram-notes-title';notesTitle.textContent=say('Notes','비고');
     const heading=document.createElement('strong'), description=document.createElement('p');
     const questionLabel=document.createElement('label'), question=document.createElement('textarea');
     questionLabel.textContent=say('Follow-up question','추가 질문');questionLabel.append(question);
@@ -179,7 +183,7 @@
     // Where the host's own composer takes a selected node (JetBrains, the web console) the panel has no
     // question field, copy button or copy box at all: hiding them still left a field painted in JCEF.
     const composerMounted=!!(window.magiDiagramComposer||window.__magiNodeHook);
-    info.append(heading,description);if(!composerMounted) info.append(questionLabel,manualCopy);layout.append(canvas,info);
+    info.append(notesTitle,heading,description);if(!composerMounted) info.append(questionLabel,manualCopy);layout.append(canvas,info);
     const descriptions=Object.create(null);
     for(const line of source.split('\n')) {
       const match=line.match(/^\s*%% magi-descriptions (.+)$/);

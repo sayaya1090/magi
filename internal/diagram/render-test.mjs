@@ -104,8 +104,10 @@ try {
  const node=interactive.locator('.node').first();
  await node.click();
  assert.equal(await interactive.locator('aside p').textContent(),'Reads the request and prepares a reply.');
- const positions=await interactive.evaluate(e=>({canvas:e.querySelector('.magi-diagram-canvas').getBoundingClientRect().right,info:e.querySelector('aside').getBoundingClientRect().left}));
- assert.ok(positions.info>=positions.canvas,'details appear to the right when space permits');
+ // Details go below the picture as notes; the diagram keeps the whole column width.
+ const positions=await interactive.evaluate(e=>{const c=e.querySelector('.magi-diagram-canvas').getBoundingClientRect(),i=e.querySelector('aside').getBoundingClientRect(),l=e.querySelector('.magi-diagram-layout').getBoundingClientRect();return {canvasBottom:c.bottom,canvasW:c.width,layoutW:l.width,infoTop:i.top,infoW:i.width};});
+ assert.ok(positions.infoTop>=positions.canvasBottom,'details appear below the diagram '+JSON.stringify(positions));
+ assert.ok(positions.canvasW>=positions.layoutW-1,'a selected node does not narrow the diagram '+JSON.stringify(positions));
  await node.click({button:'right'});
  assert.equal(await interactive.getByLabel('Follow-up question').evaluate(e=>e===document.activeElement),true);
  await interactive.getByLabel('Follow-up question').fill('How does Agent retry?');
