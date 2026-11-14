@@ -108,6 +108,18 @@ try {
  const positions=await interactive.evaluate(e=>{const c=e.querySelector('.magi-diagram-canvas').getBoundingClientRect(),i=e.querySelector('aside').getBoundingClientRect(),l=e.querySelector('.magi-diagram-layout').getBoundingClientRect();return {canvasBottom:c.bottom,canvasW:c.width,layoutW:l.width,infoTop:i.top,infoW:i.width};});
  assert.ok(positions.infoTop>=positions.canvasBottom,'details appear below the diagram '+JSON.stringify(positions));
  assert.ok(positions.canvasW>=positions.layoutW-1,'a selected node does not narrow the diagram '+JSON.stringify(positions));
+ // Material 3 cards have rounded corners (shape medium 12dp), and on a dark answer bubble a node is
+ // outlined: its container was 1.00-1.22:1 against the bubble.
+ const shape=await node.evaluate(n=>{const s=n.querySelector('.label-container')||n.querySelector(':scope > rect');const c=getComputedStyle(s);return {tag:s.tagName,rx:c.rx,stroke:c.stroke,width:c.strokeWidth};});
+ assert.equal(shape.rx,'12px','node corners are rounded '+JSON.stringify(shape));
+ assert.notEqual(shape.stroke,'none','node is outlined '+JSON.stringify(shape));
+ assert.equal(shape.width,'1px','node outline is 1dp '+JSON.stringify(shape));
+ // Clicking the background lets go of the selected node, so its elevation drops again.
+ await interactive.locator('svg[role=img]').click({position:{x:2,y:2}});
+ assert.equal(await node.evaluate(n=>n.classList.contains('magi-selected')),false,'background click deselects the node');
+ assert.equal(await node.evaluate(n=>n.getAttribute('aria-pressed')),'false');
+ assert.equal(await interactive.locator('aside').evaluate(e=>e.hidden),true,'notes close with the selection');
+ await node.click();
  await node.click({button:'right'});
  assert.equal(await interactive.getByLabel('Follow-up question').evaluate(e=>e===document.activeElement),true);
  await interactive.getByLabel('Follow-up question').fill('How does Agent retry?');

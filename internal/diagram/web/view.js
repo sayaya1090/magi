@@ -92,7 +92,10 @@
     /* Theme roles laid over every diagram, including SVG the IDE rendered itself. Nodes are filled
        containers with no border (M3 filled card); clusters keep a 1dp outline-variant. A diagram's
        classDef/style is written inline with !important by Mermaid and still wins. */
-    .magi-diagram svg[role=img] .node .label-container,.magi-diagram svg[role=img] .node > :is(rect,polygon,circle,ellipse,path) { fill:var(--magi-node-fill)!important;stroke:none!important; }
+    .magi-diagram svg[role=img] .node .label-container,.magi-diagram svg[role=img] .node > :is(rect,polygon,circle,ellipse,path) { fill:var(--magi-node-fill)!important;stroke:var(--magi-node-border,var(--magi-outline))!important;stroke-width:1px!important; }
+    /* Material 3 cards are not square-cornered (shape medium, 12dp). On a dark answer bubble a node's
+       container was 1.00-1.22:1 against it, so nodes carry a 1dp outline (2.76:1 there). */
+    .magi-diagram svg[role=img] .node :is(rect.label-container,:scope > rect) { rx:12px!important;ry:12px!important; }
     .magi-diagram svg[role=img] .node :is(text,tspan,.nodeLabel,.nodeLabel *,foreignObject *) { fill:var(--magi-node-text)!important;color:var(--magi-node-text)!important; }
     .magi-diagram svg[role=img] .cluster rect { fill:var(--magi-cluster-fill)!important;stroke:var(--magi-cluster-border)!important;stroke-width:1px!important; }
     .magi-diagram svg[role=img] .flowchart-link { stroke:var(--magi-edge)!important; }
@@ -366,7 +369,7 @@
           }));
           svg=document.importNode(parsed.documentElement,true);
         }
-        svg.setAttribute('role','img'); { const paint=()=>{ const th=themeFor(box), look=th.vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v);
+        svg.setAttribute('role','img'); { const paint=()=>{ const th=themeFor(box), look=th.vars; for (const [k,v] of [['--magi-node-fill',look.primaryColor],['--magi-node-text',look.primaryTextColor],['--magi-node-border',th.role('outline')],['--magi-cluster-fill',look.clusterBkg],['--magi-cluster-border',look.clusterBorder],['--magi-edge',look.lineColor]]) box.style.setProperty(k,v);
           svg.querySelectorAll('.node').forEach(n=>{ const c=colors[(n.textContent||'').trim()]; const p=c&&rolePaint(c.toLowerCase().startsWith('#')?c:c.toLowerCase(),th.role); if(!p) return;
             const shape=n.querySelector('.label-container')||n.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'); if(shape) shape.style.setProperty('fill',p.bg,'important');
             n.querySelectorAll('text,tspan,.nodeLabel,.nodeLabel *,foreignObject *').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
@@ -489,6 +492,15 @@
           n.addEventListener('contextmenu',followup);
           n.addEventListener('keydown',e=>{if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')) followup(e);});
           n.addEventListener('click',select);n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});
+        });
+        // A click on the background lets go of what was picked, so its elevation drops again.
+        svg.addEventListener('click',ev=>{
+          if(ev.target.closest('[role=button],.magi-edge-hit,.magi-edge-text')) return;
+          if(!selectedNode && !selectedEdge) return;
+          if(selectedNode){ selectedNode.classList.remove('magi-selected'); selectedNode.setAttribute('aria-pressed','false'); selectedNode=null; selected=''; info.hidden=true; }
+          clearEdge();
+          if(svg.contains(document.activeElement)) document.activeElement.blur();
+          remember({node:''}); flowPaint();
         });
         // Bring back what was chosen before the re-mount, without announcing the node again (its chip
         // is already in the composer).
