@@ -13,7 +13,8 @@
     /* Material 3 (m3.material.io): outlined icon button small 40dp, icon 24dp, shape full, icon
        on-surface-variant, outline 1dp outline-variant; state layer hover .08 / pressed .12; focus
        ring 3dp at +2dp; plain tooltip 24dp on inverse-surface, body-small 12/16 tracking .4, shape 4;
-       outlined card shape 12dp; outlined text field shape 4, outline role, focus 3dp primary.
+       outlined card shape 12dp; outlined text field shape 4, outline role, focus 3dp primary; its container is filled
+       (surface-container-lowest, white on light) so it reads as an input against the panel.
        Hosts that define no --md-sys roles (VS Code, JetBrains JCEF) get fallbacks with the same
        meaning: the tooltip inverts Canvas/CanvasText. */
     .magi-diagram { --magi-outline:var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 20%,transparent));
@@ -50,7 +51,7 @@
     @media (prefers-reduced-motion:reduce) { .magi-diagram svg [role=button] { transition:none; } }
     .magi-diagram-info { flex:1 1 220px;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;box-sizing:border-box;border:1px solid var(--magi-outline);border-radius:12px; }
     .magi-diagram-info[hidden] { display:none; }
-    .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:inherit;background:transparent;border:1px solid var(--magi-field-outline);border-radius:4px; }
+    .magi-diagram-info textarea { display:block;width:100%;box-sizing:border-box;min-height:90px;margin-top:4px;padding:8px 16px;font:inherit;font-size:16px;line-height:24px;letter-spacing:.5px;color:var(--md-sys-color-on-surface,CanvasText);background:var(--md-sys-color-surface-container-lowest,Canvas);border:1px solid var(--magi-field-outline);border-radius:4px; }
     .magi-diagram-info textarea:focus { outline:none;border-color:var(--magi-primary);box-shadow:inset 0 0 0 2px var(--magi-primary); }
     .magi-diagram .magi-diagram-toggle { display:inline-flex;align-items:center;min-height:40px;padding-right:12px;color:var(--magi-on-variant);cursor:pointer; }
     .magi-diagram .magi-diagram-toggle input { width:18px;height:18px;margin:11px;accent-color:var(--magi-primary);cursor:pointer; }
