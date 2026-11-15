@@ -495,7 +495,7 @@ asks every registered advisor for guidance and appends what they return to the s
 (capability `"context-provider"`; 5s per advisor, 4KB combined; one that fails or returns nothing is
 skipped, so an advisor can never stop a compaction). Compaction itself stays generic: it does not
 know what an extension keeps. Engram uses this to list what it already saved as long-term memory in
-the session, so the brief points at those entries instead of restating them. A host that takes no
+the session, so the brief points at those entries instead of restating them. The list also holds what the agent saved itself with `remember`, which engram learns from the `tool_finished` observation event. A host that takes no
 advisors (for example `magi -doctor`) logs a line and loads the plugin anyway.
 
 ```lua

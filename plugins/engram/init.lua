@@ -3168,6 +3168,19 @@ magi.register_command{
 }
 
 -- 회상: 최근 교훈을 컨텍스트로 주입(원장이 없으면 침묵). 행/문자 상한으로 바운드.
+-- 에이전트가 remember 도구로 직접 저장한 것도 「이미 기억에 남긴 것」이다. 코어는 도구 이름과
+-- 인자만 알리는 일반 tool_finished를 보낸다. 성공했고 이번 턴 체크포인트(scope=turn)가 아닌
+-- 것만 남긴다.
+magi.on("tool_finished", function(ev)
+  if type(ev) ~= "table" or ev.tool ~= "remember" or ev.ok ~= "true" then return end
+  local ok, args = pcall(magi.json_decode, ev.args or "")
+  if not ok or type(args) ~= "table" or args.scope == "turn" then return end
+  local what = args.text
+  if type(what) ~= "string" or what == "" then return end
+  if type(args.page) == "string" and args.page ~= "" then what = "page " .. args.page .. ": " .. what end
+  note_kept(ev.session, "remembered: " .. what)
+end)
+
 if magi.register_compaction_advisor then
   magi.register_compaction_advisor{
     name = "engram",

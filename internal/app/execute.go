@@ -732,6 +732,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
+	// An observer that asks hears which tool finished, with what arguments, and whether it
+	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
+	// tool no meaning here; an extension decides what matters to it.
+	if to, ok := a.cfg.Observer.(interface {
+		ToolFinished(sid, tool, args string, ok bool)
+	}); ok {
+		to.ToolFinished(string(sid), tc.Name, string(tc.Args), !res.IsError || res.Advisory)
+	}
 	if guard != nil && len(verification) > 0 && a.persistedVerification(ctx, sid, toolMsgID, res) {
 		guard.experience.confirm(ctx, tc, res, verification, string(sid)+"/"+toolMsgID+"/"+tc.CallID)
 	}

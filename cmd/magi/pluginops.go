@@ -268,6 +268,17 @@ func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
 	}
 }
 
+// ToolFinished forwards a finished tool call to plugins as the tool_finished observation event.
+func (o *pluginObserver) ToolFinished(sid, tool, args string, ok bool) {
+	if h := o.host.Load(); h != nil {
+		done := "false"
+		if ok {
+			done = "true"
+		}
+		h.FireEventWith("tool_finished", map[string]string{"session": sid, "tool": tool, "args": args, "ok": done})
+	}
+}
+
 // GateDeclaration runs the plugins' declaration gates (app.declarationGater); nil host → none.
 func (o *pluginObserver) GateDeclaration(ctx context.Context, sid string,
 	steps func(context.Context) ([]port.ChildStep, error)) []string {
