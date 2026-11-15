@@ -311,5 +311,30 @@ try {
  assert.ok(placed.every(p=>p.found),'every described element carries a badge, a bare label too '+JSON.stringify(placed));
  assert.ok(placed.every(p=>p.dx>=8&&p.dx<=20),'the badge sits just right of the label, not on its last glyph '+JSON.stringify(placed));
  assert.ok(placed.every(p=>Math.abs(p.dy)<=3),'the badge is centred on the label line '+JSON.stringify(placed));
+ // The preview answers the whole shape, not only its label: a sequence participant box away from its name.
+ const hv0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('sequenceDiagram\n participant V as Viewer\n participant D as Daemon\n V->>D: submit\n%% magi-descriptions {"Viewer":"Box notes."}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,hv0+1);
+ const hb=page.locator('figure.magi-diagram').last();
+ await hb.scrollIntoViewIfNeeded();
+ const spot=await hb.evaluate(f=>{const t=[...f.querySelectorAll('svg text.actor')].find(e=>e.textContent.trim()==='Viewer');const r=t.parentNode.querySelector(':scope > rect').getBoundingClientRect(),l=t.getBoundingClientRect();return {x:r.left+16,y:r.top+r.height/2,clear:r.left+16<l.left};});
+ assert.ok(spot.clear,'the probe point is off the label '+JSON.stringify(spot));
+ await page.mouse.move(1,1); await page.waitForTimeout(100);
+ await page.mouse.move(spot.x,spot.y); await page.waitForTimeout(600);
+ assert.equal(await hb.locator('.magi-diagram-peek').isVisible(),true,'hovering a participant box away from its name previews its notes');
+ await page.mouse.move(1,1);
+ // A class box carries its notes by its name (its text also holds the members), and answers its whole box.
+ const cl0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('classDiagram\n class Sale {\n  -total : int\n  +pay() bool\n }\n class Item\n Sale --> Item\n%% magi-descriptions {"Sale":"Class notes."}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,cl0+1);
+ const cb=page.locator('figure.magi-diagram').last();
+ await cb.scrollIntoViewIfNeeded();
+ const cs=await cb.evaluate(f=>{const n=[...f.querySelectorAll('svg .node')].find(e=>(e.querySelector('.label-group')||{}).textContent==='Sale');const r=n.getBoundingClientRect();return {described:n.classList.contains('magi-described'),badge:n.querySelectorAll('.magi-note-badge').length,x:r.left+r.width/2,y:r.bottom-8};});
+ assert.equal(cs.described,true,'a class box is matched by its name '+JSON.stringify(cs));
+ assert.equal(cs.badge,1,'a described class box carries a badge');
+ await page.mouse.move(cs.x,cs.y); await page.waitForTimeout(600);
+ assert.equal(await cb.locator('.magi-diagram-peek').isVisible(),true,'hovering a class box away from its name previews its notes');
+ assert.equal(await cb.locator('.magi-diagram-peek').textContent(),'Class notes.');
+ await page.mouse.move(1,1);
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

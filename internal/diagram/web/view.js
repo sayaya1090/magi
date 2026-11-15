@@ -494,8 +494,12 @@
         const badge=(parent,cx,cy,tr)=>{const ns='http://www.w3.org/2000/svg',g=document.createElementNS(ns,'g');g.setAttribute('class','magi-note-badge');g.setAttribute('aria-hidden','true');if(tr) g.setAttribute('transform',tr);
           const put=(t,a)=>{const e=document.createElementNS(ns,t);for(const k in a) e.setAttribute(k,a[k]);g.append(e);};
           put('circle',{class:'b',cx,cy,r:8});put('circle',{class:'g',cx,cy:cy-3.2,r:1.3});put('rect',{class:'g',x:cx-1.1,y:cy-1.2,width:2.2,height:5.2,rx:1});parent.append(g);};
-        const invite=(el,label,text)=>{marked++;el.classList.add('magi-described');el.setAttribute('aria-label',label+say(', has notes',', 설명 있음'));
-          el.addEventListener('mouseenter',()=>showPeek(el,text));el.addEventListener('mouseleave',hidePeek);el.addEventListener('focus',()=>showPeek(el,text));el.addEventListener('blur',hidePeek);el.addEventListener('click',hidePeek);};
+        // also is the rest of the element's shape (a participant's box beside its name): the preview
+        // answers the whole shape, and moving between the two parts does not close and reopen it.
+        const invite=(el,label,text,also)=>{marked++;el.classList.add('magi-described');el.setAttribute('aria-label',label+say(', has notes',', 설명 있음'));
+          const inside=r=>!!r&&(el.contains(r)||(!!also&&also.contains(r)));const leave=ev=>{if(!inside(ev.relatedTarget)) hidePeek();};
+          for(const part of also?[el,also]:[el]){part.addEventListener('mouseenter',()=>{if(peek.hidden) showPeek(el,text);});part.addEventListener('mouseleave',leave);part.addEventListener('click',hidePeek);}
+          el.addEventListener('focus',()=>showPeek(el,text));el.addEventListener('blur',hidePeek);};
         svg.querySelectorAll(EDGES).forEach(e=>{
           if(!e.getAttribute('d') && !e.hasAttribute('x1')) return;
           e.classList.add('magi-edge');
@@ -546,14 +550,16 @@
           n.addEventListener('click',select);n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});
         });
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
-          const name=(n.textContent||'').trim(), told=descriptions[name]; if(!told) return;
+          // A class box's text holds its members too; its notes are keyed by the name in its title.
+          const whole=(n.textContent||'').trim(), title=((n.querySelector('.label-group')||{}).textContent||'').trim();
+          const name=descriptions[whole]?whole:title, told=descriptions[name]; if(!told) return;
           // The badge sits just right of the label's last glyph, centred on its line, for every shape
           // (rect, circle, diamond, a participant box or a bare actor label). It is measured on screen and
           // mapped back, so a transform on the shape cannot throw it off.
           const isText=n.tagName.toLowerCase()==='text', label=isText?n:(n.querySelector('.nodeLabel')||n.querySelector('foreignObject')||n.querySelector('text')), host=isText?n.parentNode:n;
           try { const lb=label&&label.getBoundingClientRect(), m=host.getScreenCTM();
             if(lb&&lb.width&&m){ const pt=svg.createSVGPoint(); pt.x=lb.right+12; pt.y=lb.top+lb.height/2; const q=pt.matrixTransform(m.inverse()); badge(host,q.x,q.y,''); } } catch { /* not measurable yet */ }
-          invite(n,name,told);
+          invite(n,name,told,isText?host.querySelector(':scope > rect'):null);
         });
         if(marked){ const legend=document.createElement('span'),mark=document.createElement('b');legend.className='magi-diagram-legend';mark.textContent='i';
           const hint=document.createElement('span');hint.className='magi-legend-hint';hint.textContent=say(composerMounted?'· every element, badge or not, can be picked and attached':'· every element, badge or not, can be picked to ask about it',composerMounted?'· 배지와 관계없이 모든 요소를 눌러 질문에 첨부할 수 있습니다':'· 배지와 관계없이 모든 요소를 눌러 질문할 수 있습니다');legend.append(mark,say('has notes','설명 있음'),hint);bar.append(legend); }
