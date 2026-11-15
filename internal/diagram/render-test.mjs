@@ -295,5 +295,21 @@ try {
  assert.ok(pk.w>300,'a long preview is wider than 280px '+JSON.stringify(pk));
  assert.ok(pk.right<=1&&pk.left>=-1&&pk.bottom<=1&&pk.top>=-1,'the preview stays inside the diagram box '+JSON.stringify(pk));
  await page.mouse.move(1,1);
+ // Every badge sits just right of its label (never on the last glyph), on the label's line, whatever
+ // the shape: rect, circle, diamond (a transformed polygon), hexagon, a participant box, a bare actor.
+ const b0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('flowchart LR\n R[Rect] --> C((Circle))\n C --> D{Diamond}\n D --> H{{Hexagon}}\n%% magi-descriptions {"Rect":"r","Circle":"c","Diamond":"d","Hexagon":"h"}');
+ await insert('sequenceDiagram\n actor P as Person\n participant V as Viewer\n P->>V: ask\n%% magi-descriptions {"Person":"p","Viewer":"v"}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,b0+2);
+ const placed=await page.evaluate(()=>[...document.querySelectorAll('figure.magi-diagram')].slice(-2).flatMap(f=>[...f.querySelectorAll('svg .node.magi-described, svg text.magi-described')].map(n=>{
+  const text=n.tagName.toLowerCase()==='text', lab=text?n:(n.querySelector('.nodeLabel')||n.querySelector('foreignObject')||n.querySelector('text')), host=text?n.parentNode:n;
+  const lb=lab.getBoundingClientRect();
+  const cs=[...host.querySelectorAll(':scope > .magi-note-badge circle.b')].map(c=>c.getBoundingClientRect()).map(r=>({x:r.x+r.width/2,y:r.y+r.height/2}));
+  const c=cs.sort((a,b)=>Math.abs(a.x-lb.right)-Math.abs(b.x-lb.right))[0];
+  return {name:n.textContent.trim(),found:!!c,dx:c?Math.round(c.x-lb.right):null,dy:c?Math.round(c.y-(lb.top+lb.height/2)):null};})));
+ assert.ok(placed.length>=8,'every described shape and participant is measured '+JSON.stringify(placed));
+ assert.ok(placed.every(p=>p.found),'every described element carries a badge, a bare label too '+JSON.stringify(placed));
+ assert.ok(placed.every(p=>p.dx>=8&&p.dx<=20),'the badge sits just right of the label, not on its last glyph '+JSON.stringify(placed));
+ assert.ok(placed.every(p=>Math.abs(p.dy)<=3),'the badge is centred on the label line '+JSON.stringify(placed));
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

@@ -547,8 +547,12 @@
         });
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           const name=(n.textContent||'').trim(), told=descriptions[name]; if(!told) return;
-          const group=n.tagName.toLowerCase()==='g', shape=group?(n.querySelector('.label-container')||n.querySelector(':scope > rect,:scope > circle,:scope > ellipse,:scope > polygon,:scope > path')||n):n;
-          try { const bb=shape.getBBox(); badge(group?n:n.parentNode,bb.x+bb.width-3,bb.y+3,group?'':n.getAttribute('transform')); } catch { /* not measurable yet */ }
+          // The badge sits just right of the label's last glyph, centred on its line, for every shape
+          // (rect, circle, diamond, a participant box or a bare actor label). It is measured on screen and
+          // mapped back, so a transform on the shape cannot throw it off.
+          const isText=n.tagName.toLowerCase()==='text', label=isText?n:(n.querySelector('.nodeLabel')||n.querySelector('foreignObject')||n.querySelector('text')), host=isText?n.parentNode:n;
+          try { const lb=label&&label.getBoundingClientRect(), m=host.getScreenCTM();
+            if(lb&&lb.width&&m){ const pt=svg.createSVGPoint(); pt.x=lb.right+12; pt.y=lb.top+lb.height/2; const q=pt.matrixTransform(m.inverse()); badge(host,q.x,q.y,''); } } catch { /* not measurable yet */ }
           invite(n,name,told);
         });
         if(marked){ const legend=document.createElement('span'),mark=document.createElement('b');legend.className='magi-diagram-legend';mark.textContent='i';
