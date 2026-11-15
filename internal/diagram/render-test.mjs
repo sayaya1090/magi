@@ -253,6 +253,11 @@ try {
  assert.equal(look.label,'Told','the badge does not change the label (or the chip) '+JSON.stringify(look));
  assert.match(look.aria,/has notes/,'the badge is announced');
  assert.equal(look.legend,1,'a diagram with notes shows the legend');
+ // The badge only means "has notes"; the legend must not read as if only badged elements attach.
+ const lg=await desc.locator('.magi-diagram-legend').textContent();
+ assert.match(lg,/has notes/,'legend names the badge '+lg);
+ assert.match(lg,/every element/i,'legend says every element can be attached '+lg);
+ assert.equal(await desc.locator('.magi-diagram-legend .magi-legend-hint').count(),1,'the attach hint is apart from the badge '+lg);
  assert.equal(await page.locator('figure.magi-diagram').filter({hasText:'Daemon'}).locator('.magi-diagram-legend').count(),0,'a diagram without notes shows no legend');
  const figH=()=>desc.evaluate(f=>Math.round(f.getBoundingClientRect().height));
  const h0=await figH();
@@ -274,5 +279,21 @@ try {
  await desc.locator('svg[role=img]').click({position:{x:2,y:2}});
  const h3=await figH();
  assert.deepEqual([h1,h2,h3],[h0,h0,h0],'opening and closing notes keeps the diagram height');
+ // A long description is previewed whole: no clamp, wider than the old 280px, and kept inside the
+ // diagram box (an embedded panel may clip anything outside it).
+ const L0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ const longText='Line one explains what this component owns and why it exists in the design.\nLine two names the file and function that implement it, with the reason it is pure.\nLine three says how it is tested without a model, and what would break if it changed.\nLine four is here only to be longer than three lines.';
+ await insert('flowchart LR\n Q[Quiet] --> W[Wordy]\n%% magi-descriptions '+JSON.stringify({Wordy:longText}));
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,L0+1);
+ const lng=page.locator('figure.magi-diagram').filter({hasText:'Wordy'}).last();
+ await lng.locator('svg .node').filter({hasText:'Wordy'}).first().hover();
+ await page.waitForTimeout(600);
+ const pk=await lng.evaluate(f=>{const p=f.querySelector('.magi-diagram-peek'),r=p.getBoundingClientRect(),b=f.getBoundingClientRect();return {shown:!p.hidden,text:p.textContent,clipped:p.scrollHeight>p.clientHeight+1,w:Math.round(r.width),right:r.right-b.right,bottom:r.bottom-b.bottom,left:r.left-b.left,top:r.top-b.top};});
+ assert.equal(pk.shown,true,'long preview shows '+JSON.stringify(pk));
+ assert.equal(pk.text,longText,'the preview carries the whole description');
+ assert.equal(pk.clipped,false,'the preview is not clipped '+JSON.stringify(pk));
+ assert.ok(pk.w>300,'a long preview is wider than 280px '+JSON.stringify(pk));
+ assert.ok(pk.right<=1&&pk.left>=-1&&pk.bottom<=1&&pk.top>=-1,'the preview stays inside the diagram box '+JSON.stringify(pk));
+ await page.mouse.move(1,1);
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

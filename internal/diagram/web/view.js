@@ -61,9 +61,10 @@
     .magi-diagram svg .magi-note-badge { pointer-events:none; }
     .magi-diagram svg .magi-note-badge .b { fill:var(--magi-primary)!important;stroke:var(--magi-node-fill,Canvas)!important;stroke-width:2px!important; }
     .magi-diagram svg .magi-note-badge .g { fill:var(--md-sys-color-on-primary,Canvas)!important;stroke:none!important; }
-    .magi-diagram-peek { position:absolute;z-index:3;max-width:280px;box-sizing:border-box;padding:4px 8px;border-radius:4px;background:var(--md-sys-color-inverse-surface,CanvasText);color:var(--md-sys-color-inverse-on-surface,Canvas);font-size:12px;line-height:16px;letter-spacing:.4px;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden; }
+    .magi-diagram-peek { position:absolute;z-index:3;max-width:min(480px,100%);box-sizing:border-box;padding:4px 8px;border-radius:4px;background:var(--md-sys-color-inverse-surface,CanvasText);color:var(--md-sys-color-inverse-on-surface,Canvas);font-size:12px;line-height:16px;letter-spacing:.4px;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none; }
     .magi-diagram-peek[hidden] { display:none; }
     .magi-diagram-legend { display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--magi-on-variant); }
+    .magi-diagram-legend .magi-legend-hint { margin-left:4px; }
     .magi-diagram-legend b { display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--magi-primary);color:var(--md-sys-color-on-primary,Canvas);font:700 11px/1 serif; }
     pre.magi-diagram-pending { background:transparent;border:1px dashed var(--md-sys-color-outline-variant,color-mix(in srgb,currentColor 30%,transparent));border-radius:12px;padding:16px 12px;min-height:48px; }
     pre.magi-diagram-pending > code { display:none !important; }
@@ -489,7 +490,7 @@
         const peek=document.createElement('div');peek.className='magi-diagram-peek';peek.setAttribute('role','tooltip');peek.hidden=true;box.append(peek);
         let peekTimer=0, marked=0;
         const hidePeek=()=>{clearTimeout(peekTimer);peek.hidden=true;};
-        const showPeek=(el,text)=>{clearTimeout(peekTimer);peekTimer=setTimeout(()=>{const r=el.getBoundingClientRect(),f=box.getBoundingClientRect();peek.textContent=text;peek.style.left=Math.max(0,r.left-f.left)+'px';peek.style.top=(r.bottom-f.top+6)+'px';peek.hidden=false;},300);};
+        const showPeek=(el,text)=>{clearTimeout(peekTimer);peekTimer=setTimeout(()=>{const r=el.getBoundingClientRect(),f=box.getBoundingClientRect();peek.textContent=text;peek.style.left='0px';peek.style.top='0px';peek.hidden=false;const w=box.clientWidth,h=box.clientHeight,pw=peek.offsetWidth,ph=peek.offsetHeight,below=r.bottom-f.top+6,above=r.top-f.top-6-ph;peek.style.left=Math.max(0,Math.min(r.left-f.left,w-pw))+'px';peek.style.top=Math.max(0,below+ph<=h?below:(above>=0?above:h-ph))+'px';},300);};
         const badge=(parent,cx,cy,tr)=>{const ns='http://www.w3.org/2000/svg',g=document.createElementNS(ns,'g');g.setAttribute('class','magi-note-badge');g.setAttribute('aria-hidden','true');if(tr) g.setAttribute('transform',tr);
           const put=(t,a)=>{const e=document.createElementNS(ns,t);for(const k in a) e.setAttribute(k,a[k]);g.append(e);};
           put('circle',{class:'b',cx,cy,r:8});put('circle',{class:'g',cx,cy:cy-3.2,r:1.3});put('rect',{class:'g',x:cx-1.1,y:cy-1.2,width:2.2,height:5.2,rx:1});parent.append(g);};
@@ -551,7 +552,7 @@
           invite(n,name,told);
         });
         if(marked){ const legend=document.createElement('span'),mark=document.createElement('b');legend.className='magi-diagram-legend';mark.textContent='i';
-          legend.append(mark,say(composerMounted?'has notes · pick any element to attach it':'has notes · pick any element to ask about it',composerMounted?'설명 있음 · 아무 요소나 눌러 질문에 첨부':'설명 있음 · 아무 요소나 눌러 질문'));bar.append(legend); }
+          const hint=document.createElement('span');hint.className='magi-legend-hint';hint.textContent=say(composerMounted?'· every element, badge or not, can be picked and attached':'· every element, badge or not, can be picked to ask about it',composerMounted?'· 배지와 관계없이 모든 요소를 눌러 질문에 첨부할 수 있습니다':'· 배지와 관계없이 모든 요소를 눌러 질문할 수 있습니다');legend.append(mark,say('has notes','설명 있음'),hint);bar.append(legend); }
         // A click on the background lets go of what was picked, so its elevation drops again.
         svg.addEventListener('click',ev=>{
           if(ev.target.closest('[role=button],.magi-edge-hit,.magi-edge-text')) return;
