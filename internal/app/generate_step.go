@@ -55,7 +55,7 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		if real := overflowRequestTokens(cause); real > 0 {
 			a.learnEstimateScale(sid, real, estimateTokens("", reconstruct(fresh)))
 		}
-		if !a.compactNow(ctx, tc.s, agent, agentActor, fresh) {
+		if !a.compactForOverflow(ctx, tc.s, agent, agentActor, fresh) {
 			return false
 		}
 		// The FOLDED log, and its error is not decoration. Read answers (nil, err) when the log

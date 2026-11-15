@@ -1145,6 +1145,7 @@ func (a *App) beginCompaction(sid session.SessionID) bool {
 		return false
 	}
 	st.compacting = true
+	st.compactDone = make(chan struct{})
 	return true
 }
 
@@ -1154,7 +1155,57 @@ func (a *App) endCompaction(sid session.SessionID) {
 	defer a.mu.Unlock()
 	if st, ok := a.stateIf(sid); ok {
 		st.compacting = false
+		if st.compactDone != nil {
+			close(st.compactDone)
+			st.compactDone = nil
+		}
 	}
+}
+
+// waitCompaction waits for the compaction running for the session to end: true when it has (or
+// none was running), false when ctx ended first.
+func (a *App) waitCompaction(ctx context.Context, sid session.SessionID) bool {
+	a.mu.Lock()
+	var done chan struct{}
+	if st, ok := a.stateIf(sid); ok {
+		done = st.compactDone
+	}
+	a.mu.Unlock()
+	if done == nil {
+		return true
+	}
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// compactForOverflow is the fold a request refused for size asks for. "Another compaction is
+// running" is not "nothing more to fold": it waits for that one (as long as the turn lives), and if
+// it folded the log the caller rebuilds the request from it; if it did not, this folds itself.
+func (a *App) compactForOverflow(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event) bool {
+	for attempt := 0; attempt < 4; attempt++ {
+		if a.beginCompaction(s.ID) {
+			defer a.endCompaction(s.ID)
+			return a.compactNowHeld(ctx, s, agent, actor, evs)
+		}
+		before := lastCompactionBoundary(evs)
+		a.emitToolProgress(s.ID, actor, "", agent.Name, "context too large for the model — waiting for the compaction already running")
+		if !a.waitCompaction(ctx, s.ID) {
+			return false
+		}
+		fresh, err := a.store.Read(ctx, s.ID, 0)
+		if err != nil {
+			return false
+		}
+		if lastCompactionBoundary(fresh) > before {
+			return true // the running compaction folded the log; rebuild from it
+		}
+		evs = fresh
+	}
+	return false
 }
 
 // drainBrief is drainStream that keeps saying how far it has got. A summary is one long model call

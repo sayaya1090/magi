@@ -42,6 +42,8 @@ type sessionState struct {
 	// compacting is held by the one compaction (automatic or manual) running for this session;
 	// see beginCompaction.
 	compacting bool
+	// compactDone is closed when the running compaction ends, for a caller that must wait for it.
+	compactDone chan struct{}
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
 	// unattended marks a turn nobody is watching — a scheduled firing, today.
