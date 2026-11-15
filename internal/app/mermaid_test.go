@@ -49,7 +49,7 @@ func TestMermaidCodingCatalogReachesCustomEndpoint(t *testing.T) {
 		}
 	}
 	for _, name := range <-received {
-		if name == "mermaid" {
+		if name == "diagram" {
 			return
 		}
 	}
@@ -66,7 +66,7 @@ func TestMermaidNotAdvertisedToOtherClientRoles(t *testing.T) {
 			reg.Register(builtin.Mermaid{Preview: true})
 			a := New(nil, nil, reg, nil, nil, Config{ClientRole: string(role)})
 			for _, spec := range a.sessionToolSpecs("s", AgentSpec{}) {
-				if spec.Name == "mermaid" || spec.Name == "mermaid_preview" {
+				if spec.Name == "diagram" || spec.Name == "diagram_preview" {
 					t.Fatalf("exposed %s", spec.Name)
 				}
 			}
@@ -80,7 +80,7 @@ func TestMermaidHiddenFromAttachedTerminal(t *testing.T) {
 	a.stateLocked("s").terminalDiagram = true
 	a.mu.Unlock()
 	for _, s := range a.toolSpecs("s", AgentSpec{}) {
-		if s.Name == "mermaid" {
+		if s.Name == "diagram" {
 			t.Fatal("terminal offered inline diagram")
 		}
 	}

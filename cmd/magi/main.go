@@ -672,7 +672,7 @@ func runWithContext(runCtx context.Context) int {
 	reg := builtin.Default()
 	// Local terminal previews are never offered to remote/headless sessions.
 	if !headless {
-		reg.Unregister("mermaid")
+		reg.Unregister("diagram")
 		if builtin.DiagramBrowserAvailable(runCtx) {
 			reg.Register(builtin.Mermaid{Preview: true})
 		}

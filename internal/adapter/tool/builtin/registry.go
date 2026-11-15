@@ -132,7 +132,7 @@ func RegisterOrchestration(r *Registry, headless bool) {
 func KnownNames() map[string]bool {
 	r := Default()
 	RegisterOrchestration(r, false)
-	out := map[string]bool{"mermaid_preview": true}
+	out := map[string]bool{"diagram_preview": true}
 	for _, t := range r.List() {
 		out[t.Name()] = true
 	}

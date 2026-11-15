@@ -26,9 +26,9 @@ func (m Mermaid) ReadOnly() bool { return !m.Preview }
 
 func (m Mermaid) Name() string {
 	if m.Preview {
-		return "mermaid_preview"
+		return "diagram_preview"
 	}
-	return "mermaid"
+	return "diagram"
 }
 func (m Mermaid) Description() string {
 	if m.Preview {

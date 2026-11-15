@@ -52,7 +52,7 @@ func testIDEMermaidEndpoint(t *testing.T, injected bool) {
 		}
 		found := false
 		for _, tool := range body.Tools {
-			if tool.Function.Name == "mermaid" {
+			if tool.Function.Name == "diagram" {
 				found = true
 			}
 		}
@@ -77,7 +77,7 @@ func testIDEMermaidEndpoint(t *testing.T, injected bool) {
 		if result {
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"```mermaid\\nflowchart TD\\nA-->B\\n```\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		} else {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"diagram1","type":"function","function":{"name":"mermaid","arguments":"{\"title\":\"Flow\",\"source\":\"flowchart TD\\nA-->B\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n")
+			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"diagram1","type":"function","function":{"name":"diagram","arguments":"{\"title\":\"Flow\",\"source\":\"flowchart TD\\nA-->B\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\ndata: [DONE]\n\n")
 		}
 	}))
 	defer srv.Close()

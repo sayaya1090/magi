@@ -21,10 +21,10 @@ Choose the notation that answers the developer's question:
 
 Mermaid is not a complete UML implementation. Do not invent unsupported use-case notation; use a labeled flowchart or prose and say what it represents. Do not claim a diagram is executable or formally verified.
 
-Use the available Mermaid tool. Pass plain source without HTML, click callbacks, URLs or configuration. A successful preparation does not establish valid Mermaid syntax: rendering is checked by the client. Keep labels short and use stable node identifiers. Add an accessible prose summary.
+Use the available `diagram` tool. Pass plain source without HTML, click callbacks, URLs or configuration. A successful preparation does not establish valid Mermaid syntax: rendering is checked by the client. Keep labels short and use stable node identifiers. Add an accessible prose summary.
 
 In JetBrains, web and VS Code, include the fenced Mermaid source in the answer so the client can render it. The client offers zoom, source copying and selection to prepare a question. Do not claim that clicking a node executes code or navigates to a file.
 
-When only `mermaid_preview` is available, present its local preview link and a brief explanation. Do not print the source in the terminal. Never claim the browser opened: the tool saves a page, and the developer opens the link. When no Mermaid tool is available, use text. Do not invent a preview link or install a browser.
+When only `diagram_preview` is available, present its local preview link and a brief explanation. Do not print the source in the terminal. Never claim the browser opened: the tool saves a page, and the developer opens the link. When no Mermaid tool is available, use text. Do not invent a preview link or install a browser.
 
 If project-specific OOAD, architecture or design-pattern skills are listed, load the relevant one for its conventions. This built-in guide is self-contained and does not require private course documents.
