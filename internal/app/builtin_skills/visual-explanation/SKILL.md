@@ -6,7 +6,7 @@ clients: coding
 
 # Visual explanations
 
-Use a diagram by default whenever the explanation involves relationships, ordering or causation with two or more steps. That includes root-cause chains, the order of an operation, a change across several files and a comparison of alternatives, not only architecture. Start with the conclusion, present one focused diagram, then explain the important arrows and tradeoffs.
+Use a diagram by default whenever the explanation involves relationships, ordering or causation with two or more steps. That includes root-cause chains, the order of an operation, a change across several files and a comparison of alternatives, not only architecture. Start with the conclusion, present one focused diagram, then add only what the diagram as a whole shows and its tradeoffs. Put each element's details in descriptions, keyed by its visible label (a node, a participant, or an arrow as A → B or A → B: message); the reader sees an (i) badge and reads them on hover. The prose around the diagram states only the conclusion and what the diagram as a whole shows, and does not repeat what descriptions say.
 
 Read the relevant code first. Use actual module, type and method names. Label proposals and assumptions explicitly; do not present an inferred call as an observed one. Name the source files after the diagram. Split large views into a system overview and a separate focused flow.
 
