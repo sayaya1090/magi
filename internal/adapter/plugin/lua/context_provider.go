@@ -101,6 +101,11 @@ func (c *luaCompactionAdvisor) AdviseCompaction(ctx context.Context, q port.Comp
 	if L == nil {
 		return "", nil
 	}
+	// ctx bounds the Lua call itself, not only the lock: the VM aborts at the next opcode once
+	// ctx ends, so an advise function that never returns cannot hold up a compaction. The context
+	// is removed afterwards so the plugin's next call runs unbounded by this one.
+	L.SetContext(ctx)
+	defer L.RemoveContext()
 	query := L.NewTable()
 	L.SetField(query, "session_id", lua.LString(q.SessionID))
 	L.SetField(query, "workdir", lua.LString(q.Workdir))

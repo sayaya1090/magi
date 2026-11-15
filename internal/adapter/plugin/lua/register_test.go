@@ -7,6 +7,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/port"
+	"time"
 )
 
 // fakeMCPMgr captures plugin MCP registrations for assertion.
@@ -334,5 +335,49 @@ func TestPluginRegistersCompactionAdvisor(t *testing.T) {
 	got, err := reg.advisors[0].AdviseCompaction(context.Background(), port.CompactionQuery{SessionID: "s1", Workdir: "/proj"})
 	if err != nil || got != "keep s1 /proj" {
 		t.Fatalf("advise = %q, %v", got, err)
+	}
+}
+
+// An advisor that never returns is stopped by the context the core gives it (five seconds in
+// production), so it cannot hold up a compaction; the plugin's VM stays usable afterwards.
+func TestARunawayCompactionAdvisorIsStoppedByItsContext(t *testing.T) {
+	reg := &fakeAdvisorReg{}
+	dir := writePlugin(t,
+		`name="spin"`+"\n"+`capabilities=["context-provider"]`,
+		`magi.register_compaction_advisor{ name = "spin", advise = function(q) while true do end end }
+magi.register_compaction_advisor{ name = "ok", advise = function(q) local n = 0; for i = 1, 100000 do n = n + i end; return "ok" end }
+magi.register_context_provider{ name = "rag", provide = function(q) local n = 0; for i = 1, 100000 do n = n + i end; return { { source = "s", text = "fine" } } end }`,
+	)
+	if _, err := hostWith(nil, reg).Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(reg.advisors) != 2 {
+		t.Fatalf("expected 2 advisors, got %d", len(reg.advisors))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := reg.advisors[0].AdviseCompaction(ctx, port.CompactionQuery{SessionID: "s1"})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("a stopped advisor reported no error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a runaway advisor ignored its context and was still running after 2s")
+	}
+	// The stopped call's context must not stay on the VM: another entry point of the same plugin that
+	// sets no context of its own (a context provider) still runs to the end. It is asked first, before
+	// another advisor call would set a fresh context over the stale one.
+	chunks, err := reg.providers[0].Provide(context.Background(), port.ContextQuery{SessionID: "s1"})
+	if err != nil || len(chunks) != 1 || chunks[0].Text != "fine" {
+		t.Fatalf("after a stopped advisor the plugin's context provider failed: %+v, %v", chunks, err)
+	}
+	got, err := reg.advisors[1].AdviseCompaction(context.Background(), port.CompactionQuery{SessionID: "s1"})
+	if err != nil || got != "ok" {
+		t.Fatalf("after a stopped advisor the plugin no longer answers: %q, %v", got, err)
 	}
 }

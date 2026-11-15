@@ -79,6 +79,15 @@ local function note_kept(sid, text)
   while #list > KEPT_MAX do table.remove(list, 1) end
   magi.store_set(kept_key(sid), magi.json_encode(list))
 end
+-- 사용자가 취소한 것은 더 이상 보관된 것이 아니다. 목록에 남기면 요약기가 존재하지 않는
+-- 기억을 근거로 내용을 빼 버린다.
+local function forget_kept(sid, line)
+  local out, gone = {}, false
+  for _, v in ipairs(kept_list(sid)) do
+    if v == line then gone = true else out[#out + 1] = v end
+  end
+  if gone then magi.store_set(kept_key(sid), magi.json_encode(out)) end
+end
 local embed_lease_touch = function() return false end
 
 -- 사이드카 분석기 시스템 프롬프트 (결정 규칙·성공 확정 정의·환각 금지)
@@ -1392,6 +1401,7 @@ local function undo_last_skill(sid)
     -- 이 스킬은 이번 턴 전부터 있었고 시계도 그때부터 돌고 있었다.)
     local pdesc = string.match(prev, "\ndescription:%s*([^\n]*)") or ""
     index_skill(slug, pdesc)
+    forget_kept(sid, "skill: " .. slug)
     clear_undo_window(sid)
     magi.notify(sid, "engram: 스킬 '" .. slug .. "' 을(를) 이번 턴 저장 전의 판으로 되돌렸습니다.")
     magi.log("engram: 스킬 되돌림(이전 판 복원) — " .. slug)
@@ -1409,6 +1419,7 @@ local function undo_last_skill(sid)
     end
     magi.store_set(key, table.concat(out, "\n"))
   end
+  forget_kept(sid, "skill: " .. slug)
   clear_undo_window(sid)
   magi.notify(sid, "engram: 스킬 '" .. slug .. "' 저장을 취소(삭제)했습니다.")
   magi.log("engram: 스킬 취소 — " .. slug)

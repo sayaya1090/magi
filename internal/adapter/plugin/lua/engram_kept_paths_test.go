@@ -78,3 +78,41 @@ func TestEngramAdvisesAboutWhatTheAgentRemembered(t *testing.T) {
 		}
 	}
 }
+
+// A skill the user cancels with N is no longer kept, so the brief must not be told to leave it out:
+// both the delete path (a new skill) and the restore path (an overwritten one) take it off the list.
+func TestEngramForgetsASkillTheUserCancelled(t *testing.T) {
+	fa := &fakeAnalyzer{replies: []string{
+		`{"lesson":null,"skill":{"name":"port_probe","trigger":"포트 점검","technique":"V1: lsof -i :PORT","description":"포트 점유를 lsof로 확인한다"}}`,
+		`{"lesson":null,"skill":{"name":"port_probe","trigger":"포트 점검","technique":"V2: port_owner PORT","description":"포트 점유를 port_owner로 확인한다"}}`,
+		`{"lesson":null,"skill":{"name":"disk_probe","trigger":"디스크 점검","technique":"df -h","description":"디스크 여유를 df로 확인한다"}}`,
+	}}
+	h, reg := loadEngramAdvised(t, fa)
+	turn := func(user, answer string) {
+		h.FireEventWith("user_message", map[string]string{"session": "s1", "text": user})
+		h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": answer, "outcome": "verified"})
+		h.DrainEvents(5 * time.Second)
+	}
+	// Restore path: port_probe is created, kept, then overwritten and the overwrite cancelled.
+	turn("포트 점검 방법 알려줘", "lsof로 확인, 됐다")
+	turn("고마워 잘 되네", "port_owner로도 됐다")
+	if got := advice(t, reg, "s1"); !strings.Contains(got, "skill: port_probe") {
+		t.Fatalf("the saved skill is not on the list:\n%s", got)
+	}
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "N"})
+	h.DrainEvents(5 * time.Second)
+	if got := advice(t, reg, "s1"); strings.Contains(got, "skill: port_probe") {
+		t.Errorf("a cancelled (restored) skill is still on the list:\n%s", got)
+	}
+	// Delete path: disk_probe is new, so N deletes it.
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "df로 확인했다", "outcome": "verified"})
+	h.DrainEvents(5 * time.Second)
+	if got := advice(t, reg, "s1"); !strings.Contains(got, "skill: disk_probe") {
+		t.Fatalf("the new skill is not on the list (analyzer calls %d):\n%s", fa.calls, got)
+	}
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "N"})
+	h.DrainEvents(5 * time.Second)
+	if got := advice(t, reg, "s1"); strings.Contains(got, "skill: disk_probe") {
+		t.Errorf("a cancelled (deleted) skill is still on the list:\n%s", got)
+	}
+}
