@@ -305,3 +305,34 @@ func TestPluginSetsLLMHeadersStatic(t *testing.T) {
 		t.Fatalf("static LLM header not registered: %+v", llm.fns)
 	}
 }
+
+// A plugin can add guidance to compaction without the core knowing what it keeps.
+type fakeAdvisorReg struct {
+	fakeContextReg
+	advisors []port.CompactionAdvisor
+}
+
+func (r *fakeAdvisorReg) RegisterCompactionAdvisor(a port.CompactionAdvisor) {
+	r.advisors = append(r.advisors, a)
+}
+
+func TestPluginRegistersCompactionAdvisor(t *testing.T) {
+	reg := &fakeAdvisorReg{}
+	dir := writePlugin(t,
+		`name="adv"`+"\n"+`capabilities=["context-provider"]`,
+		`magi.register_compaction_advisor{
+  name = "adv",
+  advise = function(q) return "keep " .. q.session_id .. " " .. q.workdir end,
+}`,
+	)
+	if _, err := hostWith(nil, reg).Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(reg.advisors) != 1 {
+		t.Fatalf("expected 1 registered advisor, got %d", len(reg.advisors))
+	}
+	got, err := reg.advisors[0].AdviseCompaction(context.Background(), port.CompactionQuery{SessionID: "s1", Workdir: "/proj"})
+	if err != nil || got != "keep s1 /proj" {
+		t.Fatalf("advise = %q, %v", got, err)
+	}
+}

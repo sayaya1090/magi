@@ -83,3 +83,34 @@ func (p *luaContextProvider) Provide(ctx context.Context, q port.ContextQuery) (
 
 	return chunks, nil
 }
+
+// luaCompactionAdvisor calls a plugin's advise function before a fold or condense. Same bounded
+// lock as luaContextProvider: a busy plugin yields no advice rather than stalling compaction.
+type luaCompactionAdvisor struct {
+	plugin *plugin
+	name   string
+	fn     *lua.LFunction
+}
+
+func (c *luaCompactionAdvisor) AdviseCompaction(ctx context.Context, q port.CompactionQuery) (string, error) {
+	if !lockWithin(&c.plugin.mu, ctx, 250*time.Millisecond) {
+		return "", nil
+	}
+	defer c.plugin.mu.Unlock()
+	L := c.plugin.L
+	if L == nil {
+		return "", nil
+	}
+	query := L.NewTable()
+	L.SetField(query, "session_id", lua.LString(q.SessionID))
+	L.SetField(query, "workdir", lua.LString(q.Workdir))
+	if err := L.CallByParam(lua.P{Fn: c.fn, NRet: 1, Protect: true}, query); err != nil {
+		return "", err
+	}
+	res := L.Get(-1)
+	L.Pop(1)
+	if s, ok := res.(lua.LString); ok {
+		return string(s), nil
+	}
+	return "", nil
+}

@@ -758,6 +758,21 @@ type ContextChunk struct {
 	Text   string
 }
 
+// ---- Compaction advisors ----
+
+// CompactionAdvisor lets an extension add guidance to the summariser when older context is folded
+// or an accumulated brief is condensed. Compaction itself stays generic: what an extension keeps
+// elsewhere, and why the brief may leave it out, is the extension's to say.
+type CompactionAdvisor interface {
+	AdviseCompaction(ctx context.Context, q CompactionQuery) (string, error)
+}
+
+// CompactionQuery names the session being compacted.
+type CompactionQuery struct {
+	SessionID session.SessionID
+	Workdir   string
+}
+
 // ---- Doctor probes ----
 
 // DoctorProbe is an environment check a plugin contributes to `magi -doctor`

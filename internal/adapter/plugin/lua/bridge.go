@@ -31,6 +31,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "register_tool", L.NewFunction(p.bridgeRegisterTool))
 	L.SetField(t, "register_mcp", L.NewFunction(p.bridgeRegisterMCP))
 	L.SetField(t, "register_context_provider", L.NewFunction(p.bridgeRegisterContextProvider))
+	L.SetField(t, "register_compaction_advisor", L.NewFunction(p.bridgeRegisterCompactionAdvisor))
 	L.SetField(t, "register_command", L.NewFunction(p.bridgeRegisterCommand))
 	L.SetField(t, "register_doctor_probes", L.NewFunction(p.bridgeRegisterDoctorProbes))
 	L.SetField(t, "register_slot", L.NewFunction(p.bridgeRegisterSlot))
@@ -822,6 +823,37 @@ func (p *plugin) bridgeRegisterContextProvider(L *lua.LState) int {
 
 	p.host.contextReg.RegisterContextProvider(provider)
 	p.logf(fmt.Sprintf("Registered context provider: %s", name))
+	return 0
+}
+
+// magi.register_compaction_advisor{name=, advise=function(query) return text end}
+// query = {session_id=, workdir=}. The returned text is handed to the summariser when the core
+// folds older context or condenses the running brief; the core does not interpret it.
+func (p *plugin) bridgeRegisterCompactionAdvisor(L *lua.LState) int {
+	p.requireCap(L, "context-provider")
+	var reg CompactionAdvisorRegistry
+	if p.host != nil {
+		reg, _ = p.host.contextReg.(CompactionAdvisorRegistry)
+	}
+	if reg == nil {
+		// Advice is optional: a host that takes none (magi -doctor, an embedding without compaction)
+		// must still load the plugin.
+		p.logf("register_compaction_advisor: this host takes no compaction advisors; skipped")
+		return 0
+	}
+	spec := L.CheckTable(1)
+	name := spec.RawGetString("name").String()
+	if name == "" || spec.RawGetString("name") == lua.LNil {
+		L.RaiseError("register_compaction_advisor: 'name' is required")
+		return 0
+	}
+	fn, ok := spec.RawGetString("advise").(*lua.LFunction)
+	if !ok {
+		L.RaiseError("register_compaction_advisor: 'advise' must be a function")
+		return 0
+	}
+	reg.RegisterCompactionAdvisor(&luaCompactionAdvisor{plugin: p, name: name, fn: fn})
+	p.logf(fmt.Sprintf("Registered compaction advisor: %s", name))
 	return 0
 }
 

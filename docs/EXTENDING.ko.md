@@ -449,6 +449,25 @@ magi.register_context_provider{
 }
 ```
 
+#### 컴팩션 조언자 — `magi.register_compaction_advisor`
+
+코어가 오래된 대화를 브리프로 접거나, 몫을 넘긴 브리프를 축약할 때 등록된 조언자에게 지침을
+묻고, 돌려받은 텍스트를 요약기 프롬프트 뒤에 붙입니다(capability `"context-provider"`, 조언자당
+5초, 합산 4KB, 실패하거나 빈 문자열을 돌려준 조언자는 건너뛰므로 컴팩션을 막지 못함). 컴팩션
+자체는 일반 기능으로 남고, 확장이 무엇을 보관하는지 알지 않습니다. engram은 이 함수로 그 세션에서
+이미 장기 기억으로 저장한 항목을 알려, 브리프가 그 내용을 다시 풀어 쓰지 않고 가리키게 합니다.
+조언자를 받지 않는 호스트(예: `magi -doctor`)에서는 로그 한 줄만 남기고 플러그인은 그대로
+로드됩니다.
+
+```lua
+magi.register_compaction_advisor{
+  name = "my-store",
+  advise = function(q)                          -- q.session_id, q.workdir
+    return "Leave entries already kept in my-store out of the brief."
+  end,
+}
+```
+
 ### 3.3 `magi.register_command` — TUI 슬래시 커맨드 등록
 
 플러그인이 `/login`, `/logout` 같은 슬래시 커맨드를 직접 등록합니다(capability `"command"`).

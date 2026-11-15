@@ -46,6 +46,12 @@ type ContextProviderRegistry interface {
 	RegisterContextProvider(port.ContextProvider)
 }
 
+// CompactionAdvisorRegistry is implemented by a ContextProviderRegistry that also takes compaction
+// advisors (the app does); magi.register_compaction_advisor finds it there.
+type CompactionAdvisorRegistry interface {
+	RegisterCompactionAdvisor(port.CompactionAdvisor)
+}
+
 // LLMHeaderRegistry allows plugins to inject custom headers into LLM backend
 // requests (e.g. an in-house gateway's X-CLIENT-API-KEY or an SSO token). fn is
 // re-evaluated on every request.

@@ -52,6 +52,33 @@ local MAX_ACTIVE_ROWS = 80  -- 활성 표 상한 — 초과분은 오래된 행�
 -- 세션별 최근 대화 윈도우 / 세션 내 중복 교훈 가드
 local recent = {}   -- sid -> { {role=, text=}, ... }
 local recorded = {} -- sid -> { [lessonKey]=true }
+
+-- 컴팩션 조언: 이 세션에서 엔그램이 이미 장기 기억으로 남긴 것. 코어의 컴팩션은 기억을 모르는
+-- 일반 기능이라, 엔그램이 register_compaction_advisor로 요약기에게 「다시 풀어 쓰지 말라」고
+-- 알린다. 스토어에 두므로 데몬이 재시작해도 같은 세션의 다음 압축이 안다.
+local KEPT_MAX = 40
+local function kept_key(sid) return "compaction_kept:" .. tostring(sid) end
+local function kept_list(sid)
+  if not sid or sid == "" then return {} end
+  local raw = magi.store_get(kept_key(sid))
+  if type(raw) ~= "string" or raw == "" then return {} end
+  local ok, v = pcall(magi.json_decode, raw)
+  if ok and type(v) == "table" then return v end
+  return {}
+end
+local function note_kept(sid, text)
+  if not sid or sid == "" or not text or text == "" then return end
+  local line = (tostring(text):gsub("%s+", " "))
+  if #line > 240 then
+    line = string.sub(line, 1, 240)
+    line = (line:gsub("[\192-\255][\128-\191]*$", "")) -- 잘린 UTF-8 글자를 남기지 않는다
+  end
+  local list = kept_list(sid)
+  for _, v in ipairs(list) do if v == line then return end end
+  list[#list + 1] = line
+  while #list > KEPT_MAX do table.remove(list, 1) end
+  magi.store_set(kept_key(sid), magi.json_encode(list))
+end
 local embed_lease_touch = function() return false end
 
 -- 사이드카 분석기 시스템 프롬프트 (결정 규칙·성공 확정 정의·환각 금지)
@@ -1189,6 +1216,7 @@ local function record_extracted_lesson(sid, lesson, user, host_outcome)
   }, replaces)
   if ok then
     magi.log("engram: 교훈 기록 — " .. tostring(lesson.task))
+    note_kept(sid, "lesson: " .. tostring(lesson.task) .. " — " .. tostring(lesson.lesson))
     local payload = build_memory_payload(lesson, host_outcome, full_text)
     local synced = enqueue_managed("lesson:" .. new_row, payload, previous_row and ("lesson:" .. previous_row) or nil)
     if not synced then magi.notify(sid, "engram: 교훈은 로컬에 기록했지만 경험 저장소 반영은 대기 중입니다.") end
@@ -1278,6 +1306,7 @@ local function analyze_and_record(sid, hint, user, used_csv, host_outcome, overr
     -- 핸들러 전체를 죽여 이 턴의 prune까지 건너뛴다 — 백스톱이 발동할 때마다.
     if not slug then return end
     magi.log("engram: 스킬 저장 — " .. slug)
+    note_kept(sid, "skill: " .. slug)
     -- 세션 키와 함께: 취소 창이 스토어 전역이면, 다른 세션의 무관한 질문에 "아니요"라
     -- 답한 것이 이 스킬을 지웠다. 창은 저장을 목격한 그 대화의 것이다.
     -- 창 키는 세션별이다: 한 칸짜리 전역 창은 다른 세션의 저장이 이 세션의 창을 덮어,
@@ -3139,6 +3168,19 @@ magi.register_command{
 }
 
 -- 회상: 최근 교훈을 컨텍스트로 주입(원장이 없으면 침묵). 행/문자 상한으로 바운드.
+if magi.register_compaction_advisor then
+  magi.register_compaction_advisor{
+    name = "engram",
+    advise = function(q)
+      local list = kept_list(q and q.session_id)
+      if #list == 0 then return "" end
+      return "Already saved as long-term memory during this conversation (recallable with recall_memory). " ..
+        "Leave them out of the brief; if one still matters for open work, point at it in one line instead of restating it:\n- " ..
+        table.concat(list, "\n- ")
+    end,
+  }
+end
+
 magi.register_context_provider{
   name = "engram-lessons",
   provide = function(q)

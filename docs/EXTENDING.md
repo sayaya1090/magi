@@ -488,6 +488,25 @@ magi.register_context_provider{
 }
 ```
 
+#### Compaction advisors — `magi.register_compaction_advisor`
+
+When the core folds older context into a brief, or condenses a brief that has outgrown its share, it
+asks every registered advisor for guidance and appends what they return to the summariser prompt
+(capability `"context-provider"`; 5s per advisor, 4KB combined; one that fails or returns nothing is
+skipped, so an advisor can never stop a compaction). Compaction itself stays generic: it does not
+know what an extension keeps. Engram uses this to list what it already saved as long-term memory in
+the session, so the brief points at those entries instead of restating them. A host that takes no
+advisors (for example `magi -doctor`) logs a line and loads the plugin anyway.
+
+```lua
+magi.register_compaction_advisor{
+  name = "my-store",
+  advise = function(q)                          -- q.session_id, q.workdir
+    return "Leave entries already kept in my-store out of the brief."
+  end,
+}
+```
+
 ### 3.3 `magi.register_command` — register a TUI slash command
 
 A plugin can register its own slash commands such as `/login` and `/logout` (capability `"command"`).

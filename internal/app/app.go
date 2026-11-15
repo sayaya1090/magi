@@ -57,11 +57,12 @@ type App struct {
 	toolServers port.ToolServers
 	// subagentPrefs is the user's own settings per subagent (guarded by mu). Only what they
 	// touched; the rest falls back to what the tool declared. Off means not advertised.
-	subagentPrefs    map[string]SubagentPref
-	bus              *bus.Bus
-	plat             port.Platform
-	cfg              Config
-	contextProviders []port.ContextProvider // RAG-like context injectors
+	subagentPrefs      map[string]SubagentPref
+	bus                *bus.Bus
+	plat               port.Platform
+	cfg                Config
+	contextProviders   []port.ContextProvider   // RAG-like context injectors
+	compactionAdvisors []port.CompactionAdvisor // extensions consulted before a fold or condense
 
 	// openFiles is the file each session's console editor currently has open: the unsaved buffer,
 	// pushed from the web editor as the person types and injected into the next turn's volatile

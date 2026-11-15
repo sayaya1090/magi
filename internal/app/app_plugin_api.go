@@ -57,6 +57,51 @@ func (a *App) RegisterContextProvider(p port.ContextProvider) {
 	}
 }
 
+// RegisterCompactionAdvisor adds an extension consulted before a fold or a condense.
+func (a *App) RegisterCompactionAdvisor(p port.CompactionAdvisor) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.compactionAdvisors = append(a.compactionAdvisors, p)
+}
+
+// compactionAdviceBudget caps the bytes extensions may add to one summariser prompt.
+const compactionAdviceBudget = 4000
+
+// compactionGuidance asks every registered advisor what the summariser should know about this
+// session and returns it as one section for the fold or condense prompt (empty if none said
+// anything). Each advisor gets five seconds; one that fails or times out is skipped, so an
+// extension can never stop a compaction.
+func (a *App) compactionGuidance(ctx context.Context, s session.Session) string {
+	a.mu.Lock()
+	advisors := append([]port.CompactionAdvisor(nil), a.compactionAdvisors...)
+	a.mu.Unlock()
+	var parts []string
+	size := 0
+	for _, adv := range advisors {
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		text, err := adv.AdviseCompaction(cctx, port.CompactionQuery{SessionID: s.ID, Workdir: s.Workdir})
+		cancel()
+		text = strings.TrimSpace(text)
+		if err != nil || text == "" {
+			continue
+		}
+		if size+len(text) > compactionAdviceBudget {
+			text = strings.TrimSpace(truncateContextBytes(text, compactionAdviceBudget-size))
+		}
+		if text == "" {
+			break
+		}
+		parts = append(parts, text)
+		if size += len(text); size >= compactionAdviceBudget {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "\n\nGuidance from extensions for this brief (follow it; the sections above still apply):\n" + strings.Join(parts, "\n\n")
+}
+
 // contextBudget caps the bytes of provider-injected context per turn so a
 // chatty RAG source can't blow the window.
 const contextBudget = 8000

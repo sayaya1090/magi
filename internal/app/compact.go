@@ -886,7 +886,7 @@ const condensePrompt = `Condense the following brief of a long working conversat
 // own provider so compaction runs on the same backend the agent is routed to, and asks for the
 // brief in the language the user was writing in.
 func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Session, msgs []session.Message) string {
-	system := foldPrompt
+	system := foldPrompt + a.compactionGuidance(ctx, s)
 	if d := langDirective(personsWords(msgs)); d != "" {
 		system += "\n\n" + d
 	}
@@ -965,7 +965,7 @@ func asMaterial(msgs []session.Message) []session.Message {
 // condenseBrief rewrites the running brief, shorter. "" when the model gave nothing — the caller
 // keeps the long one rather than losing it.
 func (a *App) condenseBrief(ctx context.Context, agent AgentSpec, s session.Session, brief string, target int) string {
-	system := condensePrompt
+	system := condensePrompt + a.compactionGuidance(ctx, s)
 	// A number, not just "shorter": told only to keep every identifier verbatim, the model kept
 	// nearly everything (measured 91–99% of the input written back).
 	system += fmt.Sprintf("\n\nThe brief is about %d tokens. Write at most %d tokens: merge and drop the detail of closed items first, and keep open items and the names in play.", briefTokens(brief), target)
