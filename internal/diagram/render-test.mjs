@@ -352,5 +352,38 @@ try {
  assert.equal(await fg.locator('svg .magi-selected').count(),1,'clicking the figure picks the actor');
  assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Pilot','the figure attaches the actor');
  await page.mouse.move(1,1);
+ // Review 56cfe8613 (2): a class box is picked by its name, the same name hover uses: its notes stay
+ // open on click and the chip carries the name, not the members joined to it.
+ const rv_rc0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('classDiagram\n class Ledger {\n  -total : int\n  +pay() bool\n }\n class Item\n Ledger --> Item\n%% magi-descriptions {"Ledger":"Ledger notes."}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,rv_rc0+1);
+ const rv_lg=page.locator('figure.magi-diagram').last();
+ await rv_lg.scrollIntoViewIfNeeded();
+ await rv_lg.locator('svg .node').filter({hasText:'Ledger'}).first().click();
+ await page.waitForTimeout(200);
+ assert.equal(await rv_lg.locator('aside').evaluate(e=>e.hidden),false,'clicking a described class box opens its notes');
+ assert.equal(await rv_lg.locator('aside p').textContent(),'Ledger notes.');
+ assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Ledger','the class chip carries its name only');
+ await page.mouse.move(1,1);
+ // Review 56cfe8613 (3): a diagram drawn while hidden gets its badges once it is shown.
+ const rv_hd0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await page.evaluate(()=>{const d=document.createElement('div');d.id='hidden-host';d.style.display='none';const p=document.createElement('pre'),c=document.createElement('code');c.dataset.lang='mermaid';c.textContent='flowchart LR\n Q[Quiet] --> T[Told]\n%% magi-descriptions {"Told":"Has notes."}';p.append(c);d.append(p);document.body.append(d);});
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,rv_hd0+1);
+ await page.waitForTimeout(300);
+ await page.evaluate(()=>{document.getElementById('hidden-host').style.display='';});
+ await page.waitForTimeout(600);
+ const rv_hid=await page.evaluate(()=>{const f=document.querySelector('#hidden-host figure.magi-diagram');const n=[...f.querySelectorAll('svg .node')].find(e=>e.textContent.trim()==='Told');const l=n.querySelector('.nodeLabel')||n.querySelector('text');const lb=l.getBoundingClientRect();const c=n.querySelector('.magi-note-badge circle.b');const cb=c?c.getBoundingClientRect():null;return {described:f.querySelectorAll('svg .magi-described').length,badges:f.querySelectorAll('svg .magi-note-badge').length,dx:cb?Math.round(cb.x+cb.width/2-lb.right):null,dy:cb?Math.round(cb.y+cb.height/2-(lb.top+lb.height/2)):null};});
+ assert.equal(rv_hid.badges,1,'a diagram drawn while hidden carries its badge once shown '+JSON.stringify(rv_hid));
+ assert.ok(rv_hid.dx>=8&&rv_hid.dx<=20&&Math.abs(rv_hid.dy)<=3,'that badge sits just right of the label '+JSON.stringify(rv_hid));
+ await page.evaluate(()=>document.getElementById('hidden-host').remove());
+ // Review 56cfe8613 (1): a many-line label stays inside its node box (and the badge-free node too).
+ const rv_ml0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('flowchart LR\n A["`'+Array.from({length:12},(_,i)=>'line '+(i+1)).join('\n')+'`"] --> B[One]');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,rv_ml0+1);
+ const rv_ml=page.locator('figure.magi-diagram').last();
+ await rv_ml.scrollIntoViewIfNeeded();
+ const rv_fit=await rv_ml.evaluate(f=>{const t=f.querySelector('svg .node text'),r=t.closest('.node').querySelector('rect').getBoundingClientRect(),b=t.getBoundingClientRect();return {lines:t.querySelectorAll(':scope > tspan').length,over:Math.round(r.top-b.top),under:Math.round(b.bottom-r.bottom)};});
+ assert.equal(rv_fit.lines,12,'the label has twelve lines '+JSON.stringify(rv_fit));
+ assert.ok(rv_fit.over<=0&&rv_fit.under<=0,'a twelve-line label stays inside its node '+JSON.stringify(rv_fit));
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

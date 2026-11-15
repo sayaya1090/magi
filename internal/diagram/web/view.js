@@ -404,17 +404,27 @@
             n.querySelectorAll('text,tspan,.nodeLabel,.nodeLabel *,foreignObject *').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
           box.__magiPaint=paint; paint(); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
         // M3 body-medium is 14/20. Mermaid places each line of a wrapped label 1.1em apart through the
-        // tspan y attribute, which CSS line-height cannot change, so node and group labels are re-spaced
-        // to 20px and shifted up by half the added height to stay centred. Edge labels keep Mermaid's
-        // spacing: their background box is sized for it.
-        svg.querySelectorAll('.node text, .cluster-label text').forEach(t=>{
+        // tspan y attribute, which CSS line-height cannot change, and sizes the node box (and routes its
+        // edges) for that spacing. So the lines are re-spaced toward 20px only as far as the box has room:
+        // measured once the diagram is attached, from the original y values (so it can run again), at
+        // most 20/14em and never below Mermaid's 1.1em. A diagram that cannot be measured yet (drawn while
+        // hidden) keeps Mermaid's spacing until it is shown or resized. Edge labels keep Mermaid's spacing:
+        // their background box is sized for it.
+        const respace=()=>{ svg.querySelectorAll('.node text, .cluster-label text').forEach(t=>{
           const lines=[...t.children].filter(c=>c.tagName.toLowerCase()==='tspan');
           if(lines.length<2) return;
-          const step=20/14, lift=(lines.length-1)*(step-1.1)/2;
-          const first=parseFloat(lines[0].getAttribute('y'))||0;
+          if(!t.__magiY) t.__magiY=lines.map(l=>l.getAttribute('y'));
+          lines.forEach((l,i)=>l.setAttribute('y',t.__magiY[i]));
+          const first=parseFloat(t.__magiY[0])||0;
+          let step=20/14;
+          const node=t.closest('.node'), shape=node&&(node.querySelector('.label-container')||node.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'));
+          if(shape){ const sb=shape.getBoundingClientRect(), tb=t.getBoundingClientRect(), a=lines[0].getBoundingClientRect(), b=lines[1].getBoundingClientRect();
+            const em=(b.top-a.top)/1.1; if(!sb.height||!(em>0)) return;
+            step=Math.min(step,Math.max(1.1,1.1+(sb.height-8-tb.height)/((lines.length-1)*em))); }
+          const lift=(lines.length-1)*(step-1.1)/2;
           lines.forEach((l,i)=>l.setAttribute('y',(first+i*step-lift).toFixed(4)+'em'));
-        });
-        canvas.replaceChildren(svg); fit();
+        }); };
+        canvas.replaceChildren(svg); respace(); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
           const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
           toggle.checked=!matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -494,7 +504,10 @@
         const showPeek=(el,text)=>{clearTimeout(peekTimer);peekTimer=setTimeout(()=>{const r=el.getBoundingClientRect(),f=box.getBoundingClientRect();peek.textContent=text;peek.style.left='0px';peek.style.top='0px';peek.hidden=false;const w=box.clientWidth,h=box.clientHeight,pw=peek.offsetWidth,ph=peek.offsetHeight,below=r.bottom-f.top+6,above=r.top-f.top-6-ph;peek.style.left=Math.max(0,Math.min(r.left-f.left,w-pw))+'px';peek.style.top=Math.max(0,below+ph<=h?below:(above>=0?above:h-ph))+'px';},300);};
         const badge=(parent,cx,cy,tr)=>{const ns='http://www.w3.org/2000/svg',g=document.createElementNS(ns,'g');g.setAttribute('class','magi-note-badge');g.setAttribute('aria-hidden','true');if(tr) g.setAttribute('transform',tr);
           const put=(t,a)=>{const e=document.createElementNS(ns,t);for(const k in a) e.setAttribute(k,a[k]);g.append(e);};
-          put('circle',{class:'b',cx,cy,r:8});put('circle',{class:'g',cx,cy:cy-3.2,r:1.3});put('rect',{class:'g',x:cx-1.1,y:cy-1.2,width:2.2,height:5.2,rx:1});parent.append(g);};
+          put('circle',{class:'b',cx,cy,r:8});put('circle',{class:'g',cx,cy:cy-3.2,r:1.3});put('rect',{class:'g',x:cx-1.1,y:cy-1.2,width:2.2,height:5.2,rx:1});parent.append(g);return g;};
+        // Node badges are measured on screen; a diagram drawn while hidden has nothing to measure, so each
+        // badge is (re)placed by a placer that runs again whenever the layout is shown or resized.
+        const placers=[];
         // also is the rest of the element's shape (a participant's box beside its name): the preview
         // answers the whole shape, and moving between the two parts does not close and reopen it.
         const invite=(el,label,text,also)=>{marked++;el.classList.add('magi-described');el.setAttribute('aria-label',label+say(', has notes',', 설명 있음'));
@@ -533,13 +546,17 @@
           const said=msgs.length===texts.length?texts[msgs.indexOf(e)]:null;
           if(said){ said.classList.add('magi-edge-text'); said.addEventListener('click',choose); said.addEventListener('mouseenter',()=>lift(true)); said.addEventListener('mouseleave',()=>lift(false)); }
         });
+        // One name per element for notes, hover, click and chip: a class box's text holds its members
+        // too, so it is named by its title unless the whole text is itself a notes key.
+        const nodeName=n=>{ const whole=(n.textContent||'').trim(), g=n.querySelector&&n.querySelector('.label-group'), title=g?(g.textContent||'').trim():'';
+          return title&&!descriptions[whole]?title:whole; };
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
           n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.setAttribute('aria-pressed','false');
           const select=()=>{
             clearEdge();
             if(selectedNode && selectedNode!==n){selectedNode.classList.remove('magi-selected');selectedNode.setAttribute('aria-pressed','false');}
-            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;remember({node:(n.textContent||'').trim()});flowPaint();
-            const next=(n.textContent||'').trim();
+            n.classList.add('magi-selected');n.setAttribute('aria-pressed','true');selectedNode=n;remember({node:nodeName(n)});flowPaint();
+            const next=nodeName(n);
             if(next!==selected){question.value='';question.placeholder=say('Explain this diagram element: ','이 다이어그램 요소를 설명해 주세요: ')+next;}
             manualCopy.hidden=true;selected=next;ask.disabled=!selected;info.hidden=!selected;heading.textContent=selected;
             description.textContent=descriptions[selected]||'';description.hidden=!description.textContent;if(composerMounted&&!description.textContent) info.hidden=true;hidePeek();
@@ -551,15 +568,14 @@
           n.addEventListener('click',select);n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}});
         });
         svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup').forEach(n=>{
-          // A class box's text holds its members too; its notes are keyed by the name in its title.
-          const whole=(n.textContent||'').trim(), title=((n.querySelector('.label-group')||{}).textContent||'').trim();
-          const name=descriptions[whole]?whole:title, told=descriptions[name]; if(!told) return;
+          const name=nodeName(n), told=descriptions[name]; if(!told) return;
           // The badge sits just right of the label's last glyph, centred on its line, for every shape
           // (rect, circle, diamond, a participant box or a bare actor label). It is measured on screen and
           // mapped back, so a transform on the shape cannot throw it off.
           const isText=n.tagName.toLowerCase()==='text', label=isText?n:(n.querySelector('.nodeLabel')||n.querySelector('foreignObject')||n.querySelector('text')), host=isText?n.parentNode:n;
-          try { const lb=label&&label.getBoundingClientRect(), m=host.getScreenCTM();
-            if(lb&&lb.width&&m){ const pt=svg.createSVGPoint(); pt.x=lb.right+12; pt.y=lb.top+lb.height/2; const q=pt.matrixTransform(m.inverse()); badge(host,q.x,q.y,''); } } catch { /* not measurable yet */ }
+          let mine=null; const place=()=>{ try { const lb=label&&label.getBoundingClientRect(), m=host.getScreenCTM();
+            if(lb&&lb.width&&m){ const pt=svg.createSVGPoint(); pt.x=lb.right+12; pt.y=lb.top+lb.height/2; const q=pt.matrixTransform(m.inverse()); if(mine) mine.remove(); mine=badge(host,q.x,q.y,''); } } catch { /* not measurable yet */ } };
+          placers.push(place); place();
           // A participant's box answers with its name; a stick figure has no filled shape, so a clear
           // rectangle around figure and name stands in for one, and a click on it picks the actor.
           let area=isText?host.querySelector(':scope > rect'):null;
@@ -582,7 +598,7 @@
         });
         // Bring back what was chosen before the re-mount, without announcing the node again (its chip
         // is already in the composer).
-        if(kept.node){ const back=[...svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup')].find(n=>(n.textContent||'').trim()===kept.node);
+        if(kept.node){ const back=[...svg.querySelectorAll('.node,.actor,.classGroup,.stateGroup')].find(n=>nodeName(n)===kept.node);
           if(back){ back.classList.add('magi-selected'); back.setAttribute('aria-pressed','true'); selectedNode=back; selected=kept.node; } }
         // The notes have their room from the start: the slot is as tall as the tallest notes this diagram
         // can open, so opening or closing them never moves what is below.
@@ -597,7 +613,7 @@
           [info.hidden,heading.textContent,description.textContent,description.hidden]=keep;
           slot.style.minHeight=most?most+'px':'';
         };
-        reserve(); if(window.ResizeObserver) new ResizeObserver(()=>reserve()).observe(layout);
+        reserve(); if(window.ResizeObserver) new ResizeObserver(()=>{ reserve(); respace(); placers.forEach(f=>f()); }).observe(layout);
         flowPaint();
       } catch(e) { note.textContent=say('Diagram could not be rendered: ','다이어그램을 표시할 수 없습니다: ')+e.message; sourceBox.open=true; }
     });
