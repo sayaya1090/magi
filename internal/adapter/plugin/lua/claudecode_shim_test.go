@@ -104,6 +104,32 @@ func TestClaudeCodeShimSessionReuseContextCapAndSafetyClassifier(t *testing.T) {
 		t.Fatalf("<invoke> text leaked into the reply:\n%s", fi)
 	}
 
+	// 1c. A malformed call is not shown with a "NOT run" note: the same child is asked once for a
+	// corrected call, and nothing repeats. The prose before it goes out once, the retry's own
+	// prose and thinking never reach the reply, and exactly one corrected call is run.
+	fb := ask(`{"model":"opus","messages":[{"role":"user","content":"please BROKEN_CALL"}],` + toolsJSON + `}`)
+	if strings.Count(fb, `"name":"list_slides"`) != 1 || !strings.Contains(fb, `\"deck\":\"main\"`) {
+		t.Fatalf("a malformed call was not replaced by exactly one corrected call:\n%s", fb)
+	}
+	if strings.Count(fb, "Checking the deck.") != 1 {
+		t.Fatalf("the prose before a malformed call must go out exactly once:\n%s", fb)
+	}
+	for _, leak := range []string{"NOT run", "Sorry, here it is", "retry thinking", `main}}`} {
+		if strings.Contains(fb, leak) {
+			t.Fatalf("%q reached the reply:\n%s", leak, fb)
+		}
+	}
+	// A mention that only looks like a call is kept as written, once, when the model says so.
+	fp := ask(`{"model":"opus","messages":[{"role":"user","content":"please MENTION_CALL"}],` + toolsJSON + `}`)
+	if strings.Count(fp, "per line.") != 1 || !strings.Contains(fp, "The format is") || !strings.Contains(fp, "TOOL_CALL {...}") || strings.Contains(fp, "NOT_A_CALL") || strings.Contains(fp, "NOT run") || strings.Contains(fp, `"tool_calls"`) {
+		t.Fatalf("a mention of the call format must stay prose, shown once:\n%s", fp)
+	}
+	// Malformed twice: one short notice, no raw call text, nothing run.
+	ft := ask(`{"model":"opus","messages":[{"role":"user","content":"please BROKEN_TWICE"}],` + toolsJSON + `}`)
+	if strings.Count(ft, "was malformed and was not run") != 1 || strings.Contains(ft, `main}}`) || strings.Contains(ft, `"tool_calls"`) || strings.Contains(ft, "NOT run") {
+		t.Fatalf("a call malformed twice must leave one notice and nothing run:\n%s", ft)
+	}
+
 	// 2. Context window cap: fake-claude reported 1,000,000 in modelUsage, but /v1/models must cap at cfg_context (200,000).
 	mresp, err := http.Get(modelsURL)
 	if err != nil {

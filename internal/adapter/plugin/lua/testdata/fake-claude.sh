@@ -4,6 +4,7 @@ case " $* " in
   *" --version "*) echo "fake-claude 2.1.306"; exit 0;;
 esac
 n=0
+pending=
 while IFS= read -r line; do
   n=$((n+1))
   if [[ "$line" == *TRIGGER_SAFETY* ]]; then
@@ -11,6 +12,22 @@ while IFS= read -r line; do
     echo '{"type":"system","subtype":"informational","content":"Opus 5.5'\''s safeguards stopped the response above · continuing once with that noted"}'
     echo '{"type":"user","isMeta":true,"message":{"role":"user","content":"Your response above was stopped by a safety classifier — this is not a tool or API error."}}'
     echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"fallback_turn'"$n"'\n"}}}'
+  elif [[ "$line" == *"corrected, each one valid JSON"* ]]; then
+    if [[ "$pending" == fix ]]; then
+      echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"retry thinking"}}}'
+      echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Sorry, here it is:\nTOOL_CALL {\"name\":\"list_slides\",\"arguments\":{\"deck\":\"main\"}}\n"}}}'
+    elif [[ "$pending" == prose ]]; then
+      echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"NOT_A_CALL"}}}'
+    else
+      echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"TOOL_CALL {\"name\":\"list_slides\",\"arguments\":{\"deck\":\"main}}\n"}}}'
+    fi
+    pending=
+  elif [[ "$line" == *BROKEN_CALL* || "$line" == *BROKEN_TWICE* ]]; then
+    if [[ "$line" == *BROKEN_CALL* ]]; then pending=fix; else pending=again; fi
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Checking the deck.\nTOOL_CALL {\"name\":\"list_slides\",\"arguments\":{\"deck\":\"main}}\n"}}}'
+  elif [[ "$line" == *MENTION_CALL* ]]; then
+    pending=prose
+    echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"The format is `TOOL_CALL {...}` per line.\n"}}}'
   elif [[ "$line" == *MIDLINE_CALL* ]]; then
     echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Let me look. TOOL_C"}}}'
     echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"ALL {\"name\":\"list_slides\",\"arguments\":{}}\n"}}}'
