@@ -63,6 +63,12 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	if scaleEstimate(estimateTokens("", msgs), scale) <= messageBudget {
 		return false
 	}
+	// Over budget: a compaction starts here, so take the lock now, before the cheap cut too. If one
+	// is already running (a manual one from a client), this step does not start another.
+	if !a.beginCompaction(s.ID) {
+		return false
+	}
+	defer a.endCompaction(s.ID)
 	// Before the fold, the cheaper cut: give up recent bulky tool results instead of the oldest
 	// turns. A fold rewrites the head, so the cache re-bills everything behind it and a summariser
 	// call is paid to preserve what cannot be re-derived; an elided result costs neither — the
@@ -77,7 +83,7 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 		}
 		evs, _ = a.store.Read(ctx, s.ID, 0)
 	}
-	return a.compactNow(ctx, s, agent, actor, evs)
+	return a.compactNowHeld(ctx, s, agent, actor, evs)
 }
 
 // elideMinBytes: below this a result is not worth a stub — the stub itself is ~150 bytes, and a
@@ -233,6 +239,15 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 // count, or be uncalibrated when the model's real window differs from a hand-set constant).
 // Returns false when there is nothing left to fold (already at the minimal kept tail).
 func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event) bool {
+	if !a.beginCompaction(s.ID) {
+		return false // another compaction is running for this session
+	}
+	defer a.endCompaction(s.ID)
+	return a.compactNowHeld(ctx, s, agent, actor, evs)
+}
+
+// compactNowHeld is the fold itself; the caller holds the session's compaction lock.
+func (a *App) compactNowHeld(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event) bool {
 	// Find the boundary: keep the last keepRecentEvents fact events verbatim.
 	factSeqs := make([]int64, 0, len(evs))
 	for _, e := range evs {
@@ -1114,6 +1129,33 @@ var compactProgressEvery = 2 * time.Second
 // compactDoingCall files the fold's notes under their own id, so the fold clears what it said when
 // it ends and nothing else's note is wiped by it (the council does the same with its own).
 const compactDoingCall = "compact"
+
+// ErrCompactionRunning refuses a manual compaction while another one runs for the session.
+var ErrCompactionRunning = fmt.Errorf("a compaction is already running for this session")
+
+// beginCompaction takes the session's compaction lock the moment a compaction starts, and says
+// false when one is already running. Two compactions at once (the automatic fold mid-turn and a
+// button press in a client) each summarised the same history and each appended a snapshot over a
+// region the other was rewriting; one at a time, and the second is refused rather than queued.
+func (a *App) beginCompaction(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if st.compacting {
+		return false
+	}
+	st.compacting = true
+	return true
+}
+
+// endCompaction releases what beginCompaction took.
+func (a *App) endCompaction(sid session.SessionID) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		st.compacting = false
+	}
+}
 
 // drainBrief is drainStream that keeps saying how far it has got. A summary is one long model call
 // between steps and nothing else is drawn meanwhile; from outside that looks like a wedged turn.

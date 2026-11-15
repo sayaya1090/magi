@@ -39,6 +39,9 @@ type sessionState struct {
 
 	councilWanted *bool
 	councilTurn   *bool
+	// compacting is held by the one compaction (automatic or manual) running for this session;
+	// see beginCompaction.
+	compacting bool
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
 	// unattended marks a turn nobody is watching — a scheduled firing, today.

@@ -1155,6 +1155,12 @@ func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission
 // error/empty stream) it returns without appending — a failed summary must never
 // replace the context with a stub that wipes it.
 func (a *App) Compact(ctx context.Context, c command.Compact) error {
+	// Taken first, before the progress note is armed to clear: a refused request must not wipe the
+	// note of the compaction that is running.
+	if !a.beginCompaction(c.SessionID) {
+		return ErrCompactionRunning
+	}
+	defer a.endCompaction(c.SessionID)
 	defer a.clearDoing(c.SessionID, compactDoingCall)
 	evs, err := a.store.Read(ctx, c.SessionID, 0)
 	if err != nil {
