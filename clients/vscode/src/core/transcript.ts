@@ -98,6 +98,13 @@ export interface Row {
   /** True on the row that OPENS a round — the convened row, not a verdict. */
   opened?: boolean;
   /**
+   * Council rows: which convene of this stream they belong to (1, 2, ...). The unit a council folds
+   * and opens by — a council is one line in the transcript until that line is clicked.
+   */
+  convene?: number;
+  /** The decided row of a convene: the one line that stands for the whole council when folded. */
+  closing?: boolean;
+  /**
    * The turn this round is judging changed no files (`noChanges`).
    *
    * On the opening row because it says what KIND of turn is being weighed: an empty `changes` is
@@ -453,6 +460,8 @@ export function rows(events: Event[]): Row[] {
             : String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
         out.push({
           seq: e.seq, who: 'council',
+          convene: convene || undefined,
+          closing: convene > 0 || undefined,
           text: [note, counts, debated].filter(Boolean).join(' — '),
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
@@ -553,6 +562,7 @@ export function rows(events: Event[]): Row[] {
         const readOnly = d.noChanges === true;
         out.push({
           seq: e.seq, who: 'council', opened: true,
+          convene: convene + 1, // counted just below, after this row
           text: String(d.task ?? '').trim() || (members.length ? members.join(', ') : 'a round opened'),
           round: Number(d.round) || undefined,
           rule: String(d.rule ?? '').trim() || undefined,
@@ -578,6 +588,7 @@ export function rows(events: Event[]): Row[] {
           || (d.silent === true ? 'no answer came back' : '');
         const row: Row = {
           seq: e.seq, who: 'council', text, member: String(d.member ?? ''),
+          convene: convene || undefined,
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
           silent: d.silent === true || undefined,

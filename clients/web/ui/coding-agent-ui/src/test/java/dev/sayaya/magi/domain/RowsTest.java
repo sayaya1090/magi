@@ -76,4 +76,20 @@ class RowsTest {
         assertEquals("123456789…", Rows.oneLine("1234567890x", 10));
         assertEquals("", Rows.oneLine(null, 10));
     }
+
+    /**
+     * 카운슬 한 번은 한 줄이다 — 종합 판정 행만 서고, 그 소집의 위원 행은 펼친 소집에서만 그린다.
+     * 종합이 아직 없는 진행 중 표(convene 0)는 접지 않는다.
+     */
+    @Test
+    void aCouncilFoldsToItsClosingLineUntilOpened() {
+        java.util.Set<String> none = new java.util.HashSet<>();
+        assertEquals(true, Rows.hiddenByCouncil("council", false, 1, none));
+        assertEquals(false, Rows.hiddenByCouncil("council", true, 1, none));
+        assertEquals(false, Rows.hiddenByCouncil("council", false, 0, none));
+        assertEquals(false, Rows.hiddenByCouncil("tool", false, 1, none));
+        java.util.Set<String> open = new java.util.HashSet<>(java.util.List.of(Rows.councilKey(2)));
+        assertEquals(true, Rows.hiddenByCouncil("council", false, 1, open));
+        assertEquals(false, Rows.hiddenByCouncil("council", false, 2, open));
+    }
 }

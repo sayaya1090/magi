@@ -16,6 +16,9 @@ declare const createWebviewActionAdapter: typeof Adapter.createWebviewActionAdap
 declare const createWebviewInputAdapter: typeof Adapter.createWebviewInputAdapter;
 declare const planStripView: typeof Adapter.planStripView;
 declare const restartStripView: typeof Adapter.restartStripView;
+declare const councilFold: typeof Adapter.councilFold;
+declare const councilLine: typeof Adapter.councilLine;
+declare const councilKey: typeof Adapter.councilKey;
 declare const createSuggestController: typeof Adapter.createSuggestController;
 declare const createWebviewReceiveHandlers: typeof Adapter.createWebviewReceiveHandlers;
 declare const parseHostToWebviewMessage: typeof Adapter.parseHostToWebviewMessage;
@@ -620,6 +623,15 @@ function scheduleViewport() {
 }
 scrollEl.addEventListener('scroll', scheduleViewport, { passive: true });
 window.addEventListener('resize', () => { rowHeights = []; offsetsForRows(); scheduleViewport(); });
+/* Councils folded to their closing line, by convene; the raw rows are kept so a click can refold. */
+const councilOpen = new Set<string>();
+let lastRawRows: ChatRows | null = null;
+function flipCouncil(r: { convene?: number }) {
+  const k = councilKey(r);
+  if (!councilOpen.delete(k)) councilOpen.add(k);
+  paintedChatRows.clear();
+  if (lastRawRows) draw(lastRawRows);
+}
 function draw(rs: ChatRows) {
   drawNodeChips();restoreNodeDrafts();
   const scope = JSON.stringify([currentCompanionKey, currentSession, currentGeneration, currentWebviewId]);
@@ -629,8 +641,9 @@ function draw(rs: ChatRows) {
     paintedChatRows.clear();
 
   }
-  transcriptRows = rs;
-  rowHeights.length = rs.length;
+  lastRawRows = rs;
+  transcriptRows = councilFold(rs, councilOpen);
+  rowHeights.length = transcriptRows.length;
   offsetsForRows();
   paintViewport(followingTail);
 }
@@ -851,6 +864,21 @@ function paintViewport(tail = followingTail) {
       label.textContent = '';
       label.append(b);
       if (badge) w.insertBefore(badge, controls);
+    }
+    if (r.who === 'council' && r.closing && r.convene) {
+      /* The one line a council is: accepted or not. Its members' words open on a click (or Enter/Space). */
+      const line = councilLine(r, document.documentElement.lang);
+      const shown = councilOpen.has(councilKey(r));
+      d.classList.add('council-closing');
+      label.textContent = '\u2696 ' + line.text + (shown ? ' \u2303' : ' \u2304');
+      label.classList.add(line.accepted ? 'success' : 'warn');
+      d.querySelectorAll<HTMLElement>('.body, .cite, .keep, .thought').forEach(el => { el.hidden = !shown; });
+      d.setAttribute('role', 'button');
+      d.tabIndex = 0;
+      d.setAttribute('aria-expanded', String(shown));
+      d.style.cursor = 'pointer';
+      d.addEventListener('click', () => flipCouncil(r));
+      d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); flipCouncil(r); } });
     }
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);

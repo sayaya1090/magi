@@ -1,7 +1,7 @@
 const en = {
   nodeRemove:'Remove diagram element', nodeAbout:'About these diagram elements:', nodeExplain:'Explain these diagram elements:',
   retryWait: 'Retrying in {seconds}s · attempt {attempt}', reconnecting: 'Reconnecting…', ready: 'Ready', stop: 'Stop', retryNetwork: 'Connection interrupted', retryRate: 'Provider rate limit', retryBusy: 'Provider temporarily unavailable',
-  sessionChanged: 'Conversation changed before sending. Your message was saved as a draft.', closeRecovery: 'Close', resumeTask: 'Resume task', resumeReady: 'The interrupted task is ready to resume.',
+  sessionChanged: 'Conversation changed before sending. Your message was saved as a draft.', closeRecovery: 'Close', resumeTask: 'Resume task', resumeReady: 'The interrupted task is ready to resume.', councilAccepted: 'Council: accepted', councilHeld: 'Council: not accepted',
   recoveryFailed: 'Recovery could not settle this conversation. Retry before starting new work.',
   recoveryRetry: 'Retry recovery', checkCalls: 'Check uncertain operations before resuming',
   checkTip: 'Inspect the command or file and its saved result before choosing. A verdict records your decision; it does not execute anything.',
@@ -25,7 +25,7 @@ const en = {
 const ko: typeof en = {
   nodeRemove:'다이어그램 요소 제거', nodeAbout:'이 다이어그램 요소에 대해:', nodeExplain:'이 다이어그램 요소를 설명해 주세요:',
   retryWait: '{seconds}초 후 재시도 · {attempt}회차', reconnecting: '재연결 중…', ready: '준비됨', stop: '중단', retryNetwork: '연결이 중단됨', retryRate: '제공자 요청 한도', retryBusy: '제공자 일시적 오류',
-  sessionChanged: '전송 전에 대화가 바뀌었습니다. 메시지는 초안으로 보관했습니다.', closeRecovery: '닫기', resumeTask: '작업 재개', resumeReady: '중단된 작업을 이어갈 수 있습니다.',
+  sessionChanged: '전송 전에 대화가 바뀌었습니다. 메시지는 초안으로 보관했습니다.', closeRecovery: '닫기', resumeTask: '작업 재개', resumeReady: '중단된 작업을 이어갈 수 있습니다.', councilAccepted: '카운슬: 완료', councilHeld: '카운슬: 반대',
   recoveryFailed: '대화 복구를 마치지 못했습니다. 새 작업 전에 복구를 다시 시도해 주세요.',
   recoveryRetry: '복구 다시 시도', checkCalls: '재개 전에 실행 여부가 불확실한 작업을 확인하세요',
   checkTip: '명령·파일과 저장된 결과를 확인한 뒤 판단해 주세요. 판정은 기록만 하며 작업을 실행하지 않습니다.',

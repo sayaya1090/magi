@@ -249,6 +249,23 @@ object RowText {
     fun foldsOnKey(focusOwner: Any?, rowPanel: Any?): Boolean =
         focusOwner != null && rowPanel != null && focusOwner === rowPanel
 
+    /**
+     * 카운슬 한 번은 화면에서 한 줄이다 — 종합 판정 행이 「완료/반대」로 서고, 소집·평결 행은 그 줄을
+     * 펼쳤을 때만 그린다. 펼침은 소집 단위로 기억한다(행 하나가 아니라).
+     */
+    fun councilKey(r: Row): String = "council:${r.convene}"
+
+    /** 종합 판정이 완료를 받아들였는가. 판정이 아니면 null. */
+    fun councilAccepted(r: Row): Boolean? = when (r.decision) {
+        "done" -> true
+        "continue" -> false
+        else -> null
+    }
+
+    /** 접힌 카운슬에 가려지는 행인가: 소집에 속한 카운슬 행 중 종합 판정이 아닌 것, 그 소집이 [open] 에 없을 때. */
+    fun hiddenByCouncil(r: Row, open: Set<String>): Boolean =
+        r.who == Who.Council && !r.closing && r.convene > 0 && councilKey(r) !in open
+
     fun foldKey(r: Row): String = if (r.rowId.isNotEmpty()) "row:${r.rowId}" else when (r.who) {
         Who.Thinking -> {
             val id = r.msgId.ifBlank { r.callId.ifBlank { r.at.orEmpty() } }

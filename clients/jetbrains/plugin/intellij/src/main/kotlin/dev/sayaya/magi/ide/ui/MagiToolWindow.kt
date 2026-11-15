@@ -577,8 +577,21 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          */
         private val closed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
+        /**
+         * 펼쳐 둔 카운슬(소집 단위, [RowText.councilKey]). 카운슬 한 번은 종합 판정 한 줄로 서고,
+         * 그 줄을 누르면 소집·평결 행이 함께 펼쳐진다 — 행 하나가 아니라 소집 하나를 뒤집는다.
+         */
+        private val councilOpen = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+        /** 접힌 카운슬의 소집·평결 행을 뺀 전사. 종합 판정 행은 늘 남는다. */
+        private fun foldCouncils(rows: List<Row>): List<Row> {
+            val open = synchronized(councilOpen) { councilOpen.toSet() }
+            return rows.filterNot { RowText.hiddenByCouncil(it, open) }
+        }
+
         /** 이 행의 본문을 지금 보이나. 기본값은 코어가 정하고([RowText.openByDefault]) 사람이 뒤집는다. */
         private fun shows(r: Row): Boolean {
+            if (r.closing && r.convene > 0) return RowText.councilKey(r) in councilOpen
             val k = RowText.foldKey(r)
             return if (RowText.openByDefault(r)) k !in closed else k in opened
         }
@@ -589,6 +602,13 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          * 에 적는 경로는 화면을 안 바꾼다). 이 트리가 되풀이해 값을 치른 「한 사실, 두 기전」이다.
          */
         private fun flip(r: Row) {
+            if (r.closing && r.convene > 0) {
+                val c = RowText.councilKey(r)
+                wantFocus = RowText.foldKey(r)
+                if (!councilOpen.remove(c)) councilOpen.add(c)
+                redrawLog()
+                return
+            }
             val k = RowText.foldKey(r)
             // 다시 그린 뒤 이 행으로 포커스가 돌아와야 키보드로 연달아 접고 펼 수 있다.
             wantFocus = k
@@ -1581,7 +1601,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 if (closing.get() || project.isDisposed) return@invokeLater
                 // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
                 // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
-                val allRows = shaper.list()
+                val allRows = foldCouncils(shaper.list())
                 fun identity(r: Row): String = if (r.rowId.isNotEmpty()) "${followedSid}:${r.rowId}" else if (r.msgId.isNotBlank() || r.callId.isNotBlank())
                     "${r.msgId}:${r.who}:${r.callId}" else RowText.foldKey(r)
                 // Heights and the reading position follow each row, not its number (VirtualTranscript.rekey).
@@ -1886,6 +1906,25 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     }
                     p.add(body, BorderLayout.CENTER)
                     if (has) foldable(p, r)
+                } else if (r.closing && r.convene > 0) {
+                    // 카운슬 한 번은 한 줄이다: 받아들였나, 아닌가. 세 위원과 종합의 말은 이 줄을
+                    // 눌러야 펼쳐진다(사용자 요청 2026-11-15) — 전사는 대화를 읽는 자리다.
+                    val open = shows(r)
+                    val accepted = RowText.councilAccepted(r) == true
+                    val word = MagiBundle.msg(if (accepted) "chat.council.accepted" else "chat.council.held")
+                    p.add(Look.rowHead("⚖ $word", if (accepted) Look.success else Look.warn,
+                        listOf((if (open) "⌃" else "⌄") to Look.faint),
+                        RowText.clock(r.at), headActions()), BorderLayout.NORTH)
+                    if (open) {
+                        val body = JBPanel<JBPanel<*>>().apply {
+                            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                            isOpaque = false
+                            if (r.text.isNotBlank()) add(Look.prose(r.text))
+                            r.why?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
+                        }
+                        p.add(body, BorderLayout.CENTER)
+                    }
+                    foldable(p, r)
                 } else {
                     val name = r.member ?: MagiBundle.msg("chat.who.council")
                     // 카운슬 멤버의 평가 관점([lens])을 표시하여 3인의 심의 기준을 구별합니다.

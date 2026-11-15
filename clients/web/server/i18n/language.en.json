@@ -133,6 +133,8 @@
   "copy.refused": "the browser would not let this page copy",
   "council.abstain": "abstains",
   "council.accept": "accepts",
+  "council.line.accepted": "Council: accepted",
+  "council.line.held": "Council: not accepted",
   "council.outcome": "the round",
   "council.reject": "rejects",
   "count.agent": "{n} companion",

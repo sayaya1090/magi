@@ -2147,3 +2147,7 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 `TranscriptModelTest`는 1만 행의 누적 높이와 범위를 기준 계산과 대조합니다. 행 삭제 후 앵커 선택, 이동 방향별 여유 영역, 높이 합산 한계, 오래된 문서·폭·역순 보고 거부, 가짜 시계를 통한 하단 추적 정책을 확인합니다. `VirtualTranscriptAnchorTest`는 크기 조회가 재측정이나 갱신을 예약하지 않는지와 사용자가 이동하면 대기 중 보정이 취소되는지도 검사합니다. `TranscriptReflowTest`는 같은 EDT 틱에 위쪽 행 두 개가 커져도 읽던 지점이 유지되는지(920), 커졌다가 같은 틱에 되돌아간 행이 화면을 옮기지 않는지(800), 대기 중이던 보정이 최신 위치 이동 뒤에 화면을 되돌리지 않는지를 검사합니다. `VirtualTranscriptAnchorTest`는 화면이 끝에 있지 않을 때 아래쪽에 행만 붙으면 부착 범위를 다시 계산하지 않고, 위쪽에 행이 끼어들면 다시 계산하는지도 확인합니다. `StreamingHeightTest`는 행을 교체·배치하는 동안과 같은 EDT 틱 안에서는 포커스를 받은 행이 화면을 옮기지 못하고, 다음 틱부터는 다시 옮길 수 있는지를 검사합니다. `ScrollTraceTest`는 300px 이상 이동이 호출 스택과 함께 기록되고, 작은 이동과 1.5초 안의 두 번째 큰 이동은 기록되지 않는지를 검사합니다.
 
 `node clients/jetbrains/tools/height-report-test.cjs`는 웹 E2E의 Playwright 설치를 사용해 실제 `RichAnswer` 높이 스크립트를 헤드리스 Chromium에서 실행합니다. 문서·폭 불일치 거부, Mermaid 준비 중 보류와 완료 보고를 검사하며 데스크톱 포커스를 가져오지 않습니다.
+
+## 카운슬 한 줄 접기 (2026-11-15)
+
+`CouncilFoldViewTest`는 전사에서 카운슬 한 번이 종합 판정 한 줄(「카운슬: 완료」 또는 「카운슬: 반대」)로 서는지 잽니다. 접혀 있을 때는 `foldCouncils`가 그 소집의 소집·평결 행을 빼고, 종합 판정 행에는 사유가 그려지지 않습니다. `flip`으로 그 줄을 뒤집으면 같은 소집의 행이 모두 돌아오고 사유가 보입니다. 코어 쪽 규칙(`RowText.hiddenByCouncil`·`councilKey`·`councilAccepted`, 행의 `convene`·`closing`)은 `RowsTest`의 「카운슬은 접힌 한 줄로 서고 누르면 그 소집만 펼쳐진다」가 잽니다. 실제 IDE 화면에서 누르는 동작은 확인하지 않았습니다.

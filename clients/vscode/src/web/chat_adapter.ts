@@ -1615,3 +1615,23 @@ export function restartStripView(els: RestartStripEls, doc: Document, send: (m: 
     },
   };
 }
+
+/*
+ * A council is one line in the transcript: its closing (decided) row, accepted or not. The convene row
+ * and the three verdicts are drawn only while that convene is open. Asked 2026-11-15.
+ */
+export function councilKey(r: { convene?: number }): string {
+  return 'council:' + String(r.convene ?? 0);
+}
+/** Whether a folded council hides this row: a council row of a convene not in open, other than its closing line. */
+export function hiddenByCouncil(r: { who: string; closing?: boolean; convene?: number }, open: ReadonlySet<string>): boolean {
+  return r.who === 'council' && !r.closing && (r.convene ?? 0) > 0 && !open.has(councilKey(r));
+}
+export function councilFold<T extends { who: string; closing?: boolean; convene?: number }>(rs: T[], open: ReadonlySet<string>): T[] {
+  return rs.filter(r => !hiddenByCouncil(r, open));
+}
+export function councilLine(r: { decision?: string }, language?: string): { text: string; accepted: boolean } {
+  const words = panelText(language);
+  const accepted = r.decision === 'done';
+  return { text: accepted ? words.councilAccepted : words.councilHeld, accepted };
+}

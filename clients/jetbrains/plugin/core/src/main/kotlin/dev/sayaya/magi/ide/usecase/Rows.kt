@@ -68,6 +68,10 @@ data class Row(
     // council 행
     val member: String? = null,
     val round: Int = 0,
+    /** 이 카운슬 행이 속한 소집(이 흐름이 연 순서, 1부터). 0 = 소집 없이 온 행. 접기의 단위다. */
+    val convene: Int = 0,
+    /** 소집의 종합 판정 행 — 접혀 있을 때 그 카운슬을 대표하는 한 줄. */
+    val closing: Boolean = false,
     val decision: String? = null,
     /**
      * 이 자리가 **무엇으로 판단하는가**(`correctness`·`verification`·`completeness`).
@@ -731,6 +735,7 @@ class Rows(private val words: Words) {
             at = e.ts,
             round = round,
             rule = d["rule"]?.jsonPrimitive?.content,
+            convene = convene,
             evidence = evidence.ifBlank { null },
             opened = true,
         )
@@ -810,6 +815,7 @@ class Rows(private val words: Words) {
             cite = d["cite"]?.jsonPrimitive?.content,
             confidence = d["confidence"]?.jsonPrimitive?.content?.toDoubleOrNull()?.takeIf { it > 0 },
             silent = silent,
+            convene = convene,
         )
         // ⚠ **프리뷰와 그것이 되는 사실은 한 행이다.**
         //
@@ -913,6 +919,8 @@ class Rows(private val words: Words) {
             // continue 를 지금 붙들고 있는 반대가 무엇인지. 항목 필드가 아니라 why 에 싣는 것은
             // 1판의 축약이다 — 어휘에는 feedback 이 따로 있다(docs/TRANSCRIPT.ko.md §2).
             why = d["feedback"]?.jsonPrimitive?.content,
+            convene = convene,
+            closing = true,
         )
         return true
     }

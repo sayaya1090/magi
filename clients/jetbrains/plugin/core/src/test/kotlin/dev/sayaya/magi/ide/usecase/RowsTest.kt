@@ -791,6 +791,42 @@ class RowsTest {
         assertEquals(null, editSides("edit", """{"path":"a","old":"x"}"""))
     }
 
+    /**
+     * 카운슬 한 번은 화면에서 **한 줄**이다 — 「완료/반대」만. 소집과 세 평결과 종합의 전문은 그 줄을
+     * 눌러야 펼쳐진다. 같은 대화의 두 번째 카운슬은 따로 접히고 따로 펼쳐진다.
+     */
+    @Test
+    fun `카운슬은 접힌 한 줄로 서고 누르면 그 소집만 펼쳐진다`() {
+        val r = Rows(ko)
+        r.feed(user("끝났나 봐줘", "m1"))
+        fun council(decision: String) {
+            r.feed(ev("council.convened", """{"round":1,"members":["Melchior","Balthasar","Casper"],"task":"t"}"""))
+            for (m in listOf("Melchior", "Balthasar", "Casper"))
+                r.feed(ev("council.verdict", """{"round":1,"member":"$m","decision":"$decision","rationale":"$m 의견"}"""))
+            r.feed(ev("council.decided", """{"round":1,"decision":"$decision","tally":{"done":${if (decision == "done") 3 else 0},"continue":${if (decision == "done") 0 else 3}}}"""))
+        }
+        council("continue")
+        council("done")
+        val rows = r.list()
+        val seats = rows.filter { it.who == Who.Council }
+        assertEquals(10, seats.size, "두 카운슬, 각 다섯 행 — 행 자체는 그대로 남는다")
+        val closings = seats.filter { it.closing }
+        assertEquals(2, closings.size, "종합 판정 행이 각 카운슬의 한 줄이다")
+        assertTrue(closings[0].convene > 0 && closings[1].convene == closings[0].convene + 1)
+        assertTrue(seats.take(5).all { it.convene == closings[0].convene }, "한 소집의 행은 한 번호를 진다")
+        assertEquals(false, RowText.councilAccepted(closings[0]))
+        assertEquals(true, RowText.councilAccepted(closings[1]))
+
+        val folded = rows.filterNot { RowText.hiddenByCouncil(it, emptySet()) }
+        assertEquals(closings.map { it.rowId }, folded.filter { it.who == Who.Council }.map { it.rowId },
+            "접혀 있으면 카운슬마다 한 줄만 보인다")
+        assertTrue(folded.any { it.who == Who.User }, "카운슬이 아닌 행은 가리지 않는다")
+
+        val open = setOf(RowText.councilKey(closings[1]))
+        val shown = rows.filterNot { RowText.hiddenByCouncil(it, open) }.filter { it.who == Who.Council }
+        assertEquals(1 + 5, shown.size, "두 번째만 펼치면 첫째는 한 줄, 둘째는 다섯 줄")
+    }
+
     @Test
     fun `카운슬은 제자리에 온다 — 스트림이 차례를 이미 안다`() {
         val r = Rows(ko)

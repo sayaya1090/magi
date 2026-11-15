@@ -1145,6 +1145,32 @@ public class ConversationElement {
      */
     private Object heldRows = null;
 
+    /** 펼쳐 둔 카운슬(소집 단위, Rows.councilKey). 기본은 접힘 — 종합 판정 한 줄만 선다. */
+    private final java.util.Set<String> councilOpen = new java.util.HashSet<>();
+
+    private static int conveneOf(JsPropertyMap<Object> r) {
+        return r.get("convene") == null ? 0 : (int) Js.coerceToDouble(r.get("convene"));
+    }
+
+    /** 접힌 카운슬의 위원 행을 뺀 전사. 창 계산과 노드 재사용은 이 배열로 그대로 돈다. */
+    private JsArrayLike<Object> foldCouncils(JsArrayLike<Object> in) {
+        elemental2.core.JsArray<Object> out = new elemental2.core.JsArray<>();
+        for (int i = 0; i < in.getLength(); i++) {
+            JsPropertyMap<Object> r = Js.uncheckedCast(in.getAt(i));
+            if (!Rows.hiddenByCouncil(str(r, "who"), Js.isTruthy(r.get("closing")), conveneOf(r), councilOpen)) out.push(in.getAt(i));
+        }
+        return Js.uncheckedCast(out);
+    }
+
+    private void flipCouncil(int convene) {
+        String k = Rows.councilKey(convene);
+        if (!councilOpen.remove(k)) councilOpen.add(k);
+        lastSig = null;
+        forgetDrawn();
+        log.replaceChildren();
+        paintRows(heldRows);
+    }
+
     private void paintRows(Object rowsOrNull) {
         heldRows = rowsOrNull;
         if (!alive) return;   // 멈춘 컴패니언의 자리에는 그 사정이 서 있다.
@@ -1155,7 +1181,7 @@ public class ConversationElement {
             log.replaceChildren();
             return;
         }
-        JsArrayLike<Object> rows = Js.uncheckedCast(rowsOrNull);
+        JsArrayLike<Object> rows = foldCouncils(Js.uncheckedCast(rowsOrNull));
         // 아직 아무 말도 오간 적 없는 대화 — 빈 자리가 아니라 <b>시작하는 자리</b>라고 적는다.
         // "모른다"(위의 null)와 다른 사실이다: 저쪽은 아직 못 물어본 것이고 이쪽은 물어봤는데
         // 없는 것이다. 빈 화면으로 두면 둘이 같아 보이고, 사람은 로딩이 멈춘 줄 안다.
@@ -1371,6 +1397,29 @@ public class ConversationElement {
             when.setAttribute("datetime", at);
             when.textContent = at.isEmpty() ? "" : hhmm(at);
             header.append(when);
+        }
+        if ("council".equals(who) && Js.isTruthy(r.get("closing")) && conveneOf(r) > 0) {
+            // 카운슬 한 번은 한 줄이다 — 받아들였나, 아닌가. 위원과 종합의 말은 이 줄을 눌러야
+            // 펼쳐진다(사용자 요청 2026-11-15). 전사는 대화를 읽는 자리다.
+            final int convene = conveneOf(r);
+            boolean open = councilOpen.contains(Rows.councilKey(convene));
+            boolean accepted = "done".equals(str(r, "decision"));
+            HTMLElement line = el("button");
+            line.setAttribute("type", "button");
+            line.className = "council-line hit48 " + (accepted ? "v-done" : "v-continue");
+            line.textContent = "\u2696 " + tr(accepted ? "council.line.accepted" : "council.line.held") + (open ? " \u2303" : " \u2304");
+            line.setAttribute("aria-expanded", String.valueOf(open));
+            line.addEventListener("click", evt -> { evt.stopPropagation(); flipCouncil(convene); });
+            header.replaceChild(line, w);
+            d.classList.add("council-closing");
+            d.append(header);
+            if (open) {
+                HTMLElement t = el("div");
+                t.className = "txt";
+                Markdown.into(t, str(r, "text"));
+                d.append(t);
+            }
+            return d;
         }
         if (Rows.folded(who)) {
             d.append(header, foldNode(r, who, hasOk, ok, pending));

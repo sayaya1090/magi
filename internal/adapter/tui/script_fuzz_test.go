@@ -585,6 +585,12 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					if s.m.running && b.kind == blockToolCall && !b.done && liveToolAt(&s.m, i) {
 						continue
 					}
+					// A member row folded under its council's outcome line occupies no line at all: its
+					// start is the next block's, and the click there belongs to that block (toggleCouncilAt
+					// scans from the end). There is no first row of its on screen to compare.
+					if s.m.councilFolded(b) {
+						continue
+					}
 					head := ansi.Strip(strings.SplitN(s.m.cache[i], "\n", 2)[0])
 					if got := s.m.contentPlain[start]; got != head {
 						t.Fatalf("%s: block %d is recorded at line %d, which holds\n  %q\nbut the block starts with\n  %q",

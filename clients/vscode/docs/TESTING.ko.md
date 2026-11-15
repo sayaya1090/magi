@@ -1540,3 +1540,8 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 - **호스트 시험**: `chat_host.test.ts` 「the restart strip asks only a daemon that offers it, and a verdict goes to resolve-call and comes back redrawn」.
 - **전선 대조**: `wire.test.ts`의 `WIRE_GO`에 `internal/app/recovery_state.go`를 파일 단위로 넣었습니다(`context_state.go`와 같은 이유, JetBrains `wireOrigins`와 같은 목록).
 - 실제 VS Code 화면에서 띠가 보이는지는 확인하지 않았습니다.
+
+## 카운슬 한 줄 접기 (2026-11-15)
+
+`councilfold.test.ts`는 전사에서 카운슬 한 번이 종합 판정 한 줄로 서는지 잽니다. `rows()`가 소집·평결·종합 행에 같은 `convene`을 싣고 종합 행에만 `closing`을 붙이는지, 어댑터의 `councilFold`가 접힌 소집의 소집·평결 행을 빼고 펼친 소집(`councilKey`)만 되돌리는지, `councilLine`이 패널 언어로 「카운슬: 완료」 또는 「카운슬: 반대」를 돌려주는지 확인합니다. webview가 그 줄을 눌러 펼치는 동작(`chat_view.ts`의 `flipCouncil`)은 실제 VS Code 화면에서 확인하지 않았습니다.
+

@@ -71,6 +71,10 @@ type block struct {
 	done     bool   // the toolCall's result has arrived
 	result   string // the toolCall's result summary text
 	expanded bool   // a reasoning block individually expanded by a click
+	// convene is the council a verdict or outcome block belongs to (1, 2, ... in this stream);
+	// councilLine marks the outcome, the one line a folded council shows (ok = accepted).
+	convene     int
+	councilLine bool
 	// queued marks a blockUser that was submitted mid-turn (a steer) and is still waiting to be
 	// handled: its bar renders as a distinct "queued" glyph rather than ▌ or the in-flight
 	// spinner. Cleared when the message is answered inline (moveUserBlockBefore), resurfaces as
@@ -234,6 +238,12 @@ func (m *Model) transcript() string {
 	// is none), so the loop below stops short of it and the live section goes in between.
 	queuedTail := m.queuedTail()
 	emit := func(i int, r string) {
+		if m.councilFolded(m.blocks[i]) {
+			// Folded under its council's outcome line: keep its index aligned, write nothing. The
+			// block itself still renders whole (renderBlock), so opening the council costs no re-render.
+			m.blockLineStart = append(m.blockLineStart, nl)
+			return
+		}
 		if nl > 0 {
 			b.WriteString("\n")
 			nl++
@@ -591,6 +601,13 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// unbounded it was the widest row in the frame — which pads every other row out to match.
 		return indent(styleError.Width(m.bodyWidth() - 2).Render("✗ " + stripControlBody(blk.text)))
 	case blockInfo:
+		if blk.councilLine && !m.councilOpen[blk.convene] {
+			word := "not accepted"
+			if blk.ok {
+				word = "accepted"
+			}
+			return indent(styleToolResult.Render("⚖ council: "+word) + " " + styleFoldChip.Render(" click "))
+		}
 		// Wrap to the transcript width (minus the 2-col indent) so a long line
 		// (e.g. the planner's reason) reflows instead of overflowing.
 		return indent(styleToolResult.Width(m.bodyWidth() - 2).Render(stripControlBody(strings.TrimRight(blk.text, "\n"))))

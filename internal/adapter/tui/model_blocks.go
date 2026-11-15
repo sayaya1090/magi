@@ -121,6 +121,47 @@ func (m *Model) copyBlockAt(line, col int) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// councilFolded reports whether a council block is hidden: a member of a decided council the
+// reader has not opened. The outcome line itself is never hidden — it is what stands for them.
+func (m *Model) councilFolded(b block) bool {
+	return b.kind == blockCouncilVerdict && b.convene > 0 && m.councilDecided[b.convene] && !m.councilOpen[b.convene]
+}
+
+// refoldCouncil re-renders a council from its first block on, after it was decided or flipped.
+func (m *Model) refoldCouncil(c int) {
+	for i, b := range m.blocks {
+		if b.convene == c {
+			if len(m.cache) > i {
+				m.cache = m.cache[:i]
+			}
+			return
+		}
+	}
+}
+
+// toggleCouncilAt opens or folds the council whose outcome line is at content line `line`. A
+// council is one line (accepted or not); its members and the full outcome open on a click, like
+// a reasoning block does.
+func (m *Model) toggleCouncilAt(line int) bool {
+	i := -1
+	for j := len(m.blockLineStart) - 1; j >= 0; j-- {
+		if line >= m.blockLineStart[j] {
+			i = j
+			break
+		}
+	}
+	if i < 0 || i >= len(m.blocks) || !m.blocks[i].councilLine {
+		return false
+	}
+	c := m.blocks[i].convene
+	if m.councilOpen == nil {
+		m.councilOpen = map[int]bool{}
+	}
+	m.councilOpen[c] = !m.councilOpen[c]
+	m.refoldCouncil(c)
+	return true
+}
+
 func (m *Model) toggleThoughtAt(line int) bool {
 	i := -1
 	for j := len(m.blockLineStart) - 1; j >= 0; j-- {

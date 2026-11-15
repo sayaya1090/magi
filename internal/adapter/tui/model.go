@@ -221,7 +221,11 @@ type Model struct {
 	councilPhase   string                              // phase of the open round ("plan" audit vs "" review/consensus); drives the footer waiting line
 	turnReceipted  bool                                // this turn already printed its one-line receipt (a turn can end twice)
 	drawnVerdicts  map[string]event.CouncilVerdictData // the open round's members already printed, by name
-	reviewFoldNext bool                                // a review round voted continue → fold the pre-review report once its revision actually lands
+	// A council is one line once decided; its members open on a click (toggleCouncilAt).
+	councilConvene int          // councils convened in this stream so far
+	councilDecided map[int]bool // convenes that have their outcome line
+	councilOpen    map[int]bool // convenes the reader opened
+	reviewFoldNext bool         // a review round voted continue → fold the pre-review report once its revision actually lands
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at

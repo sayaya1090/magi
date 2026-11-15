@@ -386,7 +386,7 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 			m.drawnVerdicts[d.Member] = d
 			m.blocks = append(m.blocks, block{kind: blockCouncilVerdict,
-				councilVerdicts: []event.CouncilVerdictData{d}, evidence: m.pendingCouncilEvidence})
+				councilVerdicts: []event.CouncilVerdictData{d}, evidence: m.pendingCouncilEvidence, convene: m.councilConvene})
 		}
 
 	case event.TypeCouncilDecided:
@@ -558,6 +558,7 @@ func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 // milestone (when it carries round-specific signals or a plan procedure) and
 // arms the header chip. (D14 — the consensus termination gate.)
 func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
+	m.councilConvene++
 	m.councilRound = d.Round
 	m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
 	// No transcript line. The convened line repeated members + rule every round, which the
@@ -622,7 +623,15 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 			line += "\n    " + ln
 		}
 	}
-	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+	c := m.councilConvene
+	m.blocks = append(m.blocks, block{kind: blockInfo, text: line, convene: c, councilLine: c > 0, ok: d.Decision == "done"})
+	if c > 0 {
+		if m.councilDecided == nil {
+			m.councilDecided = map[int]bool{}
+		}
+		m.councilDecided[c] = true
+		m.refoldCouncil(c) // its member lines, already drawn, fold under this one
+	}
 	// A review round (non-plan) that votes "continue" re-prompts the model for a
 	// revised answer (council_gate emitDecided(Continue,…) → re-run), so the report
 	// just shown is about to be superseded. DON'T fold it yet: the revision might never

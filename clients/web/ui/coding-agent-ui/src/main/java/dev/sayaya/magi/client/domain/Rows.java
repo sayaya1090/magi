@@ -43,6 +43,19 @@ public final class Rows {
         return r.toString();
     }
 
+    /** 카운슬 한 번을 접고 펴는 열쇠 — 행 하나가 아니라 소집 하나. */
+    public static String councilKey(int convene) {
+        return "council:" + convene;
+    }
+
+    /**
+     * 접힌 카운슬에 가려지는 행인가. 카운슬 한 번은 종합 판정 한 줄로 서고, 그 소집의 위원 행은
+     * 펼친 소집에서만 그린다. 종합이 아직 없는 진행 중 표(convene 0)는 접지 않는다.
+     */
+    public static boolean hiddenByCouncil(String who, boolean closing, int convene, java.util.Set<String> open) {
+        return "council".equals(who) && !closing && convene > 0 && !open.contains(councilKey(convene));
+    }
+
     /** 접혀 도착하는 목소리들 — 원본 foldedKinds 와 일대일. */
     public static boolean folded(String who) {
         if (who == null) return false;

@@ -1341,6 +1341,11 @@ type line struct {
 	// the terminal uses. It is in the text too, and reading it back out of a rendered sentence is
 	// how the two surfaces come to disagree about who spoke.
 	Member string `json:"member,omitempty"`
+	// Convene groups a finished council's votes with its outcome (1, 2, ... in log order); Closing
+	// marks that outcome, the one line a folded council shows. Votes of a council with no outcome
+	// yet carry 0 and are never folded away.
+	Convene int  `json:"convene,omitempty"`
+	Closing bool `json:"closing,omitempty"`
 	// The vote itself, apart from the sentence councilText builds out of it. The verdict screen
 	// asks for exactly these six by these names and every one of them arrived undefined: measured
 	// on a live session, a council row on the wire carried decision, member, round, text and
@@ -1572,8 +1577,21 @@ func spliceCouncil(rows []line, marks []app.CouncilMark, order []string) []line 
 	}
 	pending := map[int][]line{}
 	var head, orphans []line
-	for _, m := range marks {
+	// Which convene each mark belongs to: an outcome closes the votes before it.
+	convenes := make([]int, len(marks))
+	group, open := 1, []int{}
+	for i, m := range marks {
+		open = append(open, i)
+		if m.IsOutcome() {
+			for _, j := range open {
+				convenes[j] = group
+			}
+			group, open = group+1, nil
+		}
+	}
+	for mi, m := range marks {
 		row := line{Who: "council", Text: councilText(m), Round: m.Round,
+			Convene: convenes[mi], Closing: m.IsOutcome() && convenes[mi] > 0,
 			Decision: m.Decision, Member: m.Member,
 			Lens: m.Lens,
 			Why:  m.Why, Feedback: m.Feedback, Keep: m.Keep, Cite: m.Cite}
