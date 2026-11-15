@@ -336,5 +336,21 @@ try {
  assert.equal(await cb.locator('.magi-diagram-peek').isVisible(),true,'hovering a class box away from its name previews its notes');
  assert.equal(await cb.locator('.magi-diagram-peek').textContent(),'Class notes.');
  await page.mouse.move(1,1);
+ // A stick-figure actor has no filled shape: a clear area around figure and name answers like a box.
+ const af0=await page.evaluate(()=>document.querySelectorAll('.magi-diagram svg[role=img]').length);
+ await insert('sequenceDiagram\n actor P as Pilot\n participant S as Server\n P->>S: ask\n%% magi-descriptions {"Pilot":"Figure notes."}');
+ await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,af0+1);
+ const fg=page.locator('figure.magi-diagram').last();
+ await fg.scrollIntoViewIfNeeded();
+ const head=await fg.evaluate(f=>{const t=[...f.querySelectorAll('svg text.actor-man')].find(e=>e.textContent.trim()==='Pilot');const c=t.parentNode.querySelector(':scope > circle').getBoundingClientRect(),l=t.getBoundingClientRect();const x=c.left+c.width/2,y=c.top+c.height/2,u=document.elementFromPoint(x,y);return {x,y,clear:c.bottom<l.top,under:u?u.tagName+'.'+(u.getAttribute('class')||''):null,hit:!!t.parentNode.querySelector('.magi-figure-hit')};});
+ assert.ok(head.clear,'the probe point is off the name '+JSON.stringify(head));
+ await page.mouse.move(1,1); await page.waitForTimeout(100);
+ await page.mouse.move(head.x,head.y); await page.waitForTimeout(600);
+ assert.equal(await fg.locator('.magi-diagram-peek').isVisible(),true,'hovering a stick figure away from its name previews its notes');
+ assert.equal(await fg.locator('.magi-diagram-peek').textContent(),'Figure notes.');
+ await page.mouse.click(head.x,head.y); await page.waitForTimeout(200);
+ assert.equal(await fg.locator('svg .magi-selected').count(),1,'clicking the figure picks the actor');
+ assert.equal(await page.evaluate(()=>window.__picked.at(-1)),'Pilot','the figure attaches the actor');
+ await page.mouse.move(1,1);
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

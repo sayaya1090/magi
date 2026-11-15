@@ -59,6 +59,7 @@
     .magi-diagram-info[hidden] { display:none; }
     .magi-diagram-slot { flex:none;width:100%;min-width:0; }
     .magi-diagram svg .magi-note-badge { pointer-events:none; }
+    .magi-diagram svg .magi-figure-hit { fill:transparent!important;stroke:none!important;pointer-events:all;cursor:pointer; }
     .magi-diagram svg .magi-note-badge .b { fill:var(--magi-primary)!important;stroke:var(--magi-node-fill,Canvas)!important;stroke-width:2px!important; }
     .magi-diagram svg .magi-note-badge .g { fill:var(--md-sys-color-on-primary,Canvas)!important;stroke:none!important; }
     .magi-diagram-peek { position:absolute;z-index:3;max-width:min(480px,100%);box-sizing:border-box;padding:4px 8px;border-radius:4px;background:var(--md-sys-color-inverse-surface,CanvasText);color:var(--md-sys-color-inverse-on-surface,Canvas);font-size:12px;line-height:16px;letter-spacing:.4px;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none; }
@@ -559,7 +560,14 @@
           const isText=n.tagName.toLowerCase()==='text', label=isText?n:(n.querySelector('.nodeLabel')||n.querySelector('foreignObject')||n.querySelector('text')), host=isText?n.parentNode:n;
           try { const lb=label&&label.getBoundingClientRect(), m=host.getScreenCTM();
             if(lb&&lb.width&&m){ const pt=svg.createSVGPoint(); pt.x=lb.right+12; pt.y=lb.top+lb.height/2; const q=pt.matrixTransform(m.inverse()); badge(host,q.x,q.y,''); } } catch { /* not measurable yet */ }
-          invite(n,name,told,isText?host.querySelector(':scope > rect'):null);
+          // A participant's box answers with its name; a stick figure has no filled shape, so a clear
+          // rectangle around figure and name stands in for one, and a click on it picks the actor.
+          let area=isText?host.querySelector(':scope > rect'):null;
+          if(isText&&!area){ try { const bb=host.getBBox(), r=document.createElementNS('http://www.w3.org/2000/svg','rect'); r.setAttribute('class','magi-figure-hit');
+            r.setAttribute('x',bb.x-4); r.setAttribute('y',bb.y-4); r.setAttribute('width',bb.width+8); r.setAttribute('height',bb.height+8); host.insertBefore(r,host.firstChild);
+            // The head and body lines are drawn over the rectangle, so the whole figure group is the area.
+            host.addEventListener('click',ev=>{ if(n.contains(ev.target)) return; ev.stopPropagation(); n.dispatchEvent(new MouseEvent('click',{bubbles:true})); }); area=host; } catch { /* not measurable yet */ } }
+          invite(n,name,told,area);
         });
         if(marked){ const legend=document.createElement('span'),mark=document.createElement('b');legend.className='magi-diagram-legend';mark.textContent='i';
           const hint=document.createElement('span');hint.className='magi-legend-hint';hint.textContent=say(composerMounted?'· every element, badge or not, can be picked and attached':'· every element, badge or not, can be picked to ask about it',composerMounted?'· 배지와 관계없이 모든 요소를 눌러 질문에 첨부할 수 있습니다':'· 배지와 관계없이 모든 요소를 눌러 질문할 수 있습니다');legend.append(mark,say('has notes','설명 있음'),hint);bar.append(legend); }
