@@ -382,8 +382,10 @@ try {
  await page.waitForFunction(k=>document.querySelectorAll('.magi-diagram svg[role=img]').length===k,rv_ml0+1);
  const rv_ml=page.locator('figure.magi-diagram').last();
  await rv_ml.scrollIntoViewIfNeeded();
- const rv_fit=await rv_ml.evaluate(f=>{const t=f.querySelector('svg .node text'),r=t.closest('.node').querySelector('rect').getBoundingClientRect(),b=t.getBoundingClientRect();return {lines:t.querySelectorAll(':scope > tspan').length,over:Math.round(r.top-b.top),under:Math.round(b.bottom-r.bottom)};});
+ const rv_fit=await rv_ml.evaluate(f=>{const t=f.querySelector('svg .node text'),r=t.closest('.node').querySelector('rect').getBoundingClientRect(),b=t.getBoundingClientRect();const ls=[...t.querySelectorAll(':scope > tspan')].map(e=>e.getBoundingClientRect().top);const e=f.querySelector('svg .flowchart-link'),q=e.getPointAtLength(0),m=e.getScreenCTM(),pt=new DOMPoint(q.x,q.y).matrixTransform(m);return {lines:ls.length,gap:+(ls[1]-ls[0]).toFixed(2),over:Math.round(r.top-b.top),under:Math.round(b.bottom-r.bottom),edgeX:Math.round(pt.x-r.right),edgeY:pt.y>=r.top-1&&pt.y<=r.bottom+1};});
  assert.equal(rv_fit.lines,12,'the label has twelve lines '+JSON.stringify(rv_fit));
  assert.ok(rv_fit.over<=0&&rv_fit.under<=0,'a twelve-line label stays inside its node '+JSON.stringify(rv_fit));
+ assert.ok(Math.abs(rv_fit.gap-20)<0.6,'Mermaid lays the twelve lines out 20px apart, not narrowed to fit '+JSON.stringify(rv_fit));
+ assert.ok(Math.abs(rv_fit.edgeX)<=3&&rv_fit.edgeY,'the arrow leaves the grown box at its edge '+JSON.stringify(rv_fit));
  console.log('Mermaid render, interaction, repeated IDs, malformed input, policy, streaming and offline tests passed');
 } finally {await browser.close();}

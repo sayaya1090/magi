@@ -382,6 +382,10 @@
           const theme=themeFor(box), key=theme.key+source;
           let rendered=cache.get(key);
           if (!rendered) {
+            // M3 body-medium is 14/20. Mermaid draws SVG label lines 1.1em apart and sizes boxes and routes
+            // edges from that drawing; the bundled mermaid.min.js reads this value at that one place
+            // (internal/diagram/vendor_patch_test.go), so the 20px spacing is laid out, not painted over.
+            globalThis.magiLabelLineEm=20/14;
             window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:'base',themeVariables:theme.vars,themeCSS:theme.css,fontFamily:theme.vars.fontFamily,maxTextSize:24000,maxEdges:200,flowchart:{htmlLabels:false},suppressErrorRendering:true});
             rendered=(await window.mermaid.render('magiDiagram'+(++seq),source)).svg;
             if(cache.size>=32) cache.delete(cache.keys().next().value);
@@ -403,28 +407,7 @@
             const shape=n.querySelector('.label-container')||n.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'); if(shape) shape.style.setProperty('fill',p.bg,'important');
             n.querySelectorAll('text,tspan,.nodeLabel,.nodeLabel *,foreignObject *').forEach(t=>{t.style.setProperty('fill',p.fg,'important');t.style.setProperty('color',p.fg,'important');}); }); };
           box.__magiPaint=paint; paint(); } svg.setAttribute('aria-label',say('Mermaid diagram','Mermaid 다이어그램'));
-        // M3 body-medium is 14/20. Mermaid places each line of a wrapped label 1.1em apart through the
-        // tspan y attribute, which CSS line-height cannot change, and sizes the node box (and routes its
-        // edges) for that spacing. So the lines are re-spaced toward 20px only as far as the box has room:
-        // measured once the diagram is attached, from the original y values (so it can run again), at
-        // most 20/14em and never below Mermaid's 1.1em. A diagram that cannot be measured yet (drawn while
-        // hidden) keeps Mermaid's spacing until it is shown or resized. Edge labels keep Mermaid's spacing:
-        // their background box is sized for it.
-        const respace=()=>{ svg.querySelectorAll('.node text, .cluster-label text').forEach(t=>{
-          const lines=[...t.children].filter(c=>c.tagName.toLowerCase()==='tspan');
-          if(lines.length<2) return;
-          if(!t.__magiY) t.__magiY=lines.map(l=>l.getAttribute('y'));
-          lines.forEach((l,i)=>l.setAttribute('y',t.__magiY[i]));
-          const first=parseFloat(t.__magiY[0])||0;
-          let step=20/14;
-          const node=t.closest('.node'), shape=node&&(node.querySelector('.label-container')||node.querySelector(':scope > :is(rect,polygon,circle,ellipse,path)'));
-          if(shape){ const sb=shape.getBoundingClientRect(), tb=t.getBoundingClientRect(), a=lines[0].getBoundingClientRect(), b=lines[1].getBoundingClientRect();
-            const em=(b.top-a.top)/1.1; if(!sb.height||!(em>0)) return;
-            step=Math.min(step,Math.max(1.1,1.1+(sb.height-8-tb.height)/((lines.length-1)*em))); }
-          const lift=(lines.length-1)*(step-1.1)/2;
-          lines.forEach((l,i)=>l.setAttribute('y',(first+i*step-lift).toFixed(4)+'em'));
-        }); };
-        canvas.replaceChildren(svg); respace(); fit();
+        canvas.replaceChildren(svg); fit();
         if(/^\s*(?:flowchart|graph)\b/m.test(source) && /^\s*%% magi-animate\s*$/m.test(source)) {
           const label=document.createElement('label'), toggle=document.createElement('input');toggle.type='checkbox';label.className='magi-diagram-toggle';
           toggle.checked=!matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -613,7 +596,7 @@
           [info.hidden,heading.textContent,description.textContent,description.hidden]=keep;
           slot.style.minHeight=most?most+'px':'';
         };
-        reserve(); if(window.ResizeObserver) new ResizeObserver(()=>{ reserve(); respace(); placers.forEach(f=>f()); }).observe(layout);
+        reserve(); if(window.ResizeObserver) new ResizeObserver(()=>{ reserve(); placers.forEach(f=>f()); }).observe(layout);
         flowPaint();
       } catch(e) { note.textContent=say('Diagram could not be rendered: ','다이어그램을 표시할 수 없습니다: ')+e.message; sourceBox.open=true; }
     });
