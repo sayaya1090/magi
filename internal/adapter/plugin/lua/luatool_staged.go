@@ -36,12 +36,15 @@ func (t *luaTool) executeStaged(ctx context.Context, raw json.RawMessage, env po
 	if done {
 		return early, nil
 	}
-	// review runs on the child's goroutine and calls into Lua: it takes the lock the stage gave up.
+	// review runs on the child's goroutine and calls into Lua: it takes the lock the stage gave up,
+	// with THIS call's env and ctx swapped in as prepare and finish have them (magi.child_steps, the
+	// reason a review exists, needs the call's env), and it refuses once the plugin is gone.
 	if review := sp.Review; review != nil {
-		sp.Review = func(round int, text string, steps int, sessionID string) (string, error) {
-			t.plugin.mu.Lock()
-			defer t.plugin.mu.Unlock()
-			return review(round, text, steps, sessionID)
+		sp.Review = func(round int, text string, steps int, sessionID string) (why string, err error) {
+			if !t.withCall(ctx, env, func(*lua.LState) { why, err = review(round, text, steps, sessionID) }) {
+				return "", fmt.Errorf("lua tool %q: %s", t.name, pluginGone)
+			}
+			return why, err
 		}
 	}
 	res, err := env.Spawn(ctx, sp)
@@ -51,18 +54,28 @@ func (t *luaTool) executeStaged(ctx context.Context, raw json.RawMessage, env po
 	return t.finishSpawn(ctx, env, res), nil
 }
 
+// pluginGone is why a stage could not run: the child ran with the plugin's lock released, and in that
+// time the plugin was unloaded or reloaded, which closes its Lua state.
+const pluginGone = "its plugin was unloaded while the call was in flight"
+
 // withCall runs f under the plugin's lock with this call's env and ctx swapped in, as Execute does.
-func (t *luaTool) withCall(ctx context.Context, env port.ToolEnv, f func(L *lua.LState)) {
+// It reports false, without running f, when the plugin's Lua state is gone (closed by an unload or a
+// reload while the lock was released for the child).
+func (t *luaTool) withCall(ctx context.Context, env port.ToolEnv, f func(L *lua.LState)) bool {
 	t.plugin.mu.Lock()
 	defer t.plugin.mu.Unlock()
+	if t.plugin.L == nil {
+		return false
+	}
 	prevEnv, prevCtx := t.plugin.env, t.plugin.callCtx
 	t.plugin.env, t.plugin.callCtx = env, ctx
 	defer func() { t.plugin.env, t.plugin.callCtx = prevEnv, prevCtx }()
 	f(t.plugin.L)
+	return true
 }
 
 func (t *luaTool) prepareSpawn(ctx context.Context, env port.ToolEnv, args any) (sp port.SpawnSpec, early session.ToolResult, done bool) {
-	t.withCall(ctx, env, func(L *lua.LState) {
+	ran := t.withCall(ctx, env, func(L *lua.LState) {
 		L.Push(t.prepare)
 		L.Push(goToLua(L, args))
 		if err := L.PCall(1, 2, nil); err != nil {
@@ -77,12 +90,15 @@ func (t *luaTool) prepareSpawn(ctx context.Context, env port.ToolEnv, args any) 
 		}
 		early, done = luaResult(ret, isErr), true
 	})
+	if !ran {
+		return sp, errResult(fmt.Sprintf("lua tool %q: %s", t.name, pluginGone)), true
+	}
 	return sp, early, done
 }
 
 func (t *luaTool) finishSpawn(ctx context.Context, env port.ToolEnv, res port.SpawnResult) session.ToolResult {
 	var out session.ToolResult
-	t.withCall(ctx, env, func(L *lua.LState) {
+	ran := t.withCall(ctx, env, func(L *lua.LState) {
 		if t.finish == nil {
 			if res.Err != "" {
 				out = errResult(res.Err)
@@ -101,6 +117,14 @@ func (t *luaTool) finishSpawn(ctx context.Context, env port.ToolEnv, res port.Sp
 		L.Pop(2)
 		out = luaResult(ret, isErr)
 	})
+	if !ran {
+		// The child's work is not thrown away with the plugin: what it said goes back with the reason.
+		got := res.Text
+		if res.Err != "" {
+			got = "error: " + res.Err
+		}
+		return errResult(fmt.Sprintf("lua tool %q: %s; the child returned: %s", t.name, pluginGone, got))
+	}
 	return out
 }
 
