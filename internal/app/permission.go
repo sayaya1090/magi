@@ -47,6 +47,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 		}()
 		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options,
 			Report: grounds, Index: q.Index, Total: q.Total})
+		a.syncBeforeWaiting(ctx, sid)
 		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
 		var expired <-chan time.Time
 		if bound := a.answerBound(sid); bound > 0 {
@@ -228,6 +229,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 
 	rd, _ := json.Marshal(event.PermissionRequestedData{
 		CallID: tc.CallID, Name: tc.Name, Args: event.ToolArgsJSON(tc.Args), Reason: reason, Diff: diff})
+	a.syncBeforeWaiting(ctx, sid)
 	a.publishTransient(sid, event.TypePermissionRequested, actor, rd)
 
 	// A bounded wait when the answerer is in another process (see Config.AnswerWait). The timer is

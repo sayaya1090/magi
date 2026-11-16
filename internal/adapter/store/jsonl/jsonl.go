@@ -239,6 +239,25 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 	return out, nil
 }
 
+// SyncLog forces one session's log to stable storage (port.LogSyncer). A session with no log yet has
+// nothing to sync.
+func (s *Store) SyncLog(ctx context.Context, sid session.SessionID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path, ok := s.paths[sid]
+	if !ok {
+		if path, ok = s.locate(sid); !ok {
+			return nil
+		}
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return syncFile(f)
+}
+
 // pathFor resolves the log file path for a session, deriving the workdir from a
 // session.created event when the session is new.
 func (s *Store) pathFor(sid session.SessionID, evs []event.Event) (string, error) {

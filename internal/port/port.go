@@ -298,6 +298,13 @@ type Store interface {
 	Truncate(ctx context.Context, s session.SessionID, upToSeq int64) error
 }
 
+// LogSyncer is a Store that can force one session's log to stable storage on demand. The jsonl store
+// syncs only at turn boundaries; the app asks for this before it waits on a person, so a power cut
+// while a prompt is up loses nothing the person was shown. Optional: a store without it is skipped.
+type LogSyncer interface {
+	SyncLog(ctx context.Context, s session.SessionID) error
+}
+
 // Elsewhere is work being done in another session, whose answer belongs back in this one.
 //
 // It carries no channel and no callback. The answer is written where every answer is written — the
