@@ -8,7 +8,7 @@ something magi actually emitted, not to what this test's author assumed it emits
 import io
 import json
 
-from bench.harbor.eventsink import EventSink
+from bench.harbor.eventsink import EventSink, usage_from_logs
 
 # Real lines. context.usage is the one this whole file exists for: it is transient, so
 # it never reaches the session store, and it carries the per-step prompt size and the
@@ -141,3 +141,38 @@ def test_a_structured_result_renders_without_blowing_up():
     )
     _, tr = run([line + "\n"])
     assert "ocaml" in tr
+
+
+# Real lines from a sonnet89-1117 trial (mcmc-sampling-stan). The stderr totals line is merged
+# into the transcript by the streamed exec; turn.finished carries the cached count the totals
+# line does not.
+TURN_FINISHED = (
+    '{"seq":96,"sessionId":"s_a6187ef46d93e476b1396de8","type":"turn.finished","actor":{"kind":"agent",'
+    '"id":"default"},"ts":"2026-11-16T23:37:16.165860706Z","data":{"usage":{"in":557048,"out":6232,'
+    '"cached":515181,"cacheReported":true},"prompt":{"window":1000000,"system":3897,"tools":8185,'
+    '"talk":1289,"calls":872,"results":5637}}}'
+)
+
+
+def test_the_run_totals_reach_the_trial_result():
+    # result.json's agent_result had every token field null: nothing read the totals magi prints.
+    transcript = "\u2014 turn finished {...}\nmagi: tokens in 557048 / out 6232\nmagi: analyze usage plugin=engram input=4468\n"
+    u = usage_from_logs(transcript, [CONTEXT_USAGE, TURN_FINISHED])
+    assert u == {"n_input_tokens": 557048, "n_output_tokens": 6232, "n_cache_tokens": 515181, "cost_usd": None}, u
+
+
+def test_a_priced_run_keeps_its_cost_and_the_last_totals_line_wins():
+    transcript = "magi: tokens in 1 / out 1\nmagi: tokens in 2000 / out 30 \u00b7 cost $0.4125\n"
+    u = usage_from_logs(transcript, [])
+    assert u["n_input_tokens"] == 2000 and u["n_output_tokens"] == 30 and u["cost_usd"] == 0.4125, u
+    assert u["n_cache_tokens"] is None, u
+
+
+def test_without_a_totals_line_the_turns_are_summed():
+    # A run killed at the wall never prints the totals line; what its finished turns spent still counts.
+    u = usage_from_logs("no totals here\n", [TURN_FINISHED, TURN_FINISHED, "not json"])
+    assert u == {"n_input_tokens": 1114096, "n_output_tokens": 12464, "n_cache_tokens": 1030362, "cost_usd": None}, u
+
+
+def test_nothing_spent_leaves_the_fields_unknown():
+    assert usage_from_logs("", []) == {"n_input_tokens": None, "n_output_tokens": None, "n_cache_tokens": None, "cost_usd": None}

@@ -47,7 +47,7 @@ from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
-from bench.harbor.eventsink import EventSink
+from bench.harbor.eventsink import EventSink, usage_from_logs
 
 
 # One backend per concurrent trial.
@@ -338,6 +338,16 @@ class MagiAgent(BaseInstalledAgent):
                 replay = EventSink(events=ev, transcript=f)
                 replay.feed(result.stdout)
                 replay.close()
+        # Token fields for result.json (agent_result was null for every trial). Filled before the
+        # exit-code check so a failed trial keeps what it spent.
+        spent = usage_from_logs(
+            stdout_path.read_text(errors="replace") + (result.stderr or ""),
+            events_path.read_text(errors="replace").splitlines(),
+        )
+        context.n_input_tokens = spent["n_input_tokens"]
+        context.n_output_tokens = spent["n_output_tokens"]
+        context.n_cache_tokens = spent["n_cache_tokens"]
+        context.cost_usd = spent["cost_usd"]
         if result.stderr:
             (self.logs_dir / "magi-stderr.txt").write_text(result.stderr)
         if result.return_code != 0:

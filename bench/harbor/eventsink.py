@@ -6,6 +6,7 @@ repo. Nothing here needs harbor.
 """
 
 import json
+import re
 from typing import IO
 
 
@@ -109,3 +110,45 @@ class EventSink:
         if t == "turn.finished":
             return f"— turn finished {json.dumps(d.get('usage'), ensure_ascii=False)}"
         return ""
+
+
+# What a run spent, as magi prints it on stderr when it ends (cmd/magi runHeadless): every request,
+# council polls and subagents included. The streamed exec merges stderr into the transcript.
+_TOTALS = re.compile(r"magi: tokens in (\d+) / out (\d+)(?: \u00b7 cost \$([0-9.]+))?")
+
+
+def usage_from_logs(transcript, events):
+    """Token fields for harbor's AgentContext from one trial's logs.
+
+    Input, output and cost come from the last totals line. That line has no cached count, so the
+    cached tokens are summed from turn.finished usage (the agent's own stream: a lower bound when
+    councils or subagents also read from cache). A run killed before it printed totals falls back to
+    the turns it finished. Nothing spent leaves every field None (unknown), never 0.
+    """
+    last = None
+    for m in _TOTALS.finditer(transcript or ""):
+        last = m
+    turns = s_in = s_out = s_cached = 0
+    cache_seen = False
+    for ln in events:
+        try:
+            e = json.loads(ln)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(e, dict) or e.get("type") != "turn.finished":
+            continue
+        u = (e.get("data") or {}).get("usage") or {}
+        turns += 1
+        s_in += int(u.get("in") or 0)
+        s_out += int(u.get("out") or 0)
+        if "cached" in u:
+            cache_seen = True
+            s_cached += int(u.get("cached") or 0)
+    n_in = n_out = cost = None
+    if last:
+        n_in, n_out = int(last.group(1)), int(last.group(2))
+        cost = float(last.group(3)) if last.group(3) else None
+    elif turns:
+        n_in, n_out = s_in, s_out
+    return {"n_input_tokens": n_in, "n_output_tokens": n_out,
+            "n_cache_tokens": s_cached if cache_seen else None, "cost_usd": cost}
