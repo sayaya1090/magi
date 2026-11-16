@@ -113,6 +113,22 @@ func (s *Store) index() error {
 	return nil
 }
 
+// durableBoundary reports whether a batch carries an event the log must keep through a power cut:
+// where a turn begins or ends, an error, a session created or moved, a person's verdict.
+func durableBoundary(evs []event.Event) bool {
+	for _, e := range evs {
+		switch e.Type {
+		case event.TypeSessionCreated, event.TypePromptSubmitted, event.TypeTurnFinished, event.TypeError,
+			event.TypePromptAbandoned, event.TypeSessionMoved, event.TypeToolResolved:
+			return true
+		}
+	}
+	return false
+}
+
+// syncFile forces a log file to stable storage. A var so tests can count it.
+var syncFile = (*os.File).Sync
+
 // Append assigns seq numbers, writes the events as JSONL, and returns the
 // assigned seqs in order. All events must be fact (persistable) types.
 func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.Event) ([]int64, error) {
@@ -190,12 +206,19 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 	if err := w.Flush(); err != nil {
 		return nil, err
 	}
-	if err := f.Sync(); err != nil {
-		// Bytes may already be on disk but our in-memory state isn't updated — drop any
-		// warm cache so the next Read re-derives truth from the file instead of serving a
-		// stale view that silently omits the just-flushed events.
-		s.dropCacheLocked(sid)
-		return nil, err
+	// Every event reached the OS above (Flush), so a killed or crashed process loses nothing: the
+	// kernel holds the bytes. Forcing them to the platter costs ~4ms on macOS (F_FULLFSYNC) and is
+	// heavy on Windows; a step writes ~5 events. Only a power cut can drop unsynced bytes, so the
+	// sync is paid where the record must outlive one: a turn's start and end, an error, a session
+	// created or moved, and a person's verdict — not on every part of a step.
+	if durableBoundary(evs) {
+		if err := syncFile(f); err != nil {
+			// Bytes may already be on disk but our in-memory state isn't updated — drop any
+			// warm cache so the next Read re-derives truth from the file instead of serving a
+			// stale view that silently omits the just-flushed events.
+			s.dropCacheLocked(sid)
+			return nil, err
+		}
 	}
 	s.seqs[sid] = seq
 	s.paths[sid] = path
