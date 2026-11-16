@@ -240,6 +240,15 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		exit = cmd.ProcessState.ExitCode()
 	}
 	bashDebugf("exec done: elapsed=%s exit=%d ctxErr=%v runErr=%v", time.Since(started).Round(time.Millisecond), exit, cctx.Err(), err)
+	// What killed the command, when something did and it was not magi: the shell's own signal
+	// (ExitCode -1), else what the status number says (128+N, 124). magi's own timeout returns
+	// below with its own sentence; a turn magi cancelled is magi's kill, not an outside one.
+	killed := ""
+	if cctx.Err() == nil {
+		if killed = signalOf(cmd.ProcessState); killed == "" {
+			killed = killedByStatus(exit)
+		}
+	}
 	body := string(out)
 	// Whether the message will carry the output entire or a clipped view of it — measured, not
 	// assumed. Two stages can clip: readHeadTail at capture (the file keeps everything) and
@@ -313,7 +322,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 	}
 	appendRunIndex(env.ScratchLogs, exit, a.Command, logPath)
-	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath, dispClipped, killedByStatus(exit)), disp))
+	res := okText("", fmt.Sprintf("exit %d\n%s%s%s", exit, outsideKillLine(killed), outputLine(logPath, dispClipped, killed), disp))
 	res.IsError = exit != 0
 	return res, nil
 }
