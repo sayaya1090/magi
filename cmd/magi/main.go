@@ -1186,6 +1186,13 @@ func runWithContext(runCtx context.Context) int {
 			sid = latestConversation(metas)
 		}
 	}
+	// A standalone terminal that died mid-task reopens the conversation it cut, instead of an empty one
+	// (tui_reopen.go). Its hold on the workspace lasts as long as this process.
+	if sid == "" && !headless {
+		var releaseTUI func()
+		sid, releaseTUI = reopenCutConversation(ctx, a, wd, sockPath)
+		defer releaseTUI()
+	}
 	if sid == "" {
 		sid, err = a.CreateSession(ctx, command.CreateSession{
 			Workdir: wd,
