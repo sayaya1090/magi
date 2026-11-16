@@ -309,6 +309,12 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	if tc.depth != 0 {
 		return 0, false
 	}
+	// Background work still running: there is nothing to judge yet, so the turn is not pressed to
+	// declare. It ends waiting, and the job's finished note opens the turn that declares.
+	if ids := a.runningBackground(tc.s.ID); len(ids) > 0 {
+		ts.unverifiedReason = backgroundWaitReason(ids)
+		return 0, false
+	}
 	if !contextToolNames(a.sessionToolSpecs(tc.s.ID, tc.agent))["council"] {
 		return 0, false
 	}

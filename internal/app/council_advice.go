@@ -828,6 +828,14 @@ const (
 // councilToolAdvice applies the completion scope only to model tool calls. Explicit
 // advice and direct council APIs remain available even without executed tools.
 func (a *App) councilToolAdvice(ctx context.Context, s session.Session, changes []fileChange, epoch int, question string, complete, reportReady bool) (string, error) {
+	// Results still being produced are not judged: the turn ends waiting on them (council_background.go).
+	if complete && a.councilFor(s.ID) != nil {
+		if ids := a.runningBackground(s.ID); len(ids) > 0 {
+			reason := backgroundWaitReason(ids)
+			a.signalTurnControl(s.ID, func(tc *turnControl) { tc.finish, tc.unverifiedReason, tc.reportReady = true, reason, reportReady })
+			return councilWaitAdvice(ids), nil
+		}
+	}
 	if !complete || strings.TrimSpace(question) != "" || len(changes) > 0 || epoch > 0 || a.councilFor(s.ID) == nil {
 		return a.councilAdvice(ctx, s, changes, epoch, question, complete, reportReady)
 	}
