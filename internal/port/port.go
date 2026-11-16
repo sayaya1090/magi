@@ -498,7 +498,10 @@ type ToolEnv struct {
 	// ObserveBackground registers a completion signal synchronously before Execute returns.
 	// The signal outlives the turn context; closing it without an exit means unknown.
 	ObserveBackground func(<-chan BackgroundCompletion)
-	SessionID         session.SessionID
+	// PromptArrived returns a channel that closes when the person sends this conversation a new
+	// message. A tool that waits (wait_for) ends its wait on it, so the message is read at once.
+	PromptArrived func() <-chan struct{}
+	SessionID     session.SessionID
 	// TurnSteps lists the tool calls of THIS session's current turn (since the last user
 	// prompt), oldest first, each with its arguments and whether it failed; the call still
 	// running (the caller's own) is not in it. It is how a plugin door can ask what the turn

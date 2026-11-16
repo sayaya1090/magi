@@ -534,6 +534,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	}
 	var background <-chan port.BackgroundCompletion
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
+		PromptArrived: func() <-chan struct{} { return a.promptArrived(sid) },
 		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
 			background = done
 			a.backgroundMu.Lock()
@@ -766,6 +767,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			a.appendBestEffort(context.Background(), sid, event.TypeToolBackground, actor, data)
 			delete(a.backgroundOwned, string(sid)+"/"+tc.CallID)
 			a.backgroundMu.Unlock()
+			// A job magi killed is not news; a child's job belongs to the child's own turn.
+			if ok && !status.Killed && depth == 0 {
+				a.wakeOnBackground(sid, tc.CallID, state, status.Exit)
+			}
 		}()
 	}
 }

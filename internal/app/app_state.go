@@ -32,6 +32,11 @@ type bornFact struct {
 // entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
 // the rest live for the whole session.
 type sessionState struct {
+	// promptWake closes when the person sends a message (wakePromptWaiters); see promptArrived.
+	promptWake chan struct{}
+	// pendingBackground holds notes of background jobs that finished while a turn ran; the
+	// turn's teardown delivers them (deliverBackgroundNotes).
+	pendingBackground                          []string
 	checkpoint                                 *checkpointWorkspace
 	checkpointInit                             sync.Mutex
 	lastRequestContext                         []byte

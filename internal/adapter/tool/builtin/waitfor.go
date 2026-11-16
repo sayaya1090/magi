@@ -79,6 +79,7 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	}
 
 	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
+	woke := messageArrived(env)
 	if j := strings.TrimSpace(a.Job); j != "" {
 		return waitForJob(ctx, env, j, deadline, time.Duration(interval)*time.Second), nil
 	}
@@ -149,6 +150,9 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 		}
 		select {
 		case <-ctx.Done():
+		case <-woke:
+			return okText("", fmt.Sprintf("a message from the person arrived after %s (%d checks), so the wait ended for it to be read; "+
+				"the condition was not met and nothing was stopped: %s", time.Since(start).Round(time.Second), attempts, a.Condition)), nil
 		case <-time.After(wait):
 		}
 		if ctx.Err() != nil {
@@ -242,6 +246,14 @@ func noneStillRunning(ids []string) bool {
 	return true
 }
 
+// messageArrived is the person's-next-message channel, or nil (never ready) when the host gives none.
+func messageArrived(env port.ToolEnv) <-chan struct{} {
+	if env.PromptArrived == nil {
+		return nil
+	}
+	return env.PromptArrived()
+}
+
 // waitForJob blocks until a background job exits, then reports how it ended.
 //
 // The indirect form is what a model reaches for otherwise, because that is what this tool's
@@ -256,6 +268,7 @@ func noneStillRunning(ids []string) bool {
 // caller allowed still has to give the turn back.
 func waitForJob(ctx context.Context, env port.ToolEnv, id string, deadline time.Time, interval time.Duration) session.ToolResult {
 	start := time.Now()
+	woke := messageArrived(env)
 	checks := 0
 	for {
 		checks++
@@ -302,6 +315,9 @@ func waitForJob(ctx context.Context, env port.ToolEnv, id string, deadline time.
 		}
 		select {
 		case <-ctx.Done():
+		case <-woke:
+			return okText("", fmt.Sprintf("a message from the person arrived after %s (%d checks), so the wait ended for it to be read; "+
+				"%s is still running and was not stopped. Wait again with wait_for{job:%q} after answering.", time.Since(start).Round(time.Second), checks, id, id))
 		case <-time.After(wait):
 		}
 	}

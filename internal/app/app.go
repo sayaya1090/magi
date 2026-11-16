@@ -378,6 +378,7 @@ func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
 	}
+	a.wakePromptWaiters(c.SessionID)
 	a.mu.Lock()
 	st, ok := a.stateIf(c.SessionID)
 	running := ok && st.cancel != nil
@@ -668,6 +669,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 	go func() {
 		defer a.wg.Done()
 		defer cancel()
+		// Background jobs that finished while this turn ran come back after it has fully ended.
+		var bgNotes []string
+		defer func() { a.deliverBackgroundNotes(sid, bgNotes) }()
 		// lastErr is how the most recent turn ENDED, which is what decides whether the teardown
 		// below owes a terminal event. A cancelled context is not that answer: see the emit.
 		var lastErr error
@@ -869,6 +873,8 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				continue
 			}
 			a.stateLocked(sid).cancel = nil
+			bgNotes = a.stateLocked(sid).pendingBackground
+			a.stateLocked(sid).pendingBackground = nil
 			queued := a.stateLocked(sid).pendingInterject
 			a.stateLocked(sid).pendingInterject = nil
 			a.mu.Unlock()
