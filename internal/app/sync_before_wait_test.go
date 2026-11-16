@@ -55,3 +55,39 @@ func TestTheLogIsSyncedBeforeWaitingOnAPerson(t *testing.T) {
 		t.Fatal("magi waited on the permission prompt without syncing the log first")
 	}
 }
+
+// The same holds for a question put to the person (ask_user): the log is forced down before the
+// question goes up and magi starts waiting for the answer.
+func TestTheLogIsSyncedBeforeWaitingOnAQuestion(t *testing.T) {
+	inner, _ := jsonl.New(t.TempDir())
+	store := &syncCounter{Store: inner}
+	a := closeAfter(t, New(store, &scriptLLM{}, builtin.Default(), bus.New(), nil, Config{Interactive: true}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	ask := a.askUserFn(ctx, a.sessionInfo(ctx, sid), 0, &session.ToolCall{CallID: "c_ask", Name: "ask_user"})
+	if ask == nil {
+		t.Fatal("no question function for an interactive top-level session")
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = ask(port.Question{Text: "which?", Options: []string{"a", "b"}, Index: 0, Total: 1})
+	}()
+	asked := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && !asked; time.Sleep(5 * time.Millisecond) {
+		a.mu.Lock()
+		asked = len(a.stateLocked(sid).asking) > 0
+		a.mu.Unlock()
+	}
+	if !asked {
+		t.Fatal("the question never came up — the harness, not the behaviour, failed")
+	}
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline) && store.n.Load() == 0; time.Sleep(5 * time.Millisecond) {
+	}
+	if store.n.Load() == 0 {
+		t.Fatal("magi waited on a question without syncing the log first")
+	}
+	cancel()
+	<-done
+}
