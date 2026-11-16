@@ -349,6 +349,14 @@ func callTarget(args json.RawMessage) string {
 // recheckTools only look; repeating one cannot do anything twice, so recovery never holds them.
 var recheckTools = map[string]bool{"read": true, "grep": true, "glob": true, "list": true}
 
+// noOutsideEffect tools change nothing outside the conversation: the council reads the record and
+// judges, ask_user asks, todowrite and label rewrite the session's own plan and labels, and the rest
+// read what magi already holds. Running one again does nothing twice, so recovery never holds them
+// either. The council matters most: its arguments never change, so a restart that cut one held every
+// later council in that conversation, even under "allow" (2026-11-14..17: 35 three-minute waits).
+var noOutsideEffect = map[string]bool{"council": true, "ask_user": true, "todowrite": true, "label": true,
+	"skill": true, "recall_context": true, "recall_memory": true, "search_sessions": true}
+
 type repeatKey struct{}
 
 // asRepeat marks a permission request as a repeat of an uncertain call: no standing "always"
@@ -361,7 +369,7 @@ func isRepeat(ctx context.Context) bool { v, _ := ctx.Value(repeatKey{}).(bool);
 // the same arguments, not cleared by the person as rerun_ok or not_ran. A call the person said RAN
 // still counts — repeating it does the work twice. It returns why to ask, or "" when tc is new.
 func (a *App) uncertainRepeat(ctx context.Context, sid session.SessionID, tc *session.ToolCall) string {
-	if recheckTools[tc.Name] {
+	if recheckTools[tc.Name] || noOutsideEffect[tc.Name] {
 		return ""
 	}
 	evs, err := a.store.Read(ctx, sid, 0)
