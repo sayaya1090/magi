@@ -1623,12 +1623,22 @@ export function restartStripView(els: RestartStripEls, doc: Document, send: (m: 
 export function councilKey(r: { convene?: number }): string {
   return 'council:' + String(r.convene ?? 0);
 }
-/** Whether a folded council hides this row: a council row of a convene not in open, other than its closing line. */
-export function hiddenByCouncil(r: { who: string; closing?: boolean; convene?: number }, open: ReadonlySet<string>): boolean {
-  return r.who === 'council' && !r.closing && (r.convene ?? 0) > 0 && !open.has(councilKey(r));
+/**
+ * The convenes that reached an outcome. Only these fold: a council still deliberating, or cut before
+ * its outcome, has no closing line to open it from, so folding it would hide its opinions for good.
+ */
+export function decidedConvenes(rs: ReadonlyArray<{ who: string; closing?: boolean; convene?: number }>): Set<number> {
+  const s = new Set<number>();
+  for (const r of rs) if (r.who === 'council' && r.closing && (r.convene ?? 0) > 0) s.add(r.convene ?? 0);
+  return s;
+}
+/** Whether a folded council hides this row: a council row of a decided convene not in open, other than its closing line. */
+export function hiddenByCouncil(r: { who: string; closing?: boolean; convene?: number }, open: ReadonlySet<string>, decided: ReadonlySet<number>): boolean {
+  return r.who === 'council' && !r.closing && (r.convene ?? 0) > 0 && decided.has(r.convene ?? 0) && !open.has(councilKey(r));
 }
 export function councilFold<T extends { who: string; closing?: boolean; convene?: number }>(rs: T[], open: ReadonlySet<string>): T[] {
-  return rs.filter(r => !hiddenByCouncil(r, open));
+  const decided = decidedConvenes(rs);
+  return rs.filter(r => !hiddenByCouncil(r, open, decided));
 }
 export function councilLine(r: { decision?: string }, language?: string): { text: string; accepted: boolean } {
   const words = panelText(language);

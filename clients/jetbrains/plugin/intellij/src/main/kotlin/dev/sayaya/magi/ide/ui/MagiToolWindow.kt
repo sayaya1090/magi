@@ -583,10 +583,10 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          */
         private val councilOpen = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-        /** 접힌 카운슬의 소집·평결 행을 뺀 전사. 종합 판정 행은 늘 남는다. */
+        /** 접힌 카운슬의 소집·평결 행을 뺀 전사. 종합 판정 행과 종합이 없는 카운슬은 늘 남는다. */
         private fun foldCouncils(rows: List<Row>): List<Row> {
             val open = synchronized(councilOpen) { councilOpen.toSet() }
-            return rows.filterNot { RowText.hiddenByCouncil(it, open) }
+            return RowText.foldCouncils(rows, open)
         }
 
         /** 이 행의 본문을 지금 보이나. 기본값은 코어가 정하고([RowText.openByDefault]) 사람이 뒤집는다. */

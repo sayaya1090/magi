@@ -43,7 +43,10 @@ magi.register_tool{
     },
     required = { "question" },
   },
-  execute = function(args)
+  -- prepare builds the child's spec under the plugin lock; the host runs the child with the lock
+  -- released, so several explore calls of one step really run at once; finish turns the child's
+  -- result into the tool result.
+  prepare = function(args)
     local q = type(args) == "table" and type(args.question) == "string" and args.question:match("^%s*(.-)%s*$") or ""
     if q == "" then return "explore: question is required", true end
     local prompt = q
@@ -53,9 +56,9 @@ magi.register_tool{
     local d = DEPTHS[args.depth] or DEPTHS.normal
     local spec = { system = SYSTEM, prompt = prompt, tools = READERS, max_steps = d.steps, timeout = d.timeout, lean = true }
     if MODEL ~= "" then spec.model = MODEL end
-    local ok, r = pcall(magi.spawn, spec)
-    if not ok then return "explore: " .. tostring(r), true end
-    if type(r) ~= "table" then return "explore: no result", true end
+    return spec
+  end,
+  finish = function(r)
     if r.err and r.err ~= "" then return "explore: the reader failed: " .. r.err, true end
     local text = r.text or ""
     if not text:match("%S") then return "explore: the reader returned nothing", true end

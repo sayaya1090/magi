@@ -810,6 +810,7 @@ Four optional fields decide where the tool is offered:
 | `internal = true` | offered only to an agent whose allowlist names it — a helper for your own subagent, kept off the main agent's request |
 | `subagent = true` | listed in `/subagents`, where a user switches it on and off and picks its model |
 | `readonly_children = true` | every child this tool spawns can only look. Two calls to it in one step then run **at once** — see below |
+| `prepare` / `finish` (instead of `execute`) | for a tool that runs one child. `prepare(args)` returns the `magi.spawn` spec (or a refusal, as `execute` would), the host runs the child with the plugin's Lua state released, and `finish(result)` turns what `magi.spawn` would return into the tool's result. Needs the `spawn` capability. A tool whose `execute` calls `magi.spawn` holds the plugin for the whole child turn, so its calls run one at a time however the loop schedules them |
 | `isolated_children = true` | every child that could write gets its **own checkout** (the host defaults its spawns to `workspace="clone"` and pins its shell to `workspace-write`). Two calls to it in one step also run at once |
 | `group = "…"` | groups it under a heading there, so several can be managed together |
 | `enabled = false` | ships switched **off**; only a user turns it on |

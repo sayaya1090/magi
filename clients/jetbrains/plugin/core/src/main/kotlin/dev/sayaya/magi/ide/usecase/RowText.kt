@@ -262,9 +262,22 @@ object RowText {
         else -> null
     }
 
-    /** 접힌 카운슬에 가려지는 행인가: 소집에 속한 카운슬 행 중 종합 판정이 아닌 것, 그 소집이 [open] 에 없을 때. */
-    fun hiddenByCouncil(r: Row, open: Set<String>): Boolean =
-        r.who == Who.Council && !r.closing && r.convene > 0 && councilKey(r) !in open
+    /**
+     * 종합 판정이 나온 소집들. 이것만 접는다 — 아직 의논 중이거나 종합 전에 끊긴 카운슬은 펼칠 종합
+     * 줄이 없으니, 접으면 그 의견을 다시 볼 길이 없다.
+     */
+    fun decidedConvenes(rows: List<Row>): Set<Int> =
+        rows.filter { it.who == Who.Council && it.closing && it.convene > 0 }.mapTo(HashSet()) { it.convene }
+
+    /** 접힌 카운슬에 가려지는 행인가: 종합이 나온([decided]) 소집의 카운슬 행 중 종합 판정이 아닌 것, 그 소집이 [open] 에 없을 때. */
+    fun hiddenByCouncil(r: Row, open: Set<String>, decided: Set<Int>): Boolean =
+        r.who == Who.Council && !r.closing && r.convene > 0 && r.convene in decided && councilKey(r) !in open
+
+    /** 접힌 카운슬의 소집·평결 행을 뺀 전사. 종합 판정 행과 종합이 없는 카운슬은 늘 남는다. */
+    fun foldCouncils(rows: List<Row>, open: Set<String>): List<Row> {
+        val decided = decidedConvenes(rows)
+        return rows.filterNot { hiddenByCouncil(it, open, decided) }
+    }
 
     fun foldKey(r: Row): String = if (r.rowId.isNotEmpty()) "row:${r.rowId}" else when (r.who) {
         Who.Thinking -> {

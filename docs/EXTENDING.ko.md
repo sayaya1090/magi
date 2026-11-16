@@ -737,6 +737,7 @@ magi.register_tool{
 | `internal = true` | 허용목록에 이 툴을 적은 에이전트에게만 제공 — 내 서브에이전트용 헬퍼를 메인 에이전트의 요청에서 빼 둘 때 |
 | `subagent = true` | `/subagents`에 표시되어 사용자가 켜고 끄고 모델을 고름 |
 | `readonly_children = true` | 이 툴이 띄우는 자식은 보기만 함. 그러면 한 스텝의 두 호출이 **동시에** 돎 — 아래 참고 |
+| `prepare` / `finish` (`execute` 대신) | 자식 하나를 띄우는 툴용. `prepare(args)`가 `magi.spawn` 명세를 돌려주면(`execute`처럼 거절을 돌려줄 수도 있음) 호스트가 플러그인의 Lua 상태를 놓은 채로 자식을 돌리고, `finish(result)`가 `magi.spawn`이 돌려줄 값을 받아 툴 결과로 만듦. `spawn` 권한이 필요함. `execute` 안에서 `magi.spawn`을 부르는 툴은 자식 턴 내내 플러그인을 쥐므로, 루프가 어떻게 배치하든 호출이 하나씩 돎 |
 | `isolated_children = true` | 쓸 수 있는 자식마다 **자기 체크아웃**을 받음(호스트가 스폰의 `workspace="clone"`을 기본으로 잡고 셸을 `workspace-write`로 고정). 한 스텝의 두 호출이 역시 동시에 돎 |
 | `group = "…"` | 거기서 제목 아래로 묶어, 여럿을 함께 관리 |
 | `enabled = false` | **꺼진 채로** 출하. 사용자만 켤 수 있음 |

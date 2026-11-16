@@ -3,10 +3,13 @@ package lua
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/port"
@@ -145,5 +148,56 @@ func TestExploreDepthModelAndLean(t *testing.T) {
 	cheap := loadExploreWith(t, map[string]any{"model": "haiku"})
 	if sp := specOf(cheap, `{"question":"q"}`); sp.Model != "haiku" {
 		t.Errorf("[plugins.explore] model did not reach the child: %q", sp.Model)
+	}
+}
+
+// The real plugin, three calls at once: each child must start before any finishes. A Go mock
+// tool cannot catch this — the serialisation lived in the Lua plugin lock held across spawn.
+func TestExploreChildrenReallyRunAtOnce(t *testing.T) {
+	tool := loadExplore(t)
+	var mu sync.Mutex
+	now, peak := 0, 0
+	all := make(chan struct{})
+	var started sync.WaitGroup
+	started.Add(3)
+	go func() { started.Wait(); close(all) }()
+	env := port.ToolEnv{Spawn: func(ctx context.Context, sp port.SpawnSpec) (port.SpawnResult, error) {
+		mu.Lock()
+		now++
+		if now > peak {
+			peak = now
+		}
+		mu.Unlock()
+		started.Done()
+		select {
+		case <-all:
+		case <-time.After(2 * time.Second):
+		}
+		mu.Lock()
+		now--
+		mu.Unlock()
+		return port.SpawnResult{Text: "found " + sp.Prompt}, nil
+	}}
+	var wg sync.WaitGroup
+	out := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			res, err := tool.Execute(context.Background(), json.RawMessage(fmt.Sprintf(`{"question":"q%d"}`, i)), env)
+			if err != nil || res.IsError {
+				t.Errorf("call %d: %v %q", i, err, resultString(t, res))
+			}
+			out[i] = resultString(t, res)
+		}(i)
+	}
+	wg.Wait()
+	if peak != 3 {
+		t.Errorf("%d reader children ran at once, want 3", peak)
+	}
+	for i, o := range out {
+		if !strings.Contains(o, fmt.Sprintf("found q%d", i)) {
+			t.Errorf("call %d got another call's result: %q", i, o)
+		}
 	}
 }

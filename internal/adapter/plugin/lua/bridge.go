@@ -132,10 +132,17 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 	if d := spec.RawGetString("description"); d != lua.LNil {
 		desc = d.String()
 	}
-	fn, ok := spec.RawGetString("execute").(*lua.LFunction)
-	if !ok {
-		L.RaiseError("register_tool: 'execute' must be a function")
+	fn, _ := spec.RawGetString("execute").(*lua.LFunction)
+	// prepare/finish instead of execute: a tool that runs one child is staged so the child runs
+	// with the plugin's Lua state released (luatool_staged.go) — two calls then really run at once.
+	prepare, _ := spec.RawGetString("prepare").(*lua.LFunction)
+	finish, _ := spec.RawGetString("finish").(*lua.LFunction)
+	if fn == nil && prepare == nil {
+		L.RaiseError("register_tool: 'execute' (or 'prepare') must be a function")
 		return 0
+	}
+	if prepare != nil {
+		p.requireCap(L, "spawn")
 	}
 
 	var schema json.RawMessage
@@ -172,6 +179,7 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 	}
 	p.tools = append(p.tools, &luaTool{
 		plugin: p, name: name, description: desc, schema: schema, fn: fn, meta: meta,
+		prepare: prepare, finish: finish,
 	})
 	return 0
 }
@@ -274,6 +282,13 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	if err != nil {
 		return fail(L, "spawn: "+err.Error())
 	}
+	L.Push(spawnResultTable(L, res))
+	return 1
+}
+
+// spawnResultTable is what a child's run looks like to Lua: magi.spawn returns it, and a staged
+// tool's finish receives it.
+func spawnResultTable(L *lua.LState, res port.SpawnResult) *lua.LTable {
 	out := L.NewTable()
 	L.SetField(out, "text", lua.LString(res.Text))
 	L.SetField(out, "metrics", structuredToLua(L, res.Metrics))
@@ -293,8 +308,7 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	// The child's failure is reported, not swallowed: a plugin told nothing would read silence as
 	// success.
 	L.SetField(out, "err", lua.LString(res.Err))
-	L.Push(out)
-	return 1
+	return out
 }
 
 // magi.child_steps(session_id) -> { {name=, args=, failed=, output=, output_bytes=}, … }

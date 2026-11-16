@@ -817,14 +817,41 @@ class RowsTest {
         assertEquals(false, RowText.councilAccepted(closings[0]))
         assertEquals(true, RowText.councilAccepted(closings[1]))
 
-        val folded = rows.filterNot { RowText.hiddenByCouncil(it, emptySet()) }
+        val decided = RowText.decidedConvenes(rows)
+        val folded = rows.filterNot { RowText.hiddenByCouncil(it, emptySet(), decided) }
         assertEquals(closings.map { it.rowId }, folded.filter { it.who == Who.Council }.map { it.rowId },
             "접혀 있으면 카운슬마다 한 줄만 보인다")
         assertTrue(folded.any { it.who == Who.User }, "카운슬이 아닌 행은 가리지 않는다")
 
         val open = setOf(RowText.councilKey(closings[1]))
-        val shown = rows.filterNot { RowText.hiddenByCouncil(it, open) }.filter { it.who == Who.Council }
+        val shown = rows.filterNot { RowText.hiddenByCouncil(it, open, decided) }.filter { it.who == Who.Council }
         assertEquals(1 + 5, shown.size, "두 번째만 펼치면 첫째는 한 줄, 둘째는 다섯 줄")
+    }
+
+    /**
+     * 종합이 나온 카운슬만 접는다. 아직 의논 중이거나 종합 전에 끊긴 카운슬은 펼칠 종합 줄이 없으니,
+     * 접으면 의견을 다시 볼 길이 없다(리뷰, 2026-11-16).
+     */
+    @Test
+    fun `종합이 없는 카운슬은 접지 않는다 — 의논 중이거나 끊긴 것`() {
+        val r = Rows(ko)
+        r.feed(user("끝났나 봐줘", "m1"))
+        fun convene() = r.feed(ev("council.convened", """{"round":1,"members":["Melchior","Balthasar","Casper"],"task":"t"}"""))
+        fun verdict(m: String, d: String = "continue") =
+            r.feed(ev("council.verdict", """{"round":1,"member":"$m","decision":"$d","rationale":"$m 의견"}"""))
+        convene(); verdict("Melchior"); verdict("Balthasar")
+        val live = r.list().filter { it.who == Who.Council }
+        assertEquals(3, live.size, "소집과 평결 둘")
+        assertEquals(live.map { it.rowId }, RowText.foldCouncils(r.list(), emptySet()).filter { it.who == Who.Council }.map { it.rowId },
+            "의논 중에는 아무것도 가리지 않는다")
+
+        convene()
+        for (m in listOf("Melchior", "Balthasar", "Casper")) verdict(m, "done")
+        r.feed(ev("council.decided", """{"round":1,"decision":"done","tally":{"done":3,"continue":0}}"""))
+        val shown = RowText.foldCouncils(r.list(), emptySet()).filter { it.who == Who.Council }
+        assertEquals(live.map { it.rowId }, shown.take(3).map { it.rowId }, "끊긴 카운슬은 행을 그대로 보인다")
+        assertEquals(4, shown.size, "종합이 나온 카운슬만 한 줄로 접힌다")
+        assertTrue(shown[3].closing)
     }
 
     @Test

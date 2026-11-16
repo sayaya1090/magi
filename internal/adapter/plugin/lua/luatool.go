@@ -20,7 +20,9 @@ type luaTool struct {
 	description string
 	schema      json.RawMessage
 	fn          *lua.LFunction
-	meta        port.ToolMetadata
+	// prepare and finish stage a tool that runs one child: see luatool_staged.go.
+	prepare, finish *lua.LFunction
+	meta            port.ToolMetadata
 }
 
 func (t *luaTool) Name() string            { return t.name }
@@ -38,6 +40,9 @@ func (t *luaTool) Meta() port.ToolMetadata { return t.meta }
 //	return { ... }           -- success, JSON content
 //	return content, true     -- second value true marks an error
 func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	if t.prepare != nil {
+		return t.executeStaged(ctx, raw, env)
+	}
 	t.plugin.mu.Lock()
 	defer t.plugin.mu.Unlock()
 
