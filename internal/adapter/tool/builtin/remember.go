@@ -31,33 +31,7 @@ type rememberArgs struct {
 
 func (Remember) Name() string { return "remember" }
 func (Remember) Description() string {
-	return "Save something worth keeping. Provide concise 'text' and optional 'tags'. " +
-		"'scope' selects WHERE and for HOW LONG:\n" +
-		"  \"turn\"    — SOMETHING TO CHECK BEFORE YOU DECLARE THIS TASK FINISHED. magi hands it back " +
-		"word for word at the finish, in front of the decision about whether the work is done — so " +
-		"write it the moment you notice something you would want to re-read at that point:\n" +
-		"             - a part of the request your current step does not touch (\"must also work when " +
-		"the list is empty\")\n" +
-		"             - something you knowingly deferred or stubbed (\"timeout still hardcoded\")\n" +
-		"             - a fact that cost you real work and must not be derived twice: a value you " +
-		"measured, a cause you proved, a dead end you ruled out. A long task is compacted as it runs, " +
-		"so what you worked out in its first minutes may not be in front of you at its last.\n" +
-		"             One call, and you never have to ask for it back. It is not a log of what you " +
-		"did — that is what your reply is for.\n" +
-		"  \"project\" (default) — a durable workspace learning, recallable in later sessions via recall_memory.\n" +
-		"  \"team\"    — something the companions doing related work all need: a decision the team took, a " +
-		"convention it follows, a fact about the system they share. Written where every companion on this " +
-		"team reads it, and nowhere else. Use it when the answer would be wrong to keep to yourself and " +
-		"wrong to impose on unrelated work.\n" +
-		"  \"global\"  — knowledge useful across all projects.\n" +
-		"'page' routes the text to the shared WIKI instead: the named canonical page is created or " +
-		"updated IN PLACE (team-wide by default). Use a page for STRUCTURE knowledge the other " +
-		"companions need current — how a system works, what owns what, where a thing lives — " +
-		"where a correction must REPLACE the old claim rather than pile up beside it. text becomes " +
-		"the page's new FULL body (a snapshot, not a delta); if the wiki index shows an existing " +
-		"page for the topic, update THAT page rather than minting a near-duplicate title. " +
-		"'summary' (with page) says what changed and why, one line.\n" +
-		"Do not include secrets."
+	return "Save something worth keeping: concise 'text', optional 'tags'. 'scope' picks where and for how long:\n  \"turn\" — something to check before you declare this task finished; magi hands it back word for word at the finish. Write it as soon as you notice it: a part of the request this step does not touch, something you deferred or stubbed, or a fact that cost real work (a measured value, a proven cause, a ruled-out dead end) — a long task is compacted and may lose it. Not a log of what you did.\n  \"project\" (default) — a durable workspace learning, recallable later via recall_memory.\n  \"team\" — what companions doing related work all need (a team decision, a shared convention, a fact about the system they share); read by every companion on this team and nowhere else.\n  \"global\" — knowledge useful across all projects.\n'page' routes the text to the shared WIKI instead: that canonical page is created or replaced IN PLACE (team-wide by default). Use it for structure knowledge others need current — how a system works, what owns what, where a thing lives — where a correction must replace the old claim. text is the page's new FULL body; update the existing page for a topic rather than minting a near-duplicate title. 'summary' (with page) is one line on what changed and why.\nDo not include secrets."
 }
 func (Remember) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"},"description":"labels for a memory; with page, these are the page's LINKS (related page titles)"},"scope":{"type":"string","enum":["turn","project","team","global"],"description":"turn (reminded before this turn ends), project (default), team, or global"},"page":{"type":"string","description":"wiki page title — routes text to the shared wiki as this page's new full body, updated in place"},"summary":{"type":"string","description":"with page: one line on what changed and why"},"stale":{"type":"boolean","description":"with page: retire the page — text becomes the recorded reason it stopped being true"}},"required":["text"]}`)

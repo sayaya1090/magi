@@ -27,18 +27,7 @@ type councilArgs struct {
 
 func (Council) Name() string { return "council" }
 func (Council) Description() string {
-	return "Ask the council to review the work so far. Three members read the SAME record — the commands magi " +
-		"observed running and how they ended, the files changed this turn, and your own latest message — each " +
-		"through a different lens (correctness, verification, completeness), and each answers in its own words. " +
-		"Pass `question` to point them at what you want weighed (\"does this handle an empty input?\"); omit it " +
-		"for a general review, and their reading is advice you may disagree with. " +
-		"For work performed using tools in the current turn, pass `complete: true` to DECLARE THE TASK FINISHED. Ordinary conversational answers with no tool work end directly without this tool; work in previous turns does not require a new review. The council then reads " +
-		"the record as a finish and either accepts — the turn is over and your work is handed back — or tells " +
-		"you what is not done yet, and you keep working. Do not declare completion to ask a question; declare " +
-		"it when you believe the work is finished and are ready to be held to it. " +
-		"Write your final user-facing report before declaring; `report_ready` defaults to true. " +
-		"On acceptance that report stands and no further model reply is requested. " +
-		"Leave report_ready false only when a final report still needs to be written."
+	return "Ask the council to review the work so far: three members (correctness, verification, completeness) read the same record — the commands magi observed and how they ended, the files changed this turn, and your latest message. Pass `question` to point them at something; without `complete` their reading is advice you may disagree with. Pass `complete: true` to DECLARE THE TASK FINISHED for work done with tools in the current turn (a conversational answer with no tool work ends without this tool; earlier turns' work needs no new review). The council then accepts — the turn ends and your work is handed back — or says what is not done, and you keep working. Declare only when you are ready to be held to it, never to ask a question. Write your final user-facing report first: `report_ready` defaults to true, and an accepted report stands with no further reply. Set report_ready false only when the final report still needs to be written."
 }
 func (Council) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"complete":{"type":"boolean"},"report_ready":{"type":"boolean","default":true,"description":"The latest assistant message is the final report for the user; on acceptance do not regenerate it."}}}`)
