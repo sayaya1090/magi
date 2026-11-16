@@ -1,0 +1,6 @@
+name = "explore"
+version = "1.0.0"
+description = "Read-only exploration subagent: a child that can only read/grep/glob/list answers one question about the workspace and returns its findings; several run in parallel"
+entry = "init.lua"
+exec_timeout = "10m"
+capabilities = ["tool", "spawn"]

@@ -849,6 +849,8 @@ magi.register_tool{
 
 `plugins/examples/crew` declares it for the reviewer it spawns, which only ever looked.
 
+The bundled `explore` plugin (`plugins/explore`, embedded and on by default) is this pattern in use. Its `explore` tool hands one question to a child limited to `read`, `grep`, `glob` and `list`, and returns the child's findings with `path:line` evidence; a child's failure comes back as a tool error with its reason. The tool's own description tells the model when to use it: read one or two files directly, and delegate only when there is a lot to read or search, one independent question per call, several calls in one step so they run in parallel. Writing and editing stay in the main conversation. `[plugins.explore] enabled = false` turns it off.
+
 #### `isolated_children` — the same bargain for children that write
 
 `readonly_children` buys concurrency by taking writing away. `isolated_children` buys it with

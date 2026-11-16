@@ -56,7 +56,7 @@ flowchart LR
   end
   ollama[("Ollama /<br/>OpenAI-호환 API")]
   ws[("워크스페이스<br/>파일시스템")]
-  plug[("플러그인<br/>engram(내장) · 로컬 디렉토리")]
+  plug[("플러그인<br/>engram·explore(내장) · 로컬 디렉토리")]
   mcpsrv[("MCP 서버")]
 
   user --> tui --> app

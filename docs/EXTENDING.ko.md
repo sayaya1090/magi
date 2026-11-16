@@ -774,6 +774,8 @@ magi.register_tool{
 
 `plugins/examples/crew`가 자기가 띄우는 리뷰어에 대해 이것을 선언합니다 — 원래 보기만 하던 자식입니다.
 
+번들된 `explore` 플러그인(`plugins/explore`, 바이너리에 내장, 기본 켜짐)이 이 패턴의 실제 구현입니다. `explore` 도구는 질문 하나를 `read`·`grep`·`glob`·`list`만 가진 자식에게 넘기고, 자식이 찾은 것을 `경로:줄` 근거와 함께 돌려줍니다. 자식이 실패하면 사유를 담은 도구 오류로 돌아옵니다. 언제 쓸지는 도구 설명이 모델에게 알려 줍니다. 한두 개 파일은 직접 읽고, 읽거나 찾을 것이 많을 때만 질문 하나에 호출 하나씩, 한 스텝에 여러 번 불러 병렬로 돌리게 합니다. 쓰기와 편집은 메인 대화에 남습니다. 끄려면 `[plugins.explore] enabled = false`를 씁니다.
+
 #### `isolated_children` — 쓰는 자식을 위한 같은 거래
 
 `readonly_children`은 쓰기를 빼앗아 동시성을 삽니다. `isolated_children`은 대신 격리로 삽니다. 선언하면,

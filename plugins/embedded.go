@@ -19,6 +19,11 @@ import "embed"
 //go:embed all:engram
 var engram embed.FS
 
+// explore is the read-only exploration subagent (several run in parallel; see plugins/explore/init.lua).
+//
+//go:embed all:explore
+var explore embed.FS
+
 // EmbeddedPlugin is one bundled plugin: its files (under "<name>/") and
 // whether it loads when the config says nothing. An explicit
 // [plugins.<name>] enabled = true|false always wins; DefaultOn only decides
@@ -31,5 +36,6 @@ type EmbeddedPlugin struct {
 
 // Embedded maps each bundled plugin's name to its definition.
 var Embedded = map[string]EmbeddedPlugin{
-	"engram": {FS: engram, DefaultOn: true},
+	"engram":  {FS: engram, DefaultOn: true},
+	"explore": {FS: explore, DefaultOn: true},
 }
