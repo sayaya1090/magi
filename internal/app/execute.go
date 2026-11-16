@@ -728,6 +728,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// transcript that already shows its answer.
 	a.clearDoing(sid, tc.CallID)
 
+	// A subagent's report is the subagent's words, not the user's (subagent_report.go).
+	if a.subagentTool(tc.Name) {
+		res.Content = frameSubagentReport(res.Content)
+	}
 	resultEmitted = true
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,

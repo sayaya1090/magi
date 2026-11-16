@@ -210,6 +210,7 @@ func (p *plugin) spawnSpecFrom(L *lua.LState, spec *lua.LTable) port.SpawnSpec {
 		Model:            str("model"),
 		Provider:         str("provider"),
 		MaxSteps:         num("max_steps"),
+		Lean:             lua.LVAsBool(spec.RawGetString("lean")),
 		Workspace:        str("workspace"), // "clone" = its own checkout; empty shares the parent's
 	}
 	if secs := num("timeout"); secs > 0 {

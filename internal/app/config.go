@@ -19,6 +19,7 @@ type AgentSpec struct {
 
 	Trial       bool    // local experiment: no live retrieval or companion introductions
 	trialMemory *string // host-captured durable instructions for this experiment
+	lean        bool    // drop the main conversation's guides from the system prompt (SpawnSpec.Lean)
 	Name        string
 	System      string
 	Tools       []string
@@ -287,6 +288,9 @@ type Config struct {
 	CompactKeep float64
 	// CompactModel, when set, is the model the fold summaries are written with (same provider).
 	CompactModel string
+	// MaxParallelChildren caps how many subagent calls of one step run at once ([limits]
+	// max_parallel_children). The rest wait for a slot. Defaulted to 4.
+	MaxParallelChildren int
 
 	// Experience is the shared team memory/skills store (D13). Optional.
 	Experience port.ExperienceStore
@@ -426,6 +430,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.CompactKeep <= 0 || c.CompactKeep >= 1 {
 		c.CompactKeep = 0.25
+	}
+	if c.MaxParallelChildren <= 0 {
+		c.MaxParallelChildren = 4
 	}
 	if c.WorkflowMaxLoops == 0 {
 		c.WorkflowMaxLoops = 3

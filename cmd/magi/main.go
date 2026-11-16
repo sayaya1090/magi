@@ -977,11 +977,12 @@ func runWithContext(runCtx context.Context) int {
 		Allow:               cfg.Allow,
 		Deny:                cfg.Deny,
 		AllowDomains:        cfg.AllowDomains,
-		MaxOutputTokens:     cfg.Limits.MaxOutputTokens, // [limits]; the spin guard defers when set
-		ContextTokens:       cfg.Limits.ContextTokens,   // [limits]; forces the window for every model
-		CompactKeep:         cfg.Limits.CompactKeep,     // [limits]; share of the budget kept verbatim when folding (0 = default)
-		CompactModel:        cfg.Limits.CompactModel,    // [limits]; the model that writes fold summaries ("" = the session's)
-		CompactRatio:        cfg.Limits.CompactRatio,    // [limits]; share of the window used before compaction (0 = default)
+		MaxOutputTokens:     cfg.Limits.MaxOutputTokens,     // [limits]; the spin guard defers when set
+		ContextTokens:       cfg.Limits.ContextTokens,       // [limits]; forces the window for every model
+		CompactKeep:         cfg.Limits.CompactKeep,         // [limits]; share of the budget kept verbatim when folding (0 = default)
+		CompactModel:        cfg.Limits.CompactModel,        // [limits]; the model that writes fold summaries ("" = the session's)
+		CompactRatio:        cfg.Limits.CompactRatio,        // [limits]; share of the window used before compaction (0 = default)
+		MaxParallelChildren: cfg.Limits.MaxParallelChildren, // [limits]; subagent calls of one step at once (0 = default 4)
 		Experience:          experienceStore,
 		Companion:           cfg.Companion.Name,
 		Hooks:               toAppHooks(cfg.Hooks),
@@ -1668,6 +1669,9 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	}
 	if proj.Limits.CompactRatio != 0 {
 		cfg.Limits.CompactRatio = proj.Limits.CompactRatio
+	}
+	if proj.Limits.MaxParallelChildren != 0 {
+		cfg.Limits.MaxParallelChildren = proj.Limits.MaxParallelChildren
 	}
 	if proj.Limits.CompactKeep != 0 {
 		cfg.Limits.CompactKeep = proj.Limits.CompactKeep

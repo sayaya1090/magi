@@ -1006,7 +1006,11 @@ type SpawnSpec struct {
 	Provider string   // named LLM profile; empty = default backend
 	Tools    []string // the child's allowlist; empty = whatever the agent spec defaults to
 	MaxSteps int      // clamped by the host
-	Timeout  time.Duration
+	// Lean leaves the main conversation's guides (output formatting, companion ownership and
+	// purpose, coding workflow) out of the child's system prompt; its own instructions, the
+	// environment and the project memory stay. For a child that only reads.
+	Lean    bool
+	Timeout time.Duration
 	// Review, when set, is asked whether a child that stopped is actually finished — the same
 	// relationship the main agent has with the council, one level down.
 	//

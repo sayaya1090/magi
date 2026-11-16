@@ -91,3 +91,59 @@ func TestExploreSpawnsAReaderAndReturnsItsFindings(t *testing.T) {
 		t.Error("an empty question must be refused")
 	}
 }
+
+func loadExploreWith(t *testing.T, section map[string]any) port.Tool {
+	t.Helper()
+	reg := builtin.NewRegistry()
+	h := NewHostWithConfig(HostConfig{ToolSink: reg, DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: t.TempDir()},
+		PluginConfigs: map[string]map[string]any{"explore": section}})
+	if _, err := h.Load(context.Background(), filepath.Join("..", "..", "..", "..", "plugins", "explore")); err != nil {
+		t.Fatalf("load explore: %v", err)
+	}
+	tool, ok := reg.Get("explore")
+	if !ok {
+		t.Fatal("no explore tool")
+	}
+	return tool
+}
+
+// How deep the reader digs is the caller's call (quick lookup vs a flow across files); the child
+// is lean; and [plugins.explore] model routes it to a cheaper model when set.
+func TestExploreDepthModelAndLean(t *testing.T) {
+	specOf := func(tool port.Tool, args string) port.SpawnSpec {
+		t.Helper()
+		var got port.SpawnSpec
+		env := port.ToolEnv{Spawn: func(_ context.Context, sp port.SpawnSpec) (port.SpawnResult, error) {
+			got = sp
+			return port.SpawnResult{Text: "ok"}, nil
+		}}
+		if _, err := tool.Execute(context.Background(), json.RawMessage(args), env); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	plain := loadExploreWith(t, nil)
+	for _, c := range []struct {
+		args  string
+		steps int
+		secs  int
+	}{{`{"question":"q"}`, 24, 300}, {`{"question":"q","depth":"quick"}`, 8, 120}, {`{"question":"q","depth":"thorough"}`, 40, 600}} {
+		sp := specOf(plain, c.args)
+		if sp.MaxSteps != c.steps || int(sp.Timeout.Seconds()) != c.secs {
+			t.Errorf("%s: steps=%d timeout=%v, want %d/%ds", c.args, sp.MaxSteps, sp.Timeout, c.steps, c.secs)
+		}
+		if !sp.Lean {
+			t.Errorf("%s: the reader child must be lean", c.args)
+		}
+		if sp.Model != "" {
+			t.Errorf("no model configured, so the parent's model: got %q", sp.Model)
+		}
+	}
+	if d := plain.Description(); !strings.Contains(d, "quick") || !strings.Contains(d, "thorough") {
+		t.Errorf("the description must say when to pick a depth:\n%s", d)
+	}
+	cheap := loadExploreWith(t, map[string]any{"model": "haiku"})
+	if sp := specOf(cheap, `{"question":"q"}`); sp.Model != "haiku" {
+		t.Errorf("[plugins.explore] model did not reach the child: %q", sp.Model)
+	}
+}

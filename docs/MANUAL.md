@@ -762,6 +762,7 @@ embed_model = "nomic-embed-text"   # model that turns text into vectors. It buys
 # context_tokens   = 128000 # override the model's context-window budget used for compaction sizing
                            # (same as `/context <model> <tokens>`, but persisted). Set it when magi's
                            # guess for a model's window is wrong.
+# max_parallel_children = 4  # subagent calls of one step that run at once; the rest wait for a slot.
 # compact_ratio    = 0.8   # share of the window that may fill before auto-compaction runs (§7).
                            # Lower it to compact earlier (safer headroom); raise it to keep more raw
                            # history live before summarizing.

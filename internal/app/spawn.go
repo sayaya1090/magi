@@ -239,7 +239,7 @@ func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor 
 	stop := a.forwardChildProgress(cctx, child, onProgress)
 	defer stop()
 
-	agent := AgentSpec{Name: spawnAgentName, Trial: spec.Trial, preserveContext: checkpoint != nil, trialMemory: trialMemory, System: spec.System, Tools: spec.Tools, Model: model,
+	agent := AgentSpec{Name: spawnAgentName, Trial: spec.Trial, preserveContext: checkpoint != nil, trialMemory: trialMemory, lean: spec.Lean, System: spec.System, Tools: spec.Tools, Model: model,
 		Provider: spec.Provider, Groups: spec.Groups}
 
 	// Round-trip with the caller's review, if it set one. Each round runs the SAME session, so the

@@ -65,3 +65,19 @@ func resultString(t *testing.T, res session.ToolResult) string {
 	}
 	return string(res.Content)
 }
+
+// spawn{lean=true} reaches the host as SpawnSpec.Lean.
+func TestSpawnPassesLean(t *testing.T) {
+	_, tool := spawnPlugin(t, `magi.spawn{prompt = "p", lean = true}; return "x"`)
+	var got port.SpawnSpec
+	env := port.ToolEnv{Spawn: func(_ context.Context, sp port.SpawnSpec) (port.SpawnResult, error) {
+		got = sp
+		return port.SpawnResult{Text: "t"}, nil
+	}}
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{}`), env); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Lean {
+		t.Error("lean did not reach the spawn spec")
+	}
+}

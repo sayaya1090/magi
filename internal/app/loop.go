@@ -735,6 +735,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// every remaining call in the batch, and each of them then discovered the cancelled
 			// context for itself. Checked here so the two branches stop for the same reason.
 			var wg sync.WaitGroup
+			// Subagent calls take a slot: each is a whole child turn against the backend, and ten at
+			// once are ten concurrent model streams. The rest wait for a slot rather than being
+			// refused. Plain read tools run unslotted, as they always did.
+			slots := make(chan struct{}, a.cfg.MaxParallelChildren)
 			for _, tc := range toolCalls {
 				if ctx.Err() != nil {
 					break
@@ -742,6 +746,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				wg.Add(1)
 				go func(tc *session.ToolCall) {
 					defer wg.Done()
+					if a.subagentTool(tc.Name) {
+						// A turn cut while waiting still runs the call through executeTool, which
+						// records it as cut: every call keeps its result.
+						select {
+						case slots <- struct{}{}:
+							defer func() { <-slots }()
+						case <-ctx.Done():
+						}
+					}
 					a.executeTool(ctx, s, agent, depth, agentActor, tc, guard, turnTask)
 				}(tc)
 			}

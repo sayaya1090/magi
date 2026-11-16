@@ -146,6 +146,9 @@ type LimitsConfig struct {
 	// Empty means the session's model. A small model here makes folding cheap enough to run
 	// earlier and more often, which loses less each time.
 	CompactModel string `toml:"compact_model"`
+	// MaxParallelChildren caps how many subagent calls of one step run at once (default 4); the
+	// rest wait for a slot. Each is a whole child turn against the backend.
+	MaxParallelChildren int `toml:"max_parallel_children"`
 }
 
 // SamplingConfig sets the sampling parameters sent with every request ([sampling]):
