@@ -30,7 +30,7 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## sayaya-ui.js — sayaya-ui 2.5.0.8 standalone bundle, 677KB
+## sayaya-ui.js — sayaya-ui 2.5.0.9 standalone bundle, 677KB
 
 The M3 components the console draws with: Material Web 2.5.0's `all.js` and sayaya-ui's own labs
 (`md-tooltip`, `md-navigation-rail`, …) in one IIFE classic script. Not built here — it is the
@@ -38,10 +38,10 @@ release's own attachment, from the same library the console's Java side already 
 (`dev.sayaya:ui` in `clients/web/ui/gradle/libs.versions.toml`), so the Java wrapper and the element
 it wraps come from one release.
 
-    gh release download v2.5.0.8 -R sayaya1090/sayaya-ui -p 'sayaya-ui-2.5.0.8.js*'
-    shasum -a 256 -c sayaya-ui-2.5.0.8.js.sha256
-    #   sha256 2bcb41a545180f74e9155b819d896e640afd5114038cdb788dff5f2ab649d759
-    mv sayaya-ui-2.5.0.8.js sayaya-ui.js
+    gh release download v2.5.0.9 -R sayaya1090/sayaya-ui -p 'sayaya-ui-2.5.0.9.js*'
+    shasum -a 256 -c sayaya-ui-2.5.0.9.js.sha256
+    #   sha256 eba4ee766594ee464305bdbd039b29e3bc3e95a5382687646a4c17e47e3f52d4
+    mv sayaya-ui-2.5.0.9.js sayaya-ui.js
 
 It replaced a `material.js` that was built here from only the components the page imported
 (310KB, 60KB gzip — with the tooltip bundle beside it, 71KB gzip in all). This one is 122KB gzip:
