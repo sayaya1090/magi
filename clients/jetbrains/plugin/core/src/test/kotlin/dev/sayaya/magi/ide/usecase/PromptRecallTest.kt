@@ -51,6 +51,18 @@ class PromptRecallTest {
     }
 
     @Test
+    fun `둘러보다 입력이 다른 경로로 바뀌면 처음부터 다시 둘러본다`() {
+        // 답변 보내기·보내기 복원·프리필·지우고 다시 쓰기는 remember 를 거치지 않는다.
+        // 끝까지 둘러본 자리가 남으면 ↑ 가 영영 null 이었다(2026-11-19 사용자 보고).
+        val r = PromptRecall()
+        r.load(listOf("a", "b"))
+        assertEquals("a", r.older(""))
+        assertEquals("b", r.older("a"))
+        assertEquals("a", r.older("x"), "불러온 글이 아니면 맨 앞부터")
+        assertEquals("x", r.newer(), "그때의 입력이 맡겨 둔 글이 된다")
+    }
+
+    @Test
     fun `목록이 비면 아무것도 안 한다`() {
         val r = PromptRecall()
         assertNull(r.older("쓰던 글"))

@@ -524,10 +524,12 @@ internal object Look {
     /** 도구 호출 행 컴팩트 여백 (상하 2px, 좌우 12px). */
     fun toolRow(): javax.swing.border.Border = JBUI.Borders.empty(2, 12)
 
-    /** 답변 대기 중인 트랜스크립트 행 테두리. 좌측에 [pending] 인디케이터를 포함한다. */
-    fun pendingRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
-        BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10, 6, 12),
-    )
+    /**
+     * 답을 기다리는 말 행(막 보낸 사람 글)의 여백. 왼쪽 주황 선은 뺐다(2026-11-19 사용자 요청 —
+     * 막 보낸 글마다 선이 서는 것이 거슬렸다). 예전 선(2px)+여백(10px) 자리는 그대로 둬 글자가
+     * 답이 오는 순간 옆으로 밀리지 않는다.
+     */
+    fun pendingRow(): javax.swing.border.Border = JBUI.Borders.empty(6, 12, 6, 12)
 
     /** 답변 대기 중인 도구 호출 행 테두리. */
     fun pendingToolRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(

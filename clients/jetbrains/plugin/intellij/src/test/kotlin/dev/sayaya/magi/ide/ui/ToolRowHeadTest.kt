@@ -124,4 +124,16 @@ class ToolRowHeadTest : BasePlatformTestCase() {
         assertEquals(0.5f, Look.copyButton("copy") {}.alignmentY)
     }
 
+    fun `test a just sent message row draws no side stripe`() {
+        // 막 보낸 말 행의 왼쪽 주황 선은 뺐다(2026-11-19 사용자 요청). 글자 자리는 그대로다.
+        val panel = JPanel()
+        val img = java.awt.image.BufferedImage(40, 40, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        val g = img.createGraphics()
+        try { Look.pendingRow().paintBorder(panel, g, 0, 0, 40, 40) } finally { g.dispose() }
+        var painted = 0
+        for (x in 0 until 40) for (y in 0 until 40) if ((img.getRGB(x, y) ushr 24) != 0) painted++
+        assertEquals(0, painted)
+        assertEquals(Look.row().getBorderInsets(panel).left, Look.pendingRow().getBorderInsets(panel).left)
+    }
+
 }

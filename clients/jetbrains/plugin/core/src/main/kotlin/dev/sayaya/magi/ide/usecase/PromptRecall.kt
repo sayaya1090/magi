@@ -21,8 +21,15 @@ class PromptRecall {
         history = newestFirst.filter { it.isNotBlank() }.distinct()
     }
 
-    /** ↑: 하나 더 오래된 것. 더 없으면 null(입력을 안 바꾼다). */
+    /**
+     * ↑: 하나 더 오래된 것. 더 없으면 null(입력을 안 바꾼다).
+     *
+     * 둘러보던 자리는 보내기([remember])만 풀었다. 답변 보내기·보내기 복원·프리필·지우고 다시
+     * 쓰기는 입력만 바꾸고 자리를 남겨, 끝까지 둘러본 뒤에는 ↑ 가 영영 null 이었다. 지금 입력이
+     * 불러온 글이 아니면 그 자리는 이미 끝난 것으로 보고 처음부터 다시 둘러본다.
+     */
     fun older(current: String): String? {
+        if (at >= 0 && history.getOrNull(at) != current) at = -1
         if (at + 1 >= history.size) return null
         if (at == -1) draft = current
         at++
@@ -37,6 +44,10 @@ class PromptRecall {
     }
 
     val browsing: Boolean get() = at >= 0
+
+    /** 진단용: 둘러보는 자리(-1 = 쓰던 글)와 목록 크기. */
+    val position: Int get() = at
+    val size: Int get() = history.size
 
     /** Repeated arrows traverse recalled multiline entries; edits restore normal caret navigation. */
     fun isRecalled(text: String): Boolean = at >= 0 && history.getOrNull(at) == text

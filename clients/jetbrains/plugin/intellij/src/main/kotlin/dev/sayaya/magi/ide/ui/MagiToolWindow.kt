@@ -1022,7 +1022,14 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                             older -> recall.older(input.text)
                             else -> recall.newer()
                         }
-                        if (got == null) { fallback?.actionPerformed(e); return }
+                        if (got == null) {
+                            // 되불러오지 못한 ↑/↓ 만 남긴다 — "가끔 안 된다"를 다음 재현에서 가르려고(2026-11-19).
+                            com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info(
+                                "magi: recall miss key=$name at=${recall.position} size=${recall.size} line=$line " +
+                                    "lines=${input.lineCount} edge=$edge recalled=${recall.isRecalled(input.text)} " +
+                                    "len=${input.text.length} fallback=${fallback != null}")
+                            fallback?.actionPerformed(e); return
+                        }
                         input.text = got
                         input.caretPosition = got.length
                     }
