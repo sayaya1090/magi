@@ -461,6 +461,41 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > to, oldest first, as `{name=, args=(decoded), failed=, output=, output_bytes=}` — `output` is the result text, whole when the call failed and clipped at 6 KB when it succeeded (a door reads the ⚠ a tool attached to a success),
 > the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did
 > from the log instead of the agent's account of it. Same row shape as `magi.child_steps(sid)`.
+>
+> **`magi.run_script(source, {timeout=, output=, globals=, on_call=})`** — inside a tool call only. The
+> manifest must declare the `call_tools` capability and list the tools its scripts may call in
+> `call_tools = [...]`; none is open by default. Runs `source` in a Lua state of its own: no `os`, `io`,
+> modules, loaders or `magi.*`; it has `call_tool(name, args)`, `print`, `json_encode`/`json_decode`, the
+> string, table and math libraries, `call_all({ {name, args}, ... })` and `progress(text)`. `call_all`
+> runs its calls at the same time, at most 8 at once, and returns `{ok=, text=}` or `{ok=false, error=}`
+> per call in the order asked; one failure does not stop the rest, and subagent calls wait for a slot
+> under `max_parallel_children`. `progress(text)` and each finished `call_all` call (`call_all k/n`) go
+> to the tool's progress note. `globals` lends the script functions of the plugin's own by name.
+> `on_call(e)` hears each call the script makes, on the plugin's Lua state: `e.phase` (`start` or `end`),
+> `e.tool`, `e.batch` (0 for `call_tool`, then 1, 2, ... per `call_all`), `e.index`, `e.size`, and `e.ok`
+> at the end. A call to a tool not listed in `call_tools` is refused before it reaches the host. The host
+> then decides by what the tool is, not by its name: a tool that only looks (`read`, `grep`, `glob`,
+> `list`), one with no outside effect, or a subagent whose children only look (`explore`) runs freely;
+> anything else (a write, `bash`, the web, an MCP tool) asks the person first in every permission mode,
+> and with nobody to ask is refused and not run. `call_tool` runs a tool through the host as a call of
+> its own (permission, start fact, result), recorded under the tool's name with the running call as its
+> parent and kept out of the model's history; at most 200 calls per tool call. Returns what the script
+> printed and, when it failed or ran past `timeout` (default 60 s, at most 300), the reason as a second
+> value. Printed output past `output` bytes (default 16000, at most 64000) is cut and says so.
+>
+> **`magi.progress(text[, {stages={...}, force=bool}])`** — inside a tool call: a progress note, and
+> optionally the steps of the call, each `{id=, label=, kind=, state=, done=, total=, running=}`. They
+> ride `stages` on `tool.progress`, and on `status` and the roster while the call runs. The JetBrains
+> and VS Code tool rows and the web console's composer show them on one line (start, each step, end)
+> and keep one node per `id`, so a new report changes only the steps that moved and nothing is drawn
+> again. `kind` says what a step does (`tool`, `mcp`, `web`, `harness`, `subagent`) and each screen
+> picks its own mark for it; `state` is `waiting`, `running`, `done` or `failed`; the words for start
+> and end are each screen's own, in its language. A list identical to the last one is not sent again,
+> and between two unforced reports at least 100 ms pass. The `dummy-plug` plugin is built on both. It
+> lends its scripts `plan({name, ...})`, which lists every step so the first report already shows
+> them all, and `stage(name)`, which opens the next one (a planned one by that name, or a new one
+> after the current step). It fills each step's counts from `on_call` and marks the step a script
+> failed in as `failed`.
 
 > 🔐 **`magi.nonce(nbytes?)`** returns `nbytes` (default 16) of cryptographic randomness as a hex
 > string (`crypto/rand`). The sandbox's `math.random` is **deterministically seeded** (with `os`

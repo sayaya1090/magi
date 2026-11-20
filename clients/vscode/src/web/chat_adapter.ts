@@ -1645,3 +1645,59 @@ export function councilLine(r: { decision?: string }, language?: string): { text
   const accepted = r.decision === 'done';
   return { text: accepted ? words.councilAccepted : words.councilHeld, accepted };
 }
+
+/** One step of a call's progress as the tool reported it (core event.ProgressStage). */
+export interface ProgressStage { id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number }
+
+const STAGE_GLYPH: Record<string, string> = { tool: '\u2699', mcp: '\u26C1', web: '\u25CD', harness: '\u2726', subagent: '\u2727' };
+
+interface StagesState { start: HTMLElement; end: HTMLElement; nodes: Map<string, HTMLElement>; order: string }
+
+/**
+ * A one-line strip of a call's steps: start, each step, end. It knows nothing of what the steps are of;
+ * updateStages keeps one node per step id and changes only what changed, so a new report never redraws it.
+ */
+export function stagesStrip(doc: Document, lang: string): HTMLElement {
+  const ko = (lang || '').toLowerCase().startsWith('ko');
+  const strip = doc.createElement('div');
+  strip.className = 'stages';
+  const start = doc.createElement('span');
+  start.className = 'stage-end';
+  start.textContent = ko ? '\uC2DC\uC791' : 'Start';
+  const end = doc.createElement('span');
+  end.className = 'stage-end';
+  end.textContent = ko ? '\uB05D' : 'End';
+  (strip as unknown as { __stages: StagesState }).__stages = { start, end, nodes: new Map(), order: '' };
+  strip.replaceChildren(start, end);
+  return strip;
+}
+
+/** Shows these steps in the strip, keeping each step's node and touching only what changed. */
+export function updateStages(doc: Document, strip: HTMLElement, stages: ProgressStage[]): void {
+  const s = (strip as unknown as { __stages?: StagesState }).__stages;
+  if (!s) return;
+  const keep = new Set(stages.map((x) => x.id));
+  for (const id of [...s.nodes.keys()]) if (!keep.has(id)) s.nodes.delete(id);
+  for (const st of stages) {
+    let n = s.nodes.get(st.id);
+    if (!n) {
+      n = doc.createElement('span');
+      n.className = 'stage';
+      n.setAttribute('data-stage-id', st.id);
+      s.nodes.set(st.id, n);
+    }
+    const glyph = st.kind && STAGE_GLYPH[st.kind] ? STAGE_GLYPH[st.kind] + ' ' : '';
+    let text = glyph + st.label;
+    if (st.total) text += ` ${st.done ?? 0}/${st.total}`;
+    if (st.running) text += ` \u00B7${st.running}`;
+    if (n.textContent !== text) n.textContent = text;
+    if (n.getAttribute('data-state') !== st.state) n.setAttribute('data-state', st.state);
+  }
+  s.start.setAttribute('data-state', stages.some((x) => x.state !== 'waiting') ? 'done' : 'waiting');
+  s.end.setAttribute('data-state', stages.length > 0 && stages.every((x) => x.state === 'done') ? 'done' : 'waiting');
+  const order = stages.map((x) => x.id).join('\u0000');
+  if (order !== s.order) {
+    s.order = order;
+    strip.replaceChildren(s.start, ...stages.map((x) => s.nodes.get(x.id) as HTMLElement), s.end);
+  }
+}

@@ -207,6 +207,88 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         assertTrue("it is the escaped source: $html", html!!.contains("a &lt; b"))
     }
 
+    fun testAToolsStagesShowUnderItsToolRowAndChangeInPlace() {
+        // A tool reports its steps (tool.progress stages); the tool row carries one strip that keeps a
+        // node per step and only repaints what changed, so a new report does not redraw the strip.
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        try {
+            UIUtil.dispatchAllInvocationEvents()
+            val rows = field(view, "shaper") as Rows
+            val column = field(view, "column") as JComponent
+            var seq = 0L
+            fun ev(type: String, data: String) = LogEvent(seq = ++seq, type = type, actor = null,
+                ts = "2026-11-20T10:00:00Z", data = kotlinx.serialization.json.Json.parseToJsonElement(data))
+            val redraw = view.javaClass.getDeclaredMethod("redrawLog").apply { isAccessible = true }
+            fun nodes(c: java.awt.Component): List<javax.swing.JLabel> =
+                listOfNotNull((c as? javax.swing.JLabel)?.takeIf { it.getClientProperty(ProgressStages.ID) != null }) +
+                    ((c as? java.awt.Container)?.components?.flatMap { nodes(it) } ?: emptyList())
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"long_job","callId":"run1"}}}"""))
+            rows.feed(ev("tool.progress", """{"callId":"run1","name":"long_job","stages":[{"id":"s1","label":"list","kind":"tool","state":"running"},{"id":"s2","label":"check","state":"waiting"}]}"""))
+            redraw.invoke(view); UIUtil.dispatchAllInvocationEvents()
+            val first = nodes(column)
+            assertEquals("every step is there from the first report", listOf("s1", "s2"), first.map { it.getClientProperty(ProgressStages.ID) })
+            assertEquals(listOf("running", "waiting"), first.map { it.getClientProperty(ProgressStages.STATE) })
+            rows.feed(ev("tool.progress", """{"callId":"run1","name":"long_job","stages":[{"id":"s1","label":"list","kind":"tool","state":"done"},{"id":"s2","label":"check","kind":"subagent","state":"running","done":1,"total":3,"running":2}]}"""))
+            redraw.invoke(view); UIUtil.dispatchAllInvocationEvents()
+            val second = nodes(column)
+            assertEquals(listOf("done", "running"), second.map { it.getClientProperty(ProgressStages.STATE) })
+            assertTrue("each step keeps its node; only what changed is repainted", first.size == 2 && first.zip(second).all { (a, b) -> a === b })
+            assertTrue(second[1].text, second[1].text.contains("1/3"))
+            assertEquals("subagent", second[1].getClientProperty(ProgressStages.KIND))
+            assertNotNull("a step with a kind carries its mark", second[1].icon)
+        } finally { view.dispose() }
+    }
+
+    fun testProgressStagesSitOnOneCentreAndAnIconTakesItsStepsColour() {
+        // A step with a kind mark and a step without one sit on one line: every node is as tall as the
+        // others, so their words share one vertical centre, and the mark is drawn in the step's own
+        // colour, so two steps in the same state look the same.
+        // A mark taller than the words, with ink: the IDE's own icons are blank stand-ins in this headless run.
+        val mark = object : javax.swing.Icon {
+            override fun paintIcon(c: java.awt.Component?, g: java.awt.Graphics, x: Int, y: Int) { g.color = java.awt.Color(0x12, 0x34, 0x56); g.fillRect(x + 4, y + 4, 16, 16) }
+            override fun getIconWidth() = 24
+            override fun getIconHeight() = 24
+        }
+        val strip = ProgressStages { kind -> if (kind == null) null else mark }
+        strip.update(listOf(
+            dev.sayaya.magi.ide.model.ProgressStage(id = "a", label = "list", kind = "tool", state = "done", done = 2, total = 2),
+            dev.sayaya.magi.ide.model.ProgressStage(id = "b", label = "prep", state = "done"),
+            dev.sayaya.magi.ide.model.ProgressStage(id = "c", label = "look", kind = "subagent", state = "running", done = 1, total = 3, running = 2),
+            dev.sayaya.magi.ide.model.ProgressStage(id = "d", label = "check", state = "running"),
+        ))
+        strip.size = strip.preferredSize
+        strip.doLayout()
+        val labels = strip.components.filterIsInstance<javax.swing.JLabel>()
+        assertEquals("start, four steps, their arrows, the arrow to the end and the end", 11, labels.size)
+        val heights = labels.map { it.height }.toSet()
+        assertEquals("every node is as tall as the others: " + labels.map { it.text + "=" + it.height }, 1, heights.size)
+        val mids = labels.map { l ->
+            val vr = java.awt.Rectangle(0, 0, l.width, l.height); val ir = java.awt.Rectangle(); val tr = java.awt.Rectangle()
+            javax.swing.SwingUtilities.layoutCompoundLabel(l, l.getFontMetrics(l.font), l.text, l.icon, l.verticalAlignment,
+                l.horizontalAlignment, l.verticalTextPosition, l.horizontalTextPosition, vr, ir, tr, l.iconTextGap)
+            (l.y + tr.y) * 2 + tr.height
+        }
+        assertEquals("the words share one vertical centre: " + labels.map { it.text }.zip(mids), 1, mids.toSet().size)
+        val marked = labels.filter { it.getClientProperty(ProgressStages.ID) != null && it.icon != null }
+        assertEquals("the two steps with a kind carry a mark", 2, marked.size)
+        for (l in marked) {
+            val ic = l.icon
+            val img = java.awt.image.BufferedImage(ic.iconWidth, ic.iconHeight, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            val g = img.createGraphics(); ic.paintIcon(l, g, 0, 0); g.dispose()
+            val want = l.foreground.rgb and 0xFFFFFF
+            var inked = 0; var off = 0
+            for (x in 0 until img.width) for (y in 0 until img.height) {
+                val px = img.getRGB(x, y)
+                if ((px ushr 24) < 160) continue
+                inked++
+                val d = maxOf(Math.abs(((px shr 16) and 255) - ((want shr 16) and 255)), Math.abs(((px shr 8) and 255) - ((want shr 8) and 255)), Math.abs((px and 255) - (want and 255)))
+                if (d > 8) off++
+            }
+            assertTrue("the mark of " + l.text + " has ink", inked > 0)
+            assertEquals("the mark of " + l.text + " is drawn in its step's colour (" + inked + " inked pixels)", 0, off)
+        }
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))

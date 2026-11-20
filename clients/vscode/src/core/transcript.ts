@@ -52,6 +52,8 @@ export interface Row {
   /** Tool rows only, once the result arrives. Absent means still running. */
   ok?: boolean;
   background?: boolean;
+  /** Tool rows only: the steps the tool reported in `tool.progress`; each report replaces the last. */
+  stages?: Array<{ id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number }>;
   /**
    * Tool rows only: it DID the work and left something the agent must read.
    *
@@ -226,6 +228,17 @@ export function rows(events: Event[]): Row[] {
           if (d.state === 'unknown') delete row.ok;
           else row.ok = d.state === 'succeeded';
         }
+        break;
+      }
+      case 'tool.progress': {
+        // The steps a tool reports ride the row of its call; each report replaces the last.
+        const st = d.stages, call = d.callId;
+        if (!Array.isArray(st) || st.length === 0 || typeof call !== 'string') break;
+        const row = [...out].reverse().find((r) => r.who === 'tool' && r.callId === call);
+        if (row) row.stages = (st as Array<Record<string, unknown>>).filter((x) => x && typeof x.id === 'string').map((x) => ({
+          id: String(x.id), label: String(x.label ?? ''), kind: typeof x.kind === 'string' ? x.kind : undefined,
+          state: String(x.state ?? ''), done: Number(x.done ?? 0), total: Number(x.total ?? 0), running: Number(x.running ?? 0),
+        }));
         break;
       }
       case 'part.delta': {

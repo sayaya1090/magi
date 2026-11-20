@@ -1,5 +1,7 @@
 package idebridge
 
+import "github.com/sayaya1090/magi/internal/core/event"
+
 // The shape of a conversation row, decided in ONE place.
 //
 // This is the third of the eight (docs/IDE_BRIDGE §3) and the largest: "행을 짓는 규칙은 한 벌"
@@ -119,6 +121,9 @@ type Row struct {
 	// Ok is a tool result. Absent means still running, which is why it is a pointer.
 	Ok         *bool `json:"ok,omitempty"`
 	Background bool  `json:"background,omitempty"`
+	// Stages are the steps the tool reported in tool.progress on this call; each report replaces the
+	// last and the final one stays after the result.
+	Stages []event.ProgressStage `json:"stages,omitempty"`
 
 	// Note marks a result that DID the work and left something the agent must read.
 	//

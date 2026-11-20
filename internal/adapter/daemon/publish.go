@@ -239,6 +239,8 @@ type Info struct {
 	Doing string `json:"-"`
 	// Progress is the measured count behind Doing, from the same dial, or nil.
 	Progress *event.Progress `json:"-"`
+	// Stages are the steps behind Doing, from the same dial, or nil.
+	Stages []event.ProgressStage `json:"-"`
 	// Permission is the approval mode it is on now. Not in the file either: the mode changes at
 	// runtime, so a record written at startup would be the mode it USED to be on.
 	Permission string `json:"-"`
@@ -578,7 +580,7 @@ func Probe(out []Info) []Info {
 	var wg sync.WaitGroup
 	for i := range out {
 		s, sid := out[i].Socket, out[i].Session
-		out[i].Live, out[i].Asking, out[i].Doing, out[i].Progress = false, nil, "", nil
+		out[i].Live, out[i].Asking, out[i].Doing, out[i].Progress, out[i].Stages = false, nil, "", nil, nil
 		wg.Add(1)
 		go func(i int, s string, sid string) {
 			defer wg.Done()
@@ -594,7 +596,7 @@ func Probe(out []Info) []Info {
 				return
 			}
 			if st, serr := cl.Status(sid); serr == nil {
-				out[i].Asking, out[i].Doing, out[i].Progress = st.Asking, st.Doing, st.Progress
+				out[i].Asking, out[i].Doing, out[i].Progress, out[i].Stages = st.Asking, st.Doing, st.Progress, st.Stages
 				out[i].Permission, out[i].User = st.Permission, st.User
 				out[i].Backend, out[i].Model = st.Backend, st.Model
 			}

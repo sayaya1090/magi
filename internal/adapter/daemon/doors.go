@@ -557,6 +557,12 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 			resp.Progress = &p
 		}
 	}
+	// The steps behind the note, optional for the same reason.
+	if ge, ok := eng.(interface {
+		DoingStages(session.SessionID) ([]event.ProgressStage, bool)
+	}); ok && resp.Doing != "" {
+		resp.Stages, _ = ge.DoingStages(session.SessionID(req.Session))
+	}
 	if c, ok := eng.(Controller); ok {
 		resp.Permission = c.Permission()
 		resp.Backend = c.Backend()

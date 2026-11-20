@@ -194,6 +194,7 @@ type sessionState struct {
 	doing         string
 	doingCall     string
 	doingProgress *event.Progress
+	doingStages   []event.ProgressStage
 	// condenseFailedAt is the size (briefTokens) of the last running brief whose condense came back
 	// barely shorter; 0 when none has. The next fold does not pay for another condense until the
 	// brief has grown past it by condenseRetryGrowth.
@@ -498,7 +499,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.interjectSeen = keep
 	st.expPtrQ, st.expPtr = "", ""
 	st.turnNotes = nil
-	st.doing, st.doingCall, st.doingProgress = "", "", nil
+	st.doing, st.doingCall, st.doingProgress, st.doingStages = "", "", nil, nil
 	st.ragDecisions, st.contextDecisions, st.systemDecisions, st.arrivalDecisions = nil, nil, nil, nil
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	st.liveTurnTask = ""

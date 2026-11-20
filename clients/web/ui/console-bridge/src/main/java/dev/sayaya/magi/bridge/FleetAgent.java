@@ -40,6 +40,7 @@ public class FleetAgent {
     public boolean handling; // 하나는 손에 들고 있음
     public int steps;
     public String doing;
+    public Object stages; // doing 뒤의 진행 단계 배열({id,label,kind,state,done,total,running}) — 없으면 null
     public FleetProgress progress; // doing 뒤의 센 값(압축의 조각·글자·경과) — 없으면 null
     public String permission;
     public String backend;

@@ -502,6 +502,11 @@ type ToolEnv struct {
 	// message. A tool that waits (wait_for) ends its wait on it, so the message is read at once.
 	PromptArrived func() <-chan struct{}
 	SessionID     session.SessionID
+	// CallTool runs another tool from inside this call, through the same path a model's call takes
+	// (permission, the start fact, the result), recorded under its own name with this call as its
+	// parent and kept out of the model's history. Only a fixed read-only set may be called, and only
+	// so many times per call. nil when the host does not offer it.
+	CallTool func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error)
 	// TurnSteps lists the tool calls of THIS session's current turn (since the last user
 	// prompt), oldest first, each with its arguments and whether it failed; the call still
 	// running (the caller's own) is not in it. It is how a plugin door can ask what the turn
@@ -554,6 +559,9 @@ type ToolEnv struct {
 	// gap. Transient and droppable; always set by the application, but a tool
 	// should still nil-check it (a bare ToolEnv has no observer).
 	EmitProgress func(text string)
+	// EmitStages is EmitProgress with the steps of the call (event.ProgressStage), which screens keep
+	// in place and update as they change. nil when the host does not offer it.
+	EmitStages func(text string, stages []event.ProgressStage)
 	// AskUser presents a multiple-choice question to the HUMAN user and blocks
 	// for the pick (top-level interactive sessions only; nil otherwise — the
 	// tool then tells the model to proceed on its own judgment).

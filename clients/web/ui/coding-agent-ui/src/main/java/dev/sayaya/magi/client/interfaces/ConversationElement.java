@@ -60,6 +60,8 @@ public class ConversationElement {
     private final HTMLElement field = el("md-outlined-text-field");
     // 압축 진행 막대 — 컴포저 줄 위. 조준한 컴패니언 행의 센 값(fleet.Agent.Progress)만 그린다.
     private final HTMLElement foldBar = el("md-linear-progress");
+    /** 지금 도는 도구가 알린 진행 단계. 무엇의 단계인지는 모른다 — 노드를 단계마다 지키고 바뀐 것만 고친다. */
+    private final StageStrip progressStages = new StageStrip();
     // 계획 줄 — 전사 맨 위. 계획은 옆 사실판에만 있어 대화를 보는 동안 지금 어디쯤인지가 안
     // 보였다. 한 줄로 몇 단계 중 몇 번째·지금 과정을 말하고, 누르면 단계 목록이 펼쳐진다.
     private final HTMLElement planStrip = el("div");
@@ -142,6 +144,7 @@ public class ConversationElement {
             aimed = row;
             reach();
             paintFold();
+            paintStages();
             askPlan();
             swapNodes();
             // 대화가 정해졌으니 그 대화의 초안이 있으면 되살린다 — 열쇠가 세션이라, 이 줄
@@ -468,6 +471,11 @@ public class ConversationElement {
      * 압축 막대. 조각이 여럿이면 끝난 조각의 비율로 채우고, 하나뿐이면 요약이 얼마나 길어질지
      * 아무도 모르므로 비율을 지어내지 않고 비결정형으로 돈다. 센 값이 없으면 숨는다.
      */
+    /** 진행 단계: 명단 행의 stages 를 칸에 넘긴다. 없으면 칸이 숨는다. */
+    private void paintStages() {
+        progressStages.show(aimed == null ? null : aimed.stages);
+    }
+
     private void paintFold() {
         if (aimed == null || aimed.progress == null) { foldBar.setAttribute("hidden", ""); return; }
         double f = dev.sayaya.magi.bridge.AgentStates.foldFraction(aimed);
@@ -651,7 +659,7 @@ public class ConversationElement {
         foldBar.setAttribute("hidden", "");
         nodeChips.className = "nodechips";
         nodeChips.setAttribute("hidden", "");
-        form.append(foldBar, nodeChips, box, hint, note);
+        form.append(progressStages.element(), foldBar, nodeChips, box, hint, note);
         Js.asPropertyMap(DomGlobal.window).set("magiDiagramComposer", true);
         DomGlobal.window.addEventListener("magi-diagram-select", evt -> {
             Object detail = Js.asPropertyMap(evt).get("detail");

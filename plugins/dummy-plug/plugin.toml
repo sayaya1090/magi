@@ -1,0 +1,6 @@
+name = "dummy-plug"
+version = "0.1.0"
+description = "Dummy plug mode: the model enters it, runs Lua scripts that call read-only tools through the host, and leaves; only what a script prints reaches the model"
+entry = "init.lua"
+capabilities = ["tool", "call_tools"]
+call_tools = ["read", "grep", "glob", "list", "explore", "recall_memory"]

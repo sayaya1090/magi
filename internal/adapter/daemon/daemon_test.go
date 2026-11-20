@@ -25,6 +25,13 @@ type fakeEngine struct {
 	waiting  *app.Ask // what this engine claims to be blocked on, if anything
 	doing    string   // what this engine claims a running tool last reported
 	progress *event.Progress
+	stages   []event.ProgressStage
+}
+
+func (f *fakeEngine) DoingStages(session.SessionID) ([]event.ProgressStage, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stages, len(f.stages) > 0 && f.doing != ""
 }
 
 func (f *fakeEngine) Doing(session.SessionID) (string, bool) {
@@ -757,5 +764,27 @@ func TestStatusCarriesTheCountBehindAProgressNote(t *testing.T) {
 	}
 	if st.Doing == "" {
 		t.Fatal("the words were dropped for the count")
+	}
+}
+
+// A running call's stages cross beside its note, so a viewer in another process can redraw it.
+func TestStatusCarriesTheStagesBehindANote(t *testing.T) {
+	eng := &fakeEngine{doing: "listing"}
+	c := start(t, eng)
+	st, err := c.Status("s_1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if len(st.Stages) != 0 {
+		t.Fatalf("a note with no stages crossed with some: %+v", st.Stages)
+	}
+	eng.mu.Lock()
+	eng.stages = []event.ProgressStage{{ID: "s0", Label: "listing", Kind: "tool", State: "running", Done: 1, Total: 3, Running: 2}}
+	eng.mu.Unlock()
+	if st, err = c.Status("s_1"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if len(st.Stages) != 1 || st.Stages[0] != (event.ProgressStage{ID: "s0", Label: "listing", Kind: "tool", State: "running", Done: 1, Total: 3, Running: 2}) || st.Doing != "listing" {
+		t.Fatalf("the stages did not survive the wire: %+v", st)
 	}
 }

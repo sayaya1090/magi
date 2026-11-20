@@ -2693,6 +2693,13 @@
      are 380px of masthead between the reader and the conversation they came for — measured at
      430px wide, the transcript began 1073px down a 900px screen. Folded, the summary line still
      carries the state and the workspace, which is what somebody glancing back actually wants. */
+  /* 도구가 알린 진행 단계: 컴포저 위 한 줄. 노드는 단계마다 하나이고 상태만 바뀐다. */
+  .stages { display:flex; flex-wrap:wrap; align-items:center; gap:2px 0; margin:0 0 8px; font-size:12px; line-height:20px; color:var(--md-sys-color-on-surface-variant); }
+  .stages[hidden] { display:none; }
+  .stages > span + span::before { content:'\2192'; margin:0 8px; color:var(--md-sys-color-outline); font-weight:normal; }
+  .stages .stage[data-state=running] { color:var(--md-sys-color-primary); font-weight:600; }
+  .stages .stage[data-state=done], .stages .stage-end[data-state=done] { color:var(--md-sys-color-on-surface); }
+  .stages .stage[data-state=failed] { color:var(--md-sys-color-error); }
   #detail .foldbar {
     display:flex; align-items:baseline; gap:var(--magi-sys-space-150); width:100%; cursor:pointer;
     background:none; border:0; padding:0; color:inherit; text-align:left; font:inherit;

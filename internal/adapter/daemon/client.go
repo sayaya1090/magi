@@ -692,7 +692,7 @@ func (c *Client) Status(sid string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	return Status{Asking: resp.Waiting, Doing: resp.Doing, Progress: resp.Progress, Permission: resp.Permission,
+	return Status{Asking: resp.Waiting, Doing: resp.Doing, Progress: resp.Progress, Stages: resp.Stages, Permission: resp.Permission,
 		Backend: resp.Backend, Profile: resp.Profile, User: resp.User, Model: resp.Model, Council: resp.Council, Theme: resp.Theme}, nil
 }
 

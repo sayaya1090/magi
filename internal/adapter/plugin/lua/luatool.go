@@ -53,6 +53,7 @@ func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	// the last tool call happened to leave behind.
 	prevEnv, prevCtx := t.plugin.env, t.plugin.callCtx
 	t.plugin.env, t.plugin.callCtx = env, ctx
+	t.plugin.newCall()
 	defer func() { t.plugin.env, t.plugin.callCtx = prevEnv, prevCtx }()
 
 	var args any

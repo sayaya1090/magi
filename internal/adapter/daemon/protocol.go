@@ -781,6 +781,9 @@ type Response struct {
 	// parts, characters received, time elapsed), so a screen can draw a bar instead of parsing the
 	// sentence. Absent beside a note that is words only.
 	Progress *event.Progress `json:"progress,omitempty"`
+	// Stages are the steps of the running call as the tool reported them, when it did; set and
+	// cleared with Doing.
+	Stages []event.ProgressStage `json:"stages,omitempty"`
 	// Out and Exit answer the shell method. Exit is a pointer so that a zero — which is the answer
 	// a caller most wants to be able to trust — is distinguishable from a reply that carried no
 	// exit code at all.
@@ -1204,6 +1207,8 @@ type Status struct {
 	Doing string
 	// Progress is the measured count behind Doing, or nil.
 	Progress *event.Progress
+	// Stages are the steps behind Doing, or nil.
+	Stages []event.ProgressStage
 	// Permission is the approval mode it is on now.
 	Permission string
 	// Backend is the base URL its LLM requests go to now.

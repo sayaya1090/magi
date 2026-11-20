@@ -403,6 +403,21 @@ internal class CodingScreenTest : GwtTestSpec({
             }
             page.locator("#dock md-input-chip.nodechip").evaluate("c => c.dispatchEvent(new Event('remove'))")
         }
+        When("도는 도구가 진행 단계를 보내면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now', true, undefined, undefined, [{id:'s1',label:'list',kind:'tool',state:'running'},{id:'s2',label:'check',state:'waiting'}])")
+            Then("컴포저 위에 단계마다 노드가 서고, 새 알림은 그 노드만 바꾸며, 단계가 사라지면 숨는다") {
+                page.waitForCondition { page.evaluate("(() => { const g = document.querySelector('#dock .stages'); return !!g && !g.hasAttribute('hidden') && g.querySelectorAll('[data-stage-id]').length === 2; })()") == true }
+                page.evaluate("(() => { window.__magi_s1 = document.querySelector('#dock .stages [data-stage-id=s1]'); })()")
+                page.evaluate("window.__magi_test_fleet('working', 's_now', true, undefined, undefined, [{id:'s1',label:'list',kind:'tool',state:'done'},{id:'s2',label:'check',state:'running',done:1,total:3,running:2}])")
+                page.waitForCondition { page.evaluate("document.querySelector('#dock .stages [data-stage-id=s2]').getAttribute('data-state') === 'running'") == true }
+                page.evaluate("document.querySelector('#dock .stages [data-stage-id=s1]') === window.__magi_s1") shouldBe true
+                page.evaluate("document.querySelector('#dock .stages [data-stage-id=s1]').getAttribute('data-state')") shouldBe "done"
+                page.evaluate("document.querySelector('#dock .stages [data-stage-id=s2]').textContent.includes('1/3')") shouldBe true
+                page.evaluate("window.__magi_test_fleet('working', 's_now')")
+                page.waitForCondition { page.evaluate("document.querySelector('#dock .stages').hasAttribute('hidden')") == true }
+                page.evaluate("getComputedStyle(document.querySelector('#dock .stages')).display") shouldBe "none"
+            }
+        }
         When("압축이 요약 조각 셋 중 하나를 끝냈으면") {
             page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 1, total: 3, chars: 840, elapsedMs: 12500})")
             Then("컴포저 위 막대가 보이고 끝난 조각의 비율로 찬다") {

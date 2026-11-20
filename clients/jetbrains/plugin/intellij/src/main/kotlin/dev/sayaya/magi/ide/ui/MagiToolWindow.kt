@@ -582,6 +582,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          * 그 줄을 누르면 소집·평결 행이 함께 펼쳐진다 — 행 하나가 아니라 소집 하나를 뒤집는다.
          */
         private val councilOpen = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        /** 호출마다 진행 단계 칸 하나 — 다시 그릴 때 같은 칸을 써서 노드가 제자리에서 바뀐다. */
+        private val stageViews = HashMap<String, ProgressStages>()
 
         /** 접힌 카운슬의 소집·평결 행을 뺀 전사. 종합 판정 행과 종합이 없는 카운슬은 늘 남는다. */
         private fun foldCouncils(rows: List<Row>): List<Row> {
@@ -1632,7 +1634,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 // or evict any completed answer while tokens arrive.
                 // A browser outlives the range: leaving it and coming back must not reload the page,
                 // lose the measured height, or open a gap where the wheel does nothing.
-                fun richIn(of: List<Row>) = of.filter { it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text) }
+                fun richIn(of: List<Row>) = of.filter { (it.who == Who.Agent && !it.draft && RichAnswer.needsRich(it.text)) }
                     .map { richRenderKey(it) }
                 val shown = column.visible(allRows.size, y, extent)
                 val richKeys = if (pinned != null) emptySet() else richRecent.see(
@@ -1892,6 +1894,12 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         // 접힘 상태: 에러 발생 시 첫 줄 메시지만 요약 표기합니다.
                         r.out?.let { p.add(Look.code("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
                             BorderLayout.CENTER) }
+                    }
+                    // 도구가 알린 진행 단계: 행 아래 한 줄. 호출마다 칸 하나를 지켜, 알림이 오면 바뀐 노드만 고친다.
+                    r.stages?.let { st ->
+                        val v = stageViews.getOrPut(r.callId) { ProgressStages() }
+                        v.update(st)
+                        p.add(v, BorderLayout.SOUTH)
                     }
                     if (canFold) foldable(p, r)
                 }

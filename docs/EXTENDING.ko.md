@@ -423,6 +423,40 @@ magi.register_mcp{
 > `{name=, args=(디코드됨), failed=, output=, output_bytes=}` 로 돌려줍니다. `output` 은 결과 본문으로, 실패한 호출은 통째로, 성공한 호출은 6 KB 에서 잘립니다(문이 성공 답에 실린 ⚠ 를 읽는 자리입니다). 지금
 > 도는 호출(자기 자신)은 빠집니다. 턴을 판정하는 문(landing 의 `land`)이 모델의 신고 대신 기록에서
 > 턴이 한 일을 읽는 자리입니다. 행 모양은 `magi.child_steps(sid)` 와 같습니다.
+>
+> **`magi.run_script(source, {timeout=, output=, globals=, on_call=})`** — 툴 호출 안에서만 씁니다.
+> 매니페스트에 `call_tools` 능력을 선언하고, 스크립트가 부를 툴을 `call_tools = [...]` 에 적어야
+> 합니다. 적지 않은 툴은 열리지 않습니다. `source` 를 플러그인과 따로 떨어진 Lua 상태에서 돌립니다.
+> `os`·`io`·모듈·로더·`magi.*` 는 없고, `call_tool(name, args)`·`print`·`json_encode`/`json_decode`,
+> string·table·math 라이브러리, `call_all({ {name, args}, ... })`, `progress(text)` 가 있습니다.
+> `call_all` 은 호출들을 동시에, 한 번에 8개까지 돌리고, 호출마다 `{ok=, text=}` 또는
+> `{ok=false, error=}` 를 요청한 순서대로 돌려줍니다. 하나가 실패해도 나머지는 계속 돌고,
+> 서브에이전트 호출은 `max_parallel_children` 슬롯을 기다립니다. `progress(text)` 와 `call_all` 의
+> 호출 하나가 끝날 때마다의 `call_all k/n` 은 툴 진행 알림으로 나갑니다. `globals` 는 플러그인의 함수를
+> 이름 그대로 스크립트에 빌려줍니다. `on_call(e)` 는 스크립트가 하는 호출마다 플러그인의 Lua 상태에서
+> 불립니다. `e.phase`(`start` 또는 `end`), `e.tool`, `e.batch`(`call_tool` 은 0, `call_all` 마다 1, 2,
+> ...), `e.index`, `e.size`, 그리고 끝날 때 `e.ok` 가 있습니다. `call_tools` 에 없는 툴을 부르면 호스트에
+> 닿기 전에 거절됩니다. 그다음 호스트는 이름이 아니라 툴의 성질로 정합니다. 보기만 하는 툴(`read`·
+> `grep`·`glob`·`list`), 바깥 효과가 없는 툴, 자식이 보기만 하는 서브에이전트(`explore`)는 그대로
+> 돕니다. 그 밖(쓰기, `bash`, 웹, MCP 툴)은 권한 모드와 상관없이 먼저 사람에게 묻고, 물을 사람이 없으면
+> 거절되어 실행되지 않습니다. `call_tool` 은 툴을 호스트를 거쳐 따로 한 건의 호출로 돌립니다(권한, 시작
+> 기록, 결과). 그 호출은 툴 이름 그대로, 지금 도는 호출을 부모로 기록되고 모델 이력에서는 빠집니다.
+> 툴 호출 하나당 200번까지입니다. 스크립트가 출력한 것을 돌려주고, 실패하거나 `timeout`(기본 60초,
+> 최대 300초)을 넘기면 그 이유를 두 번째 값으로 줍니다. `output` 바이트(기본 16000, 최대 64000)를
+> 넘는 출력은 잘리고 잘렸다고 적힙니다.
+>
+> **`magi.progress(text[, {stages={...}, force=bool}])`** — 툴 호출 안에서 진행 알림을 보내고, 원하면
+> 호출의 단계 목록도 함께 보냅니다. 단계 하나는 `{id=, label=, kind=, state=, done=, total=, running=}`
+> 입니다. 목록은 `tool.progress` 의 `stages`, 그리고 호출이 도는 동안 `status` 와 명단의 `stages` 로
+> 갑니다. JetBrains·VS Code 도구 행과 웹 콘솔의 컴포저 위가 이것을 한 줄(시작, 단계들, 끝)로 보이고
+> `id` 마다 노드 하나를 지킵니다. 그래서 새 알림이 오면 바뀐 단계만 고치고 다시 그리지 않습니다.
+> `kind` 는 그 단계가 하는 일(`tool`·`mcp`·`web`·`harness`·`subagent`)이고 표시는 화면마다 정합니다.
+> `state` 는 `waiting`·`running`·`done`·`failed` 입니다. 시작과 끝을 가리키는 낱말은 각 화면이 제
+> 언어로 씁니다. 바로 앞과 같은 목록은 다시 보내지 않고, `force` 가 아닌 두 알림 사이에는 100ms 이상
+> 둡니다. `dummy-plug` 플러그인이 이 둘을 씁니다. 스크립트에 `plan({name, ...})` 과 `stage(name)` 을
+> 빌려줍니다. `plan` 은 단계를 미리 모두 적어 첫 알림부터 전부 보이게 하고, `stage` 는 다음 단계를
+> 엽니다(그 이름의 계획된 단계, 없으면 지금 단계 바로 뒤의 새 단계). `on_call` 로 단계마다 센 값을
+> 채우고, 스크립트가 실패한 단계는 `failed` 로 둡니다.
 
 > 🔐 **`magi.nonce(nbytes?)`** — `nbytes`(기본 16) 바이트의 암호학적 난수를 hex 문자열로 반환
 > (`crypto/rand`). 샌드박스의 `math.random`은 **결정론적으로 시드**되므로(os 제거로 시계 시드 불가)

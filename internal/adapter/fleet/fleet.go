@@ -273,6 +273,9 @@ type Agent struct {
 	// elapsed time), set and cleared with it, so a console can draw a bar. Absent when the note
 	// is words only.
 	Progress *event.Progress `json:"progress,omitempty"`
+	// Stages are the steps behind Doing as the tool reported them, set and cleared with it, so a
+	// console can show where the call is. Absent for a note without them.
+	Stages []event.ProgressStage `json:"stages,omitempty"`
 	// Permission is the approval mode this companion is on right now — ask, auto, allow or deny.
 	// It changes at runtime and decides both what gets a prompt and how long that prompt waits, so
 	// a console offering to change it has to be able to say what it is changing from.
@@ -376,6 +379,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			a.State, a.Steps, a.Task = Working, open.Steps, Clip(theWork(open.Text), 160)
 			a.Doing = Clip(in.Doing, 160)
 			a.Progress = in.Progress
+			a.Stages = in.Stages
 		case in.Live:
 			a.State = Idle
 		case isOpen:

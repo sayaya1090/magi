@@ -44,6 +44,10 @@ type plugin struct {
 	baseTok  uint64                      // ownership token of that override; released (only if still current) on unload
 	execTO   time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
 	logf     func(string)
+	// progSent and progAt are the last picture magi.progress sent for the current call and when;
+	// reset when a tool call begins.
+	progSent string
+	progAt   time.Time
 }
 
 // loadPlugin reads the manifest, builds a sandboxed state, installs the bridge,

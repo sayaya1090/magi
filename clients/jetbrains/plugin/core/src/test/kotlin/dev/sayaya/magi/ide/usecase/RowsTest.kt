@@ -1,5 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
+import dev.sayaya.magi.ide.model.ProgressStage
+
 import dev.sayaya.magi.ide.model.Actor
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.model.Progress
@@ -83,6 +85,28 @@ class RowsTest {
     }
 
     private var seq = 0L
+
+    /** 도구가 알린 진행 단계는 그 호출의 행에 실리고, 진행 말이 올 때마다 갈아 끼워지며, 끝나도 마지막 목록이 남는다. */
+    @Test
+    fun `진행 단계는 그 호출의 행에 실리고 진행마다 바뀐다`() {
+        val r = Rows(ko)
+        r.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"long_job","callId":"run1"}}}"""))
+        r.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"read","callId":"other"}}}"""))
+        val n = r.list().size
+        r.feed(ev("tool.progress", """{"callId":"run1","name":"long_job","text":"목록","stages":[{"id":"s1","label":"목록","state":"running"}]}"""))
+        assertEquals(n, r.list().size, "그래프는 새 행이 아니다")
+        assertEquals(listOf(ProgressStage(id = "s1", label = "목록", state = "running")), r.list().single { it.callId == "run1" }.stages)
+        assertNull(r.list().single { it.callId == "other" }.stages, "다른 호출은 그대로")
+        r.feed(ev("tool.progress", """{"callId":"run1","name":"long_job","text":"확인","stages":[{"id":"s1","label":"목록","state":"done"},{"id":"s2","label":"확인","state":"running","done":1,"total":3,"running":2}]}"""))
+        assertEquals(listOf(ProgressStage(id = "s1", label = "목록", state = "done"), ProgressStage(id = "s2", label = "확인", state = "running", done = 1, total = 3, running = 2)), r.list().single { it.callId == "run1" }.stages)
+        r.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"run1","content":"done"}}}"""))
+        val done = r.list().single { it.callId == "run1" }
+        assertEquals(true, done.ok)
+        assertEquals(listOf(ProgressStage(id = "s1", label = "목록", state = "done"), ProgressStage(id = "s2", label = "확인", state = "running", done = 1, total = 3, running = 2)), done.stages, "끝나도 마지막 목록이 남는다")
+        // 그래프 없는 진행 말은 행을 건드리지 않는다.
+        r.feed(ev("tool.progress", """{"callId":"other","name":"read","text":"…"}"""))
+        assertNull(r.list().single { it.callId == "other" }.stages)
+    }
 
     private fun ev(type: String, data: String, actor: Actor? = null) = LogEvent(
         seq = ++seq, type = type, actor = actor, ts = "2026-08-29T10:0$seq:00Z",

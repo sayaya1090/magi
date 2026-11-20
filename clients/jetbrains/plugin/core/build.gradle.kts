@@ -91,6 +91,8 @@ tasks.test {
         "internal/adapter/daemon",
         "internal/core/command/command.go",
         "internal/core/event/event.go",
+        // 진행 단계(`ProgressStage`)가 사는 곳 — `tool.progress` 와 `status` 를 타고 온다.
+        "internal/core/event/payload.go",
         // 물음의 근거(`report.Filled`)가 사는 곳. 와이어를 타는데 목록에 없어서 짝이 안 잡혔다.
         "internal/core/report",
         // `context` 문의 답. **파일을 댄다** — 이 타입은 엔진 패키지(`internal/app`)에 사는데

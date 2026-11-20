@@ -20,6 +20,8 @@ data class BridgeRow(
     val who: String = "",
     val text: String = "",
     val callId: String = "",
+    /** 도구가 알린 진행 단계(`tool.progress` 의 `stages`). 알림마다 갈아 끼우고, 끝나도 마지막 목록이 남는다. */
+    val stages: List<ProgressStage>? = null,
     val args: String = "",
     val ok: Boolean? = null,
     val background: Boolean = false,

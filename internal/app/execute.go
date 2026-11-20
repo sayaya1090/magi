@@ -110,6 +110,17 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 		forcePrompt, reason = true, why
 		ctx = asRepeat(ctx)
 	}
+	// A call a tool's script asked for that does more than look goes to the person in every mode.
+	if isScripted(ctx) {
+		why := "a tool's script asked for " + tc.Name + ", which does more than look"
+		if !a.cfg.Interactive {
+			dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny", Origin: "script", Reason: why})
+			a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePermissionDecided, actor, dd)
+			a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, "not run: "+why+". There is no one here to approve it", true)
+			return true
+		}
+		forcePrompt, reason = true, why
+	}
 	// A scanner-forced "ask" (a destructive invocation, an egress command, a pipe-to-shell, a
 	// secret-path reference) is NOT waived by an allow rule. An allow rule pre-approves a program
 	// for ordinary use — `bash(git:*)` trusts git — but "git status && rm -rf build" both matches
@@ -533,7 +544,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 	var background <-chan port.BackgroundCompletion
+	var innerCalls int32
+	innerSlots := make(chan struct{}, max(1, a.cfg.MaxParallelChildren))
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
+		CallTool: func(cctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
+			return a.callInner(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, name, args)
+		},
 		PromptArrived: func() <-chan struct{} { return a.promptArrived(sid) },
 		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
 			background = done
@@ -550,6 +566,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		ScratchTmp:   scratch.tmpDir(),
 		Platform:     a.plat,
 		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
+		EmitStages: func(text string, stages []event.ProgressStage) {
+			a.emitToolStages(sid, actor, tc.CallID, tc.Name, text, stages)
+		},
 		// Only at depth 0. A child has no Spawn, so a child cannot spawn — recursion is impossible
 		// by construction rather than bounded by a depth counter somebody has to remember to check.
 		Spawn: hooks.Spawn,

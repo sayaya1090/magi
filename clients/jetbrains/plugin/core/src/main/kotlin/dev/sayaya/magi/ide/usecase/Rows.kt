@@ -61,6 +61,8 @@ data class Row(
     val note: Boolean = false,
     /** 실패한 호출이 말한 것. [args] 를 덮지 않는다 — 물은 것과 답한 것은 다른 사실이다. */
     val out: String? = null,
+    /** 도구가 알린 진행 단계. 도는 동안 진행 말(`tool.progress`)이 갈아 끼우고, 끝난 뒤엔 마지막 목록이 남는다. */
+    val stages: List<dev.sayaya.magi.ide.model.ProgressStage>? = null,
     // user 행 표시
     val pending: Boolean = false,
     val queued: Boolean = false,
@@ -393,7 +395,7 @@ class Rows(private val words: Words) {
             // 쌓으면 판정보다 시끄러워진다 — 코어도 이것만 transient 로 낸다(영속 안 됨).
             // 세션의 사실로 들고, 표시줄이 읽는다.
             "council.deliberating" -> deliberating(e)
-            "tool.progress" -> foldNote(e)
+            "tool.progress" -> foldNote(e) || toolStages(e)
             "council.verdict" -> verdict(e)
             "council.decided" -> decided(e)
             // 나머지는 전사가 아니라 다른 자리의 사실이다 — 표가 그렇게 정한다.
@@ -739,6 +741,21 @@ class Rows(private val words: Words) {
             evidence = evidence.ifBlank { null },
             opened = true,
         )
+        return true
+    }
+
+    /** 도구가 알린 진행 단계. 새 행이 아니라 그 호출의 행에 싣는다 — 알림마다 갈아 끼우고, 끝나도 남긴다. */
+    private fun toolStages(e: LogEvent): Boolean {
+        val d = e.data?.jsonObject ?: return false
+        val arr = d["stages"] as? kotlinx.serialization.json.JsonArray ?: return false
+        val st = runCatching {
+            dev.sayaya.magi.ide.model.Wire.json.decodeFromJsonElement(
+                kotlinx.serialization.builtins.ListSerializer(dev.sayaya.magi.ide.model.ProgressStage.serializer()), arr)
+        }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return false
+        val call = d["callId"]?.jsonPrimitive?.content ?: return false
+        val i = rows.indexOfLast { it.who == Who.Tool && it.callId == call }
+        if (i < 0 || rows[i].stages == st) return false
+        rows[i] = rows[i].copy(stages = st)
         return true
     }
 

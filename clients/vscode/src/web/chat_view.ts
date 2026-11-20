@@ -18,6 +18,19 @@ declare const planStripView: typeof Adapter.planStripView;
 declare const restartStripView: typeof Adapter.restartStripView;
 declare const councilFold: typeof Adapter.councilFold;
 declare const councilLine: typeof Adapter.councilLine;
+declare const stagesStrip: typeof Adapter.stagesStrip;
+declare const updateStages: typeof Adapter.updateStages;
+// One steps strip per call, kept across redraws: a new report changes only the steps that moved.
+const stageStrips = new Map<string, HTMLElement>();
+function stagesFor(call: string, stages: Adapter.ProgressStage[]): HTMLElement {
+  let strip = stageStrips.get(call);
+  if (!strip) {
+    strip = stagesStrip(document, document.documentElement.lang);
+    stageStrips.set(call, strip);
+  }
+  updateStages(document, strip, stages);
+  return strip;
+}
 declare const councilKey: typeof Adapter.councilKey;
 declare const createSuggestController: typeof Adapter.createSuggestController;
 declare const createWebviewReceiveHandlers: typeof Adapter.createWebviewReceiveHandlers;
@@ -880,6 +893,8 @@ function paintViewport(tail = followingTail) {
       d.addEventListener('click', () => flipCouncil(r));
       d.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); flipCouncil(r); } });
     }
+    // A tool's steps: the call's own strip moves into the redrawn row, its nodes kept.
+    if (r.who === 'tool' && r.stages && r.callId) d.append(stagesFor(r.callId, r.stages));
     nextPainted.set(key, { signature, draftSignature, node: d });
     nextNodes.push(d);
   }

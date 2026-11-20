@@ -135,6 +135,8 @@ var planStripView;
 var restartStripView;
 var councilFold;
 var councilLine;
+var stagesStrip;
+var updateStages;
 var councilKey;
 var createSuggestController;
 var createWebviewReceiveHandlers;
@@ -161,6 +163,8 @@ ${bundledCode}
   restartStripView = exp.restartStripView;
   councilFold = exp.councilFold;
   councilLine = exp.councilLine;
+  stagesStrip = exp.stagesStrip;
+  updateStages = exp.updateStages;
   councilKey = exp.councilKey;
   createSuggestController = exp.createSuggestController;
   createWebviewReceiveHandlers = exp.createWebviewReceiveHandlers;
@@ -184,6 +188,8 @@ ${bundledCode}
     window.restartStripView = restartStripView;
     window.councilFold = councilFold;
     window.councilLine = councilLine;
+    window.stagesStrip = stagesStrip;
+    window.updateStages = updateStages;
     window.councilKey = councilKey;
     window.createSuggestController = createSuggestController;
     window.createWebviewReceiveHandlers = createWebviewReceiveHandlers;

@@ -181,7 +181,7 @@ func (a *App) noteDoing(sid session.SessionID, callID, text string) {
 func (a *App) clearDoing(sid session.SessionID, callID string) {
 	a.mu.Lock()
 	if st, ok := a.stateIf(sid); ok && st.doingCall == callID {
-		st.doing, st.doingCall, st.doingProgress = "", "", nil
+		st.doing, st.doingCall, st.doingProgress, st.doingStages = "", "", nil, nil
 	}
 	a.mu.Unlock()
 }
@@ -303,4 +303,35 @@ func (a *App) emitRetryProgress(sid session.SessionID, actor event.Actor, name, 
 	a.noteDoing(sid, "", text)
 	d, _ := json.Marshal(event.ToolProgressData{Name: name, Text: text, RetryUntil: time.Now().Add(delay).UnixMilli(), RetryAttempt: attempt, RetryKind: kind})
 	a.publishTransient(sid, event.TypeToolProgress, actor, d)
+}
+
+// emitToolStages is emitToolProgress with the steps of the call as the tool reports them. They are
+// also kept beside the note, so a screen in another process — the web console, which never hears
+// the bus — can ask for them; they go when the call returns (clearDoing).
+func (a *App) emitToolStages(sid session.SessionID, actor event.Actor, callID, name, text string, stages []event.ProgressStage) {
+	stages = append([]event.ProgressStage(nil), stages...)
+	text = strings.TrimSpace(text)
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	if text != "" {
+		st.doing = text
+	}
+	if st.doing == "" {
+		st.doing = name
+	}
+	st.doingCall, st.doingStages = callID, stages
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.ToolProgressData{CallID: callID, Name: name, Text: text, Stages: stages})
+	a.publishTransient(sid, event.TypeToolProgress, actor, d)
+}
+
+// DoingStages are the steps behind Doing, when the running call reported some.
+func (a *App) DoingStages(sid session.SessionID) ([]event.ProgressStage, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok || len(st.doingStages) == 0 {
+		return nil, false
+	}
+	return append([]event.ProgressStage(nil), st.doingStages...), true
 }

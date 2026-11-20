@@ -138,6 +138,22 @@ data class Progress(
     val elapsedMs: Long = 0,
 )
 
+/**
+ * 진행 단계 하나 — 코어 `event.ProgressStage`. [id] 는 그 호출 동안 바뀌지 않아서 화면이 노드를 지키고
+ * 바뀐 것만 고친다. [kind] 는 하는 일의 종류(tool·mcp·web·harness·subagent), [state] 는
+ * waiting·running·done·failed 다.
+ */
+@Serializable
+data class ProgressStage(
+    val id: String = "",
+    val label: String = "",
+    val kind: String? = null,
+    val state: String = "",
+    val done: Int = 0,
+    val total: Int = 0,
+    val running: Int = 0,
+)
+
 @Serializable
 data class Response(
     val knowledge: List<KnowledgeItem>? = null,
@@ -150,6 +166,8 @@ data class Response(
     val doing: String? = null,
     /** `doing` 뒤의 센 값(압축의 조각·글자·경과). 막대가 문장을 파싱하지 않고 그린다. */
     val progress: Progress? = null,
+    /** 지금 도는 호출이 알린 진행 단계. 도구창은 이벤트 흐름의 `tool.progress` 로 받으므로 여기선 읽지 않는다. */
+    val stages: List<ProgressStage>? = null,
     val out: String? = null,
     val exit: Int? = null,
     val permission: String? = null,

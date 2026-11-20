@@ -134,6 +134,8 @@
   "council.abstain": "기권",
   "council.accept": "수락",
   "council.line.accepted": "카운슬: 완료",
+  "progress.start": "시작",
+  "progress.end": "끝",
   "council.line.held": "카운슬: 반대",
   "council.outcome": "라운드 결과",
   "council.reject": "반려",

@@ -358,6 +358,11 @@ type askingEngine struct {
 	ask      *app.Ask
 	doing    string
 	progress *event.Progress
+	stages   []event.ProgressStage
+}
+
+func (e *askingEngine) DoingStages(session.SessionID) ([]event.ProgressStage, bool) {
+	return e.stages, len(e.stages) > 0 && e.doing != ""
 }
 
 func (e *askingEngine) DoingProgress(session.SessionID) (event.Progress, bool) {
@@ -397,6 +402,11 @@ func (f *fleetFixture) serveDoing(workdir, sid, doing string) string {
 // serveProgress is serveDoing with the measured count behind the note.
 func (f *fleetFixture) serveProgress(workdir, sid, doing string, p event.Progress) string {
 	return f.serveEngine(workdir, sid, &askingEngine{doing: doing, progress: &p})
+}
+
+// serveStages is serveDoing with the stages behind the note.
+func (f *fleetFixture) serveStages(workdir, sid, doing string, stages []event.ProgressStage) string {
+	return f.serveEngine(workdir, sid, &askingEngine{doing: doing, stages: stages})
 }
 
 func (f *fleetFixture) serveEngine(workdir, sid string, eng daemon.Engine) string {
@@ -1445,5 +1455,23 @@ func TestTheFleetCacheForgetsWhatNobodyAsksAbout(t *testing.T) {
 	fleet.FillCacheForTest(&c, 10, false) // fresh, and past the cap: the prune runs
 	if got := fleet.CacheSizeForTest(&c); got > 600 {
 		t.Errorf("the table kept %d entries; the stale ones should be gone", got)
+	}
+}
+
+// The stages behind a working agent's note rides into the listing, and only while it works.
+func TestAWorkingDaemonCarriesTheStagesBehindItsNote(t *testing.T) {
+	f := newFleetFixture(t)
+	g := []event.ProgressStage{{ID: "s0", Label: "read", Kind: "tool", State: "running", Done: 2, Total: 3, Running: 1}}
+	wd := shortTempDir(t)
+	f.serveStages(wd, "plugged", "2/3: read", g)
+	f.session("plugged", wd, "a long task", 2, false)
+	if a := find(t, f.get(), "plugged"); a.State != fleet.Working || len(a.Stages) != 1 || a.Stages[0] != g[0] {
+		t.Fatalf("state %q stages %+v", a.State, a.Stages)
+	}
+	wd2 := shortTempDir(t)
+	f.serveStages(wd2, "unplugged", "2/3: read", g)
+	f.session("unplugged", wd2, "a long task", 2, true)
+	if b := find(t, f.get(), "unplugged"); len(b.Stages) != 0 {
+		t.Errorf("an idle agent carries stages: %+v", b.Stages)
 	}
 }

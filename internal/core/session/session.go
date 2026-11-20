@@ -139,6 +139,10 @@ type ToolCall struct {
 	CallID string          `json:"callId"`
 	Name   string          `json:"name"`
 	Args   json.RawMessage `json:"args"`
+	// Parent is the CallID of the tool call that ran this one through ToolEnv.CallTool. Such a
+	// call is recorded like any other, so permission, recovery and the turn's steps see it, but it
+	// is kept out of the model's history: what a script read stays in the script.
+	Parent string `json:"parent,omitempty"`
 }
 
 // ToolResult is the outcome of executing a ToolCall.

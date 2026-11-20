@@ -204,5 +204,34 @@ internal class SettingsScreenTest : GwtTestSpec({
                 }
             }
         }
+        When("언어를 고르면") {
+            Then("문서의 lang 이 그 말이 된다 — 다이어그램 뷰어가 그 말로 그림의 낱말을 고르는 자리다") {
+                page.waitForSelector("#settings #lang")
+                page.evaluate("(() => { const s = document.querySelector('#settings #lang'); s.value = 'ko'; s.dispatchEvent(new Event('change', {bubbles: true})); })()")
+                page.waitForCondition { page.evaluate("window.localStorage.getItem('lang')") == "ko" }
+                page.waitForCondition { page.evaluate("document.documentElement.lang") == "ko" }
+                page.evaluate("(() => { const s = document.querySelector('#settings #lang'); s.value = 'en'; s.dispatchEvent(new Event('change', {bubbles: true})); })()")
+                page.waitForCondition { page.evaluate("document.documentElement.lang") == "en" }
+            }
+        }
+        When("언어를 연달아 고르면") {
+            Then("마지막에 고른 말의 팩이 앉고 문서의 lang 도 그 말이다 — 먼저 고른 팩이 늦게 와도") {
+                page.route("**/i18n/language.*.json") { r ->
+                    val ko = r.request().url().endsWith("language.ko.json")
+                    r.fulfill(com.microsoft.playwright.Route.FulfillOptions().setStatus(200).setContentType("application/json")
+                        .setBody(if (ko) """{"pref.lang":"언어"}""" else """{"pref.lang":"Language"}"""))
+                }
+                page.waitForSelector("#settings #lang")
+                // 한 스크립트 안에서 두 번 고른다 — ko 의 답은 반드시 en 을 고른 뒤에 온다.
+                page.evaluate("(() => { const s = document.querySelector('#settings #lang');" +
+                    " s.value = 'ko'; s.dispatchEvent(new Event('change', {bubbles: true}));" +
+                    " s.value = 'en'; s.dispatchEvent(new Event('change', {bubbles: true})); })()")
+                page.waitForCondition { page.evaluate("document.querySelector('#settings #langK').textContent") == "Language" }
+                page.evaluate("document.documentElement.lang") shouldBe "en"
+                page.waitForTimeout(300.0)
+                page.evaluate("document.querySelector('#settings #langK').textContent") shouldBe "Language"
+                page.unroute("**/i18n/language.*.json")
+            }
+        }
     }
 })

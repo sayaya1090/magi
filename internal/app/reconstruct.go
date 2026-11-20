@@ -64,6 +64,7 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 	// even though recall_context can still reach them.
 	var topics []string
 	topicSeen := map[string]bool{}
+	inner := map[string]bool{} // calls run by a tool's script, kept out of the model's history
 
 	// at is the time of the event that OPENED the message: a message that grew over four minutes
 	// of streaming is stamped with when it started, which is what a transcript reads as and what
@@ -194,6 +195,15 @@ func rebuild(evs []event.Event, whole bool) []session.Message {
 		case event.TypePartAppended:
 			var d event.PartAppendedData
 			if json.Unmarshal(ev.Data, &d) != nil {
+				continue
+			}
+			// A call a tool's script ran (ToolEnv.CallTool) and its result are not the model's: what the
+			// script read stays in the script, or nothing was saved by scripting it.
+			if c := d.Part.ToolCall; c != nil && c.Parent != "" {
+				inner[c.CallID] = true
+				continue
+			}
+			if r := d.Part.ToolResult; r != nil && inner[r.CallID] {
 				continue
 			}
 			if d.Part.ToolResult != nil {

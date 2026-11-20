@@ -89,10 +89,10 @@ public class CompanionStore implements CompanionSource.Listener {
         // "옮겨서 이어가겠다"고 계속 말한다.
         return (a.state + "|" + a.name + "|" + a.doing + "|" + a.user + "|" + a.waiting
                 + "|" + a.handling + "|" + a.live + "|" + a.session
-                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(a) + "|" + a.planDone + "/" + a.planTotal)
+                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(a) + "|" + a.planDone + "/" + a.planTotal + "|" + (a.stages == null ? "" : elemental2.core.Global.JSON.stringify(a.stages)))
                 .equals(b.state + "|" + b.name + "|" + b.doing + "|" + b.user + "|" + b.waiting
                 + "|" + b.handling + "|" + b.live + "|" + b.session
-                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(b) + "|" + b.planDone + "/" + b.planTotal);
+                + "|" + dev.sayaya.magi.bridge.AgentStates.foldKey(b) + "|" + b.planDone + "/" + b.planTotal + "|" + (b.stages == null ? "" : elemental2.core.Global.JSON.stringify(b.stages)));
     }
 
     public void onTurn(BiConsumer<Boolean, Double> o) {

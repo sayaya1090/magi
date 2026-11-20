@@ -40,6 +40,8 @@ public final class Labels {
     private static JsPropertyMap<Object> pack = Js.cast(jsinterop.base.JsPropertyMap.of());
     private static boolean loaded = false;
     private static boolean loading = false;
+    /** 지금 회선을 탄 팩의 말 — 답이 올 때 사람이 그새 다른 말을 골랐는지 보려고 든다. */
+    private static String fetching = null;
     private static final List<Runnable> waiting = new ArrayList<>();
 
     private Labels() {}
@@ -89,15 +91,24 @@ public final class Labels {
             return;
         }
         waiting.add(done);
-        if (loading) return;                          // 비행 중이면 이 줄에 서면 된다
+        if (loading) return;                          // 비행 중이면 이 줄에 서면 된다 — 답이 올 때 말을 다시 본다
+        fetch(pick());
+    }
+
+    /**
+     * 고른 말의 팩을 회선에 태운다. 문서의 말도 이 말로 둔다 — 다이어그램 뷰어처럼 lang 을 보고
+     * 제 낱말을 고르는 것들이 따른다. 팩을 못 읽어도 사람이 고른 말은 그대로다.
+     */
+    private static void fetch(String want) {
         loading = true;
-        String want = pick();
+        fetching = want;
+        DomGlobal.document.documentElement.setAttribute("lang", want);
         // 호스트 창의 회선으로 — 데모의 목이 사는 곳이 거기다(Console.raw의 주석).
         Console.raw("/i18n/language." + want + ".json", null)
                 .then(Response::text)
                 .then(body -> {
                     Object parsed = elemental2.core.Global.JSON.parse(body);
-                    if (isPack(parsed)) { adopt(Js.cast(parsed)); return null; }
+                    if (isPack(parsed)) { adopt(Js.cast(parsed), want); return null; }
                     // 팩이 아니면 영어로 한 번 더 — 운영이 빈 팩에서 영어로 물러서는 그 자리다.
                     fallback(want);
                     return null;
@@ -115,20 +126,34 @@ public final class Labels {
         load(done);
     }
 
+    /**
+     * 팩이 오는 사이 사람이 다른 말을 골랐는가 — 그러면 온 팩은 낡았다. 앉히지 않고 지금 말로
+     * 다시 받는다(언어를 연달아 고르면 먼저 고른 팩이 나중에 도착한다).
+     */
+    private static boolean stale() {
+        if (fetching == null || fetching.equals(pick())) return false;
+        fetch(pick());
+        return true;
+    }
+
     /** 고른 말의 팩이 쓸모없을 때 영어로 — 영어에서도 실패하면 키 폴백으로 산다. */
     private static void fallback(String want) {
+        if (stale()) return;
         if ("en".equals(want)) { settle(); return; }
         Console.raw("/i18n/language.en.json", null)
                 .then(Response::text)
                 .then(body -> {
                     Object parsed = elemental2.core.Global.JSON.parse(body);
-                    if (isPack(parsed)) adopt(Js.cast(parsed)); else settle();
+                    if (isPack(parsed)) adopt(Js.cast(parsed), "en"); else settle();
                     return null;
                 })
                 .catch_(err -> { settle(); return null; });
     }
 
-    private static void adopt(JsPropertyMap<Object> got) {
+    /** 팩을 앉힌다. 문서의 말은 앉은 팩의 말이다 — 영어로 물러섰으면 en. */
+    private static void adopt(JsPropertyMap<Object> got, String lang) {
+        if (stale()) return;
+        DomGlobal.document.documentElement.setAttribute("lang", lang);
         pack = got;
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set(SHARED, pack);
@@ -139,6 +164,8 @@ public final class Labels {
     }
 
     private static void settle() {
+        if (stale()) return;
+        fetching = null;
         loaded = true;
         loading = false;
         List<Runnable> now = new ArrayList<>(waiting);

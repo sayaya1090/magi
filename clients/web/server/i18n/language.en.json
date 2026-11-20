@@ -134,6 +134,8 @@
   "council.abstain": "abstains",
   "council.accept": "accepts",
   "council.line.accepted": "Council: accepted",
+  "progress.start": "Start",
+  "progress.end": "End",
   "council.line.held": "Council: not accepted",
   "council.outcome": "the round",
   "council.reject": "rejects",

@@ -499,6 +499,23 @@ type ToolProgressData struct {
 	// Progress is the measured count behind Text, when there is one, so a screen can draw a bar
 	// instead of parsing the sentence. Absent for notes that are words only.
 	Progress *Progress `json:"progress,omitempty"`
+	// Stages are the steps of a long call as the tool reports them, so a screen can show where it is
+	// and keep each step in place as it changes. What the steps mean is the tool's own business.
+	Stages []ProgressStage `json:"stages,omitempty"`
+}
+
+// ProgressStage is one step of a call's progress. ID is stable for the life of the call, so a screen
+// updates the step it already shows instead of drawing the list anew. Kind names what the step does
+// (tool, mcp, web, harness, subagent, or empty) and a screen picks its own icon for it. State is
+// done, running or waiting. Done/Total count the step's calls; Running is how many are in flight.
+type ProgressStage struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Kind    string `json:"kind,omitempty"`
+	State   string `json:"state"`
+	Done    int    `json:"done,omitempty"`
+	Total   int    `json:"total,omitempty"`
+	Running int    `json:"running,omitempty"`
 }
 
 // ToolArgsJSON is the ONE place that decides what a call's arguments look like on the wire.

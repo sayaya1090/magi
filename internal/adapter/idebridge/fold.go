@@ -201,6 +201,16 @@ func fold(events []event.Event) ([]Row, foldStats) {
 		before := len(out)
 		d := payload(e.Data)
 		switch e.Type {
+		case event.TypeToolProgress:
+			// The stages a tool reports ride its own call's row; each report replaces the last.
+			if st, call := stagesOf(e.Data), str(d, "callId"); len(st) > 0 && call != "" {
+				for i := len(out) - 1; i >= 0; i-- {
+					if out[i].Who == WhoTool && out[i].CallID == call {
+						out[i].Stages = st
+						break
+					}
+				}
+			}
 		case event.TypeToolBackground:
 			call := str(d, "callId")
 			state := str(d, "state")
@@ -902,6 +912,17 @@ func payload(raw json.RawMessage) map[string]any {
 		return map[string]any{}
 	}
 	return d
+}
+
+// stagesOf reads the stages a tool.progress carries, or nil.
+func stagesOf(raw json.RawMessage) []event.ProgressStage {
+	var p struct {
+		Stages []event.ProgressStage `json:"stages"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return nil
+	}
+	return p.Stages
 }
 
 func str(d map[string]any, k string) string {
