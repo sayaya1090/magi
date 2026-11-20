@@ -505,6 +505,9 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > them all, and `stage(name)`, which opens the next one (a planned one by that name, or a new one
 > after the current step). It fills each step's counts from `on_call` and marks the step a script
 > failed in as `failed`.
+>
+> Its design, the child-session and progress-stage contracts, limits and plans are in
+> [DUMMY_PLUG](DUMMY_PLUG.md).
 
 > 🔐 **`magi.nonce(nbytes?)`** returns `nbytes` (default 16) of cryptographic randomness as a hex
 > string (`crypto/rand`). The sandbox's `math.random` is **deterministically seeded** (with `os`

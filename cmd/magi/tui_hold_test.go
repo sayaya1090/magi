@@ -3,9 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Recovery writes into logs, so a terminal recovers only while no other terminal here is alive: the
@@ -105,5 +109,36 @@ func TestATerminalWaitsOutALongRecoveryAndStillHoldsItsPlace(t *testing.T) {
 	defer release3()
 	if sole3 {
 		t.Fatal("after a long recovery, a third terminal finds itself alone while the second still runs")
+	}
+}
+
+// A lock that can never be had (a filesystem without flock, no lock records left) is not another
+// terminal recovering: waiting would never end. The terminal says why and starts without recovering.
+func TestATerminalThatCannotLockStartsWithoutRecoveringInsteadOfWaiting(t *testing.T) {
+	defer func(f func(int, int) error, w interface{ Write([]byte) (int, error) }) { tuiFlock, tuiStderr = f, w }(tuiFlock, tuiStderr)
+	tuiFlock = func(int, int) error { return unix.ENOLCK }
+	var said bytes.Buffer
+	tuiStderr = &said
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	type hold struct {
+		release func()
+		sole    bool
+	}
+	got := make(chan hold, 1)
+	go func() {
+		r, s, _ := holdTUI(sock)
+		got <- hold{r, s}
+	}()
+	select {
+	case h := <-got:
+		h.release()
+		if h.sole {
+			t.Fatal("a terminal that cannot lock must not think it is alone")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a terminal that cannot lock waited as if another were recovering")
+	}
+	if msg := said.String(); !strings.Contains(msg, unix.ENOLCK.Error()) || strings.Contains(msg, "still recovering") {
+		t.Fatalf("the note must name the cause, not another terminal: %q", msg)
 	}
 }

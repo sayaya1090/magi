@@ -1,0 +1,229 @@
+# magi — Dummy plug (code mode)
+
+[English](DUMMY_PLUG.md) · [한국어](DUMMY_PLUG.ko.md) · [↑ Docs](README.md)
+
+This is the design record of the dummy plug: why it exists, how it is built today, what it promises,
+what it does not do yet, and the designs it replaced. Everything marked as built was read from the
+code at commit `f245a8413`; everything marked as planned has no code yet. The plugin author's API
+(`magi.run_script`, `magi.progress`, `ToolEnv.OpenChild`) is documented in
+[EXTENDING](EXTENDING.md); this page explains how those pieces fit together for this one plugin.
+
+## 0. Terms
+
+| Term | Meaning |
+|---|---|
+| dummy plug | The `plugins/dummy-plug` plugin. One tool, `dummy_plug_run`, takes a Lua script from the model and runs it. |
+| script | The Lua source the model writes. It calls tools and prints what the model should see. |
+| outer call | The model's own `dummy_plug_run` call, recorded in the conversation. |
+| inner call | A tool call the script makes (`call_tool`, `call_all`). The host runs it like any call. |
+| child session | A session opened for one script run, with the conversation as its parent. No model runs in it. |
+| stage | One step of a run as the person sees it (`plan`, `stage`), reported as structured data. |
+
+## 1. Why it exists
+
+A model that wants twenty file reads makes twenty round trips, and each result ends up in its context
+whether it needed it or not. The dummy plug lets the model write that loop once: the script reads,
+filters and counts, and only what it prints comes back. On 2026-11-21 a script that listed 35
+documents, read 8 of them in parallel and queried memory (a 21,894-byte answer) cost the model one
+step and returned four short lines.
+
+The saving comes from two places: fewer model round trips, and results filtered by the script before
+the model sees them. A bash script can do the second for files, but not for harness tools such as
+`explore` or `recall_memory`, and not under magi's permission gate. A model-driven subagent can do
+both, but it pays a model call per step. The dummy plug sits between them: the flow is code, the
+tools are the harness's, and no model runs inside.
+
+Since commit `0d483d59d` the script runs in a child session. That adds a second value: the person can
+open the child and see every call the script made and what it returned, while the conversation keeps
+only the result.
+
+## 2. How it is built
+
+```mermaid
+flowchart LR
+  M["model"] -->|"dummy_plug_run(goal, script)"| T["dummy-plug init.lua"]
+  T -->|"magi.run_script(child = goal)"| B["Lua bridge"]
+  B -->|"ToolEnv.OpenChild"| C["child session"]
+  B -->|"call_tool, call_all"| C
+  C -->|"callInner, executeTool"| G["permission gate"]
+  G --> R["read, grep, glob, list, explore, recall_memory"]
+  T -->|"magi.progress(stages)"| P["tool.progress"]
+  P --> U["steps strip in JetBrains, VS Code, web"]
+  B -->|"printed output"| M
+```
+
+| Piece | Where | What it does |
+|---|---|---|
+| `dummy_plug_run` | `plugins/dummy-plug/init.lua:129` | The only tool. Its description tells the model what a script can use. `goal` names the child. |
+| `track` | `plugins/dummy-plug/init.lua:47` | Keeps the run's stages from `plan`, `stage` and each call's start and end, and reports them. |
+| `magi.run_script` | `internal/adapter/plugin/lua/bridge_script.go:34` | Runs the script in a Lua state of its own. With `child` it opens a child (`:57`) and closes it with the output (`:72`). |
+| `ToolEnv.OpenChild` | `internal/port/port.go:515`, `ChildRun` at `:1006` | The host's generic hook. Nothing in it names the dummy plug. |
+| `openChild` | `internal/app/open_child.go:23` | Creates the child like a spawned one and gives back a `CallTool` bound to it. |
+| `callInner` | `internal/app/inner_call.go:53` | Records an inner call and runs it through `executeTool`, the same path a model's call takes. |
+| `magi.progress` | `internal/adapter/plugin/lua/bridge_script.go:124` | Sends a note and the stage list through `ToolEnv.EmitStages` (`internal/port/port.go:570`). |
+
+The core knows nothing of the dummy plug. The host offers four general things (run a script, open a
+child, run a tool from a script, report stages), and the plugin composes them. That rule came from a
+review on 2026-11-20 that found plugin-only concepts in the core (an allow list naming the plugin, a
+graph builder, an icon list) and moved them out.
+
+## 3. One run, step by step
+
+```mermaid
+sequenceDiagram
+  participant Model
+  participant Plug as dummy-plug
+  participant Host as host
+  participant Child as child log
+  Model->>Plug: dummy_plug_run(goal, script)
+  Plug->>Host: run_script(child = goal)
+  Host->>Child: create with Parent, prompt = goal
+  loop each call_tool or call_all
+    Plug->>Host: CallTool(name, args)
+    Host->>Child: tool call, tool.started, result
+    Plug-->>Host: magi.progress(stages)
+  end
+  Plug->>Host: Close(output, error)
+  Host->>Child: closing text, error if failed, turn.finished
+  Host-->>Model: printed output only
+```
+
+The child shows on the subagent strip while the script runs and leaves it when the script ends. The
+stage list rides the outer call's row, so the strip under the `dummy_plug_run` row is where the
+person watches the run.
+
+## 4. What is recorded where
+
+| Record | Where it goes | Read by |
+|---|---|---|
+| The outer call and what the script printed | the conversation's log | the model, as its tool result |
+| The goal, as the child's prompt | the child's log | recovery, the subagent strip |
+| Each inner call, its start fact and its result | the child's log | recovery, the person opening the child |
+| The script's printed output, as closing text | the child's log | the person opening the child |
+| `error` ("the script stopped: ...") when the script failed | the child's log (`internal/app/open_child.go:60`) | recovery, screens |
+| `turn.finished` when the child closes | the child's log (`internal/app/open_child.go:65`) | recovery |
+| Stage lists | `tool.progress`, not stored | screens only |
+
+An inner call also names the outer call as its `Parent`, and `reconstruct` drops parented calls from
+the model's history (`internal/app/reconstruct.go:202`). Since the calls now live in the child's log,
+this filter is a second guard; it was the only one before `0d483d59d`.
+
+## 5. Safety rules
+
+- **Declared tools only.** The manifest lists what scripts may call: `read`, `grep`, `glob`, `list`,
+  `explore`, `recall_memory` (`plugins/dummy-plug/plugin.toml:6`). A call to anything else is
+  refused before it reaches the host. A plugin that lists one of its own tools is refused at load
+  (`internal/adapter/plugin/lua/host.go:434`).
+- **The host decides by what a tool is.** `scriptFree` (`internal/app/inner_call.go:20`) lets a
+  tool run without asking only when it just looks, has no outside effect, or is a subagent whose
+  children only look. Anything else asks the person in every permission mode, and with nobody to ask
+  it is refused. The dummy plug's declared tools all pass, so it never asks today.
+- **Bounds.** At most 200 inner calls per outer call (`internal/app/inner_call.go:47`). A script
+  runs 60 s by default, up to 300 s, and keeps 16,000 bytes of printed output by default, up to
+  64,000 (`internal/adapter/plugin/lua/bridge_script.go:21-24`). `call_all` runs at most 8 at once
+  (`:94`).
+- **Values that cannot be converted.** A table that holds itself, or nests past 100 levels
+  (`internal/adapter/plugin/lua/convert.go:64`), is refused with a reason instead of exhausting the
+  Go stack. Before `7524a373c` it crashed the process.
+- **No call back into a running plugin.** A tool marks its plugin in the call's context while it
+  holds the plugin's lock (`internal/adapter/plugin/lua/plugin.go:236`). A call that comes back into
+  that plugin, directly or through another plugin's tool, is refused at once
+  (`internal/adapter/plugin/lua/luatool.go:52`). Before `d14da185a` such a call waited forever.
+
+## 6. Child session contract
+
+The child is made the way a spawned subagent is: a session with the conversation as `Parent`, the
+goal as its prompt, a place on the subagent strip. What differs is who drives it. No loop runs in it,
+so nothing writes an end on its own, and `Close` must.
+
+Recovery decides whether a session has an open turn by reading its log (`unfinishedTurn`,
+`internal/app/unfinished.go:43`): a prompt with no later `turn.finished`, no abandonment and no
+unrecovered error is open. Three cases follow.
+
+| How the script ended | What the child's log ends with | What recovery sees |
+|---|---|---|
+| finished | closing text, `turn.finished` | done |
+| failed | `error` with the reason, `turn.finished` | done, with the reason |
+| the process died mid-script | the last inner call, maybe without a result | an open turn, settled by recovery |
+
+Before `f245a8413` `Close` wrote no end, and a finished child read as cut off after a restart. A
+review reproduced it; the tests `TestAToolRunsItsCallsInAChildSessionItDrives`,
+`TestAFailedChildEndsWithItsReason` and `TestAChildNeverClosedIsLeftForRecovery` now hold all three
+cases.
+
+## 7. Progress stage contract
+
+A stage is `{id, label, kind, state, done, total, running}` (`internal/core/event/payload.go:511`).
+
+- `id` is fixed for the run, so a screen keeps one node per stage and changes only what moved.
+- `kind` says what the stage does (`tool`, `mcp`, `web`, `harness`, `subagent`); each screen picks
+  its own mark. The plugin decides the kind from the tool name (`plugins/dummy-plug/init.lua:22`).
+- `state` is `waiting`, `running`, `done` or `failed`.
+- `plan({...})` lists every stage before the first call, so the first report already shows them all.
+  Without it, stages appear as `stage(name)` opens them.
+- A report identical to the last is not sent, and two unforced reports are at least 100 ms apart
+  (`internal/adapter/plugin/lua/bridge_script.go:111`). Opening a stage, a batch starting or ending,
+  and the run's end force a report. A probe on 2026-11-21 ran three scripts (a fast one, one ending
+  right after a batch, a failing one) and the last report always carried the final states.
+
+The screens draw a stage as a 32 px mark over its label, with arrows between nodes: JetBrains
+`ProgressStages` (`clients/jetbrains/plugin/intellij/src/main/kotlin/dev/sayaya/magi/ide/ui/ProgressStages.kt:34`),
+VS Code `updateStages` (`clients/vscode/src/web/chat_adapter.ts:1720`), web `StageStrip`
+(`clients/web/ui/coding-agent-ui/src/main/java/dev/sayaya/magi/client/interfaces/StageStrip.java:24`).
+Start and end use the stages' states: start is `running` while any stage runs or waits and `done`
+after; end waits until every stage is done, or shows `failed`.
+
+## 8. What it does not do
+
+- **Write tools are closed.** `bash`, `edit`, `multiedit` and `write` are not declared, so a script
+  cannot change anything.
+- **A question from inside the child would not reach the person.** A permission ask from an inner
+  call is keyed to the child session, and no screen shows it in the conversation. Nothing asks today
+  only because every declared tool runs freely.
+- **The conversation does not point to its child.** The outer call's result carries no child session
+  id, so after the run the person finds the child from the subagent strip only while it runs.
+- **An interrupted run is two items.** After a crash, recovery handles the outer call and the child's
+  uncertain calls separately.
+- **Each inner call rereads the child's log** to find its result (`internal/app/inner_call.go:77`).
+  The child's log is short, so this is cheap now; it was the whole conversation's log before
+  `0d483d59d`.
+- **The plugin's lock is held while a script runs.** Other tools of the same plugin wait for it.
+- **No judgment.** A script cannot ask a model anything; see §10.
+
+## 9. Designs it replaced
+
+| Earlier design | Why it went | Replaced by |
+|---|---|---|
+| `dummy_plug_enter` / `dummy_plug_exit` and a per-session mode | Two extra model round trips per use, in a tool meant to save them; the mode added state | one tool, running at once (`0d483d59d`) |
+| Inner calls in the conversation's log, hidden from the model by `Parent` | Correct only while the filter holds; the log grew with every script | the child session (`0d483d59d`) |
+| A Mermaid run graph redrawn on each report | The graph blinked, nodes appeared one by one, labels sat off centre, and the IDE's own Mermaid drew icons as `?` and keys as `{{start}}` | the stage list and a steps strip per client (`9ff409c94`, squashed into `6769583ea`) |
+| Font Awesome Pro icons baked at build time, `%% magi-i18n` keys | Needed only by the graph; added a build step and a file that must never be committed | marks drawn by each client, words from each client's language pack |
+| Glyphs (`⚙`, `✦`) before a label | Read as emoji; the mark was too small to see | a 32 px mark over the label (`0d483d59d`) |
+
+## 10. Planned, not built
+
+1. **Routines as skills.** A skill's body holds a Lua block the person approves once by hash; the
+   model runs the routine by name and pays nothing for writing the script.
+2. **Memory.** Engram proposes a routine when the same sequence repeats.
+3. **Point to the child.** The outer call's result carries the child's session id, and screens open
+   the child from the tool row.
+4. **Asks reach the conversation.** A permission ask from the child shows in the parent's screen and
+   the answer goes back to the child. This must come before write tools.
+5. **Write tools.** `bash`, `edit`, `multiedit`, `write` behind a setting, each run of a new routine
+   approved by the person.
+6. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen
+   points (classify, pick, extract, yes/no). The answer is limited to the choices or schema so the
+   script can branch on it. Each judgment is a model step in the child's log, counted against a
+   limit, and its cost is added to the outer call the way a spawned child reports `Metrics`. This is
+   what separates the dummy plug from a plain script: the flow stays code, and the small decisions
+   inside it are a model's.
+
+## 11. Not verified
+
+- That a dummy plug child shows on the subagent strip of a real daemon, and reads as done in a real
+  recovery after a restart. Covered by tests only.
+- That the last stage report reaches a real client; `tool.progress` is a transient event and that
+  hop was not run end to end.
+- The steps strip on real JetBrains, VS Code and web screens, and in a dark theme. Headless tests
+  measured the layout (mark height, arrow position, colours).
+- Web marks do not take the baked sprite (`data-i`, `Icons.dress`); they are always the drawn shapes.
