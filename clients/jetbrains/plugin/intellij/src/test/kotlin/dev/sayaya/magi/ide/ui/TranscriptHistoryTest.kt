@@ -173,6 +173,40 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         assertTrue("the fenced code is in it", html!!.contains("answer"))
     }
 
+    fun testARowThatGotNoBrowserIsNotRememberedAsRich() {
+        // panel() returned null once and the light renderer took the row; the row cache kept "rich" and reused
+        // the light panel on every later paint, so the diagram stayed source (2026-11-20).
+        val light = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>()
+        assertFalse("a light row is not rich", RichAnswer.paintedAsRich(true, light))
+        val row = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>()
+        val holder = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>().apply { putClientProperty("magi.document", "t") }
+        row.add(holder)
+        assertTrue("a row holding a browser is rich", RichAnswer.paintedAsRich(true, row))
+        assertFalse("nothing is rich that was not wanted", RichAnswer.paintedAsRich(false, row))
+    }
+
+    fun testAnAnswerThatKeepsFailingStopsAskingForABrowser() {
+        val answers = RichAnswer()
+        assertTrue(answers.mayTry("k"))
+        repeat(RichAnswer.TRIES - 1) { answers.failed("k") }
+        assertTrue("still tried below the limit", answers.mayTry("k"))
+        answers.failed("k")
+        assertFalse("not tried again at the limit", answers.mayTry("k"))
+        assertTrue("another answer is unaffected", answers.mayTry("other"))
+    }
+
+    fun testHtmlThatCannotBeMadeFallsBackToTheSourceNotAnEmptyBox() {
+        var html: String? = null
+        RichAnswer.markdownHtml(project, "a < b```", testRootDisposable, generate = { throw IllegalStateException("highlighter") }) { h, _ -> html = h }
+        val until = System.currentTimeMillis() + 20_000
+        while (html == null && System.currentTimeMillis() < until) {
+            UIUtil.dispatchAllInvocationEvents()
+            Thread.sleep(20)
+        }
+        assertNotNull("a failure still hands something back", html)
+        assertTrue("it is the escaped source: $html", html!!.contains("a &lt; b"))
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))

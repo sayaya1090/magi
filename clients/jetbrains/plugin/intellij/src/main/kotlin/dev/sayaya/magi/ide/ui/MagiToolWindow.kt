@@ -1658,7 +1658,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 val next = rows.map { r ->
                     val old = previous[identity(r)]
                     val open = shows(r)
-                    val rich = pinned == null && !r.draft && richRenderKey(r) in richKeys
+                    val rich = pinned == null && !r.draft && richRenderKey(r) in richKeys && richAnswers.mayTry(richRenderKey(r))
                     val samePresentation = old != null && old.open == open && old.rich == rich &&
                         old.session == currentSendSession() && old.user == youName
                     val panel = when {
@@ -1695,7 +1695,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                         com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info(
                             "magi: stable stream finished updates=${old.panel.getClientProperty("magi.draft.updates") ?: 0} preservedRows=$preservedRows")
                     }
-                    PaintedRow(r, open, rich, currentSendSession(), youName, panel)
+                    // Remember what the row holds, not what was wanted: a row that got no browser is tried again.
+                    PaintedRow(r, open, RichAnswer.paintedAsRich(rich, panel), currentSendSession(), youName, panel)
                 }
                 val components: List<java.awt.Component> = if (rows.isEmpty()) listOf(
                     Look.welcome(MagiBundle.msg("chat.welcome.title"), mood.why, mood.colour, MagiBundle.msg("chat.welcome.hint"))

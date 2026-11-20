@@ -112,8 +112,26 @@ internal class RichAnswer {
                 .expireWith(parent)
                 .finishOnUiThread(com.intellij.openapi.application.ModalityState.any()) { html -> done(html, vf) }
                 .submit(com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService())
-                .onError { com.intellij.openapi.diagnostic.Logger.getInstance(RichAnswer::class.java).info("magi: 마크다운 HTML 생성 실패", it) }
+                .onError {
+                    if (it is java.util.concurrent.CancellationException || it is com.intellij.openapi.progress.ProcessCanceledException) return@onError
+                    com.intellij.openapi.diagnostic.Logger.getInstance(RichAnswer::class.java).info("magi: 마크다운 HTML 생성 실패 — 원문으로 표시", it)
+                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater(
+                        { done(sourceHtml(md), vf) }, com.intellij.openapi.application.ModalityState.any())
+                }
         }
+
+        /** Failed attempts after which an answer is not given a browser again (it stays light). */
+        const val TRIES = 3
+
+        /** Whether a painted row really holds a browser, not just whether one was wanted for it. */
+        fun paintedAsRich(wanted: Boolean, panel: java.awt.Component): Boolean = wanted && holdsBrowser(panel)
+
+        private fun holdsBrowser(c: java.awt.Component): Boolean =
+            (c as? JComponent)?.getClientProperty("magi.document") != null ||
+                ((c as? java.awt.Container)?.components?.any { holdsBrowser(it) } ?: false)
+
+        /** The source, escaped, for when the HTML could not be made: never an empty box. */
+        fun sourceHtml(md: String): String = "<pre>" + com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(md) + "</pre>"
 
         /** The node a `node:<label>` page message names, or null when it names none. */
         fun nodeLabel(said: String): String? =
@@ -142,6 +160,14 @@ internal class RichAnswer {
 
     @Volatile private var eligible: Set<String> = emptySet()
 
+    private val failures = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /** Notes a failed attempt to give [key] a browser. */
+    internal fun failed(key: String) { failures.merge(key, 1, Int::plus) }
+
+    /** Whether [key] may still be given a browser: one that failed [TRIES] times is not tried again. */
+    fun mayTry(key: String): Boolean = (failures[key] ?: 0) < TRIES
+
     /**
      * 지정된 응답의 마크다운 렌더 패널을 반환한다. 생성 실패 또는 자격 미달 시 null을 반환하여 경량 렌더러로 폴백한다.
      * 패널은 [parent]에 등록되어 창 닫힘 시 함께 해제된다.
@@ -166,11 +192,12 @@ internal class RichAnswer {
             return held.component
         }
         if (key !in eligible) return null // 최근 KEEP 제한 밖의 항목은 경량 렌더러로 표시
+        if (!mayTry(key)) return null // 거듭 실패한 항목은 다시 시도하지 않는다
         return runCatching {
             // 사용 가능한 마크다운 HTML 패널 프로바이더 조회
             val provider = org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanelProvider
                 .getAvailableProviders().firstOrNull()
-                ?: return null.also { LOG.info("magi: IDE 마크다운 렌더러가 없어 경량 렌더러로 폴백합니다") }
+                ?: return null.also { failed(key); LOG.info("magi: IDE 마크다운 렌더러가 없어 경량 렌더러로 폴백합니다") }
             val vf = LightVirtualFile("magi-답.md", md)
             val htmlPanel = provider.createHtmlPanel(project, vf)
             Disposer.register(parent, htmlPanel)
@@ -207,7 +234,7 @@ internal class RichAnswer {
             })
             live[key] = Held(holder, htmlPanel, md, { h, f -> htmlPanel.setHtml(h, 0, f) }, measure, sizing)
             holder
-        }.onFailure { LOG.info("magi: IDE 마크다운 렌더러 생성 실패 — 경량 렌더러로 폴백", it) }
+        }.onFailure { failed(key); LOG.info("magi: IDE 마크다운 렌더러 생성 실패 — 경량 렌더러로 폴백", it) }
             .getOrNull()
     }
 
