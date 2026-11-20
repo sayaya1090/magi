@@ -19,8 +19,8 @@ import (
 //
 // A terminal that is not alone starts as if it were not — it recovers nothing and opens a new
 // conversation, as every start did before. It still takes its shared place: when another holds the
-// hold exclusively (recovering, for a moment) it waits up to tuiShareWait for it, because a terminal
-// that ran unheld would be invisible to the next one once the first is gone.
+// hold exclusively (recovering) it waits for it, however long, saying so every tuiShareWait — a
+// terminal that ran unheld would be invisible to the next one once the first is gone.
 func holdTUI(sock string) (release func(), sole bool, share func()) {
 	noop := func() {}
 	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
@@ -49,14 +49,13 @@ func holdTUI(sock string) (release func(), sole bool, share func()) {
 			return release, false, noop
 		}
 		if time.Now().After(deadline) {
-			fmt.Fprintf(os.Stderr, "magi: another terminal held this workspace for %s; this one runs without its place, so a later start may not see it: %v\n", tuiShareWait, err)
-			f.Close()
-			return noop, false, noop
+			fmt.Fprintf(os.Stderr, "magi: another terminal here is still recovering (%v); waiting for it to finish — Ctrl-C to stop\n", err)
+			deadline = time.Now().Add(tuiShareWait)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 }
 
-// tuiShareWait bounds how long a terminal waits for another's recovery to end before it takes its
-// shared place. Recovery holds the hold exclusively only while it closes what a stop left open.
-const tuiShareWait = 10 * time.Second
+// tuiShareWait is how often a terminal waiting for another's recovery says it is still waiting.
+// Recovery holds the hold exclusively only while it closes what a stop left open.
+var tuiShareWait = 10 * time.Second

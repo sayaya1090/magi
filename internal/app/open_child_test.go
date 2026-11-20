@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,9 @@ type childCaller struct {
 	child string
 	got   []string
 	note  string
+	// fail closes the child with this reason; leave closes it not at all (the process died mid-script).
+	fail  string
+	leave bool
 }
 
 func (*childCaller) Name() string            { return "child_caller" }
@@ -44,7 +48,13 @@ func (c *childCaller) Execute(ctx context.Context, raw json.RawMessage, env port
 	if err == nil && !r.IsError {
 		c.got = append(c.got, string(r.Content))
 	}
-	ch.Close("read it", nil)
+	switch {
+	case c.leave:
+	case c.fail != "":
+		ch.Close("", errors.New(c.fail))
+	default:
+		ch.Close("read it", nil)
+	}
 	return session.ToolResult{Content: json.RawMessage(`"child finished"`)}, nil
 }
 
@@ -124,10 +134,63 @@ func TestAToolRunsItsCallsInAChildSessionItDrives(t *testing.T) {
 	if r := toolResultFor(t, a, session.SessionID(caller.child), read); r == nil {
 		t.Fatal("the child's read has no recorded result in the child's log")
 	}
+	if open, ok := unfinishedTurn(childLog); ok {
+		t.Fatalf("a child that finished reads as cut off to recovery: %+v", open)
+	}
 	a.mu.Lock()
 	_, left := a.states[session.SessionID(caller.child)]
 	a.mu.Unlock()
 	if left {
 		t.Fatal("a closed child left its state behind")
+	}
+}
+
+// runChild runs childCaller once and returns the child's log.
+func runChild(t *testing.T, caller *childCaller) []event.Event {
+	t.Helper()
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
+	a.tools.Register(caller)
+	ctx := context.Background()
+	s := a.sessionInfo(ctx, sid)
+	note := filepath.Join(s.Workdir, "note.txt")
+	if err := os.WriteFile(note, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"path": note})
+	outer := &session.ToolCall{CallID: "outer", Name: "child_caller", Args: args}
+	a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), "")
+	if caller.child == "" {
+		t.Fatalf("no child: %s", caller.note)
+	}
+	evs, err := a.store.Read(ctx, session.SessionID(caller.child), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return evs
+}
+
+// A child closed with a failure is ended too, and says why in its own log.
+func TestAFailedChildEndsWithItsReason(t *testing.T) {
+	evs := runChild(t, &childCaller{fail: "script broke: boom"})
+	if open, ok := unfinishedTurn(evs); ok {
+		t.Fatalf("a child that failed reads as cut off to recovery: %+v", open)
+	}
+	said := false
+	for _, e := range evs {
+		if e.Type == event.TypeError && strings.Contains(string(e.Data), "script broke: boom") {
+			said = true
+		}
+	}
+	if !said {
+		t.Fatal("the child's log does not say why it failed")
+	}
+}
+
+// A child never closed — the process died while the script ran — stays an open turn, so recovery
+// takes it up instead of reading it as done.
+func TestAChildNeverClosedIsLeftForRecovery(t *testing.T) {
+	evs := runChild(t, &childCaller{leave: true})
+	if _, ok := unfinishedTurn(evs); !ok {
+		t.Fatal("a child cut off mid-script must read as unfinished")
 	}
 }

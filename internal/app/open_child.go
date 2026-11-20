@@ -17,8 +17,9 @@ import (
 // runs in it. It is made like a spawned child (CreateSession with Parent, the task line as its
 // prompt, a place on the subagent strip), and each call the tool runs in it goes through callInner
 // against the CHILD, so the start fact, the permission gate and the result land in the child's log
-// and the parent's log keeps only outer and its result. Like a spawned child it writes no
-// turn.finished; Close takes it off the strip and drops its state.
+// and the parent's log keeps only outer and its result. No loop runs in it to write a
+// turn.finished on its own; Close writes it (after the reason, when the script failed), takes the
+// child off the strip and drops its state.
 func (a *App) openChild(ctx context.Context, parent session.Session, agent AgentSpec, depth int, actor event.Actor,
 	outer *session.ToolCall, guard *runGuard, turnTask string, count *int32, slots chan struct{}, label string) (port.ChildRun, error) {
 	label = strings.TrimSpace(label)
@@ -56,7 +57,12 @@ func (a *App) openChild(ctx context.Context, parent session.Session, agent Agent
 				why := ""
 				if failed != nil {
 					why = failed.Error()
+					a.emitError(bg, child, actor, "the script stopped: "+why)
 				}
+				// The child's own log says it ended, so recovery and a screen read it as done (or failed)
+				// from the child alone; without this a finished child reads as a turn cut off.
+				d, _ := json.Marshal(event.TurnFinishedData{})
+				a.appendBestEffort(bg, child, event.TypeTurnFinished, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 				a.subJobs.finish(child, 0, why)
 				a.mu.Lock()
 				delete(a.states, child)
