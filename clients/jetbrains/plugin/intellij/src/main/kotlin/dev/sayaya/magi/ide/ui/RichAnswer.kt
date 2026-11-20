@@ -97,6 +97,24 @@ internal class RichAnswer {
         fun themeScript(json: String?): String = if (json.isNullOrBlank()) "" else
             "window.magiDiagramTheme=" + json + ";if(window.magiMermaid&&window.magiMermaid.setTheme)window.magiMermaid.setTheme(window.magiDiagramTheme);"
 
+        /**
+         * The answer's Markdown as HTML, handed to [done] on the EDT. The one place HTML is made.
+         */
+        fun markdownHtml(
+            project: Project, md: String, parent: Disposable,
+            generate: (com.intellij.openapi.vfs.VirtualFile) -> String = { vf -> org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(vf, md, project) },
+            done: (String, com.intellij.openapi.vfs.VirtualFile) -> Unit,
+        ) {
+            // Made off the EDT: in IDE 2026.2 the fenced-code highlighter asserts it is not on the EDT and
+            // throws, which dropped a diagram back to its source. Handed back on the EDT; dropped with [parent].
+            val vf = LightVirtualFile("magi-답.md", md)
+            com.intellij.openapi.application.ReadAction.nonBlocking<String> { generate(vf) }
+                .expireWith(parent)
+                .finishOnUiThread(com.intellij.openapi.application.ModalityState.any()) { html -> done(html, vf) }
+                .submit(com.intellij.util.concurrency.AppExecutorUtil.getAppExecutorService())
+                .onError { com.intellij.openapi.diagnostic.Logger.getInstance(RichAnswer::class.java).info("magi: 마크다운 HTML 생성 실패", it) }
+        }
+
         /** The node a `node:<label>` page message names, or null when it names none. */
         fun nodeLabel(said: String): String? =
             said.takeIf { it.startsWith("node:") }?.removePrefix("node:")?.trim()?.takeIf { it.isNotEmpty() }
@@ -135,14 +153,15 @@ internal class RichAnswer {
             held.sizing.streaming = streaming
             if (held.md == md && wasStreaming != streaming) held.measure()
             if (held.md != md) runCatching {
-                val vf = LightVirtualFile("magi-답.md", md)
-                val token = java.util.UUID.randomUUID().toString()
-                held.component.putClientProperty("magi.document", token)
-                held.setHtml(documentHtml(org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
-                    .generateMarkdownHtml(vf, md, project), token), vf)
                 held.md = md
-                // 임의의 기본값으로 재설정하지 않고 실측 기반으로 높이를 재계산한다 (리뷰 F6: 갱신 시 패널 높이 깜빡임 방지).
-                held.measure()
+                markdownHtml(project, md, held.panel) { html, vf ->
+                    if (held.md != md) return@markdownHtml // a newer text arrived while this one was being made
+                    val token = java.util.UUID.randomUUID().toString()
+                    held.component.putClientProperty("magi.document", token)
+                    held.setHtml(documentHtml(html, token), vf)
+                    // 임의의 기본값으로 재설정하지 않고 실측 기반으로 높이를 재계산한다 (리뷰 F6: 갱신 시 패널 높이 깜빡임 방지).
+                    held.measure()
+                }
             }.onFailure { LOG.info("magi: 렌더 갱신 실패 — 이전 렌더링 유지", it) }
             return held.component
         }
@@ -153,13 +172,12 @@ internal class RichAnswer {
                 .getAvailableProviders().firstOrNull()
                 ?: return null.also { LOG.info("magi: IDE 마크다운 렌더러가 없어 경량 렌더러로 폴백합니다") }
             val vf = LightVirtualFile("magi-답.md", md)
-            val html = org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil
-                .generateMarkdownHtml(vf, md, project)
             val htmlPanel = provider.createHtmlPanel(project, vf)
             Disposer.register(parent, htmlPanel)
-            // 브라우저 로딩 전 HTML 주입 처리
+            // 브라우저 로딩 전 HTML 주입 처리: 빈 문서를 먼저 넣고, 백그라운드에서 만든 HTML을 같은 토큰으로 바꾼다.
             val token = java.util.UUID.randomUUID().toString()
-            htmlPanel.setHtml(documentHtml(html, token), 0, vf)
+            htmlPanel.setHtml(documentHtml("", token), 0, vf)
+            markdownHtml(project, md, htmlPanel) { html, f -> htmlPanel.setHtml(documentHtml(html, token), 0, f) }
             // 브라우저의 실제 렌더링 높이가 확정되기 전까지 사용할 초기 추정 높이 계산
             val h = initialHeight(key, md)
             val holder = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>(

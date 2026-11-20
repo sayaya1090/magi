@@ -147,6 +147,32 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         } finally { view.dispose() }
     }
 
+    fun testAnAnswerWithFencedCodeGetsItsHtmlOffTheDispatchThread() {
+        // A browser rebuilt on the way back into range made its HTML on the EDT; in IDE 2026.2 the fenced-code
+        // highlighter asserts it is not on the EDT and throws, and the answer fell back to its source
+        // (idea.log 2026-11-20 07:39:32). The 2026.1 test platform does not assert, so the test checks where
+        // the HTML is made instead of waiting for the throw.
+        assertTrue("the test runs on the EDT", javax.swing.SwingUtilities.isEventDispatchThread())
+        val md = "```java\nint answer = 42;\n```\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"
+        var madeOnEdt: Boolean? = null
+        var html: String? = null
+        RichAnswer.markdownHtml(project, md, testRootDisposable, generate = { vf ->
+            madeOnEdt = javax.swing.SwingUtilities.isEventDispatchThread()
+            org.intellij.plugins.markdown.ui.preview.html.MarkdownUtil.generateMarkdownHtml(vf, md, project)
+        }) { h, _ ->
+            assertTrue("the HTML is handed back on the EDT", javax.swing.SwingUtilities.isEventDispatchThread())
+            html = h
+        }
+        val until = System.currentTimeMillis() + 20_000
+        while (html == null && System.currentTimeMillis() < until) {
+            UIUtil.dispatchAllInvocationEvents()
+            Thread.sleep(20)
+        }
+        assertEquals("the HTML must be made off the EDT", false, madeOnEdt)
+        assertNotNull("the HTML arrives", html)
+        assertTrue("the fenced code is in it", html!!.contains("answer"))
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))
