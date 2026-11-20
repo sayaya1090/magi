@@ -4,7 +4,7 @@ package main
 
 // holdTUI on Windows cannot prove no other terminal is alive, so a standalone TUI recovers nothing
 // and opens a new conversation, as before.
-func holdTUI(string) (release func(), sole bool, share func()) {
+func holdTUI(string) (release func(), sole bool, share func(), err error) {
 	noop := func() {}
-	return noop, false, noop
+	return noop, false, noop, nil
 }

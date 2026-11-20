@@ -1190,8 +1190,13 @@ func runWithContext(runCtx context.Context) int {
 	// (tui_reopen.go). Its hold on the workspace lasts as long as this process.
 	if sid == "" && !headless {
 		var releaseTUI func()
-		sid, releaseTUI = reopenCutConversation(ctx, a, wd, sockPath)
+		var holdErr error
+		sid, releaseTUI, holdErr = reopenCutConversation(ctx, a, wd, sockPath)
 		defer releaseTUI()
+		if holdErr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", holdErr)
+			return 1
+		}
 	}
 	if sid == "" {
 		sid, err = a.CreateSession(ctx, command.CreateSession{

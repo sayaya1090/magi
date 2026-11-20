@@ -8,60 +8,105 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
 
-// holdTUI marks a standalone terminal UI as alive in this workspace for as long as it runs: a shared
-// flock on <socket>.tui.lock, which the kernel drops however the process dies — SIGKILL included.
-// sole reports that this process took it EXCLUSIVELY first, i.e. no other terminal here is alive,
-// so recovery cannot close a turn another one is running. share downgrades to the shared hold once
-// that is done; release ends it.
+// holdTUI marks a standalone terminal UI as alive in this workspace for as long as it runs, and tells
+// it whether it is the only one, so recovery never closes a turn another terminal is running.
 //
-// A terminal that is not alone starts as if it were not — it recovers nothing and opens a new
-// conversation, as every start did before. It still takes its shared place: when another holds the
-// hold exclusively (recovering) it waits for it, however long, saying so every tuiShareWait — a
-// terminal that ran unheld would be invisible to the next one once the first is gone. A hold that
-// can never be had (lockContended says no) is not that: it says why and starts without recovering.
-func holdTUI(sock string) (release func(), sole bool, share func()) {
+// Two flocks, because one cannot do both jobs. flock(2) turns an exclusive lock into a shared one by
+// letting it go and taking it again, so a single lock used both to decide "alone" (exclusive) and to
+// mark "alive" (shared) has a gap in which a new terminal finds itself alone.
+//
+//   - <sock>.tui.lock is the mark: every terminal holds it shared for its whole life. The kernel drops
+//     it however the process dies, SIGKILL included.
+//   - <sock>.tui.recover.lock is the gate: a terminal holds it exclusively while it decides whether it
+//     is alone and, if it is, while it recovers. Terminals take it one at a time, so none can start
+//     inside another's handover.
+//
+// sole reports that this terminal found the mark free, i.e. no other terminal here is alive. share
+// ends the decision (and recovery): the mark is held shared and the gate is let go. release ends the
+// hold. A non-nil err means the hold could not be placed and the terminal must not start: running
+// unseen would let a later terminal recover a turn this one is in. The one exception is a filesystem
+// with no flock at all (classifyLock: lockUnsupported) — no terminal there can hold anything, so none
+// is ever alone, none recovers, and starting is safe; it says so.
+func holdTUI(sock string) (release func(), sole bool, share func(), err error) {
 	noop := func() {}
 	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
-		return noop, false, noop
+		return noop, false, noop, fmt.Errorf("terminal hold: %w", err)
 	}
-	f, err := os.OpenFile(sock+".tui.lock", os.O_CREATE|os.O_RDWR, 0o600)
+	gate, err := os.OpenFile(sock+".tui.recover.lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return noop, false, noop
+		return noop, false, noop, fmt.Errorf("terminal hold: %w", err)
 	}
-	fd := int(f.Fd())
-	release = func() { f.Close() }
-	if err = tuiFlock(fd, unix.LOCK_EX|unix.LOCK_NB); err == nil {
-		return release, true, func() {
-			if err := tuiFlock(fd, unix.LOCK_SH|unix.LOCK_NB); err != nil {
-				// Still held exclusively: a terminal started meanwhile finds itself not alone and
-				// recovers nothing, which is the safe side.
-				fmt.Fprintf(tuiStderr, "magi: terminal hold stays exclusive: %v\n", err)
-			}
+	mark, err := os.OpenFile(sock+".tui.lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		gate.Close()
+		return noop, false, noop, fmt.Errorf("terminal hold: %w", err)
+	}
+	var gateOnce sync.Once
+	letGateGo := func() { gateOnce.Do(func() { gate.Close() }) }
+	fail := func(e error) (func(), bool, func(), error) {
+		mark.Close()
+		letGateGo()
+		return noop, false, noop, fmt.Errorf("terminal hold: %w", e)
+	}
+
+	// 1. The gate: one terminal at a time decides and recovers.
+	if err := waitLock(gate, unix.LOCK_EX, "another terminal here is deciding whether to recover"); err != nil {
+		if classifyLock(err) == lockUnsupported {
+			fmt.Fprintf(tuiStderr, "magi: this filesystem does not support file locks (%v); no terminal here can tell whether it is alone, so this one starts without recovering what a stop left open\n", err)
+			mark.Close()
+			letGateGo()
+			return noop, false, noop, nil
 		}
+		return fail(err)
 	}
-	if !lockContended(err) {
-		return cannotHold(f, err)
+	release = func() {
+		mark.Close()
+		letGateGo()
 	}
-	// Another terminal is alive (or recovering for a moment): hold shared, recover nothing.
+
+	// 2. The mark: free means no other terminal is alive.
+	switch err := tuiFlock(mark, unix.LOCK_EX|unix.LOCK_NB); {
+	case err == nil:
+		return release, true, func() {
+			// Still behind the gate, so no terminal of this kind can start in the conversion's gap.
+			if err := waitLock(mark, unix.LOCK_SH, "another terminal took this workspace's mark"); err != nil {
+				fmt.Fprintf(tuiStderr, "magi: terminal hold lost (%v); a terminal started from now may not see this one\n", err)
+			}
+			letGateGo()
+		}, nil
+	case classifyLock(err) != lockWait:
+		return fail(err)
+	}
+
+	// 3. Not alone: take the shared mark (waiting out a terminal of an older build that holds it
+	// exclusively while it recovers) and let the gate go.
+	if err := waitLock(mark, unix.LOCK_SH, "another terminal here is still recovering"); err != nil {
+		return fail(err)
+	}
+	letGateGo()
+	return release, false, noop, nil
+}
+
+// waitLock takes how on f, waiting while classifyLock says waiting ends the failure and saying what it
+// waits for every tuiShareWait (Ctrl-C stops it). Any other failure is returned as it is.
+func waitLock(f *os.File, how int, what string) error {
 	deadline := time.Now().Add(tuiShareWait)
 	for {
-		err := tuiFlock(fd, unix.LOCK_SH|unix.LOCK_NB)
-		if err == nil {
-			return release, false, noop
-		}
-		if !lockContended(err) {
-			return cannotHold(f, err)
+		err := tuiFlock(f, how|unix.LOCK_NB)
+		if err == nil || classifyLock(err) != lockWait {
+			return err
 		}
 		if time.Now().After(deadline) {
-			if lockShortage(err) {
+			if errors.Is(err, unix.ENOLCK) || errors.Is(err, unix.ENOMEM) {
 				fmt.Fprintf(tuiStderr, "magi: no file lock can be taken right now (%v); waiting for one — Ctrl-C to stop\n", err)
 			} else {
-				fmt.Fprintf(tuiStderr, "magi: another terminal here is still recovering (%v); waiting for it to finish — Ctrl-C to stop\n", err)
+				fmt.Fprintf(tuiStderr, "magi: %s (%v); waiting — Ctrl-C to stop\n", what, err)
 			}
 			deadline = time.Now().Add(tuiShareWait)
 		}
@@ -69,35 +114,38 @@ func holdTUI(sock string) (release func(), sole bool, share func()) {
 	}
 }
 
-// tuiShareWait is how often a terminal waiting for another's recovery says it is still waiting.
-// Recovery holds the hold exclusively only while it closes what a stop left open.
+// lockFault is what a failed flock means for a terminal's hold.
+type lockFault int
+
+const (
+	// lockWait: waiting ends it — another terminal holds the lock now, a signal cut the call short, or
+	// locks are short for a moment (ENOLCK, ENOMEM) and may come back while terminals run.
+	lockWait lockFault = iota
+	// lockUnsupported: this filesystem has no flock at all, for every terminal alike.
+	lockUnsupported
+	// lockBroken: anything else (an I/O error, a bad descriptor). Nothing says it is the same for every
+	// terminal or that it lasts, so it is not a reason to run unseen.
+	lockBroken
+)
+
+// classifyLock is the one place a flock failure is given a meaning. Unknown failures are lockBroken:
+// a hold is placed only when it is known to be safe.
+func classifyLock(err error) lockFault {
+	switch {
+	case errors.Is(err, unix.EWOULDBLOCK), errors.Is(err, unix.EINTR),
+		errors.Is(err, unix.ENOLCK), errors.Is(err, unix.ENOMEM):
+		return lockWait
+	case errors.Is(err, unix.ENOTSUP), errors.Is(err, unix.EOPNOTSUPP), errors.Is(err, unix.ENOSYS):
+		return lockUnsupported
+	}
+	return lockBroken
+}
+
+// tuiShareWait is how often a terminal waiting for a lock says it is still waiting.
 var tuiShareWait = 10 * time.Second
 
 // tuiFlock and tuiStderr are flock(2) and where notes go; tests stand in for them.
 var (
-	tuiFlock            = unix.Flock
+	tuiFlock            = func(f *os.File, how int) error { return unix.Flock(int(f.Fd()), how) }
 	tuiStderr io.Writer = os.Stderr
 )
-
-// lockContended reports whether a failed flock is one that waiting ends: another terminal holding the
-// hold now, a signal cutting the call short, or a shortage of locks (lockShortage). Only a failure that
-// no terminal here could ever get past (no flock on this filesystem) is left to cannotHold.
-func lockContended(err error) bool {
-	return errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) || lockShortage(err)
-}
-
-// lockShortage reports a flock refused for want of resources (no lock records, no memory). It can pass
-// while terminals run, so a terminal that ran unheld through it would be invisible to one that takes
-// the lock once it has: it is waited out.
-func lockShortage(err error) bool {
-	return errors.Is(err, unix.ENOLCK) || errors.Is(err, unix.ENOMEM)
-}
-
-// cannotHold is the start of a terminal whose hold can never be taken. No terminal here can take it
-// either, so none ever finds itself alone and none recovers: running on is safe, and says so.
-func cannotHold(f *os.File, err error) (func(), bool, func()) {
-	fmt.Fprintf(tuiStderr, "magi: the terminal hold for this workspace cannot be taken (%v); starting without recovering what a stop left open\n", err)
-	f.Close()
-	noop := func() {}
-	return noop, false, noop
-}

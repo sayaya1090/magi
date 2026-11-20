@@ -18,29 +18,32 @@ import (
 // its own on start; another terminal's turn is not this one's to close.
 //
 // The returned release ends this terminal's hold; call it when the UI exits.
-func reopenCutConversation(ctx context.Context, a *app.App, wd, sock string) (session.SessionID, func()) {
-	release, sole, share := holdTUI(sock)
+func reopenCutConversation(ctx context.Context, a *app.App, wd, sock string) (session.SessionID, func(), error) {
+	release, sole, share, err := holdTUI(sock)
+	if err != nil {
+		return "", release, err
+	}
 	defer share()
 	if !sole {
-		return "", release
+		return "", release, nil
 	}
 	if c, err := daemon.DialWithin(sock, 100*time.Millisecond, 300*time.Millisecond); err == nil {
 		c.Close()
-		return "", release
+		return "", release, nil
 	}
 	metas, err := a.ListSessions(ctx, wd)
 	if err != nil {
-		return "", release
+		return "", release, nil
 	}
 	cand := latestConversation(metas)
 	if cand == "" {
-		return "", release
+		return "", release, nil
 	}
 	// Settles the cut turn in the log (resumable, or handed to the person when a tool may have run)
 	// and turns on lazy recovery for /resume; nothing is executed again.
 	a.RecoverSelected(ctx, wd, cand)
 	if a.RecoveryStateOf(ctx, cand).Kind == app.RecoveryNone {
-		return "", release
+		return "", release, nil
 	}
-	return cand, release
+	return cand, release, nil
 }
