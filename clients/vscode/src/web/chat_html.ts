@@ -368,10 +368,15 @@ ${idePaletteCss}
            border:1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent));
            border-radius:2px; padding:4px 10px; cursor:pointer; }
   button:hover { background:var(--vscode-button-hoverBackground); }
-  .stages { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; margin-top: 4px; font-size: 12px; line-height: 20px; }
-  .stages > span + span::before { content: '→'; margin: 0 8px; opacity: .5; font-weight: normal; }
-  .stages .stage-end[data-state=waiting], .stages .stage[data-state=waiting] { opacity: .55; }
+  .stages { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 4px; margin-top: 6px; font-size: 12px; line-height: 16px; }
+  .stages .stage { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; min-width: 40px; max-width: 120px; text-align: center; color: var(--vscode-descriptionForeground); }
+  .stages .stage-icon { display: block; width: 32px; height: 32px; }
+  .stages .stage-icon svg { display: block; width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .stages .stage-label { overflow-wrap: anywhere; }
+  .stages .stage-arrow { line-height: 32px; opacity: .5; }
+  .stages .stage[data-state=waiting] { opacity: .55; }
   .stages .stage[data-state=running] { color: var(--vscode-textLink-foreground); font-weight: 600; }
+  .stages .stage[data-state=done] { color: var(--vscode-foreground); }
   .stages .stage[data-state=failed] { color: var(--vscode-errorForeground); }
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false"><svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg></button></header>

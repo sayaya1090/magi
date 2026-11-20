@@ -33,21 +33,35 @@ test('the steps a tool reports ride its own row, and a strip keeps a node per st
   assert.equal(rs.length, 2, 'steps are not a row of their own');
   assert.deepEqual(rs.find((r) => r.callId === 'run1')?.stages?.map((s) => `${s.id}:${s.state}`), ['s1:done', 's2:running']);
   assert.equal(rs.find((r) => r.callId === 'other')?.stages, undefined);
-  type FakeEl = { tagName: string; attrs: Record<string, string>; children: FakeEl[]; className: string; textContent: string };
+  type FakeEl = { tagName: string; attrs: Record<string, string>; children: FakeEl[]; className: string; textContent: string; innerHTML: string };
   const doc = { createElement(tag: string) {
-    return { tagName: tag.toUpperCase(), attrs: {} as Record<string, string>, children: [] as FakeEl[], className: '', textContent: '',
+    return { tagName: tag.toUpperCase(), attrs: {} as Record<string, string>, children: [] as FakeEl[], className: '', textContent: '', innerHTML: '',
       setAttribute(k: string, v: string) { this.attrs[k] = v; }, getAttribute(k: string) { return k in this.attrs ? this.attrs[k] : null; },
-      replaceChildren(...c: FakeEl[]) { this.children = c; } };
+      append(...c: FakeEl[]) { this.children.push(...c); }, replaceChildren(...c: FakeEl[]) { this.children = c; } };
   } } as unknown as Document;
   const strip = stagesStrip(doc, 'ko');
+  const kids = () => (strip as unknown as FakeEl).children;
+  const role = (r: string) => kids().filter((c) => c.attrs['data-role'] === r);
   updateStages(doc, strip, [{ id: 's1', label: 'list', kind: 'tool', state: 'running' }, { id: 's2', label: 'check', state: 'waiting' }]);
-  const first = [...(strip as unknown as FakeEl).children];
-  assert.deepEqual(first.map((c) => c.attrs['data-stage-id']).filter(Boolean), ['s1', 's2'], 'every step from the first report');
-  assert.equal(first[0].textContent, '\uC2DC\uC791');
+  assert.deepEqual(kids().map((c) => c.attrs['data-role']), ['start', 'arrow', 'step', 'arrow', 'step', 'arrow', 'end'], 'start, each step and end, joined by arrows');
+  const first = role('step');
+  assert.deepEqual(first.map((c) => c.attrs['data-stage-id']), ['s1', 's2'], 'every step from the first report');
+  for (const n of [...role('start'), ...first, ...role('end')]) {
+    assert.equal(n.children.length, 2, 'a node is a mark over its label');
+    assert.match(n.children[0].innerHTML, /<svg/, 'the mark is drawn, not a character');
+  }
+  assert.equal(role('start')[0].children[1].textContent, '\uC2DC\uC791');
+  assert.equal(role('start')[0].attrs['data-state'], 'running', 'start runs while the run does');
+  assert.equal(role('end')[0].attrs['data-state'], 'waiting');
   updateStages(doc, strip, [{ id: 's1', label: 'list', kind: 'tool', state: 'done' }, { id: 's2', label: 'check', kind: 'subagent', state: 'running', done: 1, total: 3, running: 2 }]);
-  const second = (strip as unknown as FakeEl).children;
+  const second = role('step');
   assert.ok(first.length === second.length && first.every((c, i) => c === second[i]), 'each step keeps its node');
-  assert.equal(second[1].attrs['data-state'], 'done');
-  assert.equal(second[2].attrs['data-state'], 'running');
-  assert.match(second[2].textContent, /1\/3/);
+  assert.equal(second[0].attrs['data-state'], 'done');
+  assert.equal(second[1].attrs['data-state'], 'running');
+  assert.match(second[1].children[1].textContent, /1\/3/);
+  updateStages(doc, strip, [{ id: 's1', label: 'list', kind: 'tool', state: 'done' }, { id: 's2', label: 'check', kind: 'subagent', state: 'done', done: 3, total: 3 }]);
+  assert.equal(role('start')[0].attrs['data-state'], 'done', 'start is done when the run is');
+  assert.equal(role('end')[0].attrs['data-state'], 'done', 'end lights when every step is done');
+  updateStages(doc, strip, [{ id: 's1', label: 'list', kind: 'tool', state: 'done' }, { id: 's2', label: 'check', state: 'failed' }]);
+  assert.equal(role('end')[0].attrs['data-state'], 'failed', 'end shows a failure');
 });

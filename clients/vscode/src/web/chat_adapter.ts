@@ -1649,26 +1649,70 @@ export function councilLine(r: { decision?: string }, language?: string): { text
 /** One step of a call's progress as the tool reported it (core event.ProgressStage). */
 export interface ProgressStage { id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number }
 
-const STAGE_GLYPH: Record<string, string> = { tool: '\u2699', mcp: '\u26C1', web: '\u25CD', harness: '\u2726', subagent: '\u2727' };
+// The marks a node draws: plain shapes in a 24-unit box, stroked in the node's colour (currentColor).
+const STAGE_MARK: Record<string, string> = {
+  tool: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/>',
+  mcp: '<rect x="4" y="4" width="16" height="6" rx="1"/><rect x="4" y="14" width="16" height="6" rx="1"/><path d="M8 7h.01M8 17h.01"/>',
+  web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
+  harness: '<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/>',
+  subagent: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
+  step: '<circle cx="12" cy="12" r="4"/>',
+  start: '<path d="M8 5l11 7-11 7z"/>',
+  end: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+};
 
-interface StagesState { start: HTMLElement; end: HTMLElement; nodes: Map<string, HTMLElement>; order: string }
+function stageMark(key: string): string {
+  return '<svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true" focusable="false">' + (STAGE_MARK[key] ?? STAGE_MARK.step) + '</svg>';
+}
+
+interface StageNode { el: HTMLElement; icon: HTMLElement; label: HTMLElement; key: string }
+interface StagesState { start: StageNode; end: StageNode; nodes: Map<string, StageNode>; order: string }
+
+function stageNode(doc: Document, role: string, text: string): StageNode {
+  const el = doc.createElement('span');
+  el.className = 'stage';
+  el.setAttribute('data-role', role);
+  const icon = doc.createElement('span');
+  icon.className = 'stage-icon';
+  const label = doc.createElement('span');
+  label.className = 'stage-label';
+  label.textContent = text;
+  el.append(icon, label);
+  return { el, icon, label, key: '' };
+}
+
+function stageArrow(doc: Document): HTMLElement {
+  const a = doc.createElement('span');
+  a.className = 'stage-arrow';
+  a.setAttribute('data-role', 'arrow');
+  a.setAttribute('aria-hidden', 'true');
+  a.textContent = '\u2192';
+  return a;
+}
+
+function markStage(n: StageNode, key: string, state: string): void {
+  if (n.key !== key) {
+    n.icon.innerHTML = stageMark(key);
+    n.key = key;
+  }
+  if (n.el.getAttribute('data-state') !== state) n.el.setAttribute('data-state', state);
+}
 
 /**
- * A one-line strip of a call's steps: start, each step, end. It knows nothing of what the steps are of;
- * updateStages keeps one node per step id and changes only what changed, so a new report never redraws it.
+ * A one-line strip of a call's steps: start, each step, end, each a mark over its label, joined by arrows.
+ * It knows nothing of what the steps are of; updateStages keeps one node per step id and changes only what
+ * changed, so a new report never redraws it. Start and end take the steps' states: start runs while the
+ * run does, end waits until every step is done (or shows a failure).
  */
 export function stagesStrip(doc: Document, lang: string): HTMLElement {
   const ko = (lang || '').toLowerCase().startsWith('ko');
   const strip = doc.createElement('div');
   strip.className = 'stages';
-  const start = doc.createElement('span');
-  start.className = 'stage-end';
-  start.textContent = ko ? '\uC2DC\uC791' : 'Start';
-  const end = doc.createElement('span');
-  end.className = 'stage-end';
-  end.textContent = ko ? '\uB05D' : 'End';
-  (strip as unknown as { __stages: StagesState }).__stages = { start, end, nodes: new Map(), order: '' };
-  strip.replaceChildren(start, end);
+  const start = stageNode(doc, 'start', ko ? '\uC2DC\uC791' : 'Start');
+  const end = stageNode(doc, 'end', ko ? '\uB05D' : 'End');
+  markStage(start, 'start', 'waiting');
+  markStage(end, 'end', 'waiting');
+  (strip as unknown as { __stages: StagesState }).__stages = { start, end, nodes: new Map(), order: '\u0001' };
   return strip;
 }
 
@@ -1681,23 +1725,27 @@ export function updateStages(doc: Document, strip: HTMLElement, stages: Progress
   for (const st of stages) {
     let n = s.nodes.get(st.id);
     if (!n) {
-      n = doc.createElement('span');
-      n.className = 'stage';
-      n.setAttribute('data-stage-id', st.id);
+      n = stageNode(doc, 'step', '');
+      n.el.setAttribute('data-stage-id', st.id);
       s.nodes.set(st.id, n);
     }
-    const glyph = st.kind && STAGE_GLYPH[st.kind] ? STAGE_GLYPH[st.kind] + ' ' : '';
-    let text = glyph + st.label;
+    let text = st.label;
     if (st.total) text += ` ${st.done ?? 0}/${st.total}`;
     if (st.running) text += ` \u00B7${st.running}`;
-    if (n.textContent !== text) n.textContent = text;
-    if (n.getAttribute('data-state') !== st.state) n.setAttribute('data-state', st.state);
+    if (n.label.textContent !== text) n.label.textContent = text;
+    markStage(n, st.kind || 'step', st.state);
   }
-  s.start.setAttribute('data-state', stages.some((x) => x.state !== 'waiting') ? 'done' : 'waiting');
-  s.end.setAttribute('data-state', stages.length > 0 && stages.every((x) => x.state === 'done') ? 'done' : 'waiting');
+  const live = stages.some((x) => x.state === 'running' || x.state === 'waiting');
+  const startState = stages.length === 0 || stages.every((x) => x.state === 'waiting') ? 'waiting' : live ? 'running' : 'done';
+  const endState = stages.length === 0 || live ? 'waiting' : stages.some((x) => x.state === 'failed') ? 'failed' : 'done';
+  markStage(s.start, 'start', startState);
+  markStage(s.end, 'end', endState);
   const order = stages.map((x) => x.id).join('\u0000');
   if (order !== s.order) {
     s.order = order;
-    strip.replaceChildren(s.start, ...stages.map((x) => s.nodes.get(x.id) as HTMLElement), s.end);
+    const line: HTMLElement[] = [s.start.el];
+    for (const x of stages) line.push(stageArrow(doc), (s.nodes.get(x.id) as StageNode).el);
+    line.push(stageArrow(doc), s.end.el);
+    strip.replaceChildren(...line);
   }
 }

@@ -3,20 +3,21 @@ package lua
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// The shipped dummy-plug plugin, loaded from the repo: a model enters the mode, runs a script that
-// calls tools through the host, and leaves; outside the mode a script is refused, and a finished
-// turn leaves the mode on its own.
-func TestDummyPlugEntersRunsAndLeaves(t *testing.T) {
+// The shipped dummy-plug plugin is one tool. A script runs at once — there is no mode to enter or
+// leave — and, where the host offers a child session, it runs inside one: its calls go to the
+// child's CallTool, never the parent's, the child is named by the goal, and it is closed with what
+// the script printed (or why it failed). Without a child the script runs on the call itself.
+func TestDummyPlugIsOneToolThatRunsItsScriptInAChild(t *testing.T) {
 	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "plugins", "dummy-plug"))
 	if err != nil {
 		t.Fatal(err)
@@ -27,23 +28,42 @@ func TestDummyPlugEntersRunsAndLeaves(t *testing.T) {
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatalf("load dummy-plug: %v", err)
 	}
-	tool := func(name string) port.Tool {
-		tl, ok := sink.Get(name)
-		if !ok {
-			t.Fatalf("dummy-plug registered no %s", name)
+	for _, gone := range []string{"dummy_plug_enter", "dummy_plug_exit"} {
+		if _, ok := sink.Get(gone); ok {
+			t.Fatalf("%s is still registered: a script runs at once", gone)
 		}
-		return tl
 	}
-	enter, run, exit := tool("dummy_plug_enter"), tool("dummy_plug_run"), tool("dummy_plug_exit")
-	var called []string
-	env := func(sid string) port.ToolEnv {
-		return port.ToolEnv{SessionID: session.SessionID(sid), CallTool: func(_ context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
-			called = append(called, name+" "+string(args))
-			return session.ToolResult{Content: json.RawMessage(`"one\ntwo\nthree"`)}, nil
-		}}
+	run, ok := sink.Get("dummy_plug_run")
+	if !ok {
+		t.Fatal("dummy-plug registered no dummy_plug_run")
 	}
-	call := func(tl port.Tool, sid string, args string) (string, bool) {
-		res, err := tl.Execute(context.Background(), json.RawMessage(args), env(sid))
+	if d := run.Description(); !strings.Contains(d, "call_tool") || !strings.Contains(d, "plan(") || !strings.Contains(d, "print") {
+		t.Fatalf("the tool's description must say what a script can use: %q", d)
+	}
+	var parentCalls, childCalls []string
+	var opened []string
+	var closed []string
+	parent := func(_ context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
+		parentCalls = append(parentCalls, name+" "+string(args))
+		return session.ToolResult{Content: json.RawMessage(`"one\ntwo\nthree"`)}, nil
+	}
+	withChild := port.ToolEnv{SessionID: "s1", CallTool: parent, OpenChild: func(_ context.Context, label string) (port.ChildRun, error) {
+		opened = append(opened, label)
+		return port.ChildRun{SessionID: "child1",
+			CallTool: func(_ context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
+				childCalls = append(childCalls, name+" "+string(args))
+				return session.ToolResult{Content: json.RawMessage(`"one\ntwo\nthree"`)}, nil
+			},
+			Close: func(text string, failed error) {
+				why := ""
+				if failed != nil {
+					why = failed.Error()
+				}
+				closed = append(closed, text+"|"+why)
+			}}, nil
+	}}
+	call := func(env port.ToolEnv, args string) (string, bool) {
+		res, err := run.Execute(context.Background(), json.RawMessage(args), env)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,41 +71,31 @@ func TestDummyPlugEntersRunsAndLeaves(t *testing.T) {
 		_ = json.Unmarshal(res.Content, &s)
 		return s, res.IsError
 	}
-	script := `{"script":"local t = call_tool('read', {path='a.md'}) local n = 0 for _ in t:gmatch('[^\\n]+') do n = n + 1 end print('lines', n)"}`
+	script := `"script":"local t = call_tool('read', {path='a.md'}) local n = 0 for _ in t:gmatch('[^\\n]+') do n = n + 1 end print('lines', n)"`
 
-	if got, isErr := call(run, "s1", script); !isErr || !strings.Contains(got, "dummy_plug_enter") {
-		t.Fatalf("outside the mode a script is refused and told how to enter: %q %v", got, isErr)
+	if got, isErr := call(withChild, `{"goal":"count the lines of a.md",`+script+`}`); isErr || got != "lines\t3\n" {
+		t.Fatalf("a script runs at once and only its print comes back: %q %v", got, isErr)
 	}
-	if len(called) != 0 {
-		t.Fatal("a refused script still ran tools")
+	if len(opened) != 1 || !strings.Contains(opened[0], "count the lines of a.md") {
+		t.Fatalf("the child must be opened once, named by the goal: %q", opened)
 	}
-	got, isErr := call(enter, "s1", `{}`)
-	if isErr || !strings.Contains(got, "call_tool") || !strings.Contains(got, "read") || !strings.Contains(got, "print") {
-		t.Fatalf("entering says what a script can use: %q", got)
+	if len(childCalls) != 1 || childCalls[0] != `read {"path":"a.md"}` || len(parentCalls) != 0 {
+		t.Fatalf("the script's calls must run in the child only: child=%q parent=%q", childCalls, parentCalls)
 	}
-	if got, isErr := call(run, "s1", script); isErr || got != "lines\t3\n" {
-		t.Fatalf("in the mode a script runs and only its print comes back: %q %v", got, isErr)
+	if len(closed) != 1 || !strings.HasPrefix(closed[0], "lines\t3") || !strings.HasSuffix(closed[0], "|") {
+		t.Fatalf("the child must be closed once with what the script printed: %q", closed)
 	}
-	if len(called) != 1 || called[0] != `read {"path":"a.md"}` {
-		t.Fatalf("the script's call reached the host as %q", called)
-	}
-	if _, isErr := call(run, "s2", script); !isErr {
-		t.Fatal("the mode belongs to the session that entered it")
-	}
-	if got, isErr := call(run, "s1", `{"script":"error('boom')"}`); !isErr || !strings.Contains(got, "boom") {
+
+	if got, isErr := call(withChild, `{"script":"error('boom')"}`); !isErr || !strings.Contains(got, "boom") {
 		t.Fatalf("a failing script is an error that says why: %q", got)
 	}
-	if _, isErr := call(exit, "s1", `{}`); isErr {
-		t.Fatal("leaving failed")
-	}
-	if _, isErr := call(run, "s1", script); !isErr {
-		t.Fatal("after leaving, a script is refused again")
+	if len(closed) != 2 || !strings.Contains(closed[1], "boom") {
+		t.Fatalf("a failed script closes its child with why: %q", closed)
 	}
 
-	call(enter, "s1", `{}`)
-	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "done"})
-	h.DrainEvents(5 * time.Second) // events are delivered on the host's own goroutine
-	if _, isErr := call(run, "s1", script); !isErr {
-		t.Fatal("a finished turn leaves the mode")
+	bare := port.ToolEnv{SessionID: "s2", CallTool: parent}
+	if got, isErr := call(bare, `{`+script+`}`); isErr || got != "lines\t3\n" || len(parentCalls) != 1 {
+		t.Fatalf("without a child the script runs on the call itself: %q %v %q", got, isErr, parentCalls)
 	}
+	_ = errors.New
 }

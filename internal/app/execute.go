@@ -550,6 +550,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		CallTool: func(cctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 			return a.callInner(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, name, args)
 		},
+		OpenChild: func(cctx context.Context, label string) (port.ChildRun, error) {
+			return a.openChild(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, label)
+		},
 		PromptArrived: func() <-chan struct{} { return a.promptArrived(sid) },
 		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
 			background = done

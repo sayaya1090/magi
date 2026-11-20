@@ -14,6 +14,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 const (
@@ -50,6 +51,16 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		declared[n] = true
 	}
 	host := p.env.CallTool
+	// child = "task line": run the script in a child session the host opens for it, so its calls are
+	// recorded there and not in this conversation's log. A host without children runs it on the call.
+	var child *port.ChildRun
+	if label, ok := opts.RawGetString("child").(lua.LString); ok && p.env.OpenChild != nil {
+		ch, err := p.env.OpenChild(p.spawnCtx(), string(label))
+		if err != nil {
+			return fail(L, "run_script: "+err.Error())
+		}
+		child, host = &ch, ch.CallTool
+	}
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 		if !declared[name] {
 			return session.ToolResult{}, fmt.Errorf("%s is not declared in call_tools (plugin.toml)", name)
@@ -57,6 +68,9 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		return host(ctx, name, args)
 	}
 	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, scriptHooksOf(L, opts), src, timeout, limit)
+	if child != nil {
+		child.Close(out, err)
+	}
 	L.Push(lua.LString(out))
 	if err != nil {
 		L.Push(lua.LString(err.Error()))

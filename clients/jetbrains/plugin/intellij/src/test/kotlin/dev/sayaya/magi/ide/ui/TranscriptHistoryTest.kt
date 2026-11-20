@@ -239,43 +239,61 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         } finally { view.dispose() }
     }
 
-    fun testProgressStagesSitOnOneCentreAndAnIconTakesItsStepsColour() {
-        // A step with a kind mark and a step without one sit on one line: every node is as tall as the
-        // others, so their words share one vertical centre, and the mark is drawn in the step's own
-        // colour, so two steps in the same state look the same.
-        // A mark taller than the words, with ink: the IDE's own icons are blank stand-ins in this headless run.
+    private fun stageStrip(): ProgressStages {
+        // A mark with ink and of an odd size: the IDE's own icons are blank stand-ins in this headless run.
         val mark = object : javax.swing.Icon {
             override fun paintIcon(c: java.awt.Component?, g: java.awt.Graphics, x: Int, y: Int) { g.color = java.awt.Color(0x12, 0x34, 0x56); g.fillRect(x + 4, y + 4, 16, 16) }
             override fun getIconWidth() = 24
             override fun getIconHeight() = 24
         }
-        val strip = ProgressStages { kind -> if (kind == null) null else mark }
-        strip.update(listOf(
-            dev.sayaya.magi.ide.model.ProgressStage(id = "a", label = "list", kind = "tool", state = "done", done = 2, total = 2),
-            dev.sayaya.magi.ide.model.ProgressStage(id = "b", label = "prep", state = "done"),
-            dev.sayaya.magi.ide.model.ProgressStage(id = "c", label = "look", kind = "subagent", state = "running", done = 1, total = 3, running = 2),
-            dev.sayaya.magi.ide.model.ProgressStage(id = "d", label = "check", state = "running"),
-        ))
+        return ProgressStages { mark }
+    }
+
+    private fun step(id: String, kind: String?, state: String, done: Int = 0, total: Int = 0) =
+        dev.sayaya.magi.ide.model.ProgressStage(id = id, label = id, kind = kind, state = state, done = done, total = total)
+
+    private fun role(strip: ProgressStages, r: String) =
+        strip.components.filterIsInstance<javax.swing.JLabel>().filter { it.getClientProperty(ProgressStages.ROLE) == r }
+
+    fun testProgressStagesDrawAnIconOverEachLabel() {
+        // Each node — start, every step, end — is a large mark with its label under it; the marks share one
+        // top and the labels one line; an arrow sits on the marks' centre; a mark is drawn in its node's colour.
+        val strip = stageStrip()
+        strip.update(listOf(step("list", "tool", "done", 2, 2), step("prep", null, "done"), step("look", "subagent", "running", 1, 3), step("check", null, "waiting")))
         strip.size = strip.preferredSize
         strip.doLayout()
-        val labels = strip.components.filterIsInstance<javax.swing.JLabel>()
-        assertEquals("start, four steps, their arrows, the arrow to the end and the end", 11, labels.size)
-        val heights = labels.map { it.height }.toSet()
-        assertEquals("every node is as tall as the others: " + labels.map { it.text + "=" + it.height }, 1, heights.size)
-        val mids = labels.map { l ->
-            val vr = java.awt.Rectangle(0, 0, l.width, l.height); val ir = java.awt.Rectangle(); val tr = java.awt.Rectangle()
+        val nodes = role(strip, "start") + role(strip, "step") + role(strip, "end")
+        assertEquals("start, four steps and end", 6, nodes.size)
+        val size = com.intellij.util.ui.JBUI.scale(ProgressStages.ICON)
+        fun rects(l: javax.swing.JLabel): Pair<java.awt.Rectangle, java.awt.Rectangle> {
+            val ins = l.insets
+            val vr = java.awt.Rectangle(ins.left, ins.top, l.width - ins.left - ins.right, l.height - ins.top - ins.bottom)
+            val ir = java.awt.Rectangle(); val tr = java.awt.Rectangle()
             javax.swing.SwingUtilities.layoutCompoundLabel(l, l.getFontMetrics(l.font), l.text, l.icon, l.verticalAlignment,
                 l.horizontalAlignment, l.verticalTextPosition, l.horizontalTextPosition, vr, ir, tr, l.iconTextGap)
-            (l.y + tr.y) * 2 + tr.height
+            return ir to tr
         }
-        assertEquals("the words share one vertical centre: " + labels.map { it.text }.zip(mids), 1, mids.toSet().size)
-        val marked = labels.filter { it.getClientProperty(ProgressStages.ID) != null && it.icon != null }
-        assertEquals("the two steps with a kind carry a mark", 2, marked.size)
-        for (l in marked) {
-            val ic = l.icon
+        for (n in nodes) {
+            assertNotNull("every node has a mark: " + n.text, n.icon)
+            assertEquals("the mark is " + size + "px: " + n.text, size, n.icon.iconHeight)
+            val (ir, tr) = rects(n)
+            assertTrue("the label sits under the mark: " + n.text, tr.y >= ir.y + ir.height - 1)
+        }
+        assertEquals("the marks share one top: " + nodes.map { it.text }, 1, nodes.map { it.y + rects(it).first.y }.toSet().size)
+        assertEquals("the labels share one line: " + nodes.map { it.text }, 1, nodes.map { it.y + rects(it).second.y }.toSet().size)
+        val markMid = nodes.first().let { it.y + rects(it).first.let { r -> r.y + r.height / 2 } }
+        val arrows = role(strip, "arrow")
+        assertEquals("an arrow before each step and one to the end", 5, arrows.size)
+        for (a in arrows) {
+            assertNull("an arrow has no mark", a.icon)
+            val tr = rects(a).second
+            assertTrue("the arrow sits on the marks' centre (" + (a.y + tr.y + tr.height / 2) + " vs " + markMid + ")", Math.abs(a.y + tr.y + tr.height / 2 - markMid) <= 1)
+        }
+        for (n in nodes) {
+            val ic = n.icon
             val img = java.awt.image.BufferedImage(ic.iconWidth, ic.iconHeight, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-            val g = img.createGraphics(); ic.paintIcon(l, g, 0, 0); g.dispose()
-            val want = l.foreground.rgb and 0xFFFFFF
+            val g = img.createGraphics(); ic.paintIcon(n, g, 0, 0); g.dispose()
+            val want = n.foreground.rgb and 0xFFFFFF
             var inked = 0; var off = 0
             for (x in 0 until img.width) for (y in 0 until img.height) {
                 val px = img.getRGB(x, y)
@@ -284,9 +302,23 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
                 val d = maxOf(Math.abs(((px shr 16) and 255) - ((want shr 16) and 255)), Math.abs(((px shr 8) and 255) - ((want shr 8) and 255)), Math.abs((px and 255) - (want and 255)))
                 if (d > 8) off++
             }
-            assertTrue("the mark of " + l.text + " has ink", inked > 0)
-            assertEquals("the mark of " + l.text + " is drawn in its step's colour (" + inked + " inked pixels)", 0, off)
+            assertTrue("the mark of " + n.text + " has ink", inked > 0)
+            assertEquals("the mark of " + n.text + " is drawn in its node's colour", 0, off)
         }
+    }
+
+    fun testProgressStagesStartAndEndFollowTheRun() {
+        // Start and end take the same states as steps: start runs while the run does and is done after it;
+        // end waits until every step is done, and shows a failure.
+        val strip = stageStrip()
+        fun state(r: String) = role(strip, r).single().getClientProperty(ProgressStages.STATE)
+        strip.update(listOf(step("a", null, "running"), step("b", null, "waiting")))
+        assertEquals("running", state("start")); assertEquals("waiting", state("end"))
+        strip.update(listOf(step("a", null, "done"), step("b", null, "done")))
+        assertEquals("done", state("start")); assertEquals("done", state("end"))
+        assertEquals("start and end are drawn like a done step", Look.body, role(strip, "end").single().foreground)
+        strip.update(listOf(step("a", null, "done"), step("b", null, "failed")))
+        assertEquals("done", state("start")); assertEquals("failed", state("end"))
     }
 
     fun testARenderThatFinishesLateDoesNotPutOlderTextBack() {

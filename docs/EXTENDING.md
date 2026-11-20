@@ -462,7 +462,7 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did
 > from the log instead of the agent's account of it. Same row shape as `magi.child_steps(sid)`.
 >
-> **`magi.run_script(source, {timeout=, output=, globals=, on_call=})`** — inside a tool call only. The
+> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=})`** — inside a tool call only. The
 > manifest must declare the `call_tools` capability and list the tools its scripts may call in
 > `call_tools = [...]`; none is open by default. Runs `source` in a Lua state of its own: no `os`, `io`,
 > modules, loaders or `magi.*`; it has `call_tool(name, args)`, `print`, `json_encode`/`json_decode`, the
@@ -479,7 +479,12 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > anything else (a write, `bash`, the web, an MCP tool) asks the person first in every permission mode,
 > and with nobody to ask is refused and not run. `call_tool` runs a tool through the host as a call of
 > its own (permission, start fact, result), recorded under the tool's name with the running call as its
-> parent and kept out of the model's history; at most 200 calls per tool call. Returns what the script
+> parent and kept out of the model's history; at most 200 calls per tool call. With `child = "task line"`
+> and a host that offers it (`ToolEnv.OpenChild`), the script runs as a child session of the
+> conversation that no model drives: its calls are recorded in the child's log, not this
+> conversation's, the child shows as a running subagent under that task line until the script ends,
+> and it is closed with what the script printed or why it failed. Without one the script runs on the
+> call itself. Returns what the script
 > printed and, when it failed or ran past `timeout` (default 60 s, at most 300), the reason as a second
 > value. Printed output past `output` bytes (default 16000, at most 64000) is cut and says so.
 >
@@ -490,8 +495,12 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > and keep one node per `id`, so a new report changes only the steps that moved and nothing is drawn
 > again. `kind` says what a step does (`tool`, `mcp`, `web`, `harness`, `subagent`) and each screen
 > picks its own mark for it; `state` is `waiting`, `running`, `done` or `failed`; the words for start
-> and end are each screen's own, in its language. A list identical to the last one is not sent again,
-> and between two unforced reports at least 100 ms pass. The `dummy-plug` plugin is built on both. It
+> and end are each screen's own, in its language. Each node is a 32 px mark over its label. Start and
+> end take the steps' states: start is `running` while any step runs or waits and `done` after; end
+> is `waiting` until then, and `done`, or `failed` when a step failed. A list identical to the last
+> one is not sent again, and between two unforced reports at least 100 ms pass. The `dummy-plug`
+> plugin is built on both. It is one tool, `dummy_plug_run`, whose description says what a script can
+> use; there is no mode to enter or leave. Each script runs as a child named by the call's `goal`. It
 > lends its scripts `plan({name, ...})`, which lists every step so the first report already shows
 > them all, and `stage(name)`, which opens the next one (a planned one by that name, or a new one
 > after the current step). It fills each step's counts from `on_call` and marks the step a script

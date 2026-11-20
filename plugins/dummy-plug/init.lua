@@ -1,14 +1,10 @@
 -- Dummy plug: a program pilots the tools instead of the model, one call at a time.
 --
--- The model enters the mode, hands over a Lua script, and gets back only what the script printed.
--- Every call the script makes runs through the host (magi.run_script -> ToolEnv.CallTool): the
--- permission gate, the start fact and the result apply, and each call is recorded under its own
--- name — but kept out of the model's history, which is where the saving is.
---
--- The mode is per conversation and ends with the turn. Tools stay listed either way (a session's
--- tool list is fixed for its prompt cache); outside the mode dummy_plug_run refuses.
-
-local inside = {} -- session id -> true while the plug is in
+-- The model hands over a Lua script in one call and gets back only what the script printed. The
+-- script runs as a child the host opens for it (magi.run_script with child): a subagent no model
+-- drives. Every call it makes goes through the host — the permission gate, the start fact and the
+-- result apply — and is recorded in the child's log, so this conversation keeps only the call and
+-- what was printed. There is no mode to enter or leave.
 
 -- The run's steps: where a script is, reported as a list the screen keeps in place. The host only
 -- hands over facts (plan() and stage() are ours, on_call tells each call's start and end); what a
@@ -116,38 +112,26 @@ local function track()
   return globals, on_call, finish
 end
 
-local GUIDE = [[
-Dummy plug mode is on. Send a Lua script to dummy_plug_run; only what it print()s comes back to you.
+local USE = [[
+Run one Lua script that calls tools for you, as a subagent no model drives: only what it print()s comes back.
 
 In the script:
-- call_tool(name, args) runs a tool and returns its text, or nil and the reason. Open tools: read, grep, glob, list, explore, recall_memory (read-only).
+- call_tool(name, args) runs a tool and returns its text, or nil and the reason. Open tools: read, grep, glob, list, explore, recall_memory (read-only). glob and list return a JSON array: json_decode it.
 - call_all({ {name, args}, ... }) runs several calls at the same time (at most 8 at once) and returns { {ok=true, text=} or {ok=false, error=} } in the order asked; one failure does not stop the rest.
 - plan({name, ...}) lists the steps ahead (call it first): the person watching sees them all from the start, each updated in place. stage(name) opens the next step (a planned one by that name, or a new one). call_all fills the open step (or opens one) with its tool and k/n.
-- progress(text) reports where the script is (for example "step 2/3: grep"); call_all reports k/n as calls finish.
-- print(...) is the only output; keep it to what you need.
+- progress(text) reports where the script is; print(...) is the only output, so keep it to what you need.
 - json_encode(v) / json_decode(s), and Lua's string, table and math libraries. No files, processes or modules of its own.
 
 Limits: 200 tool calls per run, 60 s by default (timeout up to 300), 16000 bytes of output by default (output up to 64000).
-Use it for loops, filtering and many reads whose contents you do not need to see. Leave with dummy_plug_exit; the mode also ends with the turn.]]
-
-magi.register_tool{
-  name = "dummy_plug_enter",
-  description = "Enter dummy plug mode: from here dummy_plug_run runs Lua scripts that call read-only tools for you and returns only what they print. Use it when a step needs many reads, loops or filtering you do not need to see call by call.",
-  schema = { type = "object", properties = {} },
-  execute = function()
-    local sid = magi.session_id()
-    if sid == "" then return "dummy plug: no conversation to enter", true end
-    inside[sid] = true
-    return GUIDE
-  end,
-}
+Use it for loops, filtering and many reads whose contents you do not need to see.]]
 
 magi.register_tool{
   name = "dummy_plug_run",
-  description = "In dummy plug mode, run a Lua script. call_tool(name, args) runs read, grep, glob, list, explore or recall_memory; call_all runs several at once; stage(name) opens a step of the live run graph; progress(text) reports the step; only what the script print()s is returned.",
+  description = USE,
   schema = {
     type = "object",
     properties = {
+      goal = { type = "string", description = "one line: what the script is for (the subagent's task line)" },
       script = { type = "string", description = "Lua source to run" },
       timeout = { type = "number", description = "seconds, default 60, at most 300" },
       output = { type = "number", description = "bytes of printed output kept, default 16000, at most 64000" },
@@ -155,15 +139,13 @@ magi.register_tool{
     required = { "script" },
   },
   execute = function(args)
-    local sid = magi.session_id()
-    if not inside[sid] then
-      return "not in dummy plug mode: call dummy_plug_enter first", true
-    end
     local script = args and args.script
     if type(script) ~= "string" or script == "" then return "script is required", true end
+    local goal = args.goal
+    if type(goal) ~= "string" or goal:match("^%s*$") then goal = "dummy plug script" end
     local globals, on_call, finish = track()
     local out, err = magi.run_script(script, {
-      timeout = args.timeout, output = args.output, globals = globals, on_call = on_call,
+      timeout = args.timeout, output = args.output, globals = globals, on_call = on_call, child = goal,
     })
     finish(err == nil)
     if err then
@@ -172,17 +154,3 @@ magi.register_tool{
     return out
   end,
 }
-
-magi.register_tool{
-  name = "dummy_plug_exit",
-  description = "Leave dummy plug mode and go back to calling tools directly.",
-  schema = { type = "object", properties = {} },
-  execute = function()
-    inside[magi.session_id()] = nil
-    return "dummy plug mode is off; call tools directly"
-  end,
-}
-
-magi.on("turn_finished", function(e)
-  if e and e.session then inside[e.session] = nil end
-end)

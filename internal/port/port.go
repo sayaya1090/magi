@@ -507,6 +507,12 @@ type ToolEnv struct {
 	// parent and kept out of the model's history. Only a fixed read-only set may be called, and only
 	// so many times per call. nil when the host does not offer it.
 	CallTool func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error)
+	// OpenChild opens a child session of this call's session, driven by the tool itself rather than a
+	// model: what the child's CallTool runs is recorded in the CHILD's log, under the same permission
+	// gate, start fact and recovery as any call, so the parent's log keeps only this call and its
+	// result. The child shows as a running subagent until Close. label is the child's task line.
+	// nil when the host does not offer it.
+	OpenChild func(ctx context.Context, label string) (ChildRun, error)
 	// TurnSteps lists the tool calls of THIS session's current turn (since the last user
 	// prompt), oldest first, each with its arguments and whether it failed; the call still
 	// running (the caller's own) is not in it. It is how a plugin door can ask what the turn
@@ -994,6 +1000,15 @@ type ExecResult struct {
 type TermCaps struct {
 	TrueColor bool
 	Image     string // "kitty" | "iterm2" | "sixel" | "" (fallback to half-block)
+}
+
+// ChildRun is a child session a tool opened with ToolEnv.OpenChild.
+type ChildRun struct {
+	SessionID string
+	// CallTool runs a tool inside the child, as ToolEnv.CallTool does for the parent.
+	CallTool func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error)
+	// Close ends the child: text is what it came to, failed why it did not finish. Call it once.
+	Close func(text string, failed error)
 }
 
 // SpawnSpec describes a child agent a TOOL asks the host to run. It is written by whoever

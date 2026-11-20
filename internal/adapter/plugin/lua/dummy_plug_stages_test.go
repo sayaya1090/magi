@@ -45,9 +45,6 @@ func dummyPlugRun(t *testing.T, script string, pause time.Duration) [][]event.Pr
 		mu.Unlock()
 	}
 	ctx := context.Background()
-	if _, err := get("dummy_plug_enter").Execute(ctx, json.RawMessage(`{}`), env); err != nil {
-		t.Fatal(err)
-	}
 	raw, _ := json.Marshal(map[string]string{"script": script})
 	if _, err := get("dummy_plug_run").Execute(ctx, raw, env); err != nil {
 		t.Fatal(err)
