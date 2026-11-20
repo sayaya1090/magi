@@ -58,7 +58,11 @@ func holdTUI(sock string) (release func(), sole bool, share func()) {
 			return cannotHold(f, err)
 		}
 		if time.Now().After(deadline) {
-			fmt.Fprintf(tuiStderr, "magi: another terminal here is still recovering (%v); waiting for it to finish — Ctrl-C to stop\n", err)
+			if lockShortage(err) {
+				fmt.Fprintf(tuiStderr, "magi: no file lock can be taken right now (%v); waiting for one — Ctrl-C to stop\n", err)
+			} else {
+				fmt.Fprintf(tuiStderr, "magi: another terminal here is still recovering (%v); waiting for it to finish — Ctrl-C to stop\n", err)
+			}
 			deadline = time.Now().Add(tuiShareWait)
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -75,11 +79,18 @@ var (
 	tuiStderr io.Writer = os.Stderr
 )
 
-// lockContended reports whether a failed flock is only another terminal holding the hold now (or a
-// signal cutting the call short), which waiting ends. Anything else (no flock on this filesystem, no
-// lock records left) does not end by waiting.
+// lockContended reports whether a failed flock is one that waiting ends: another terminal holding the
+// hold now, a signal cutting the call short, or a shortage of locks (lockShortage). Only a failure that
+// no terminal here could ever get past (no flock on this filesystem) is left to cannotHold.
 func lockContended(err error) bool {
-	return errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR)
+	return errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) || lockShortage(err)
+}
+
+// lockShortage reports a flock refused for want of resources (no lock records, no memory). It can pass
+// while terminals run, so a terminal that ran unheld through it would be invisible to one that takes
+// the lock once it has: it is waited out.
+func lockShortage(err error) bool {
+	return errors.Is(err, unix.ENOLCK) || errors.Is(err, unix.ENOMEM)
 }
 
 // cannotHold is the start of a terminal whose hold can never be taken. No terminal here can take it

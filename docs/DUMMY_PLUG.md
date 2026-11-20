@@ -16,7 +16,7 @@ code at commit `f245a8413`; everything marked as planned has no code yet. The pl
 | script | The Lua source the model writes. It calls tools and prints what the model should see. |
 | outer call | The model's own `dummy_plug_run` call, recorded in the conversation. |
 | inner call | A tool call the script makes (`call_tool`, `call_all`). The host runs it like any call. |
-| child session | A session opened for one script run, with the conversation as its parent. No model runs in it. |
+| child session | A session opened for one script run, with the conversation as its parent. No model drives it; a tool the script calls may still run one of its own (`explore` runs a model-driven subagent). |
 | stage | One step of a run as the person sees it (`plan`, `stage`), reported as structured data. |
 
 ## 1. Why it exists
@@ -31,7 +31,8 @@ The saving comes from two places: fewer model round trips, and results filtered 
 the model sees them. A bash script can do the second for files, but not for harness tools such as
 `explore` or `recall_memory`, and not under magi's permission gate. A model-driven subagent can do
 both, but it pays a model call per step. The dummy plug sits between them: the flow is code, the
-tools are the harness's, and no model runs inside.
+tools are the harness's, and no model drives the flow. A script that calls `explore` still pays for
+that subagent's own model steps; the run above did not call it.
 
 Since commit `0d483d59d` the script runs in a child session. That adds a second value: the person can
 open the child and see every call the script made and what it returned, while the conversation keeps
@@ -188,7 +189,9 @@ after; end waits until every stage is done, or shows `failed`.
   The child's log is short, so this is cheap now; it was the whole conversation's log before
   `0d483d59d`.
 - **The plugin's lock is held while a script runs.** Other tools of the same plugin wait for it.
-- **No judgment.** A script cannot ask a model anything; see §10.
+- **No judgment of its own.** A script has no call that asks a model a short question and gets a
+  bounded answer back. It can reach a model only through `explore`, which runs a whole read-only
+  subagent (several model steps and a summary report) for one question. See §10.
 
 ## 9. Designs it replaced
 

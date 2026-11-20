@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -112,11 +113,11 @@ func TestATerminalWaitsOutALongRecoveryAndStillHoldsItsPlace(t *testing.T) {
 	}
 }
 
-// A lock that can never be had (a filesystem without flock, no lock records left) is not another
-// terminal recovering: waiting would never end. The terminal says why and starts without recovering.
+// A lock that can never be had (a filesystem without flock) is not another terminal recovering:
+// waiting would never end. The terminal says why and starts without recovering.
 func TestATerminalThatCannotLockStartsWithoutRecoveringInsteadOfWaiting(t *testing.T) {
 	defer func(f func(int, int) error, w interface{ Write([]byte) (int, error) }) { tuiFlock, tuiStderr = f, w }(tuiFlock, tuiStderr)
-	tuiFlock = func(int, int) error { return unix.ENOLCK }
+	tuiFlock = func(int, int) error { return unix.EOPNOTSUPP }
 	var said bytes.Buffer
 	tuiStderr = &said
 	sock := filepath.Join(t.TempDir(), "d.sock")
@@ -138,7 +139,55 @@ func TestATerminalThatCannotLockStartsWithoutRecoveringInsteadOfWaiting(t *testi
 	case <-time.After(2 * time.Second):
 		t.Fatal("a terminal that cannot lock waited as if another were recovering")
 	}
-	if msg := said.String(); !strings.Contains(msg, unix.ENOLCK.Error()) || strings.Contains(msg, "still recovering") {
+	if msg := said.String(); !strings.Contains(msg, unix.EOPNOTSUPP.Error()) || strings.Contains(msg, "still recovering") {
 		t.Fatalf("the note must name the cause, not another terminal: %q", msg)
+	}
+}
+
+// A shortage of locks (ENOLCK) can pass while terminals run, so it is waited out like another
+// terminal's recovery: a second terminal that ran unheld through one would be invisible to a third
+// that finds the lock again once the first is gone.
+func TestATerminalWaitsOutALockShortageAndStillHoldsItsPlace(t *testing.T) {
+	defer func(f func(int, int) error, w interface{ Write([]byte) (int, error) }) { tuiFlock, tuiStderr = f, w }(tuiFlock, tuiStderr)
+	var said bytes.Buffer
+	tuiStderr = &said
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	release1, sole1, share1 := holdTUI(sock)
+	if !sole1 {
+		t.Fatal("the first terminal is alone")
+	}
+	share1()
+	var n int32
+	tuiFlock = func(fd, how int) error {
+		if atomic.AddInt32(&n, 1) <= 3 {
+			return unix.ENOLCK
+		}
+		return unix.Flock(fd, how)
+	}
+	type hold struct {
+		release func()
+		sole    bool
+	}
+	second := make(chan hold, 1)
+	go func() {
+		r, s, _ := holdTUI(sock)
+		second <- hold{r, s}
+	}()
+	var h2 hold
+	select {
+	case h2 = <-second:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second terminal never got its place after the shortage passed")
+	}
+	defer h2.release()
+	if h2.sole {
+		t.Fatal("the second terminal thinks it is alone")
+	}
+	tuiFlock = unix.Flock
+	release1()
+	release3, sole3, _ := holdTUI(sock)
+	defer release3()
+	if sole3 {
+		t.Fatal("after a lock shortage, a third terminal finds itself alone while the second still runs")
 	}
 }
