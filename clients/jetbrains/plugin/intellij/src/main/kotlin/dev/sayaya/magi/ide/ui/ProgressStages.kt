@@ -43,6 +43,8 @@ internal class ProgressStages(
     private val toEnd = Node("→")
     private val nodes = LinkedHashMap<String, Node>()
     private val arrows = HashMap<String, Node>()
+    /** The step order the line is laid out in now — what a new report is compared with, not the map's insertion order. */
+    private var laidOut: List<String> = emptyList()
 
     init {
         isOpaque = false
@@ -54,7 +56,7 @@ internal class ProgressStages(
 
     fun update(stages: List<ProgressStage>) {
         val order = stages.map { it.id }
-        val reorder = nodes.keys.toList() != order
+        val reorder = laidOut != order
         nodes.keys.filter { it !in order }.toList().forEach { nodes.remove(it); arrows.remove(it) }
         for (s in stages) {
             val n = nodes.getOrPut(s.id) { Node().apply { putClientProperty(ID, s.id) } }
@@ -72,6 +74,7 @@ internal class ProgressStages(
     }
 
     private fun relink(order: List<String>) {
+        laidOut = order
         removeAll()
         add(start)
         for (id in order) { add(arrows.getValue(id)); add(nodes.getValue(id)) }

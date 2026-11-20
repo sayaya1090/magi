@@ -306,6 +306,23 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         assertEquals("a render with nothing shown yet is applied", listOf("ONLY"), fresh)
     }
 
+    fun testProgressStagesFollowTheOrderBackAfterItChanges() {
+        // The strip lays its steps out in the order reported. Steps that swap and then swap back must
+        // be shown in the order of the last report, each still the same node.
+        val strip = ProgressStages()
+        fun step(id: String) = dev.sayaya.magi.ide.model.ProgressStage(id = id, label = id, state = "running")
+        fun shown() = strip.components.filterIsInstance<javax.swing.JLabel>().mapNotNull { it.getClientProperty(ProgressStages.ID) as String? }
+        fun node(id: String) = strip.components.filterIsInstance<javax.swing.JLabel>().first { it.getClientProperty(ProgressStages.ID) == id }
+        strip.update(listOf(step("a"), step("b")))
+        val a = node("a")
+        assertEquals(listOf("a", "b"), shown())
+        strip.update(listOf(step("b"), step("a")))
+        assertEquals(listOf("b", "a"), shown())
+        strip.update(listOf(step("a"), step("b")))
+        assertEquals("back in the order of the last report", listOf("a", "b"), shown())
+        assertSame("each step keeps its node", a, node("a"))
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))
