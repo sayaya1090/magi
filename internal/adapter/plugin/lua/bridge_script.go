@@ -65,6 +65,15 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	return 1
 }
 
+// scriptJSON is a script value as JSON, refusing a table that holds itself or nests past reason.
+func scriptJSON(lv lua.LValue) ([]byte, error) {
+	v, err := luaValue(lv)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
+}
+
 type toolCaller func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error)
 
 // scriptParallel bounds how many calls one call_all runs at once.
@@ -105,7 +114,11 @@ func (p *plugin) bridgeProgress(L *lua.LState) int {
 	if opts, ok := L.Get(2).(*lua.LTable); ok {
 		force = lua.LVAsBool(opts.RawGetString("force"))
 		if t, ok := opts.RawGetString("stages").(*lua.LTable); ok {
-			raw, err := json.Marshal(luaToGo(t))
+			v, err := luaValue(t)
+			var raw []byte
+			if err == nil {
+				raw, err = json.Marshal(v)
+			}
 			if err == nil {
 				err = json.Unmarshal(raw, &stages)
 			}
@@ -224,7 +237,7 @@ func execScript(parent context.Context, call toolCaller, note func(string), hook
 		name := L.CheckString(1)
 		args := json.RawMessage(`{}`)
 		if t, ok := L.Get(2).(*lua.LTable); ok {
-			raw, err := json.Marshal(luaToGo(t))
+			raw, err := scriptJSON(t)
 			if err != nil {
 				return fail(L, "call_tool: "+err.Error())
 			}
@@ -272,7 +285,7 @@ func execScript(parent context.Context, call toolCaller, note func(string), hook
 			}
 			jobs[i] = job{name: string(name), args: json.RawMessage(`{}`)}
 			if t, ok := av.(*lua.LTable); ok {
-				raw, err := json.Marshal(luaToGo(t))
+				raw, err := scriptJSON(t)
 				if err != nil {
 					return fail(L, fmt.Sprintf("call_all: call %d: %v", i+1, err))
 				}
@@ -337,7 +350,7 @@ func execScript(parent context.Context, call toolCaller, note func(string), hook
 		return 1
 	}))
 	S.SetGlobal("json_encode", S.NewFunction(func(L *lua.LState) int {
-		raw, err := json.Marshal(luaToGo(L.Get(1)))
+		raw, err := scriptJSON(L.Get(1))
 		if err != nil {
 			return fail(L, "json_encode: "+err.Error())
 		}
@@ -357,7 +370,12 @@ func execScript(parent context.Context, call toolCaller, note func(string), hook
 		S.SetGlobal(name, S.NewFunction(func(L *lua.LState) int {
 			args := make([]any, L.GetTop())
 			for i := range args {
-				args[i] = luaToGo(L.Get(i + 1))
+				v, err := luaValue(L.Get(i + 1))
+				if err != nil {
+					L.RaiseError("%s: argument %d: %v", name, i+1, err)
+					return 0
+				}
+				args[i] = v
 			}
 			ret, err := fn(args)
 			if err != nil {

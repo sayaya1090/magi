@@ -428,11 +428,32 @@ func (h *Host) FireEvent(event string) {
 	}
 }
 
+// ownCallTools are the tools a plugin both registers and opens to its own scripts (call_tools).
+// Its tools run holding the plugin's lock, so a script one of them runs could never get through to
+// another of them.
+func ownCallTools(p *plugin) []string {
+	open := make(map[string]bool, len(p.manifest.CallTools))
+	for _, n := range p.manifest.CallTools {
+		open[n] = true
+	}
+	var own []string
+	for _, t := range p.tools {
+		if open[t.name] {
+			own = append(own, t.name)
+		}
+	}
+	return own
+}
+
 // Load loads the plugin in dir and registers its capabilities.
 func (h *Host) Load(ctx context.Context, dir string) (port.PluginInfo, error) {
 	p, err := loadPlugin(dir, h.logf, h)
 	if err != nil {
 		return port.PluginInfo{}, err
+	}
+	if own := ownCallTools(p); len(own) > 0 {
+		p.close()
+		return port.PluginInfo{}, fmt.Errorf("plugin %q opens its own tools to its scripts (call_tools: %s): a tool runs holding its plugin's lock, so such a call would wait forever", p.name, strings.Join(own, ", "))
 	}
 
 	h.mu.Lock()

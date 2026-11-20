@@ -104,7 +104,11 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	shortened := false
 	for {
 		attempts++
-		exit, out, stages := waitForProbe(ctx, env, a.Condition, deadline)
+		exit, out, stages, interrupted := probeUnlessWoken(ctx, env, a.Condition, deadline, woke)
+		if interrupted {
+			return okText("", fmt.Sprintf("a message from the person arrived after %s (%d checks), so the wait ended for it to be read; "+
+				"the check that was running was stopped and the condition was not met: %s", time.Since(start).Round(time.Second), attempts, a.Condition)), nil
+		}
 		lastExit, lastOut, lastStages = exit, out, stages
 		if exit == 0 {
 			body := fmt.Sprintf("condition met after %s (%d checks): %s",
@@ -181,6 +185,44 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	return errResult("", reason), nil
 }
 
+// probeCmd is one check's command. Ending its context ends its whole process tree, not only the
+// shell: a child left holding the output pipe would keep the check open for WaitDelay more.
+func probeCmd(ctx context.Context, env port.ToolEnv, name string, args []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = env.Workdir
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Cancel = func() error { return killCmdTree(cmd) }
+	return cmd
+}
+
+// probeUnlessWoken runs one check, and stops it (its whole process tree) if a message from the person
+// arrives while it runs: a check may take up to waitForProbeCap, and the person should not wait that.
+func probeUnlessWoken(ctx context.Context, env port.ToolEnv, condition string, deadline time.Time, woke <-chan struct{}) (int, string, []int, bool) {
+	if woke == nil {
+		exit, out, stages := waitForProbe(ctx, env, condition, deadline)
+		return exit, out, stages, false
+	}
+	pctx, stop := context.WithCancel(ctx)
+	defer stop()
+	done := make(chan struct{})
+	woken := make(chan bool, 1)
+	go func() {
+		select {
+		case <-woke:
+			woken <- true
+			stop()
+		case <-done:
+			woken <- false
+		}
+	}()
+	exit, out, stages := waitForProbe(pctx, env, condition, deadline)
+	close(done)
+	if <-woken {
+		return exit, out, stages, true
+	}
+	return exit, out, stages, false
+}
+
 // waitForProbe runs the condition once, bounded by the smaller of a short per-probe
 // cap and the time remaining to the deadline, and returns its exit code and combined
 // output. A command that never launches (bad condition) reports a non-zero exit so
@@ -207,9 +249,7 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	if psPath != "" {
 		defer os.Remove(psPath)
 	}
-	cmd := exec.CommandContext(cctx, name, args...)
-	cmd.Dir = env.Workdir
-	cmd.WaitDelay = 2 * time.Second
+	cmd := probeCmd(cctx, env, name, args)
 	sboxAttr := sandboxProcAttr(env.Sandbox)
 	// A wait-for runs this probe on every tick, so a token left open here climbs fastest of the
 	// three — see releaseSandbox.
@@ -219,9 +259,7 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	// Token-confined launch (Windows) that never started: retry unconfined so
 	// confinement can't turn every probe into a false negative.
 	if err != nil && cmd.ProcessState == nil && sboxAttr != nil {
-		cmd = exec.CommandContext(cctx, name, args...)
-		cmd.Dir = env.Workdir
-		cmd.WaitDelay = 2 * time.Second
+		cmd = probeCmd(cctx, env, name, args)
 		cmd.SysProcAttr = detachTTY(nil)
 		out, _, _, err = runCapture(cmd, "")
 	}
@@ -237,6 +275,7 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 
 // noneStillRunning reports whether every one of these job ids has stopped (or is gone from the
 // registry, which is the same thing for this purpose — a pruned job is a finished job).
+
 func noneStillRunning(ids []string) bool {
 	for _, id := range ids {
 		if j, ok := findJob(id); ok && j.Running {

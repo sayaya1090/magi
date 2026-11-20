@@ -120,6 +120,18 @@ internal class RichAnswer {
                 }
         }
 
+        /**
+         * [apply] for the HTML made from [md], kept only while [md] is still what the panel shows (or the
+         * panel shows nothing yet): a render that finishes after a newer one must not put older text back.
+         */
+        fun current(
+            shown: () -> String?, md: String,
+            apply: (String, com.intellij.openapi.vfs.VirtualFile) -> Unit,
+        ): (String, com.intellij.openapi.vfs.VirtualFile) -> Unit = { html, vf ->
+            val now = shown()
+            if (now == null || now == md) apply(html, vf)
+        }
+
         /** Failed attempts after which an answer is not given a browser again (it stays light). */
         const val TRIES = 3
 
@@ -180,14 +192,13 @@ internal class RichAnswer {
             if (held.md == md && wasStreaming != streaming) held.measure()
             if (held.md != md) runCatching {
                 held.md = md
-                markdownHtml(project, md, held.panel) { html, vf ->
-                    if (held.md != md) return@markdownHtml // a newer text arrived while this one was being made
+                markdownHtml(project, md, held.panel, done = current({ held.md }, md) { html, vf ->
                     val token = java.util.UUID.randomUUID().toString()
                     held.component.putClientProperty("magi.document", token)
                     held.setHtml(documentHtml(html, token), vf)
                     // 임의의 기본값으로 재설정하지 않고 실측 기반으로 높이를 재계산한다 (리뷰 F6: 갱신 시 패널 높이 깜빡임 방지).
                     held.measure()
-                }
+                })
             }.onFailure { LOG.info("magi: 렌더 갱신 실패 — 이전 렌더링 유지", it) }
             return held.component
         }
@@ -204,7 +215,10 @@ internal class RichAnswer {
             // 브라우저 로딩 전 HTML 주입 처리: 빈 문서를 먼저 넣고, 백그라운드에서 만든 HTML을 같은 토큰으로 바꾼다.
             val token = java.util.UUID.randomUUID().toString()
             htmlPanel.setHtml(documentHtml("", token), 0, vf)
-            markdownHtml(project, md, htmlPanel) { html, f -> htmlPanel.setHtml(documentHtml(html, token), 0, f) }
+            // A first render that finishes after an update (made while it was being made) is dropped.
+            markdownHtml(project, md, htmlPanel, done = current({ live[key]?.takeIf { it.panel === htmlPanel }?.md }, md) { html, f ->
+                htmlPanel.setHtml(documentHtml(html, token), 0, f)
+            })
             // 브라우저의 실제 렌더링 높이가 확정되기 전까지 사용할 초기 추정 높이 계산
             val h = initialHeight(key, md)
             val holder = com.intellij.ui.components.JBPanel<com.intellij.ui.components.JBPanel<*>>(

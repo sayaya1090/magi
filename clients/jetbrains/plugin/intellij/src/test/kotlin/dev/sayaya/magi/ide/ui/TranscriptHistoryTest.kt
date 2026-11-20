@@ -289,6 +289,23 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         }
     }
 
+    fun testARenderThatFinishesLateDoesNotPutOlderTextBack() {
+        // The first render of an answer and a later update are made off the EDT; whichever finishes
+        // last must not win. HTML made from text the panel no longer shows is dropped.
+        val vf = com.intellij.testFramework.LightVirtualFile("a.md", "")
+        val applied = mutableListOf<String>()
+        var shown: String? = null
+        val first = RichAnswer.current({ shown }, "old") { h, _ -> applied += h }
+        val update = RichAnswer.current({ shown }, "new") { h, _ -> applied += h }
+        shown = "new"
+        update("NEW", vf)
+        first("OLD", vf)
+        assertEquals("the late first render must not cover the update", listOf("NEW"), applied)
+        val fresh = mutableListOf<String>()
+        RichAnswer.current({ null }, "only") { h, _ -> fresh += h }("ONLY", vf)
+        assertEquals("a render with nothing shown yet is applied", listOf("ONLY"), fresh)
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))
