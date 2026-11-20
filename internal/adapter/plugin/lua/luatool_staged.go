@@ -23,6 +23,9 @@ import (
 // true, is the tool's result as it stands. Without finish, the child's text is the result and its
 // error the tool's error.
 func (t *luaTool) executeStaged(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	if heldBy(ctx, t.plugin) {
+		return t.reentered(), nil
+	}
 	var args any
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {
@@ -68,7 +71,7 @@ func (t *luaTool) withCall(ctx context.Context, env port.ToolEnv, f func(L *lua.
 		return false
 	}
 	prevEnv, prevCtx := t.plugin.env, t.plugin.callCtx
-	t.plugin.env, t.plugin.callCtx = env, ctx
+	t.plugin.env, t.plugin.callCtx = env, holding(ctx, t.plugin)
 	defer func() { t.plugin.env, t.plugin.callCtx = prevEnv, prevCtx }()
 	f(t.plugin.L)
 	return true

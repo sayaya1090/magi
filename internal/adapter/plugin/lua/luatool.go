@@ -33,6 +33,12 @@ func (t *luaTool) Schema() json.RawMessage { return t.schema }
 // group it belongs to in the /subagents list, and whether it is hidden from the main agent.
 func (t *luaTool) Meta() port.ToolMetadata { return t.meta }
 
+// reentered is the answer to a call into this tool's plugin from a chain that already holds its lock.
+func (t *luaTool) reentered() session.ToolResult {
+	return errResult(fmt.Sprintf("lua tool %q: plugin %q is already running a tool further up this call; "+
+		"a call back into it would wait on itself forever, so it is refused", t.name, t.plugin.name))
+}
+
 // Execute calls the Lua function with the decoded args and converts its return
 // value(s) into a ToolResult. The Lua function may return:
 //
@@ -43,6 +49,9 @@ func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	if t.prepare != nil {
 		return t.executeStaged(ctx, raw, env)
 	}
+	if heldBy(ctx, t.plugin) {
+		return t.reentered(), nil
+	}
 	t.plugin.mu.Lock()
 	defer t.plugin.mu.Unlock()
 
@@ -52,7 +61,7 @@ func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	// outside any tool call) keep the load-time seeded env instead of whatever
 	// the last tool call happened to leave behind.
 	prevEnv, prevCtx := t.plugin.env, t.plugin.callCtx
-	t.plugin.env, t.plugin.callCtx = env, ctx
+	t.plugin.env, t.plugin.callCtx = env, holding(ctx, t.plugin)
 	t.plugin.newCall()
 	defer func() { t.plugin.env, t.plugin.callCtx = prevEnv, prevCtx }()
 

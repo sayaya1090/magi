@@ -221,3 +221,29 @@ func manifestExecTimeout(raw string, logf func(string), name string) time.Durati
 	}
 	return d
 }
+
+// heldKey marks, in a call's context, the plugins whose lock this call chain already holds: a tool
+// runs holding its plugin's lock, and a call that comes back into the same plugin further down the
+// chain — directly, or through another plugin's tool — would wait on that lock forever.
+type heldKey struct{}
+
+type heldChain struct {
+	p    *plugin
+	next *heldChain
+}
+
+// holding is ctx with p added to the plugins this chain holds.
+func holding(ctx context.Context, p *plugin) context.Context {
+	prev, _ := ctx.Value(heldKey{}).(*heldChain)
+	return context.WithValue(ctx, heldKey{}, &heldChain{p: p, next: prev})
+}
+
+// heldBy reports whether this call chain already holds p's lock.
+func heldBy(ctx context.Context, p *plugin) bool {
+	for c, _ := ctx.Value(heldKey{}).(*heldChain); c != nil; c = c.next {
+		if c.p == p {
+			return true
+		}
+	}
+	return false
+}
