@@ -35,7 +35,8 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	p.requireCap(L, "call_tools")
 	src := L.CheckString(1)
 	opts := L.OptTable(2, L.NewTable())
-	if p.env.CallTool == nil {
+	// A dry run reaches no tool, so it needs no call to hang off; a real one does.
+	if p.env.CallTool == nil && !lua.LVAsBool(opts.RawGetString("dry")) {
 		return fail(L, "run_script: only available inside a tool call")
 	}
 	timeout := scriptTimeoutDefault
@@ -63,28 +64,63 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		}
 		declared = only
 	}
+	dry := lua.LVAsBool(opts.RawGetString("dry"))
 	host := p.env.CallTool
 	// child = "task line": run the script in a child session the host opens for it, so its calls are
 	// recorded there and not in this conversation's log. A host without children runs it on the call.
 	var child *port.ChildRun
-	if label, ok := opts.RawGetString("child").(lua.LString); ok && p.env.OpenChild != nil {
+	if label, ok := opts.RawGetString("child").(lua.LString); ok && p.env.OpenChild != nil && !dry {
 		ch, err := p.env.OpenChild(p.spawnCtx(), string(label))
 		if err != nil {
 			return fail(L, "run_script: "+err.Error())
 		}
 		child, host = &ch, ch.CallTool
 	}
+	// dry = true: no tool runs. Each call the script makes is recorded, in order, and answered with an
+	// empty text; the record comes back as a third value, {{tool=, args=<json>}, ...}. What a script
+	// WOULD do can be compared with what was meant without doing any of it.
+	var dryMu sync.Mutex
+	var dryCalls []any
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 		if !declared[name] {
 			return session.ToolResult{}, fmt.Errorf("%s is not declared in call_tools (plugin.toml)", name)
 		}
+		if dry {
+			dryMu.Lock()
+			dryCalls = append(dryCalls, map[string]any{"tool": name, "args": string(args)})
+			dryMu.Unlock()
+			return session.ToolResult{Content: json.RawMessage(`""`)}, nil
+		}
 		return host(ctx, name, args)
 	}
-	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, p.env.ParallelToolSafe, scriptHooksOf(L, opts), src, timeout, limit)
+	// serial = {...} names tools that never run alongside another call in this run, whatever the host
+	// would allow. A dry run is wholly serial, so its record is in the order the script asked.
+	safe := p.env.ParallelToolSafe
+	if lt, ok := opts.RawGetString("serial").(*lua.LTable); ok {
+		one := map[string]bool{}
+		for i := 1; i <= lt.Len(); i++ {
+			one[lt.RawGetInt(i).String()] = true
+		}
+		inner := safe
+		safe = func(name string) bool { return !one[name] && inner != nil && inner(name) }
+	}
+	if dry {
+		safe = func(string) bool { return false }
+	}
+	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, safe, scriptHooksOf(L, opts), src, timeout, limit)
 	if child != nil {
 		child.Close(out, err)
 	}
 	L.Push(lua.LString(out))
+	if dry {
+		if err != nil {
+			L.Push(lua.LString(err.Error()))
+		} else {
+			L.Push(lua.LNil)
+		}
+		L.Push(goToLua(L, dryCalls))
+		return 3
+	}
 	if err != nil {
 		L.Push(lua.LString(err.Error()))
 		return 2

@@ -240,8 +240,9 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 
 ## 10. Planned, not built
 
-1. **Routines that write.** Routines (§12) run read-only tools only; a routine with `bash`, `edit`,
-   `multiedit` or `write` is refused before it asks.
+1. **Output-dependent stretches.** A trace keeps calls, not results, so a drafted stretch whose later
+   call uses a value from an earlier result is saved as a draft with a TODO (§12); the person writes
+   that data flow. The calls of a parallel batch are traced in the order they finished.
 2. **Candidates from Engram.** Repeated sequences are counted by the dummy plug itself (§12), not by
    Engram; `propose_experience` writes to the store at once with no review step, so it is not used.
 3. **`ask_user` questions reach the conversation.** Permission asks are already relayed (§8);
@@ -264,6 +265,9 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 - Background runs on a real daemon: the completion turn, an interrupt or a restart mid-script, and how the
   screens draw the launch result. Covered by tests only.
 - Web marks do not take the baked sprite (`data-i`, `Icons.dress`); they are always the drawn shapes.
+- Traced routines (§12) on a real daemon: the trace from live `tool_finished` events, `/routine-*`
+  command output in each client, and a writing routine's prompts on real screens. Tests fire the
+  events by hand.
 - Routines (§12) on a real daemon: the approval prompt on real JetBrains, VS Code and web screens,
   and the example routine with a real `explore`. Covered by tests with stand-in tools only.
 
@@ -286,11 +290,30 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   even in `allow`. Answering "always" or "persist" approves that routine version only; it adds no
   session grant and no project allow rule. Approval grants nothing else: each call still passes the
   permission gate, and a call outside `tools` is refused.
-- **Read-only.** This version runs routines of `read`, `grep`, `glob`, `list`, `explore` and
-  `recall_memory` only.
-- **Candidates.** When a successful `dummy_plug` run's read-only tool sequence (repeats folded) has
-  run three times, its result ends with a candidate id. The person reviews candidates with
-  `/routine-candidates` and registers one with `/routine-register <id> <name>`, which writes
-  `.magi/skills/<name>.md`. Nothing is registered otherwise, and the first run still asks.
+- **Writes.** A routine may call any tool in the dummy plug's `call_tools`, including `bash`, `edit`,
+  `multiedit` and `write`. Its approval prompt names the writing tools (`writes`); approving lets the
+  routine run, not write: each write still passes its own permission gate (in `ask` mode it asks), and
+  the writing tools run one at a time (`run_script`'s `serial`). A tool outside `call_tools`
+  (`coding_task`, `wait_for`, …) cannot be in a routine.
+- **Traces and drafts.** The dummy plug keeps this conversation's tool calls (`tool_finished`) by turn
+  (`user_message`), the last 300. `/routine-trace` lists them, numbered, with the recent `dummy_plug`
+  runs. `/routine-draft <name> <from>-<to>` saves calls `<from>`–`<to>` as a routine: one `call_tool`
+  line each, and each word that names one run's thing (a hash, a session or task id, a timestamp)
+  becomes an input (`input.p1`, …; the traced values go in `example:`). A word that first shows up
+  after the first step and is not in the request probably came from an earlier result, which a trace
+  does not hold: it is marked `-- TODO` and the routine is saved with `status: draft`.
+  `/routine-draft <name> run:<id>` saves a `dummy_plug` run's script as it ran. `run_routine` refuses
+  a draft until the person has reviewed it and deleted the status line.
+- **Dry check.** Before it is saved, a drafted routine runs with `run_script{dry=true}` on its traced
+  values: no tool is reached, and the calls it would make are compared with the trace, call by call
+  (`dry_check:` in the file). A mismatch saves it as a draft. A `dummy_plug` run's script is only run
+  dry and its reach reported, since its later calls may read results a dry run leaves empty.
+- **Candidates.** When a turn ends, each stretch of it between judgement calls (`ask_user`, `council`,
+  `todowrite`, …) and failures is fingerprinted with those run-specific words blanked; a stretch seen
+  in a second turn is offered as a candidate (logged, and listed by `/routine-candidates`). A turn's
+  opening reads (`read`, `list`, `glob` only) are left out: in the sessions measured they were most of
+  what repeated. A `dummy_plug` script whose tool sequence succeeds three times is still offered too.
+  `/routine-register <id> <name>` saves a candidate through the same draft and dry check; nothing is
+  registered otherwise, and its first run still asks.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.

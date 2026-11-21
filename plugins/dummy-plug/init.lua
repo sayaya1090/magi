@@ -187,6 +187,15 @@ Use it for loops, filtering and many reads whose contents you do not need to see
 -- routine grants nothing else — each call the script makes passes the permission gate as before, and
 -- run_script refuses any tool outside the approved list. This version runs read-only routines only.
 local READ_ONLY = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true }
+-- The tools a routine may call: this plugin's call_tools. Those that may write run one at a time
+-- (run_script serial), and each still passes its own permission gate.
+local CALLABLE = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true,
+  bash = true, edit = true, multiedit = true, write = true }
+local WRITES = { bash = true, edit = true, multiedit = true, write = true }
+-- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
+local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
+  label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
+  run_routine = true, dummy_plug = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -220,8 +229,8 @@ local function load_routine(name)
       table.sort(tools)
       if #tools == 0 then return nil, path .. ": tools: names no tool" end
       for _, t in ipairs(tools) do
-        if not READ_ONLY[t] then
-          return nil, path .. ": " .. t .. " is not read-only; this version runs routines of read, grep, glob, list, explore and recall_memory only"
+        if not CALLABLE[t] then
+          return nil, path .. ": " .. t .. " cannot be called from a routine (not in this plugin's call_tools)"
         end
       end
       local inputs = { type = "object", properties = {} }
@@ -232,7 +241,7 @@ local function load_routine(name)
       end
       local canon = script .. "\n\0inputs\0" .. magi.json_encode(inputs) .. "\0tools\0" .. table.concat(tools, ",")
       return { name = name, path = path, description = fm.description or "", tools = tools, inputs = inputs,
-        script = script, fingerprint = magi.sha256(canon) }
+        script = script, fingerprint = magi.sha256(canon), status = fm.status }
     end
   end
   return nil, "no routine named " .. name .. " (.magi/skills/" .. name .. ".md or .claude/skills/" .. name .. "/SKILL.md)"
@@ -268,7 +277,7 @@ local function note_sequence(goal, script, seq)
   if #seq < 2 then return nil end
   local parts, tools, set = {}, {}, {}
   for _, t in ipairs(seq) do
-    if not READ_ONLY[t] then return nil end
+    if not CALLABLE[t] then return nil end
     if parts[#parts] ~= t then parts[#parts + 1] = t end
     if not set[t] then set[t] = true; tools[#tools + 1] = t end
   end
@@ -286,6 +295,309 @@ local function note_sequence(goal, script, seq)
   magi.store_set("routine_candidates", cands)
   return cands[id]
 end
+
+-- Traces and drafts. tool_finished and user_message say what this conversation's tools did, turn by
+-- turn; a person picks a stretch of it (/routine-trace, /routine-draft) or a finished dummy_plug run,
+-- and it is saved as a routine draft checked dry: run with no tool reached, its calls compared with
+-- what was traced. A stretch that runs again in another turn is offered as a candidate on the same
+-- path. Nothing here needs Engram or a model.
+local TRACE_KEEP, TRACE_ARGS_MAX, SHAPES_KEEP, RUNS_KEEP = 300, 8000, 500, 30
+
+local function trace_key(sid) return "routine_trace:" .. tostring(sid) end
+
+local function load_trace(sid)
+  local t = stored(trace_key(sid))
+  t.calls = type(t.calls) == "table" and t.calls or {}
+  t.prompts = type(t.prompts) == "table" and t.prompts or {}
+  t.turn = tonumber(t.turn) or 0
+  t.next = tonumber(t.next) or 1
+  return t
+end
+
+-- dynamic: a word that names one run's thing — a hash, a session, call or task id, a timestamp — and
+-- so is an input of a routine rather than part of what it does.
+local function dynamic(w)
+  if #w < 7 then return false end
+  if w:match("^s_%x+$") or w:match("^call_cc_%x+$") then return true end
+  if w:match("^%x+$") and w:match("%a") and w:match("%d") then return true end
+  if w:match("^[%w%-]+%-%x%x%x%x%x%x%x%x$") and w:match("%d") then return true end
+  return w:match("^%d%d%d%d%d%d%d%dT%d%d%d%d%d%d$") ~= nil
+end
+
+local function shape_args(a)
+  local s = (a:gsub("[%w_%-]+", function(w) if dynamic(w) then return "<D>" end end))
+  return (s:gsub("%d+", "<N>"))
+end
+
+local function replace_plain(s, old, new)
+  local out, i = {}, 1
+  while true do
+    local a, b = s:find(old, i, true)
+    if not a then break end
+    out[#out + 1] = s:sub(i, a - 1)
+    out[#out + 1] = new
+    i = b + 1
+  end
+  out[#out + 1] = s:sub(i)
+  return table.concat(out)
+end
+
+-- draft_from_calls turns traced calls into a script: one call_tool line each, the run's dynamic
+-- words as inputs. A word that first shows up after the first step and is not in the request likely
+-- came from an earlier result, which a trace does not hold: it is an input with a TODO beside it.
+local function draft_from_calls(calls, prompt)
+  if #calls == 0 then return nil, "no calls in that stretch" end
+  local tools, seen = {}, {}
+  for i, c in ipairs(calls) do
+    if not CALLABLE[c.tool] then
+      return nil, "step " .. i .. ": " .. tostring(c.tool) .. " cannot be called from a routine (not in this plugin's call_tools)"
+    end
+    if type(c.args) ~= "string" then return nil, "step " .. i .. ": its arguments were too large to keep" end
+    if not seen[c.tool] then seen[c.tool] = true; tools[#tools + 1] = c.tool end
+  end
+  table.sort(tools)
+  local params, by, earlier = {}, {}, prompt or ""
+  for i, c in ipairs(calls) do
+    for w in c.args:gmatch("[%w_%-]+") do
+      if dynamic(w) and not by[w] then
+        local p = { name = "p" .. (#params + 1), value = w, step = i }
+        p.from_result = i > 1 and not earlier:find(w, 1, true)
+        params[#params + 1] = p
+        by[w] = p
+      end
+    end
+    earlier = earlier .. "\n" .. c.args
+  end
+  local longest = {}
+  for _, p in ipairs(params) do longest[#longest + 1] = p end
+  table.sort(longest, function(a, b) return #a.value > #b.value end)
+  local lines = {
+    "local function fill(s)",
+    "  return (s:gsub(\"{{([%w_]+)}}\", function(k) return json_encode(tostring(input[k])):sub(2, -2) end))",
+    "end",
+  }
+  local todo = {}
+  for i, c in ipairs(calls) do
+    local a = c.args
+    for _, p in ipairs(longest) do a = replace_plain(a, p.value, "{{" .. p.name .. "}}") end
+    for _, p in ipairs(params) do
+      if p.step == i and p.from_result then
+        lines[#lines + 1] = "-- TODO: input." .. p.name .. " (" .. p.value .. ") first appears here and is not in the request; it" ..
+          " likely came from an earlier step's result. Take it from that result before relying on this routine."
+        todo[#todo + 1] = p.name
+      end
+    end
+    lines[#lines + 1] = string.format("local r%d, e%d = call_tool(%q, json_decode(fill(%q)))", i, i, c.tool, a)
+    if c.ok == false then
+      lines[#lines + 1] = "-- step " .. i .. " failed when it was traced; its failure does not stop the routine"
+    else
+      lines[#lines + 1] = string.format("if r%d == nil then error(%q .. tostring(e%d)) end", i, "step " .. i .. " (" .. c.tool .. ") failed: ", i)
+    end
+  end
+  lines[#lines + 1] = string.format("print(%q)", "done: " .. #calls .. " steps")
+  local props, req, ex = {}, {}, {}
+  for _, p in ipairs(params) do
+    props[#props + 1] = string.format("%q:{\"type\":\"string\"}", p.name)
+    req[#req + 1] = string.format("%q", p.name)
+    ex[#ex + 1] = string.format("%q:%s", p.name, magi.json_encode(p.value))
+  end
+  return { script = table.concat(lines, "\n"), tools = tools, todo = todo,
+    inputs = '{"type":"object","properties":{' .. table.concat(props, ",") .. '},"required":[' .. table.concat(req, ",") .. "]}",
+    example = "{" .. table.concat(ex, ",") .. "}" }
+end
+
+local function canon(s)
+  local ok, v = pcall(magi.json_decode, s)
+  if not ok or v == nil then return tostring(s) end
+  return magi.json_encode(v)
+end
+
+-- dry_check runs a script with no tool reached and compares the calls it would make with expect (the
+-- traced calls, in order). Without expect (a dummy_plug run, whose later calls may read earlier
+-- results a dry run leaves empty) it only reports how far the script got.
+local function dry_check(script, example, tools, expect)
+  local src = "local input = json_decode(" .. string.format("%q", example or "{}") .. ")\n" .. script
+  local _, err, calls = magi.run_script(src, { dry = true, tools = tools, timeout = 10 })
+  calls = type(calls) == "table" and calls or {}
+  if not expect then
+    if err then return "stopped after " .. #calls .. " call(s): " .. tostring(err), true end
+    return "ran " .. #calls .. " call(s)", true
+  end
+  for i, c in ipairs(expect) do
+    local got = calls[i]
+    if not got then
+      return "failed: made " .. #calls .. " of " .. #expect .. " calls" .. (err and (" (" .. tostring(err) .. ")") or ""), false
+    end
+    if got.tool ~= c.tool or canon(got.args) ~= canon(c.args) then
+      return "failed at step " .. i .. ": would call " .. tostring(got.tool) .. " " .. tostring(got.args), false
+    end
+  end
+  if #calls > #expect then return "failed: made " .. #calls .. " calls, the trace has " .. #expect, false end
+  return "passed " .. #expect .. "/" .. #expect, true
+end
+
+-- save_routine writes the routine file. Saving is choosing what to keep; running it is approved
+-- separately, by its first run_routine. A draft (status: draft) is refused by run_routine until the
+-- person has reviewed it and deleted that line.
+local function save_routine(name, description, d, source, dry, draft)
+  if type(name) ~= "string" or not name:match("^[%w_%-]+$") then return nil, "name: letters, digits, - or _" end
+  local path = ".magi/skills/" .. name .. ".md"
+  if type(magi.read_file(path)) == "string" then return nil, path .. " already exists; pick another name" end
+  local fm = { "---", "kind: routine" }
+  if draft then fm[#fm + 1] = "status: draft" end
+  fm[#fm + 1] = "description: " .. (tostring(description or name):gsub("\n", " "))
+  fm[#fm + 1] = "tools: " .. table.concat(d.tools, ", ")
+  fm[#fm + 1] = "inputs: " .. d.inputs
+  if d.example then fm[#fm + 1] = "example: " .. d.example end
+  fm[#fm + 1] = "source: " .. source
+  fm[#fm + 1] = "dry_check: " .. dry
+  fm[#fm + 1] = "---"
+  local note = draft and "A draft: review it, resolve each TODO, then delete the status line; run_routine refuses a draft.\n"
+    or "Review it before its first run; that run asks for approval.\n"
+  local ok, err = magi.write_file(path, table.concat(fm, "\n") .. "\n" .. note .. "\n```lua\n" .. d.script .. "\n```\n")
+  if not ok then return nil, "could not write " .. path .. ": " .. tostring(err) end
+  return path
+end
+
+local function draft_trace(name, calls, prompt, source, description)
+  local d, err = draft_from_calls(calls, prompt)
+  if not d then return nil, err end
+  local dry, ok = dry_check(d.script, d.example, d.tools, calls)
+  local draft = #d.todo > 0 or not ok
+  local path, werr = save_routine(name, description, d, source, dry, draft)
+  if not path then return nil, werr end
+  local why = "saved " .. path .. " (" .. #calls .. " steps) — dry check " .. dry
+  if #d.todo > 0 then why = why .. "; TODO " .. table.concat(d.todo, ", ") .. ": may come from an earlier result" end
+  if draft then why = why .. "; it is a draft until you review it and delete its status line" end
+  return path, why .. "; its first run asks for approval"
+end
+
+local function draft_script(name, script, tools, source, description)
+  if type(script) ~= "string" or script == "" then return nil, "no script to save" end
+  local list = {}
+  for _, t in ipairs(tools or {}) do
+    if not CALLABLE[t] then return nil, tostring(t) .. " cannot be called from a routine (not in this plugin's call_tools)" end
+    list[#list + 1] = t
+  end
+  table.sort(list)
+  if #list == 0 then return nil, "that run called no tool" end
+  local d = { script = script, tools = list, inputs = '{"type":"object","properties":{}}' }
+  local dry = dry_check(script, "{}", list, nil)
+  local path, werr = save_routine(name, description, d, source, dry, false)
+  if not path then return nil, werr end
+  return path, "saved " .. path .. " — dry run " .. dry .. "; its first run asks for approval"
+end
+
+local function note_run(goal, script, seq)
+  local runs = stored("routine_runs")
+  local list = type(runs.list) == "table" and runs.list or {}
+  local tools, set = {}, {}
+  for _, t in ipairs(seq) do
+    if not set[t] then set[t] = true; tools[#tools + 1] = t end
+  end
+  table.sort(tools)
+  local id = "r" .. magi.sha256(script .. tostring(magi.time()) .. tostring(magi.nonce())):sub(1, 8)
+  list[#list + 1] = { id = id, goal = goal, script = script, tools = tools, at = magi.time() }
+  while #list > RUNS_KEEP do table.remove(list, 1) end
+  runs.list = list
+  magi.store_set("routine_runs", runs)
+  return id
+end
+
+-- note_repeats looks at the turn that just ended: each stretch between judgements and failures is
+-- fingerprinted with its dynamic words blanked, and one seen in a second turn becomes a candidate.
+-- A turn's opening reads (read, list, glob only) are left out: in the sessions measured they were
+-- most of what repeated, and a model choosing what to read is not a procedure.
+local function note_repeats(sid)
+  local t = load_trace(sid)
+  local turn, first_n = t.turn, nil
+  local segs, seg = {}, {}
+  for _, c in ipairs(t.calls) do
+    if c.turn == turn then
+      first_n = first_n or c.n
+      if JUDGE[c.tool] then
+        if #seg > 0 then segs[#segs + 1] = seg end
+        seg = {}
+      else
+        seg[#seg + 1] = c
+        if c.ok == false then segs[#segs + 1] = seg; seg = {} end
+      end
+    end
+  end
+  if #seg > 0 then segs[#segs + 1] = seg end
+  local shapes, changed = stored("routine_shapes"), false
+  for _, s in ipairs(segs) do
+    local fits, opening = #s >= 2 and #s <= 12, s[1].n == first_n
+    local parts, tl = {}, {}
+    for _, c in ipairs(s) do
+      if not CALLABLE[c.tool] or type(c.args) ~= "string" then fits = false end
+      if c.tool ~= "read" and c.tool ~= "list" and c.tool ~= "glob" then opening = false end
+      parts[#parts + 1] = c.tool .. " " .. (type(c.args) == "string" and shape_args(c.args) or "")
+      tl[#tl + 1] = c.tool
+    end
+    if fits and not opening then
+      local key = magi.sha256(table.concat(parts, "\n")):sub(1, 12)
+      local seen = type(shapes[key]) == "table" and shapes[key] or {}
+      seen.turns = type(seen.turns) == "table" and seen.turns or {}
+      local tk = sid .. ":" .. turn
+      if not seen.turns[tk] then
+        seen.turns[tk] = true
+        seen.count = (tonumber(seen.count) or 0) + 1
+        shapes[key], changed = seen, true
+        if seen.count == 2 then
+          local id = "t" .. key:sub(1, 8)
+          local preview = {}
+          for _, c in ipairs(s) do preview[#preview + 1] = c.tool .. " " .. c.args end
+          local tools, set = {}, {}
+          for _, x in ipairs(tl) do if not set[x] then set[x] = true; tools[#tools + 1] = x end end
+          table.sort(tools)
+          local cands = stored("routine_candidates")
+          cands[id] = { id = id, kind = "trace", sequence = table.concat(tl, ">"), count = 2, tools = tools,
+            goal = "repeated stretch: " .. table.concat(tl, " > "), calls = s, prompt = t.prompts[tostring(turn)] or "",
+            script = table.concat(preview, "\n") }
+          magi.store_set("routine_candidates", cands)
+          magi.log("[routine] candidate " .. id .. ": " .. cands[id].sequence .. " ran in 2 turns — review with " ..
+            "/routine-candidates, save with /routine-register " .. id .. " <name>")
+        end
+      end
+    end
+  end
+  if changed then
+    local n = 0
+    for _ in pairs(shapes) do n = n + 1 end
+    if n > SHAPES_KEEP then shapes[next(shapes)] = nil end
+    magi.store_set("routine_shapes", shapes)
+  end
+end
+
+magi.on("user_message", function(ev)
+  if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
+  local t = load_trace(ev.session)
+  t.turn = t.turn + 1
+  t.prompts[tostring(t.turn)] = tostring(ev.text or ""):sub(1, 4000)
+  local low, keep = t.calls[1] and tonumber(t.calls[1].turn) or t.turn, {}
+  for k, v in pairs(t.prompts) do
+    if tonumber(k) and tonumber(k) >= low then keep[k] = v end
+  end
+  t.prompts = keep
+  magi.store_set(trace_key(ev.session), t)
+  magi.store_set("routine_last_session", ev.session)
+end)
+
+magi.on("tool_finished", function(ev)
+  if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" or type(ev.tool) ~= "string" then return end
+  local t = load_trace(ev.session)
+  local args = ev.args
+  if type(args) ~= "string" or #args > TRACE_ARGS_MAX then args = nil end
+  t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, args = args, ok = ev.ok == "true" }
+  t.next = t.next + 1
+  while #t.calls > TRACE_KEEP do table.remove(t.calls, 1) end
+  magi.store_set(trace_key(ev.session), t)
+end)
+
+magi.on("turn_finished", function(ev)
+  if type(ev) == "table" and type(ev.session) == "string" and ev.session ~= "" then note_repeats(ev.session) end
+end)
 
 local ROUTINE_USE = [[
 Run a routine by name: a code-mode script saved as a skill (frontmatter kind: routine) with the tools it may call and its inputs. You pass name and args; the script runs in a child session like dummy_plug and only what it prints comes back. The first run, and any run after the routine's script, inputs or tools changed, asks the person to approve it; a refusal comes back as an error and nothing runs.]]
@@ -306,6 +618,14 @@ magi.register_tool{
   execute = function(a)
     local r, err = load_routine(a and a.name)
     if not r then return err, true end
+    if r.status == "draft" then
+      return "routine " .. r.name .. " is a draft (status: draft in " .. r.path .. "): review it, resolve its TODOs and " ..
+        "delete the status line first; nothing ran", true
+    end
+    local writes = {}
+    for _, t in ipairs(r.tools) do
+      if WRITES[t] then writes[#writes + 1] = t end
+    end
     local bad = check_inputs(r.inputs, a.args)
     if bad then return "routine " .. r.name .. ": " .. bad, true end
     local all = stored("routine_approvals")
@@ -313,8 +633,9 @@ magi.register_tool{
     if not prev or prev.fingerprint ~= r.fingerprint then
       local why = prev and ("routine " .. r.name .. " changed since it was approved") or ("run routine " .. r.name .. " for the first time")
       local ok, aerr = magi.approve{
-        reason = why .. " — it may call: " .. table.concat(r.tools, ", "),
-        detail = { routine = r.name, path = r.path, tools = r.tools, inputs = r.inputs, script = r.script,
+        reason = why .. " — it may call: " .. table.concat(r.tools, ", ") .. (#writes > 0 and (" — it may WRITE with " ..
+          table.concat(writes, ", ") .. "; each write still asks as usual, one at a time") or ""),
+        detail = { routine = r.name, path = r.path, tools = r.tools, writes = writes, inputs = r.inputs, script = r.script,
           fingerprint = r.fingerprint, previous = prev and prev.fingerprint or nil },
       }
       if ok == nil then return "routine " .. r.name .. " could not be approved: " .. tostring(aerr), true end
@@ -326,7 +647,7 @@ magi.register_tool{
     local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(a.args or {})) .. ")\n" .. r.script
     local out, rerr = magi.run_script(src, {
       timeout = a.timeout, output = a.output, globals = globals, on_call = on_call,
-      child = "routine " .. r.name, tools = r.tools,
+      child = "routine " .. r.name, tools = r.tools, serial = writes,
     })
     finish(rerr == nil)
     if rerr then return (out or "") .. "[" .. rerr .. "]", true end
@@ -362,25 +683,90 @@ magi.register_command{
 
 magi.register_command{
   name = "routine-register",
-  description = "Register a reviewed routine candidate as .magi/skills/<name>.md (/routine-register <id> <name>)",
+  description = "Save a reviewed routine candidate as .magi/skills/<name>.md, checked dry (/routine-register <id> <name>)",
   execute = function(args)
     local w = words(args)
     local id, name = w[1], w[2]
     local cands = stored("routine_candidates")
     local c = id and cands[id]
     if type(c) ~= "table" then return "no routine candidate " .. tostring(id) .. " (see /routine-candidates)" end
-    if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-register <id> <name> (name: letters, digits, - or _)" end
-    local path = ".magi/skills/" .. name .. ".md"
-    if type(magi.read_file(path)) == "string" then return path .. " already exists; pick another name" end
-    local text = "---\nkind: routine\ndescription: " .. tostring(c.goal):gsub("\n", " ") ..
-      "\ntools: " .. table.concat(c.tools or {}, ", ") .. "\ninputs: {\"type\":\"object\",\"properties\":{}}\n---\n" ..
-      "Registered from routine candidate " .. id .. " (" .. tostring(c.sequence) .. "). Run it with run_routine{name=\"" .. name ..
-      "\"}; its first run asks for approval.\n\n```lua\n" .. tostring(c.script) .. "\n```\n"
-    local ok, err = magi.write_file(path, text)
-    if not ok then return "could not write " .. path .. ": " .. tostring(err) end
+    local path, why
+    if c.kind == "trace" then
+      path, why = draft_trace(name, c.calls or {}, c.prompt, "repeated stretch " .. id, c.goal)
+    else
+      path, why = draft_script(name, c.script, c.tools, "routine candidate " .. id, c.goal)
+    end
+    if not path then return why end
     cands[id] = nil
     magi.store_set("routine_candidates", cands)
-    magi.log("[routine] registered " .. path .. "; its first run with run_routine asks for approval")
+    magi.log("[routine] " .. why)
+  end,
+}
+
+magi.register_command{
+  name = "routine-trace",
+  description = "List this conversation's recent tool calls and dummy_plug runs, to pick from for /routine-draft",
+  execute = function(args)
+    local n = tonumber(words(args)[1]) or 30
+    local sid = magi.store_get("routine_last_session")
+    local lines = {}
+    if type(sid) == "string" and sid ~= "" then
+      local t = load_trace(sid)
+      for i = math.max(1, #t.calls - n + 1), #t.calls do
+        local c = t.calls[i]
+        lines[#lines + 1] = string.format("#%d turn %s %s%s %s", c.n, tostring(c.turn), tostring(c.tool),
+          c.ok == false and " (failed)" or "", (tostring(c.args or "(too large to keep)"):sub(1, 120)))
+      end
+    end
+    local runs = stored("routine_runs")
+    for _, r in ipairs(type(runs.list) == "table" and runs.list or {}) do
+      lines[#lines + 1] = "run " .. tostring(r.id) .. " " .. tostring(r.goal or "") .. " (" .. table.concat(r.tools or {}, ", ") .. ")"
+    end
+    if #lines == 0 then magi.log("[routine] nothing traced yet"); return end
+    magi.log("[routine] trace:\n" .. table.concat(lines, "\n"))
+  end,
+}
+
+magi.register_command{
+  name = "routine-draft",
+  description = "Save tool calls <from>-<to> of /routine-trace, or a dummy_plug run (run:<id>), as a routine draft checked dry (/routine-draft <name> <from>-<to> | run:<id>)",
+  execute = function(args)
+    local w = words(args)
+    local name, what = w[1], w[2]
+    local usage = "usage: /routine-draft <name> <from>-<to> | run:<id> (numbers and ids from /routine-trace)"
+    if not name or not what then return usage end
+    local path, why
+    local rid = what:match("^run:(r%x+)$")
+    if rid then
+      local run
+      local runs = stored("routine_runs")
+      for _, r in ipairs(type(runs.list) == "table" and runs.list or {}) do
+        if r.id == rid then run = r end
+      end
+      if not run then return "no dummy_plug run " .. rid .. " (see /routine-trace)" end
+      path, why = draft_script(name, run.script, run.tools, "run " .. rid, run.goal)
+    else
+      local a, b = what:match("^(%d+)%-(%d+)$")
+      if not a then a = what:match("^(%d+)$"); b = a end
+      a, b = tonumber(a), tonumber(b)
+      if not a or not b or b < a then return usage end
+      local sid = magi.store_get("routine_last_session")
+      if type(sid) ~= "string" or sid == "" then return "no conversation traced yet" end
+      local t = load_trace(sid)
+      local calls, turns, prompts = {}, {}, {}
+      for _, c in ipairs(t.calls) do
+        if c.n >= a and c.n <= b then
+          if JUDGE[c.tool] then return "call #" .. c.n .. " (" .. tostring(c.tool) .. ") is not a step a routine repeats" end
+          calls[#calls + 1] = c
+          if not turns[c.turn] then turns[c.turn] = true; prompts[#prompts + 1] = t.prompts[tostring(c.turn)] or "" end
+        end
+      end
+      if #calls ~= b - a + 1 then return "calls #" .. a .. "-" .. b .. " are not all in the trace any more (see /routine-trace)" end
+      path, why = draft_trace(name, calls, table.concat(prompts, "\n"), "trace " .. sid .. " #" .. a .. "-" .. b,
+        "calls #" .. a .. "-" .. b .. " of " .. sid)
+    end
+    if not path then return why end
+    magi.log("[routine] " .. why)
   end,
 }
 
@@ -421,6 +807,7 @@ magi.register_tool{
     if err then
       return (out or "") .. "[" .. err .. "]", true
     end
+    note_run(goal, script, seq)
     local cand = note_sequence(goal, script, seq)
     if cand then
       out = (out or "") .. "\n[routine candidate " .. cand.id .. ": this sequence of calls (" .. cand.sequence ..

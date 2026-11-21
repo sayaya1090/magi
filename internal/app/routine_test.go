@@ -35,6 +35,7 @@ type routineRig struct {
 	sid  session.SessionID
 	s    session.Session
 	host *luaplugin.Host
+	logs *logBuf
 }
 
 func newRoutineRig(t *testing.T, dataDir, routine string) *routineRig {
@@ -47,12 +48,13 @@ func newRoutineRigWith(t *testing.T, dataDir, routine string, cfg Config) *routi
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, cfg)
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
+	logs := &logBuf{}
 	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), DataDir: dataDir,
-		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: func(string) {}})
+		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add})
 	if _, err := host.Load(ctx, filepath.Join("..", "..", "plugins", "dummy-plug")); err != nil {
 		t.Fatal(err)
 	}
-	r := &routineRig{a: a, sid: sid, s: s, host: host}
+	r := &routineRig{a: a, sid: sid, s: s, host: host, logs: logs}
 	r.write(t, routine)
 	if err := os.WriteFile(filepath.Join(s.Workdir, "notes.txt"), []byte("hello\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -189,9 +191,9 @@ func TestARoutineReachesOnlyTheToolsItWasApprovedFor(t *testing.T) {
 	if !strings.Contains(out, "glob is not declared") || !strings.Contains(out, ", 1 tool call(s)]") {
 		t.Fatalf("a call outside the approved tools must be refused and not run: %q", out)
 	}
-	r.write(t, strings.Replace(routineFile, "tools: read", "tools: read, bash", 1))
-	if out, asks, failed := r.run(t, "s2", map[string]any{"file": "notes.txt"}, "allow"); !failed || len(asks) != 0 || !strings.Contains(out, "bash is not read-only") {
-		t.Fatalf("a routine naming bash must be refused before it asks: %q %+v", out, asks)
+	r.write(t, strings.Replace(routineFile, "tools: read", "tools: read, coding_task", 1))
+	if out, asks, failed := r.run(t, "s2", map[string]any{"file": "notes.txt"}, "allow"); !failed || len(asks) != 0 || !strings.Contains(out, "coding_task cannot be called from a routine") {
+		t.Fatalf("a routine naming a tool it cannot call must be refused before it asks: %q %+v", out, asks)
 	}
 	r.write(t, routineFile)
 	if out, asks, failed := r.run(t, "s3", map[string]any{"other": 1}, "allow"); !failed || len(asks) != 0 || !strings.Contains(out, "missing input file") {
