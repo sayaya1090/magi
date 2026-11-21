@@ -77,7 +77,11 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	// a result meant, eliding it deletes knowledge that exists nowhere else, and that is exactly
 	// what the fold's summary is for. When eliding reclaims enough, the fold does not run at all;
 	// when it cannot, the fold runs over what remains.
-	if n, covered := a.elideRecentResults(ctx, s, actor, evs, estimateTokens("", msgs)-scaleKeep(messageBudget, scale)); n > 0 {
+	over := estimateTokens("", msgs) - scaleKeep(messageBudget, scale)
+	// Leave room for later tool results. The lower target is best effort: reaching
+	// the original budget still suffices to avoid a summarizer call.
+	headroom := scaleKeep(min(budget/8, messageBudget/4), scale)
+	if n, covered := a.elideResultsToTarget(ctx, s, actor, evs, over, over+headroom); n > 0 {
 		if covered {
 			return true
 		}
@@ -129,6 +133,10 @@ func (a *App) toolReadOnly(name string) bool {
 // tool result: the model wrote down what it learned, so the raw bytes are redundant as well as
 // re-derivable. An undigested result is left for the fold, whose summary supplies the digestion.
 func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor event.Actor, evs []event.Event, overTokens int) (int, bool) {
+	return a.elideResultsToTarget(ctx, s, actor, evs, overTokens, overTokens)
+}
+
+func (a *App) elideResultsToTarget(ctx context.Context, s session.Session, actor event.Actor, evs []event.Event, overTokens, target int) (int, bool) {
 	if overTokens <= 0 {
 		return 0, true
 	}
@@ -191,13 +199,13 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 		already[c.callID] = true
 		saved += c.bytes / 4
 		n++
-		if saved >= overTokens {
+		if saved >= target {
 			break
 		}
 	}
 	// Second tier: old read-only looks, oldest first, the newest keepFreshLooks spared.
 	looks := 0
-	if saved < overTokens {
+	if saved < target {
 		var reads []cand
 		for _, c := range results {
 			if c.callID == lastResult || c.callID == "" || already[c.callID] ||
@@ -206,7 +214,7 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 			}
 			reads = append(reads, c)
 		}
-		for i := 0; i < len(reads)-keepFreshLooks && saved < overTokens; i++ {
+		for i := 0; i < len(reads)-keepFreshLooks && saved < target; i++ {
 			c := reads[i]
 			if already[c.callID] {
 				continue // taken by the first tier in this same pass

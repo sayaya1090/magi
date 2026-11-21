@@ -307,3 +307,30 @@ func TestElideDoesNotCountAlreadyCompactedRawOutput(t *testing.T) {
 		t.Fatalf("counted invisible raw result: n=%d covered=%v", n, covered)
 	}
 }
+
+func TestAutoElisionLeavesBestEffortHeadroom(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		target int
+		want   int
+	}{
+		{"stops after reaching target", 1500, 2},
+		{"meeting budget still avoids a summary", 2500, 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a, sid := elideApp(t)
+			big := strings.Repeat("x", 4000)
+			evs := seed(t, a, sid,
+				elidePart(t, "first", big, session.RoleTool),
+				elideText(t, "t1", "first result explained"),
+				elidePart(t, "second", big, session.RoleTool),
+				elideText(t, "t2", "second result explained"),
+				elidePart(t, "newest", big, session.RoleTool),
+			)
+			n, covered := a.elideResultsToTarget(context.Background(), session.Session{ID: sid}, event.Actor{}, evs, 900, tt.target)
+			if n != tt.want || !covered {
+				t.Fatalf("elided %d, covered=%t; want %d and covered", n, covered, tt.want)
+			}
+		})
+	}
+}
