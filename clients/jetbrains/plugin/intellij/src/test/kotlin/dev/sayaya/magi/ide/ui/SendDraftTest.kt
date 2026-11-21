@@ -84,6 +84,7 @@ class SendDraftTest : BasePlatformTestCase() {
         val run = h.seen.single { it.method == "command-run" }
         assertEquals("routine-draft", run.name)
         assertEquals("probe 8-9", run.text)
+        assertEquals("the command runs for the conversation it was typed in", "s1", run.session)
         assertTrue(h.seen.none { it.method == "submit" || it.method == "steer" })
         assertTrue(noticeText(h), noticeText(h).contains("call #8 has no verified sequential order"))
     }
@@ -92,6 +93,18 @@ class SendDraftTest : BasePlatformTestCase() {
         h.submit("/routine-draft x"); h.finish()
         assertEquals("", h.input.text)
         assertTrue(noticeText(h), noticeText(h).contains("[routine] adopted v2"))
+    }
+    // While a turn runs a plugin command is refused before anything is sent, as the TUI refuses it
+    // (the daemon refuses it too; this is the window not asking).
+    fun testAPluginCommandIsRefusedWhileATurnRuns() = check { h ->
+        commands(h, Response(ok = true, out = "ran"))
+        val rows = h.field<dev.sayaya.magi.ide.usecase.Rows>("shaper")
+        rows.feed(dev.sayaya.magi.ide.model.LogEvent(seq = 1, type = "prompt.submitted",
+            data = kotlinx.serialization.json.Json.parseToJsonElement("""{"messageId":"m1","parts":[{"kind":"text","text":"go"}]}""") as kotlinx.serialization.json.JsonObject))
+        assertTrue("precondition: a turn is open", rows.open)
+        h.submit("/routine-draft x"); h.finish()
+        assertTrue(h.seen.toString(), h.seen.none { it.method == "command-run" || it.method == "submit" || it.method == "steer" })
+        assertTrue(noticeText(h), noticeText(h).contains("routine-draft"))
     }
     fun testASlashWordThatIsNoCommandIsStillSentToTheModel() = check { h ->
         commands(h, Response(ok = true))

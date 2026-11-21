@@ -179,7 +179,8 @@ class Companion(
 
     /** 명령 하나를 돌린다 — `out` 은 명령이 도는 동안 남긴 로그, 거절은 `error`. */
     fun runCommand(name: String, rest: String): Response =
-        send(Request(method = "command-run", name = name, text = rest))
+        // 이 창이 붙은 대화를 싣는다 — /routine-draft 같은 명령은 그 대화를 읽고 쓴다.
+        send(Request(method = "command-run", session = session, name = name, text = rest))
 
     /**
      * 예약 하나를 쓴다 — 없으면 만들고, 같은 이름이 있으면 고친다.

@@ -585,8 +585,11 @@ magi.register_command{
 The same commands run from the JetBrains, VS Code and web console input boxes. When a line starts
 with `/` and its first word is a command the daemon lists (`commands`), the client runs it through
 `command-run` instead of sending the line to the model; any other `/word` is still a prompt. As in the
-TUI, a plugin command is refused while a turn is running. What the command logged with `magi.log`
-while it ran, or the string it returned as an error, is shown on one line above the input — those
+TUI, a plugin command is refused while a turn is running. The client names the conversation the line
+was typed in, and the daemon decides the refusal from that conversation's turn; while the command
+runs, `magi.command_session()` returns that conversation (it is empty for a TUI command), so a command
+such as `/routine-draft` reads that conversation and not whichever one last finished a tool call.
+What the command logged with `magi.log` while it ran, or the string it returned as an error, is shown on one line above the input — those
 clients have no stderr to read. A UI effect such as `magi.clear_transcript()` is not relayed to them.
 
 Type `/` at the start of an empty composer to see the active companion’s plugin commands and their descriptions.

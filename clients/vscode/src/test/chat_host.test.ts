@@ -1049,7 +1049,7 @@ test('a known plugin command runs instead of reaching the model, and its refusal
   const { chat, posted } = commandChat(companion);
   await chat.fromView({ kind: 'say', text: '/routine-draft probe 8-9', session: 's1' } as any);
   const run = companion.calls.find((c: any) => c.door === 'command-run');
-  assert.deepEqual(run?.payload, { name: 'routine-draft', text: 'probe 8-9' });
+  assert.deepEqual(run?.payload, { session: 's1', name: 'routine-draft', text: 'probe 8-9' });
   assert.ok(!companion.calls.some((c: any) => c.door === 'submit' || c.door === 'steer'), 'not sent to the model');
   assert.ok(posted.some((m) => m.kind === 'note' && m.text.includes('call #8 has no verified sequential order')));
 });

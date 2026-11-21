@@ -55,7 +55,7 @@ func runIfCommand(cl *daemon.Client, sid session.SessionID, text string) (*comma
 	if st, err := cl.Status(string(sid)); err == nil && st.Doing != "" {
 		return &commandAnswer{http.StatusConflict, "/" + name + " cannot run while a turn is working"}, nil
 	}
-	out, err := cl.RunPluginCommand(name, rest)
+	out, err := cl.RunPluginCommand(string(sid), name, rest)
 	var refused daemon.Refused
 	switch {
 	case errors.As(err, &refused):

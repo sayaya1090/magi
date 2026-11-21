@@ -43,6 +43,10 @@ data class BridgeRow(
     val pending: Boolean = false,
     val abandoned: Boolean = false,
     val msgId: String = "",
+    /** 이 카운슬 행이 흐름의 몇 번째 소집에 속하나(1, 2, …). 접기와 펼치기의 단위다. */
+    val convene: Int = 0,
+    /** 소집 하나를 접었을 때 그 소집을 대신하는 한 줄(결정 행). */
+    val closing: Boolean = false,
     val member: String = "",
     val folded: Boolean = false,
     val summary: String = "",

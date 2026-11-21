@@ -240,9 +240,9 @@ func (o *pluginObserver) PluginCommandList() []port.PluginCommandInfo {
 	return out
 }
 
-func (o *pluginObserver) RunPluginCommand(_ context.Context, name string, args []string) (string, bool, error) {
+func (o *pluginObserver) RunPluginCommand(_ context.Context, session, name string, args []string) (string, bool, error) {
 	if h := o.host.Load(); h != nil {
-		return h.RunCommand(name, args)
+		return h.RunCommand(session, name, args)
 	}
 	return "", false, fmt.Errorf("plugin host not available")
 }

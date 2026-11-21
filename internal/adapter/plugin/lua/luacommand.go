@@ -25,14 +25,24 @@ func (c *luaCommand) Description() string { return c.description }
 // function signals failure by returning a non-empty string (its error message);
 // returning nil / nothing means success.
 func (c *luaCommand) Execute(args []string) error {
-	_, err := c.run(args, false)
+	_, err := c.run("", args, false)
 	return err
 }
 
-// run is Execute that can also hand back what the command logged while it ran (capture).
-func (c *luaCommand) run(args []string, capture bool) (string, error) {
+// run is Execute that can also hand back what the command logged while it ran (capture), for the
+// conversation session (empty: none named).
+//
+// The command is looked up under the host lock and run under the plugin lock, and between the two
+// the plugin can be unloaded or reloaded, which closes its Lua state. That is checked here, under
+// the lock that close() also takes, so the command answers instead of reaching a closed state.
+func (c *luaCommand) run(session string, args []string, capture bool) (string, error) {
 	c.plugin.mu.Lock()
 	defer c.plugin.mu.Unlock()
+	if c.plugin.L == nil {
+		return "", fmt.Errorf("plugin %q was unloaded or reloaded; run /%s again", c.plugin.name, c.name)
+	}
+	c.plugin.commandSession = session
+	defer func() { c.plugin.commandSession = "" }()
 	var out strings.Builder
 	if capture {
 		c.plugin.capture = &out

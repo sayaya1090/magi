@@ -13,5 +13,6 @@ type PluginCommandInfo struct {
 // to read, so those lines are its answer); handled is false when no plugin owns the name.
 type PluginCommandHost interface {
 	PluginCommandList() []PluginCommandInfo
-	RunPluginCommand(ctx context.Context, name string, args []string) (out string, handled bool, err error)
+	// session is the conversation the command was typed in; the command reads and writes that one.
+	RunPluginCommand(ctx context.Context, session, name string, args []string) (out string, handled bool, err error)
 }

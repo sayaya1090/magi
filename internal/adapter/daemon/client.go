@@ -1160,7 +1160,7 @@ func (c *Client) PluginCommands() ([]port.PluginCommandInfo, error) {
 
 // RunPluginCommand runs one ("command-run"): rest is the line after the name. out is what the command
 // logged; its own refusal comes back as Refused, with whatever it logged before refusing.
-func (c *Client) RunPluginCommand(name, rest string) (string, error) {
-	resp, err := c.exchange(Request{Method: "command-run", Name: name, Text: rest})
+func (c *Client) RunPluginCommand(sid, name, rest string) (string, error) {
+	resp, err := c.exchange(Request{Method: "command-run", Session: sid, Name: name, Text: rest})
 	return resp.Out, err
 }

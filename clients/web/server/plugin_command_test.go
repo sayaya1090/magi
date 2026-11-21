@@ -18,7 +18,7 @@ func (e commandEngine) PluginCommandList() []port.PluginCommandInfo {
 	return []port.PluginCommandInfo{{Name: "routine-draft"}, {Name: "routine-adopt"}}
 }
 
-func (e commandEngine) RunPluginCommand(_ context.Context, name string, args []string) (string, bool, error) {
+func (e commandEngine) RunPluginCommand(_ context.Context, _ string, name string, args []string) (string, bool, error) {
 	_ = e.note("command:" + name + " " + strings.Join(args, ","))
 	if name == "routine-draft" {
 		return "", true, errors.New("call #8 has no verified sequential order")

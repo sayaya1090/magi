@@ -62,6 +62,11 @@ func installBridge(p *plugin) {
 	}))
 	L.SetField(t, "progress", L.NewFunction(p.bridgeProgress))
 	L.SetField(t, "session_id", L.NewFunction(p.bridgeSessionID))
+	// The conversation a slash command was typed in, while that command runs; "" otherwise.
+	L.SetField(t, "command_session", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LString(p.commandSession))
+		return 1
+	}))
 	L.SetField(t, "council_enabled", L.NewFunction(p.bridgeCouncilEnabled))
 	L.SetField(t, "register_declaration_gate", L.NewFunction(p.bridgeRegisterDeclarationGate))
 	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))

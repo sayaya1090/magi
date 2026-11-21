@@ -25,11 +25,11 @@ func (d daemonEngine) PluginCommandList() []port.PluginCommandInfo {
 	return d.obs.PluginCommandList()
 }
 
-func (d daemonEngine) RunPluginCommand(ctx context.Context, name string, args []string) (string, bool, error) {
+func (d daemonEngine) RunPluginCommand(ctx context.Context, session, name string, args []string) (string, bool, error) {
 	if d.obs == nil {
 		return "", false, fmt.Errorf("plugin observer is unavailable")
 	}
-	return d.obs.RunPluginCommand(ctx, name, args)
+	return d.obs.RunPluginCommand(ctx, session, name, args)
 }
 
 func (d daemonEngine) TriggerSlotAction(ctx context.Context, plugin, slot, action string) (string, error) {

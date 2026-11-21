@@ -724,12 +724,20 @@ magi.register_command{
   end,
 }
 
+-- The conversation a trace command reads: the one the command was typed in (an IDE or web client
+-- names it), else, in the TUI, the conversation that last finished a tool call.
+local function command_sid()
+  local sid = type(magi.command_session) == "function" and magi.command_session() or ""
+  if sid ~= "" then return sid end
+  return magi.store_get("routine_last_session")
+end
+
 magi.register_command{
   name = "routine-trace",
   description = "List this conversation's recent tool calls and dummy_plug runs, to pick from for /routine-draft",
   execute = function(args)
     local n = tonumber(words(args)[1]) or 30
-    local sid = magi.store_get("routine_last_session")
+    local sid = command_sid()
     local lines = {}
     if type(sid) == "string" and sid ~= "" then
       local t = load_trace(sid)
@@ -773,7 +781,7 @@ magi.register_command{
       if not a then a = what:match("^(%d+)$"); b = a end
       a, b = tonumber(a), tonumber(b)
       if not a or not b or b < a then return usage end
-      local sid = magi.store_get("routine_last_session")
+      local sid = command_sid()
       if type(sid) ~= "string" or sid == "" then return "no conversation traced yet" end
       local t = load_trace(sid)
       local calls = {}

@@ -622,12 +622,12 @@ func (h *Host) DispatchCommand(name string, args []string) (bool, error) {
 
 // RunCommand is DispatchCommand for a client that is not the TUI: it also returns the lines the
 // command logged (magi.log) while it ran, which are that client's only view of the answer.
-func (h *Host) RunCommand(name string, args []string) (string, bool, error) {
+func (h *Host) RunCommand(session, name string, args []string) (string, bool, error) {
 	cmd := h.findCommand(name)
 	if cmd == nil {
 		return "", false, nil
 	}
-	out, err := cmd.run(args, true)
+	out, err := cmd.run(session, args, true)
 	return out, true, err
 }
 

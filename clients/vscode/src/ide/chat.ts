@@ -642,7 +642,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
                 this.compose(body);
                 break;
               }
-              const r = await this.companion.ask('command-run', { name: slash.name, text: slash.rest });
+              const r = await this.companion.ask('command-run', { session: resolvedSid, name: slash.name, text: slash.rest });
               this.post({ kind: 'note', text: r?.ok
                 ? (r.out?.trim() || `/${slash.name}: done`)
                 : `/${slash.name}: ${r?.error ?? 'no companion is listening on this workspace.'}` });

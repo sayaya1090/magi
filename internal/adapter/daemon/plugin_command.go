@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -34,7 +35,18 @@ func answerCommandRun(ctx context.Context, eng Engine, req Request) Response {
 	if name == "" {
 		return Response{Err: "a command name is required"}
 	}
-	out, handled, err := h.RunPluginCommand(ctx, name, strings.Fields(req.Text))
+	// The conversation the line was typed in: a command such as /routine-draft reads and writes that
+	// one, never whichever conversation last did something.
+	sid := strings.TrimSpace(req.Session)
+	if sid == "" {
+		return Response{Err: "a command needs the session it was typed in"}
+	}
+	// Refused while that conversation's turn runs, as the TUI refuses it — decided here, where the
+	// turn lives, not only by a client that looked a moment before sending.
+	if _, busy := eng.Doing(session.SessionID(sid)); busy {
+		return Response{Err: "/" + name + " cannot run while a turn is working"}
+	}
+	out, handled, err := h.RunPluginCommand(ctx, sid, name, strings.Fields(req.Text))
 	if !handled {
 		return Response{Err: "unknown command /" + name}
 	}
