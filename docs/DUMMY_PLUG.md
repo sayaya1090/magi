@@ -336,5 +336,15 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   restores it; both go to `decisions.jsonl`), and the adopted version asks for approval on its next
   run. The comparison checks control flow on fixtures only, not the accuracy of real `explore`
   answers, effects on files, or new tasks. No Engram and no model are needed.
+- **Delegated auto-apply.** `/routine-auto <name>` lets a person allow, once, that applicable
+  candidates of a read-only routine are applied without asking. The delegation records the routine's
+  tools, input schema and frozen evals; a routine that may write cannot be delegated. When
+  `routine_improve` finds a candidate applicable and it stays inside that scope (no writing tool, the
+  same tools and inputs, the same evals), it is applied as `adopt` would, recorded in
+  `decisions.jsonl` as `auto-applied` with `by: auto` and `run_approval: not granted`, and announced
+  in one line with `/routine-rollback <name>`. A rejected or held candidate is only recorded in
+  `attempts.jsonl`; nobody is told. Outside the scope (evals frozen again, tools or inputs changed) an
+  applicable candidate is left for a person. Applying is not run approval: the applied version asks
+  before its next run. `/routine-auto <name> off` revokes it. No Engram is needed.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.

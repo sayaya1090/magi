@@ -935,6 +935,56 @@ do
     return table.concat(out, "\n")
   end
 
+  -- adopt_version makes an applicable candidate the active version and keeps the replaced one for
+  -- rollback. by is "person" (/routine-adopt) or "auto" (inside a delegation a person gave once,
+  -- /routine-auto). It approves no run: the adopted version asks for run approval on its next run.
+  local function adopt_version(name, ver, by, delegation)
+    local r, err = load_routine(name)
+    if not r then return nil, err end
+    local dir, att = rdir(name), nil
+    for _, a in ipairs(read_lines(dir .. "attempts.jsonl")) do
+      if type(a.candidate) == "table" and a.candidate.version == ver then att = a end
+    end
+    if not att then return nil, "no recorded attempt for candidate " .. ver .. " of " .. name .. " (see /routine-history " .. name .. ")" end
+    local d = type(att.decision) == "table" and att.decision or {}
+    if d.verdict ~= "applicable" then
+      return nil, "candidate " .. ver .. " was " .. tostring(d.verdict) .. ": " .. tostring(d.reason) .. "; only an applicable candidate can be adopted"
+    end
+    if att.evaluation_policy ~= EVAL_POLICY then
+      return nil, "candidate " .. ver .. " was evaluated under an older policy; compare it again"
+    end
+    local expected_evals = (att.conditions or {}).evals or {}
+    for _, key in ipairs({ "contract", "tasks" }) do
+      local raw = magi.read_file(dir .. key .. ".json")
+      if type(raw) ~= "string" or magi.sha256(raw) ~= expected_evals[key] then
+        return nil, "candidate " .. ver .. " evaluation inputs changed; compare it again"
+      end
+    end
+    local base = r.fingerprint:sub(1, 12)
+    if type(att.baseline) ~= "table" or att.baseline.version ~= base then
+      return nil, "candidate " .. ver .. " was compared with " .. tostring(type(att.baseline) == "table" and att.baseline.version) ..
+        ", but the active version is now " .. base .. "; compare it again"
+    end
+    local vtext, cur = magi.read_file(dir .. "versions/" .. ver .. ".md"), magi.read_file(r.path)
+    if type(vtext) ~= "string" or type(cur) ~= "string" then return nil, "the candidate's or the active version's file is missing" end
+    if magi.sha256(vtext) ~= att.candidate.file_sha256 or magi.sha256(cur) ~= att.baseline.file_sha256 then
+      return nil, "candidate or active version changed on disk; compare it again"
+    end
+    local ok1, e1 = magi.write_file(dir .. "versions/" .. base .. ".md", cur)
+    if not ok1 then return nil, "could not keep the active version: " .. tostring(e1) end
+    local ok2, e2 = magi.write_file(r.path, vtext)
+    if not ok2 then return nil, "could not write " .. r.path .. ": " .. tostring(e2) end
+    local stack = stored("routine_rollback")
+    local list = type(stack[name]) == "table" and stack[name] or {}
+    list[#list + 1] = { from = base, to = ver, path = r.path }
+    stack[name] = list
+    magi.store_set("routine_rollback", stack)
+    append_line(dir .. "decisions.jsonl", { at = magi.time(), action = by == "auto" and "auto-applied" or "adopted", routine = name,
+      version = ver, replaced = base, attempt = att.id, by = by, delegation = delegation,
+      run_approval = "not granted: the next run of " .. ver .. " asks the person" })
+    return true, base, r.path
+  end
+
   local IMPROVE_USE = [[
 Compare a candidate version of a routine with its active version, and record the attempt. You pass the candidate's whole script, the problem it addresses and your hypothesis (read routine_history first: earlier attempts, and why they were rejected). The candidate is checked against the routine's frozen contract (fixed fixtures, run dry: control flow only), then paired with the active version on the same frozen tasks. Each task is judged on its own — newly solved, newly regressed, still failing, kept — and the verdict is applicable, held (gain too thin, unstable or regressions to review) or rejected (contract broken, a protected task lost, tools or inputs changed). It never changes the active routine, its evals or its tools; a person adopts an applicable candidate.]]
 
@@ -1174,8 +1224,40 @@ Compare a candidate version of a routine with its active version, and record the
           cost.active.calls, cost.active.simulated_explore_calls, cost.candidate.calls, cost.candidate.simulated_explore_calls)
       end
       if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
+      -- Delegated auto-apply: only an applicable candidate, only inside what the person allowed once.
+      local applied, auto_line = false, nil
+      if verdict == "applicable" then
+        local del = stored("routine_auto")[r.name]
+        if type(del) == "table" then
+          local why
+          if #writes > 0 then why = "it may write (" .. table.concat(writes, ", ") .. ")"
+          elseif table.concat(tools, ",") ~= table.concat(type(del.tools) == "table" and del.tools or {}, ",") then why = "its tools differ from the delegated ones"
+          elseif magi.json_encode(inputs) ~= tostring(del.inputs) then why = "its inputs differ from the delegated ones"
+          elseif type(del.evals) ~= "table" or del.evals.contract ~= csha or del.evals.tasks ~= tsha then
+            why = "the evals changed since the delegation of " .. tostring(del.at)
+          end
+          if why then
+            auto_line = "not auto-applied: outside the delegated scope — " .. why .. "; a person may adopt it with /routine-adopt " .. r.name .. " " .. ver
+          else
+            local ok, prev = adopt_version(r.name, ver, "auto", { at = del.at })
+            if ok then
+              applied = true
+              auto_line = "auto-applied " .. ver .. " (was " .. prev .. ") under the delegation of " .. tostring(del.at) ..
+                "; its next run asks for approval; /routine-rollback " .. r.name .. " restores " .. prev
+              local summary = "[routine] auto-applied " .. ver .. " to " .. r.name .. " (was " .. prev .. "): " .. reason ..
+                ". Undo with /routine-rollback " .. r.name
+              magi.log(summary)
+              local sid = type(magi.session_id) == "function" and magi.session_id() or ""
+              if sid ~= "" and type(magi.notify) == "function" then pcall(magi.notify, sid, summary) end
+            else
+              auto_line = "not auto-applied: " .. tostring(prev)
+            end
+          end
+        end
+      end
+      if auto_line then lines[#lines + 1] = auto_line end
       lines[#lines + 1] = "recorded as attempt " .. attempt.id .. " in " .. dir .. "attempts.jsonl; " ..
-        (verdict == "applicable" and ("a person may adopt it with /routine-adopt " .. r.name .. " " .. ver) or "it cannot be adopted")
+        (applied and "applied" or verdict == "applicable" and ("a person may adopt it with /routine-adopt " .. r.name .. " " .. ver) or "it cannot be adopted")
       lines[#lines + 1] = "checked: control flow on fixed fixtures, run dry — not the accuracy of real explore answers, not effects on files, not new tasks"
       return table.concat(lines, "\n")
     end,
@@ -1227,51 +1309,46 @@ Compare a candidate version of a routine with its active version, and record the
       local w = words(args)
       local name, ver = w[1], w[2]
       if not name or not ver then return "usage: /routine-adopt <name> <version>" end
+      local ok, base, path = adopt_version(name, ver, "person")
+      if not ok then return base end
+      magi.log("[routine] adopted " .. ver .. " as " .. path .. " (was " .. base .. "); its next run asks for approval, and /routine-rollback " ..
+        name .. " restores " .. base)
+    end,
+  }
+
+  -- A delegation is what a person allows once: routine_improve may then apply an applicable candidate
+  -- of this routine by itself, as long as nothing the person did not see changes — no writing tool,
+  -- the same tools and inputs (so the same data reach), and the same frozen evals. It is not run
+  -- approval: an applied version still asks before its next run.
+  magi.register_command{
+    name = "routine-auto",
+    description = "Let routine_improve apply applicable candidates of a read-only routine by itself, within its current tools, inputs and frozen evals (/routine-auto <name> | /routine-auto <name> off)",
+    execute = function(args)
+      local w = words(args)
+      local name, off = w[1], w[2]
+      if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-auto <name> | /routine-auto <name> off" end
+      local all = stored("routine_auto")
+      if off == "off" then
+        all[name] = nil
+        magi.store_set("routine_auto", all)
+        append_line(rdir(name) .. "decisions.jsonl", { at = magi.time(), action = "auto-apply revoked", routine = name, by = "person" })
+        magi.log("[routine] auto-apply revoked for " .. name)
+        return
+      end
       local r, err = load_routine(name)
       if not r then return err end
-      local dir, att = rdir(name), nil
-      for _, a in ipairs(read_lines(dir .. "attempts.jsonl")) do
-        if type(a.candidate) == "table" and a.candidate.version == ver then att = a end
+      for _, t in ipairs(r.tools) do
+        if WRITES[t] then return "routine " .. name .. " may write with " .. t .. "; auto-apply covers read-only routines only" end
       end
-      if not att then return "no recorded attempt for candidate " .. ver .. " of " .. name .. " (see /routine-history " .. name .. ")" end
-      local d = type(att.decision) == "table" and att.decision or {}
-      if d.verdict ~= "applicable" then
-        return "candidate " .. ver .. " was " .. tostring(d.verdict) .. ": " .. tostring(d.reason) .. "; only an applicable candidate can be adopted"
-      end
-      if att.evaluation_policy ~= EVAL_POLICY then
-        return "candidate " .. ver .. " was evaluated under an older policy; compare it again"
-      end
-      local current_evals, expected_evals = {}, (att.conditions or {}).evals or {}
-      for _, key in ipairs({ "contract", "tasks" }) do
-        local raw = magi.read_file(dir .. key .. ".json")
-        current_evals[key] = type(raw) == "string" and magi.sha256(raw) or nil
-        if not current_evals[key] or current_evals[key] ~= expected_evals[key] then
-          return "candidate " .. ver .. " evaluation inputs changed; compare it again"
-        end
-      end
-      local base = r.fingerprint:sub(1, 12)
-      if type(att.baseline) ~= "table" or att.baseline.version ~= base then
-        return "candidate " .. ver .. " was compared with " .. tostring(type(att.baseline) == "table" and att.baseline.version) ..
-          ", but the active version is now " .. base .. "; compare it again"
-      end
-      local vtext, cur = magi.read_file(dir .. "versions/" .. ver .. ".md"), magi.read_file(r.path)
-      if type(vtext) ~= "string" or type(cur) ~= "string" then return "the candidate's or the active version's file is missing" end
-      if magi.sha256(vtext) ~= att.candidate.file_sha256 or magi.sha256(cur) ~= att.baseline.file_sha256 then
-        return "candidate or active version changed on disk; compare it again"
-      end
-      local ok1, e1 = magi.write_file(dir .. "versions/" .. base .. ".md", cur)
-      if not ok1 then return "could not keep the active version: " .. tostring(e1) end
-      local ok2, e2 = magi.write_file(r.path, vtext)
-      if not ok2 then return "could not write " .. r.path .. ": " .. tostring(e2) end
-      local stack = stored("routine_rollback")
-      local list = type(stack[name]) == "table" and stack[name] or {}
-      list[#list + 1] = { from = base, to = ver, path = r.path }
-      stack[name] = list
-      magi.store_set("routine_rollback", stack)
-      append_line(dir .. "decisions.jsonl", { at = magi.time(), action = "adopted", routine = name, version = ver, replaced = base,
-        attempt = att.id, by = "person" })
-      magi.log("[routine] adopted " .. ver .. " as " .. r.path .. " (was " .. base .. "); its next run asks for approval, and /routine-rollback " ..
-        name .. " restores " .. base)
+      local frozen = stored("routine_evals_frozen")[name]
+      if type(frozen) ~= "table" then return "freeze the evals of " .. name .. " first (/routine-evals-freeze " .. name .. ")" end
+      local scope = { tools = r.tools, inputs = magi.json_encode(r.inputs), evals = { contract = frozen.contract, tasks = frozen.tasks },
+        at = magi.time(), by = "person" }
+      all[name] = scope
+      magi.store_set("routine_auto", all)
+      append_line(rdir(name) .. "decisions.jsonl", { at = scope.at, action = "auto-apply delegated", routine = name, by = "person", scope = scope })
+      magi.log("[routine] auto-apply delegated for " .. name .. " (tools " .. table.concat(r.tools, ", ") .. ", evals " ..
+        frozen.tasks:sub(1, 12) .. "); /routine-auto " .. name .. " off revokes it")
     end,
   }
 
