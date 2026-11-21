@@ -1,6 +1,9 @@
 package port
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 type exploreReadScopeKey struct{}
 
@@ -31,4 +34,38 @@ func ReportExploreMetrics(ctx context.Context, metrics RunMetrics, model, profil
 // ExploreComparison identifies the pinned source available during a comparison callback.
 type ExploreComparison struct {
 	Root, Revision, Tree string
+}
+
+type exploreBudgetKey struct{}
+
+// ExploreBudget is shared by all backend requests made by a tracing routine.
+type ExploreBudget struct {
+	mu                       sync.Mutex
+	requests, tokens         int
+	usedRequests, usedTokens int
+}
+
+func WithExploreBudget(ctx context.Context, requests, tokens int) context.Context {
+	return context.WithValue(ctx, exploreBudgetKey{}, &ExploreBudget{requests: requests, tokens: tokens})
+}
+
+func ExploreBudgetFrom(ctx context.Context) *ExploreBudget {
+	b, _ := ctx.Value(exploreBudgetKey{}).(*ExploreBudget)
+	return b
+}
+
+func (b *ExploreBudget) Admit() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.usedRequests >= b.requests || (b.tokens > 0 && b.usedTokens >= b.tokens) {
+		return false
+	}
+	b.usedRequests++
+	return true
+}
+
+func (b *ExploreBudget) RecordTokens(tokens int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.usedTokens += tokens
 }

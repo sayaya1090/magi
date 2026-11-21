@@ -126,6 +126,11 @@ func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<
 	if gerr != nil {
 		return nil, gerr
 	}
+	budget := port.ExploreBudgetFrom(ctx)
+	if budget != nil && !budget.Admit() {
+		ticket.done(context.Canceled)
+		return nil, fmt.Errorf("routine exploration budget exhausted")
+	}
 	meter := trialMeter(ctx)
 	if meter != nil {
 		meter.start()
@@ -152,6 +157,9 @@ func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<
 		}
 		defer func() { settle(ctx.Err()) }()
 		defer func() {
+			if budget != nil && reported {
+				budget.RecordTokens(observed.In + observed.Out)
+			}
 			if meter != nil {
 				meter.finish(observed, reported)
 			}

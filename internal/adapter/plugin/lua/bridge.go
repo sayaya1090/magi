@@ -53,6 +53,7 @@ func installBridge(p *plugin) {
 	scriptFeatures := L.NewTable()
 	scriptFeatures.RawSetString("file_fixture", lua.LTrue)
 	scriptFeatures.RawSetString("explore_read_scope", lua.LTrue)
+	scriptFeatures.RawSetString("explore_request_limit", lua.LTrue)
 	L.SetField(t, "script_features", scriptFeatures)
 	L.SetField(t, "approve", L.NewFunction(p.bridgeApprove))
 	L.SetField(t, "sha256", L.NewFunction(func(L *lua.LState) int {

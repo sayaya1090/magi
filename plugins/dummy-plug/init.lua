@@ -195,7 +195,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true }
+  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true, routine_trace_path = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -961,6 +961,232 @@ do
     table.sort(invalid)
     return found, invalid
   end
+
+  local TRACE_FAMILY = "client-daemon-call-trace"
+  local TRACE_DIR = ".magi/routines/" .. TRACE_FAMILY .. "/"
+  local TRACE_LESSON = "cite-executable-handoff"
+  local TRACE_CLIENTS = { web = true, vscode = true, jetbrains = true }
+  local TRACE_ACTIONS = { recovery = true, cancellation = true, approval = true }
+  local TRACE_POLICY = { ["whole-v1"] = true, ["handoff-v1"] = true }
+  -- A run uses the policy it read before approval. Replay uses the same decision function.
+  local function trace_next(policy, proved, total)
+    if policy == "whole-v1" then return proved == 0 and "whole" or "done" end
+    return proved < total and "handoff" or "done"
+  end
+
+  local function trace_policy()
+    local raw = magi.read_file(TRACE_DIR .. "policy.json")
+    if raw == nil then return { active = "whole-v1", previous = {} } end
+    local config = decode(raw)
+    if config and TRACE_POLICY[config.active] and type(config.previous) == "table" then return config end
+    return nil
+  end
+
+  local TRACE_SCRIPT = [[
+local checked = 0
+while true do
+  local decision = next_trace_step(checked)
+  if decision == "done" then break end
+  local q = {input.question, "Cite the exact executable calls as workspace-relative path:line."}
+  if decision == "whole" then
+    q[#q + 1] = "Trace these handoffs: " .. table.concat(input.handoffs, "; ")
+  else
+    q[#q + 1] = "Investigate only this handoff: " .. input.handoffs[checked + 1]
+  end
+  local answer, err = call_tool("explore", { question = table.concat(q, "\n"), depth = "quick" })
+  if not answer then error(err or "explore returned no answer") end
+  print(answer)
+  if decision == "whole" then
+    check_trace_evidence(answer, 0)
+    break
+  end
+  if not check_trace_evidence(answer, checked + 1) then break end
+  checked = checked + 1
+end
+]]
+
+  magi.register_tool{
+    name = "routine_trace_path",
+    description = "Trace a client-to-daemon call path once with the active, approved read-only policy. Supply the task-specific question and ordered handoffs with source references to check, and use the existing task budget.",
+    schema = { type = "object", properties = {
+      question = { type = "string" }, directory = { type = "string" },
+      client = { type = "string", enum = { "web", "vscode", "jetbrains" } },
+      action = { type = "string", enum = { "recovery", "cancellation", "approval" } },
+      handoffs = { type = "array", items = { type = "object", properties = {
+        label = { type = "string" }, evidence = { type = "string", description = "Expected scope-relative path:line, if known" },
+      }, required = { "label" } } },
+      request_limit = { type = "integer", minimum = 1, maximum = 64 },
+      timeout = { type = "number", minimum = 1, maximum = 300 },
+      reported_token_limit = { type = "integer", minimum = 0, maximum = 1000000 },
+    }, required = { "question", "directory", "client", "action", "handoffs", "request_limit", "timeout" } },
+    execute = function(a)
+      if not (magi.script_features and magi.script_features.explore_request_limit) then
+        return "call-path tracing requires an updated magi host", true
+      end
+      a = a or {}
+      if not TRACE_CLIENTS[a.client] or not TRACE_ACTIONS[a.action] then
+        return "a supported client and action are required", true
+      end
+      local scope, timeout, cap = a.directory, a.timeout, a.request_limit
+      local tokens = a.reported_token_limit or 0
+      if type(scope) ~= "string" or not scope:match("^[%w_.%-%/]+$") or scope:sub(1, 1) == "/" or scope == "." then
+        return "a workspace subdirectory is required", true
+      end
+      for part in scope:gmatch("[^/]+") do
+        if part == ".." or part == "." then return "use a workspace subdirectory", true end
+      end
+      if type(cap) ~= "number" or cap % 1 ~= 0 or cap < 1 or cap > 64 or type(timeout) ~= "number" or timeout < 1 or timeout > 300
+        or type(tokens) ~= "number" or tokens % 1 ~= 0 or tokens < 0 or tokens > 1000000 then
+        return "invalid execution budget", true
+      end
+      if type(a.question) ~= "string" or a.question == "" or #a.question > 1600 or type(a.handoffs) ~= "table"
+        or #a.handoffs < 1 or #a.handoffs > 4 then
+        return "provide a question and one to four ordered handoffs", true
+      end
+      local labels, expected, planned = {}, {}, {}
+      for i, step in ipairs(a.handoffs) do
+        if type(step) ~= "table" or type(step.label) ~= "string" or step.label == "" or #step.label > 200
+          or (step.evidence ~= nil and (type(step.evidence) ~= "string" or not step.evidence:match("^[%w_./%-]+:%d+$"))) then
+          return "invalid handoff " .. i, true
+        end
+        labels[i], expected[i] = step.label, step.evidence or false
+        planned[i] = step.evidence and "check-reference" or "investigate"
+      end
+      local config = trace_policy()
+      if not config then return "invalid call-path policy file", true end
+      local policy = config.active
+      local id = magi.nonce()
+      local version = magi.sha256(TRACE_SCRIPT)
+      local key = magi.sha256(magi.workdir() .. "\n" .. scope .. "\n" .. version .. "\n" .. policy)
+      local approvals = stored("trace_policy_approvals")
+      if approvals[key] ~= true then
+        local ok, why = magi.approve{ reason = "Run read-only call-path policy " .. policy .. " in " .. scope,
+          detail = { family = TRACE_FAMILY, policy = policy, scope = scope, script = TRACE_SCRIPT, version = version, tools = {"explore"} } }
+        if not ok then return tostring(why or "call-path policy was not approved"), true end
+        approvals[key] = true
+        local saved, err = magi.store_set("trace_policy_approvals", approvals)
+        if not saved then return tostring(err), true end
+      end
+
+      local path = TRACE_DIR .. "runs/" .. id .. ".json"
+      local record = { id = id, phase = "started", family = TRACE_FAMILY, policy = policy, source_routine = "routine_trace_path",
+        routine_version = version, lesson = TRACE_LESSON, session = magi.session_id(), planned = planned,
+        client = a.client, action = a.action, scope = scope,
+        request_limit = cap, timeout = timeout, reported_token_limit = tokens }
+      local saved, err = magi.write_file(path, magi.json_encode(record))
+      if not saved then return "could not record call-path plan: " .. tostring(err), true end
+
+      local decisions, verified, checked = {}, {}, {}
+      local src = "local input = json_decode(" .. string.format("%q", magi.json_encode{ question = a.question, handoffs = labels }) .. ")\n" .. TRACE_SCRIPT
+      local out, failure, metrics = magi.run_script(src, {
+        tools = {"explore"}, explore_read_scope = scope, measure_explore = true,
+        explore_request_limit = cap, explore_token_limit = tokens, timeout = timeout,
+        globals = {
+          next_trace_step = function(count)
+            local decision = trace_next(policy, count, #labels)
+            decisions[#decisions + 1] = decision
+            return decision
+          end,
+          check_trace_evidence = function(answer, index)
+            local found = live_evidence(answer, scope)
+            local function check(i)
+              checked[i] = true
+              if expected[i] then
+                verified[i] = found[expected[i]] == true
+              else
+                verified[i] = next(found) ~= nil
+              end
+              return verified[i]
+            end
+            if index == 0 then
+              for i = 1, #labels do check(i) end
+              return true
+            end
+            -- The next handoff needs a citation that resolves in the scoped tree.
+            return check(index)
+          end,
+        },
+      })
+      record.phase = failure and "failed" or "completed"
+      record.decisions, record.handoffs = decisions, {}
+      for i = 1, #labels do
+        record.handoffs[i] = not checked[i] and "unchecked" or (verified[i] and "verified_reference" or "unverified")
+        if record.phase == "completed" and not verified[i] then record.phase = "partial" end
+      end
+      if metrics then
+        metrics.answers = nil
+        record.metrics = metrics
+      end
+      saved, err = magi.write_file(path, magi.json_encode(record))
+      if not saved then return "call-path run " .. id .. " ended but its outcome could not be recorded: " .. tostring(err), true end
+      local message = (out or "") .. "\n[call-path run " .. id .. " · " .. policy .. "] " .. table.concat(record.handoffs, ", ")
+      if failure then return message .. "\n" .. failure, true end
+      return message
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-trace-policy",
+    description = "Inspect, replay or change the call-path policy (/routine-trace-policy [replay <run-id>|use <version>|rollback])",
+    execute = function(args)
+      local w, config = words(args), trace_policy()
+      if not config then return "invalid call-path policy file" end
+      if w[1] == "replay" and w[2] and w[2]:match("^%x+$") then
+        local run = decode(magi.read_file(TRACE_DIR .. "runs/" .. w[2] .. ".json"))
+        if not run or type(run.handoffs) ~= "table" then return "no finished call-path run " .. w[2] end
+        for _, version in ipairs({"whole-v1", "handoff-v1"}) do
+          local choices, passed = {}, 0
+          for _, status in ipairs(run.handoffs) do
+            local step = trace_next(version, passed, #run.handoffs)
+            choices[#choices + 1] = step
+            if step == "whole" or status ~= "verified_reference" then break end
+            passed = passed + 1
+          end
+          magi.log(version .. ": " .. table.concat(choices, ", ") .. " (decisions only; no tools called)")
+        end
+        return
+      end
+      if w[1] == "use" and TRACE_POLICY[w[2]] then
+        if config.active ~= w[2] then
+          config.previous[#config.previous + 1] = config.active
+          config.active = w[2]
+        end
+      elseif w[1] == "rollback" then
+        local previous = table.remove(config.previous)
+        if not TRACE_POLICY[previous] then return "no prior call-path policy" end
+        config.active = previous
+      elseif w[1] == nil then
+        magi.log("call-path policy: " .. config.active .. " (available: whole-v1, handoff-v1)")
+        return
+      else
+        return "usage: /routine-trace-policy [replay <run-id>|use <whole-v1|handoff-v1>|rollback]"
+      end
+      local ok, err = magi.write_file(TRACE_DIR .. "policy.json", magi.json_encode(config))
+      if not ok then return tostring(err) end
+      magi.log("call-path policy: " .. config.active)
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-trace-runs",
+    description = "List recorded call-path runs, or show one (/routine-trace-runs [run-id])",
+    execute = function(args)
+      local id = words(args)[1]
+      if id then
+        if not id:match("^%x+$") then return "invalid call-path run ID" end
+        local raw = magi.read_file(TRACE_DIR .. "runs/" .. id .. ".json")
+        if not raw then return "no call-path run " .. id end
+        magi.log(raw)
+        return
+      end
+      for _, file in ipairs(magi.list_files(TRACE_DIR .. "runs") or {}) do
+        if file:match("^%x+%.json$") then
+          local report = decode(magi.read_file(TRACE_DIR .. "runs/" .. file))
+          if report then magi.log(tostring(report.id) .. " " .. tostring(report.policy) .. " " .. tostring(report.phase)) end
+        end
+      end
+    end,
+  }
 
   local function conclusion_marker(text)
     local found

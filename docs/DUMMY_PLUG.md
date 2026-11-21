@@ -388,3 +388,161 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   with `/routine-adopt <name> <version>` when it meets the adoption checks.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.
+
+### Proposed design for routine improvement notes
+
+The active routine file carries a short improvement section after the Lua block. Record the
+current version's adoption rationale, if known, and the next changes to test. Each proposal has
+a status (proposed, supported on development cases, or rejected), a hypothesis, a lesson from a
+specific run, benefits, costs or regressions, and the next test. Use stable proposal IDs so a later
+attempt can update the same proposal.
+
+Include a compact development-only summary when measurements exist. Count distinct tasks and
+paired repetitions separately. Record solved and regressed pairs, timeouts, backend requests,
+elapsed time and reported tokens. Include the model and source tree when known. Mark missing
+measurements explicitly. A repeat of the same task adds a repetition to that task's evidence.
+
+Detailed reports stay in `attempts.jsonl` and `live-explore.jsonl`. The routine file can link to
+those logs for the reader. Candidate generation would receive only explicitly structured
+development evidence, including the conditions under which a previous change failed. It would
+exclude full evaluation verdicts, holdout task names and results, and anything learned through
+holdout analysis until the affected cases are explicitly moved to development and replaced in the
+holdout. A candidate cannot edit the trusted evaluation files or the improvement notes it reads.
+Adding notes changes the file contents without changing the executable routine fingerprint.
+A comparison checks the active file against the recorded digest before adoption, so editing notes
+after a comparison can require another comparison.
+
+For example, the following proposed notes summarize a development experiment on
+`recovery-policy-evidence`. The active version's adoption rationale is unrecorded. The candidate
+remains a proposal.
+
+| Proposal | Lesson and trade-off | Development evidence and next test |
+|---|---|---|
+| `RPE-01` · Require a standalone `CONCLUSION: UNVERIFIED` and an exact `path:line` for the behavior the code establishes | The conclusion marker and the citation can be checked separately. A marker alone gives no assurance that the reasoning is sound. | One distinct rollback question, one paired rerun. The earlier candidate failed the citation and conclusion checks and the new candidate passed both. Both made three requests to `qwen3-coder:30b`. Neither arm timed out. Elapsed time was 4.943 s versus 4.690 s. Backend input/output was 4,402/166 versus 4,612/211 tokens (tree `6d897fb4e28c`). Next, check a development case where the code does establish the claim and the expected conclusion is `SUPPORTED`. |
+| `RPE-02` · Split a multi-file trace into one search per handoff | The report could show which handoff lost its evidence. Splitting the work may add requests and latency. | Proposed. No development comparison yet. Test a single search and a staged search on the same development tasks and within the same request budget. |
+
+The note format and its use in candidate generation are proposed. Existing evaluation and adoption
+commands continue to use their current inputs.
+
+#### Design proposal for adapting routines by task family
+
+A task family groups requests that use the same investigation method and need the same kind
+of evidence. Start with client-to-daemon call tracing. Web recovery, VS Code cancellation and
+JetBrains approval can share a family even when they involve different files and outcomes.
+A family groups its lessons, recent runs and pending proposals by ID. The routine file links
+to the family and its relevant lessons. Each run has one canonical record, so a run listed in
+two families counts once in aggregate reports.
+
+**Choose and adapt.** The model already interpreting the request identifies the task family and
+writes the completion checks before execution. It records the source routine version, lesson IDs
+and the intended adaptation. Prefer an exact approved routine when it fits. For an adjacent
+request, reuse applicable steps and adapt the entry point, required evidence and completion
+condition through the approved routine's inputs. When the match is weak, handle the request
+normally and leave the family unset. Several similar observations can later support a new family.
+
+**Run once.** Execute one plan under the user's existing request budget. For the first version,
+reuse a parameterized, read-only routine or a previously approved variant. The host checks tool
+and path scope, and accounts for backend calls, tokens and time, including child calls. A change
+to the executable script goes through the existing version approval. A wider read scope, new tool
+or write follows the existing permission path. If a candidate fails after starting, record the
+partial result and use the normal recovery path. A failed trial does not start a second routine
+automatically. Where token usage is unavailable, record that explicitly and enforce the request
+and time caps.
+
+**Record once.** Write the plan before execution. Link the actual adaptation, run outcome and
+session event references to the same run ID at completion. Leave an interrupted run marked
+incomplete. Keep request bodies and tool arguments in their original session record. The
+task-family view shows the source version, changes, evidence coverage, unverified checks and
+measured cost. It can also show how many distinct tasks support a lesson and where it failed.
+
+| Record | Proposed contents |
+|---|---|
+| Task family | Stable ID, matching conditions, exclusions, lesson IDs and run references. |
+| Run | Run ID, family IDs, source routine and version, lesson IDs, planned and actual changes, checks and outcomes, interruptions, model, scope, backend requests, reported tokens, elapsed time and source evidence references. |
+| Lesson | Applicable conditions, technique to try, supporting and contradictory run IDs, limitations, costs, and status such as hypothesis or corroborated. |
+
+**Example.** Start from `recovery-policy-evidence` and reuse the lesson that each handoff should
+cite the executable call. For a VS Code Stop investigation, replace the web recovery entry
+point with the Stop handler and require evidence for the client request, daemon dispatch and
+delivery of cancellation to the running turn. Code can establish the path. Whether a particular
+job stopped remains unverified without runtime evidence. Keep the source routine link and put
+the results in the same family as web recovery. This is an illustrative record.
+
+**Promote on evidence.** A normal run adds one observation. A successful transfer to another
+request makes the lesson more plausible. Preserve failures and report distinct tasks separately
+from repeats. Record an unmet check as unresolved. Label it a regression when paired evidence
+shows the baseline passed and the candidate failed, or a protected contract is demonstrably broken.
+Before replacing a default, use the existing comparison tools on matched development cases and
+reserve fresh holdout cases for the selected version. Only development evidence goes into future
+candidate prompts. Capture lessons from the ordinary run without queuing experiments or making an
+additional model call. Explicit comparisons remain available when adoption needs stronger evidence.
+
+This proposal uses SIM's improvement history, GUARD's explicit checks and RRSI's bounded changes.
+Harness² supplies the idea of carrying lessons forward to unfamiliar tasks. In Magi, an approved
+template is adapted once within the normal task budget and the result is reviewed later.
+A task family and its selection rules can be versioned separately from the execution routine,
+with the dummy plug owning the records. Engram remains optional.
+
+[SIM](https://arxiv.org/abs/2611.18856) · [GUARD](https://arxiv.org/abs/2611.23476) ·
+[RRSI](https://arxiv.org/abs/2609.24972) · [Harness²](https://arxiv.org/abs/2610.14224)
+
+#### Evolving the shared control flow
+
+Add a third layer alongside task-specific adaptation and routine editing. The dummy plug
+owns a separately versioned policy that controls the order and conditions for selecting
+lessons, choosing a routine, checking evidence and handling a failed step. The policy
+works on the host's structured observations and calls only approved operations. The host
+enforces permissions, read scope, budget, cancellation and run approval.
+
+For example, the current policy can choose a routine and plan its entire trace up front.
+A candidate policy can require a verified handoff before moving to the next file. If the
+required evidence is missing, it can spend one remaining search on that gap or report it
+as unverified. This changes the control flow shared by web recovery, VS Code cancellation
+and JetBrains approval. A request-specific input change still belongs to the individual run.
+
+Normal runs record the policy version, branch taken, evidence checked and cost. The host
+can replay recorded development observations to compare decisions without model calls.
+Replay only supports claims about decisions on those observations. If a policy would take
+a different action, an explicit paired run is needed to measure its effect on outcomes
+and cost. Compare across different tasks in the family and check any other affected family.
+Holdout cases stay outside policy refinement.
+
+A person reviews and activates a new policy version. An active run keeps the version it
+started with. Rollback restores the previous policy for future runs. Start with one read-only
+task family and one policy change. Record lessons during ordinary work, and run paired
+comparisons explicitly before changing the default. This layer is a design proposal.
+
+#### First implementation of the call-path family
+
+Call `routine_trace_path` with the client, action, a repository subdirectory, one to four ordered
+handoffs and the current task's request and time limits. The shared instruction asks for the
+executable call at each handoff. Supply an expected scope-relative `path:line` when one is known.
+Otherwise the tool can check whether a returned citation resolves. Assess whether a citation
+supports the conclusion when reading the answer.
+
+```json
+{
+  "client": "vscode",
+  "action": "cancellation",
+  "directory": "clients",
+  "question": "Where does the Stop control dispatch its request?",
+  "handoffs": [{"label": "VS Code handler to daemon request"}],
+  "request_limit": 4,
+  "timeout": 30
+}
+```
+
+`/routine-trace-policy` shows the current policy. The default `whole-v1` asks for the full path
+in one explore. `/routine-trace-policy use handoff-v1` selects one explore per handoff and stops
+when a valid citation is missing. Approval binds the policy, executable routine and read scope.
+`/routine-trace-policy rollback` selects the preceding policy for future runs.
+`/routine-trace-runs [run-id]` shows records under
+`.magi/routines/client-daemon-call-trace/runs/`, including incomplete starts.
+`/routine-trace-policy replay <run-id>` compares decisions on those recorded results without
+calling a model. To measure different outcomes, run each policy explicitly on the same task.
+
+Each run enforces the supplied host request and time limits across its explore children.
+The optional `reported_token_limit` stops further requests after the reported total reaches
+the limit. Usage arrives after a request, so that final request can exceed the limit.
+The implementation covers this one read-only family. It records the use of the bundled lesson
+and leaves future lesson promotion and selection across families to the design above.

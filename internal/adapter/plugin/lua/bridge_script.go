@@ -245,8 +245,19 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		L.Push(lua.LNumber(failedCalls))
 		return 4
 	}
+	scriptContext := p.spawnCtx()
+	if cap, ok := opts.RawGetString("explore_request_limit").(lua.LNumber); ok {
+		if !measureExplore || cap < 1 || cap > 64 || cap != lua.LNumber(int(cap)) {
+			return fail(L, "run_script: invalid explore request limit")
+		}
+		tokens, _ := opts.RawGetString("explore_token_limit").(lua.LNumber)
+		if tokens < 0 || tokens > 1000000 || tokens != lua.LNumber(int(tokens)) {
+			return fail(L, "run_script: invalid explore token limit")
+		}
+		scriptContext = port.WithExploreBudget(scriptContext, int(cap), int(tokens))
+	}
 	started := time.Now()
-	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, safe, scriptHooksOf(L, opts), src, timeout, limit)
+	out, err := execScript(scriptContext, call, p.env.EmitProgress, safe, scriptHooksOf(L, opts), src, timeout, limit)
 	if child != nil {
 		child.Close(out, err)
 	}
