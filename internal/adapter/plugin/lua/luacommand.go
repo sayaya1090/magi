@@ -3,6 +3,7 @@ package lua
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -24,8 +25,19 @@ func (c *luaCommand) Description() string { return c.description }
 // function signals failure by returning a non-empty string (its error message);
 // returning nil / nothing means success.
 func (c *luaCommand) Execute(args []string) error {
+	_, err := c.run(args, false)
+	return err
+}
+
+// run is Execute that can also hand back what the command logged while it ran (capture).
+func (c *luaCommand) run(args []string, capture bool) (string, error) {
 	c.plugin.mu.Lock()
 	defer c.plugin.mu.Unlock()
+	var out strings.Builder
+	if capture {
+		c.plugin.capture = &out
+		defer func() { c.plugin.capture = nil }()
+	}
 
 	L := c.plugin.L
 	L.Push(c.fn)
@@ -35,12 +47,12 @@ func (c *luaCommand) Execute(args []string) error {
 	}
 	L.Push(tbl)
 	if err := L.PCall(1, 1, nil); err != nil {
-		return fmt.Errorf("lua command %q: %w", c.name, err)
+		return out.String(), fmt.Errorf("lua command %q: %w", c.name, err)
 	}
 	ret := L.Get(-1)
 	L.Pop(1)
 	if s, ok := ret.(lua.LString); ok && string(s) != "" {
-		return errors.New(string(s))
+		return out.String(), errors.New(string(s))
 	}
-	return nil
+	return out.String(), nil
 }

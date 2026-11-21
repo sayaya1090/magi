@@ -69,6 +69,16 @@ public interface CompanionSource {
     void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why);
 
     /**
+     * 보내기에 <b>답</b>까지 받는 판 — 한 줄이 플러그인 슬래시 명령(/routine-draft …)이면 서버가
+     * 모델 대신 그 명령을 돌리고, 명령이 남긴 로그를 본문으로 돌려준다. said 는 그 로그(없으면
+     * 안 불린다), why 는 위와 같다. 그 답을 모르는 소스는 위의 보내기로 갈음한다.
+     */
+    default void submit(CompanionContext ctx, String text, java.util.function.Consumer<String> why,
+                        java.util.function.Consumer<String> said) {
+        submit(ctx, text, why);
+    }
+
+    /**
      * 컴패니언을 지난 한 세션으로 <b>옮긴다</b>(/resume) — 그 대화가 다시 지금 대화가 된다.
      *
      * 보내기와 나뉘어 있는 이유는 둘이 따로 거부되기 때문이다: 이 워크스페이스의 대화가 아니면

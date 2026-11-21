@@ -1147,3 +1147,20 @@ func (c *Client) CompanionOperation(action, id string, args json.RawMessage) (Re
 	}
 	return res, nil
 }
+
+// PluginCommands lists the plugin slash commands the companion offers ("commands"). A daemon from
+// before that door refuses, which a caller reads as "none".
+func (c *Client) PluginCommands() ([]port.PluginCommandInfo, error) {
+	resp, err := c.exchange(Request{Method: "commands"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Commands, nil
+}
+
+// RunPluginCommand runs one ("command-run"): rest is the line after the name. out is what the command
+// logged; its own refusal comes back as Refused, with whatever it logged before refusing.
+func (c *Client) RunPluginCommand(name, rest string) (string, error) {
+	resp, err := c.exchange(Request{Method: "command-run", Name: name, Text: rest})
+	return resp.Out, err
+}

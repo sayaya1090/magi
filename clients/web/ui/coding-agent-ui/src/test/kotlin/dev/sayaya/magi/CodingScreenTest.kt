@@ -221,6 +221,27 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
             }
         }
+        // 플러그인 슬래시 명령(/routine-draft …)은 서버의 /submit 이 모델 대신 돌린다. 그 답 —
+        // 명령이 남긴 로그, 또는 그 거절 — 이 입력줄 위 한 줄에 선다. 예전에는 거절 사유가
+        // 어디에도 안 섰고, 명령의 로그는 받을 길조차 없었다.
+        When("플러그인 명령을 보내면") {
+            page.locator("#dock .composer #t textarea").fill("/fake-cmd ok")
+            page.locator("#dock .composer #send").click()
+            Then("명령이 남긴 로그가 입력줄 위에 서고 상자는 빈다") {
+                page.waitForCondition { page.locator("#dock #cnote").textContent() == "[routine] adopted v2" }
+                page.locator("#dock #cnote[hidden]").count() shouldBe 0
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe ""
+            }
+        }
+        When("플러그인 명령이 거절되면") {
+            page.locator("#dock .composer #t textarea").fill("/fake-cmd no")
+            page.locator("#dock .composer #send").click()
+            Then("사유가 서고 쓰던 말은 돌아온다") {
+                page.waitForCondition { page.locator("#dock #cnote").textContent()?.contains("refused here") == true }
+                page.locator("#dock .composer #t textarea").inputValue() shouldBe "/fake-cmd no"
+            }
+            page.locator("#dock .composer #t textarea").fill("")
+        }
         When("다이어그램 노드를 고르면") {
             page.evaluate("""['Start','Next','Start'].forEach(l => window.dispatchEvent(new CustomEvent('magi-diagram-select', {detail: {label: l}})))""")
             Then("뷰어에게 컴포저가 받는다고 알리고, 노드는 지울 수 있는 칩으로 한 번씩 선다") {

@@ -2204,6 +2204,18 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          * 덮는 무늬는 남지만, 여기 서는 것은 실패뿐이라 성공이 실패를 지우는 방향만 있다.
          */
         private fun report(text: String) = SwingUtilities.invokeLater {
+            notice.foreground = Look.error
+            notice.text = text
+            notice.isVisible = true
+            notice.parent?.revalidate()
+        }
+        /**
+         * 플러그인 명령의 답 — 같은 줄에 선다. 거절은 붉게, 명령이 남긴 로그는 보통 글자색으로.
+         * 성공을 적지 않는 [report] 의 규칙의 예외가 아니다: 명령의 로그는 혼잣말이 아니라 그
+         * 명령이 준 유일한 답이고, 전사에는 그 행이 서지 않는다.
+         */
+        private fun tell(text: String, failed: Boolean) {
+            notice.foreground = if (failed) Look.error else com.intellij.util.ui.UIUtil.getLabelForeground()
             notice.text = text
             notice.isVisible = true
             notice.parent?.revalidate()
@@ -2611,6 +2623,22 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
             connect(target, { finishSend(attempt, it) }) send@ { comp ->
                 if (closing.get() || project.isDisposed) return@send
+                // 플러그인 슬래시 명령(`/routine-draft …`): 첫 낱말이 데몬이 내놓은 명령이면 모델
+                // 대신 그 명령을 돌린다. 예전에는 TUI 만 이 길을 알았고 여기서는 프롬프트로 갔다.
+                // 턴이 도는 동안은 TUI 처럼 거절한다 — safeWhileRunning 에 플러그인 명령은 없다.
+                val slash = if (picked.isEmpty()) dev.sayaya.magi.ide.usecase.SlashCommand.split(typed) else null
+                if (slash != null && comp.pluginCommands().any { it.name == slash.first }) {
+                    val (name, rest) = slash
+                    if (turnOpen) {
+                        finishSend(attempt, MagiBundle.msg("chat.command.busy", name))
+                        return@send
+                    }
+                    val r = comp.runCommand(name, rest)
+                    val line = if (r.ok) r.out?.takeIf { it.isNotBlank() } ?: MagiBundle.msg("chat.command.done", name)
+                        else MagiBundle.msg("chat.command.failed", name, r.error ?: MagiBundle.msg("common.noreason"))
+                    finishSend(attempt, null) { tell(line, failed = !r.ok) }
+                    return@send
+                }
                 // 고정 탭의 게이트(계약의 절반): 한 워크스페이스의 동시 턴은 아무것도 조정하지
                 // 않는다 — 다른 대화의 턴이 도는 중이면 조용한 건너뛰기 대신 **묻는다**. 파일
                 // 충돌은 사용자가 이름 댄 고통이다(docs/UI.ko.md §4.2b).
@@ -2647,7 +2675,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         private fun currentSendSession(): String? = if (sendSession != null) sendSession.invoke()
             else pinned ?: followedSid ?: socket()?.let { dev.sayaya.magi.ide.transport.Published.of(it)?.session }
 
-        private fun finishSend(attempt: dev.sayaya.magi.ide.usecase.SendDrafts.Attempt, error: String?) = SwingUtilities.invokeLater {
+        /** [then] 은 이 마무리가 건 [clearNotice] 뒤에 돈다 — 명령의 답이 지워지지 않게. */
+        private fun finishSend(attempt: dev.sayaya.magi.ide.usecase.SendDrafts.Attempt, error: String?, then: (() -> Unit)? = null) = SwingUtilities.invokeLater {
             if (closing.get() || project.isDisposed) return@invokeLater
             val outcome = sendDrafts.complete(attempt, error, currentSendSession()) ?: return@invokeLater
             if (error == null) refreshRecall()
@@ -2666,6 +2695,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
             drawSendRecovery()
             updateComposerHint()
+            then?.let { SwingUtilities.invokeLater(it) }
         }
 
         private fun drawSendRecovery() {

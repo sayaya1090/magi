@@ -187,6 +187,8 @@ func init() {
 		"config-get":          {run: answerConfigGet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot read out its settings", cap: "settings"},
 		"config-set":          {run: answerConfigSet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot change its settings", cap: "settings"},
 		"profile-maintenance": {run: answerProfileMaintenance, needs: (*ProfileMaintenanceHost)(nil), why: "this companion does not offer internal description maintenance", cap: "profile-maintenance"},
+		"commands":            {run: answerCommands, needs: (*PluginCommandHost)(nil), why: noPluginCommands, cap: "plugin-commands"},
+		"command-run":         {run: answerCommandRun, needs: (*PluginCommandHost)(nil), why: noPluginCommands, cap: "plugin-commands"},
 		"knowledge":           {run: answerKnowledge, needs: (*KnowledgeManager)(nil), why: "this companion does not offer knowledge management", cap: "knowledge"},
 		"profiles":            {run: answerProfiles, needs: (*ConfigKeeper)(nil), why: "this daemon cannot list its backends", cap: "settings"},
 		"mcp-attach":          {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},

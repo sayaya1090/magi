@@ -722,14 +722,24 @@ public class ConversationElement {
         // 비우고, 거부되면 되돌린다 — 타이핑을 잃는 쪽이 늘 더 나쁘다(기존 콘솔 규칙).
         value("");
         rememberDraft(); // 빈 값이므로 저장된 초안도 같이 지워진다
+        // 거절 사유와 플러그인 명령의 로그는 입력줄 위 한 줄(#cnote)에 선다 — 예전에는 사유가
+        // 어디에도 서지 않고 글만 돌아왔다.
         store.submit(v, why -> {
-            if (why != null && !why.isEmpty() && value().trim().isEmpty()) {
-                value(typed);
-                for (String n : picked) if (!nodes.contains(n)) nodes.add(n);
-                drawNodes();
-                rememberDraft(); // 되돌린 글도 새로고침을 넘겨야 한다
+            if (why != null && !why.isEmpty()) {
+                showNote(why);
+                if (value().trim().isEmpty()) {
+                    value(typed);
+                    for (String n : picked) if (!nodes.contains(n)) nodes.add(n);
+                    drawNodes();
+                    rememberDraft(); // 되돌린 글도 새로고침을 넘겨야 한다
+                }
             }
-        });
+        }, this::showNote);
+    }
+
+    private void showNote(String text) {
+        note.textContent = text;
+        note.removeAttribute("hidden");
     }
 
     /** 조준한 대화가 바뀌면 칩을 그 대화 몫으로 갈아 끼운다(떠나는 대화의 칩은 보관). */

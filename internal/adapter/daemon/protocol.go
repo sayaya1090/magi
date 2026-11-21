@@ -759,12 +759,14 @@ type Request struct {
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
 // failed cannot tell a rejected session id from a dead engine, and would retry both.
 type Response struct {
-	Knowledge       []port.KnowledgeItem `json:"knowledge,omitempty"`
-	Slots           []port.PluginSlot    `json:"slots,omitempty"`
-	Declaration     json.RawMessage      `json:"declaration,omitempty"`
-	OperationResult *session.ToolResult  `json:"operationResult,omitempty"`
-	OK              bool                 `json:"ok"`
-	Err             string               `json:"error,omitempty"`
+	Knowledge []port.KnowledgeItem `json:"knowledge,omitempty"`
+	Slots     []port.PluginSlot    `json:"slots,omitempty"`
+	// Commands lists the plugin slash commands a composer may run ("commands").
+	Commands        []port.PluginCommandInfo `json:"commands,omitempty"`
+	Declaration     json.RawMessage          `json:"declaration,omitempty"`
+	OperationResult *session.ToolResult      `json:"operationResult,omitempty"`
+	OK              bool                     `json:"ok"`
+	Err             string                   `json:"error,omitempty"`
 	// Minutes is the meeting document as the speaker just revised it, on a meet reply. Its own
 	// field rather than folded into Out, which carries what was SAID: a screen draws those two in
 	// different places, and one field meaning "the sentence, or the document, depending" is a wire

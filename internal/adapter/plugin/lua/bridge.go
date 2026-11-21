@@ -1009,8 +1009,15 @@ func (p *plugin) bridgeNotifySlotChange(L *lua.LState) int {
 }
 
 func (p *plugin) bridgeLog(L *lua.LState) int {
+	line := "[" + p.name + "] " + L.ToString(1)
+	if p.capture != nil {
+		if p.capture.Len() > 0 {
+			p.capture.WriteByte('\n')
+		}
+		p.capture.WriteString(line)
+	}
 	if p.logf != nil {
-		p.logf("[" + p.name + "] " + L.ToString(1))
+		p.logf(line)
 	}
 	return 0
 }

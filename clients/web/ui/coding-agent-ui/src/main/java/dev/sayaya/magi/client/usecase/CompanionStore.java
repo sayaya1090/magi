@@ -117,13 +117,18 @@ public class CompanionStore implements CompanionSource.Listener {
      * 모듈이 아니라 컴패니언 패널이 아는 사실이라서.
      */
     public void submit(String text, Consumer<String> why) {
+        submit(text, why, said -> {});
+    }
+
+    /** said 는 플러그인 명령이 남긴 로그 — {@link CompanionSource#submit(CompanionContext, String, Consumer, Consumer)}. */
+    public void submit(String text, Consumer<String> why, Consumer<String> said) {
         if (ctx == null) { why.accept("no companion"); return; }
         if (answering != null) {
             // 답은 부모가 보낸다 — 기다리는 질문을 아는 쪽이 부모이고, /answer의 주인도 하나다.
             dev.sayaya.magi.bridge.AskSharing.answer(text, why::accept);
             return;
         }
-        source.submit(ctx, text, why);
+        source.submit(ctx, text, why, said);
     }
 
     /**

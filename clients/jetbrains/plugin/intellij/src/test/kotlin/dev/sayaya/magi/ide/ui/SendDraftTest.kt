@@ -17,6 +17,7 @@ class SendDraftTest : BasePlatformTestCase() {
         var session = "s1"
         val pending = mutableListOf<Triple<String, (String) -> Unit, (Companion) -> Unit>>()
         val seen = mutableListOf<Request>()
+        var replyOf: (Request) -> Response? = { null }
         val view = MagiToolWindow.View(project,
             sendConnection = { sid, trouble, work -> pending.add(Triple(sid, trouble, work)) },
             sendSession = { session })
@@ -33,6 +34,7 @@ class SendDraftTest : BasePlatformTestCase() {
             work(Companion(object : Daemon {
                 override fun exchange(request: Request): Response {
                     seen.add(request)
+                    replyOf(request)?.let { return it }
                     return if (request.method in listOf("submit", "steer")) Response(ok = ok, error = if (ok) null else "refused") else Response(ok = true)
                 }
                 override fun stream(request: Request, each: (Response) -> Boolean) {}
@@ -60,6 +62,42 @@ class SendDraftTest : BasePlatformTestCase() {
         assertEquals("line one\nline two", h.input.text)
         arrow("magi.recallNewer")
         assertEquals("unfinished draft", h.input.text)
+    }
+
+    // A plugin's slash command (/routine-draft …) used to reach the model as an ordinary prompt: the
+    // window had no path to the daemon's plugin commands. A first word the daemon lists as a command
+    // runs it instead; its refusal or what it logged is shown on the line above the input.
+    private fun commands(h: Harness, run: Response) {
+        h.replyOf = { r ->
+            when (r.method) {
+                "commands" -> Response(ok = true, commands = listOf(dev.sayaya.magi.ide.model.PluginCommandInfo("routine-draft", "draft a routine")))
+                "command-run" -> run
+                else -> null
+            }
+        }
+    }
+    private fun noticeText(h: Harness): String = h.field<javax.swing.JLabel>("notice").text
+
+    fun testAKnownPluginCommandRunsInsteadOfReachingTheModel() = check { h ->
+        commands(h, Response(ok = false, error = "call #8 has no verified sequential order"))
+        h.submit("/routine-draft probe 8-9"); h.finish()
+        val run = h.seen.single { it.method == "command-run" }
+        assertEquals("routine-draft", run.name)
+        assertEquals("probe 8-9", run.text)
+        assertTrue(h.seen.none { it.method == "submit" || it.method == "steer" })
+        assertTrue(noticeText(h), noticeText(h).contains("call #8 has no verified sequential order"))
+    }
+    fun testAPluginCommandsLogIsShownAndTheInputCleared() = check { h ->
+        commands(h, Response(ok = true, out = "[dummy-plug] [routine] adopted v2"))
+        h.submit("/routine-draft x"); h.finish()
+        assertEquals("", h.input.text)
+        assertTrue(noticeText(h), noticeText(h).contains("[routine] adopted v2"))
+    }
+    fun testASlashWordThatIsNoCommandIsStillSentToTheModel() = check { h ->
+        commands(h, Response(ok = true))
+        h.submit("/nope x"); h.finish()
+        assertTrue(h.seen.any { it.method == "submit" && it.text == "/nope x" })
+        assertTrue(h.seen.none { it.method == "command-run" })
     }
 
     fun testLateSuccessPreservesNewDraft() = check { h ->

@@ -155,10 +155,19 @@ data class ProgressStage(
     val after: List<String>? = null,
 )
 
+/** 플러그인이 내놓은 슬래시 명령 하나(`/` 없이). */
+@Serializable
+data class PluginCommandInfo(
+    val name: String,
+    val description: String? = null,
+)
+
 @Serializable
 data class Response(
     val knowledge: List<KnowledgeItem>? = null,
     val slots: List<PluginSlot>? = null,
+    /** 플러그인 슬래시 명령의 목록(`commands`) — 입력창이 명령과 모델에게 할 말을 가른다. */
+    val commands: List<PluginCommandInfo>? = null,
     val declaration: JsonElement? = null,
     val operationResult: JsonElement? = null,
     val ok: Boolean = false,

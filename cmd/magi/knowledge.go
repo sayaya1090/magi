@@ -18,6 +18,20 @@ func (d daemonEngine) QuerySlots(ctx context.Context, target string) ([]port.Plu
 	return d.obs.QuerySlots(ctx, target)
 }
 
+func (d daemonEngine) PluginCommandList() []port.PluginCommandInfo {
+	if d.obs == nil {
+		return nil
+	}
+	return d.obs.PluginCommandList()
+}
+
+func (d daemonEngine) RunPluginCommand(ctx context.Context, name string, args []string) (string, bool, error) {
+	if d.obs == nil {
+		return "", false, fmt.Errorf("plugin observer is unavailable")
+	}
+	return d.obs.RunPluginCommand(ctx, name, args)
+}
+
 func (d daemonEngine) TriggerSlotAction(ctx context.Context, plugin, slot, action string) (string, error) {
 	if d.obs == nil {
 		return "", fmt.Errorf("plugin observer is unavailable")

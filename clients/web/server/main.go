@@ -1766,12 +1766,23 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	// Steer, not Submit: the daemon may already be working, and a second Submit would queue a
 	// whole new turn behind it rather than reaching the one in flight. The engine decides which
 	// it is — that decision is already made there, and making it twice is how the two disagree.
+	// A plugin's slash command (/routine-draft …) is run, not said: runIfCommand.
+	var ran *commandAnswer
 	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+		answer, err := runIfCommand(cl, sid, text)
+		if err != nil || answer != nil {
+			ran = answer
+			return err
+		}
 		return cl.Steer(context.Background(), command.SubmitPrompt{
 			SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
 	})
 	if err != nil {
 		http.Error(w, err.Error(), daemonSaysNo(err))
+		return
+	}
+	if ran != nil {
+		ran.write(w)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

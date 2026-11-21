@@ -171,6 +171,17 @@ class Companion(
     fun about(): Response = send(Request(method = "about"))
 
     /**
+     * 플러그인 슬래시 명령의 목록. 그 문이 없는 낡은 데몬은 거절로 답하고, 그때 목록은 비어
+     * 모든 입력이 지금처럼 모델에게 간다.
+     */
+    fun pluginCommands(): List<dev.sayaya.magi.ide.model.PluginCommandInfo> =
+        send(Request(method = "commands")).commands.orEmpty()
+
+    /** 명령 하나를 돌린다 — `out` 은 명령이 도는 동안 남긴 로그, 거절은 `error`. */
+    fun runCommand(name: String, rest: String): Response =
+        send(Request(method = "command-run", name = name, text = rest))
+
+    /**
      * 예약 하나를 쓴다 — 없으면 만들고, 같은 이름이 있으면 고친다.
      *
      * [enabled] 가 null 이면 스위치는 그대로다. 말만 고치는 편집이 꺼 둔 잡을 도로 켜면 안 되고,

@@ -16,6 +16,7 @@ import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath, ActionOriginOptions } from '../core/nav';
 import { parseWebviewToHostMessage, HostToWebviewMessage, PaintedRow, RestartWire } from '../core/webview_protocol';
 import { renderChatHtml } from '../web/chat_html';
+import { splitSlash } from '../core/slash';
 
 /**
  * The conversation, in the panel.
@@ -625,6 +626,29 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           // clarification typed mid-turn would delete the plan of the turn it was clarifying.
           // The fact comes off the target session state, or the transcript this window streams (turnOpen).
           const isTurnRunning = this.isSessionTurnOpen(resolvedSid) || (this.sid === resolvedSid && turnOpen(this.events));
+
+          // A plugin's slash command (`/routine-draft …`): a first word the daemon lists as a command
+          // runs it instead of saying the line to the model. Only the TUI knew this path before, and
+          // here the line went out as a prompt. Refused while a turn runs, as the TUI refuses it —
+          // no plugin command is in its safeWhileRunning list. Its answer is a note: what it logged,
+          // or its refusal. The chips ride back, unspent.
+          const slash = m.nodeSendId ? null : splitSlash(body);
+          if (slash) {
+            const listed = await this.companion.ask('commands');
+            if (listed?.ok && (listed.commands ?? []).some((c) => c.name === slash.name)) {
+              for (const r of sent) if (!this.refs.some((x) => refText(x) === refText(r))) this.refs.push(r);
+              if (isTurnRunning) {
+                this.post({ kind: 'note', text: `/${slash.name} cannot run while a turn is working` });
+                this.compose(body);
+                break;
+              }
+              const r = await this.companion.ask('command-run', { name: slash.name, text: slash.rest });
+              this.post({ kind: 'note', text: r?.ok
+                ? (r.out?.trim() || `/${slash.name}: done`)
+                : `/${slash.name}: ${r?.error ?? 'no companion is listening on this workspace.'}` });
+              break;
+            }
+          }
           const door = isTurnRunning ? 'steer' : 'submit';
 
           const r = await this.companion.ask(door, refs.length ? { session: resolvedSid, text: body, refs } : { session: resolvedSid, text: body });

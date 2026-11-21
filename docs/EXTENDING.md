@@ -582,6 +582,13 @@ magi.register_command{
 }
 ```
 
+The same commands run from the JetBrains, VS Code and web console input boxes. When a line starts
+with `/` and its first word is a command the daemon lists (`commands`), the client runs it through
+`command-run` instead of sending the line to the model; any other `/word` is still a prompt. As in the
+TUI, a plugin command is refused while a turn is running. What the command logged with `magi.log`
+while it ran, or the string it returned as an error, is shown on one line above the input — those
+clients have no stderr to read. A UI effect such as `magi.clear_transcript()` is not relayed to them.
+
 ### 3.4 `magi.set_llm_headers` — custom headers for the LLM backend
 
 For an internal gateway (LiteLLM and the like) that requires a header such as `X-CLIENT-API-KEY`, or

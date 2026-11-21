@@ -85,6 +85,8 @@ tasks.test {
     val wireOrigins = listOf(
         "internal/port/knowledge.go",
         "internal/port/slot.go",
+        // 플러그인 슬래시 명령 목록의 한 칸(`commands` 문의 답).
+        "internal/port/plugin_command.go",
         // 파일이 아니라 **패키지**를 댄다. 이름을 대면 늙는다 — daemon.go 를 적어 뒀다가 그 파일이
         // 여섯으로 갈린 날 릴리스가 빨갛게 섰다(2026-09-03). `inputs.files` 는 없는 파일을 참으므로
         // 빌드는 조용했고, 운 것은 CI 의 시험이었다.

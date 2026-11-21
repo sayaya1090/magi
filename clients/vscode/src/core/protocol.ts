@@ -134,6 +134,8 @@ export interface Response {
   theme?: {dark?: Record<string,string>; light?: Record<string,string>};
   knowledge?: KnowledgeItem[];
   slots?: PluginSlot[];
+  /** `commands` only: the plugin slash commands a composer may run instead of saying the line. */
+  commands?: { name: string; description?: string }[];
   ok: boolean;
   error?: string;
   out?: string;

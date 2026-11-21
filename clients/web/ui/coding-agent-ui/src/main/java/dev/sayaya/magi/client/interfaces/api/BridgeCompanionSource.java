@@ -57,9 +57,18 @@ public class BridgeCompanionSource implements CompanionSource {
 
     @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) {
+        submit(ctx, text, why, said -> {});
+    }
+
+    @Override
+    public void submit(CompanionContext ctx, String text, Consumer<String> why, Consumer<String> said) {
         URLSearchParams body = new URLSearchParams();
         body.set("text", text);
-        Console.post("/submit", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
+        // 보통의 한 마디는 204(빈 본문)다. 본문이 오면 그것은 플러그인 명령이 남긴 로그다.
+        Console.post("/submit", body, ctx.socket, ctx.peer, (ok, w) -> {
+            if (ok && w != null && !w.isEmpty()) said.accept(w);
+            why.accept(Console.why(ok, w));
+        });
     }
 
     @Override

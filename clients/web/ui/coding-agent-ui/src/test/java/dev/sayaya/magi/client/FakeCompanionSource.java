@@ -141,6 +141,14 @@ public class FakeCompanionSource implements CompanionSource {
 
 
 
+    /** 플러그인 명령 흉내: "/fake-cmd ok" 는 명령의 로그를, "/fake-cmd no" 는 거절을 돌려준다. */
+    @Override
+    public void submit(CompanionContext ctx, String text, Consumer<String> why, Consumer<String> said) {
+        if (text.startsWith("/fake-cmd ok")) { said.accept("[routine] adopted v2"); why.accept(""); return; }
+        if (text.startsWith("/fake-cmd no")) { why.accept("/fake-cmd: refused here"); return; }
+        submit(ctx, text, why);
+    }
+
     @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);

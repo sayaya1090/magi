@@ -613,6 +613,25 @@ func (h *Host) TriggerSlotAction(ctx context.Context, plugin, slot, action strin
 // tolerated), returning (true, err) if one handled it and (false, nil) if no
 // plugin owns the name so the caller can report "unknown command".
 func (h *Host) DispatchCommand(name string, args []string) (bool, error) {
+	cmd := h.findCommand(name)
+	if cmd == nil {
+		return false, nil
+	}
+	return true, cmd.Execute(args)
+}
+
+// RunCommand is DispatchCommand for a client that is not the TUI: it also returns the lines the
+// command logged (magi.log) while it ran, which are that client's only view of the answer.
+func (h *Host) RunCommand(name string, args []string) (string, bool, error) {
+	cmd := h.findCommand(name)
+	if cmd == nil {
+		return "", false, nil
+	}
+	out, err := cmd.run(args, true)
+	return out, true, err
+}
+
+func (h *Host) findCommand(name string) *luaCommand {
 	name = strings.TrimPrefix(name, "/")
 	h.mu.Lock()
 	var cmd *luaCommand
@@ -628,10 +647,7 @@ func (h *Host) DispatchCommand(name string, args []string) (bool, error) {
 		}
 	}
 	h.mu.Unlock() // release before Execute: it locks the plugin, not the host
-	if cmd == nil {
-		return false, nil
-	}
-	return true, cmd.Execute(args)
+	return cmd
 }
 
 // setRuntimeModel updates the model reported by magi.model() so a set_model /

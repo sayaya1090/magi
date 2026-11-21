@@ -226,6 +226,27 @@ type pluginObserver struct {
 
 func (o *pluginObserver) bind(h *pluginlua.Host) { o.host.Store(h) }
 
+// PluginCommandList and RunPluginCommand hand the plugin host's slash commands to the daemon's
+// doors, for the clients that are not the TUI.
+func (o *pluginObserver) PluginCommandList() []port.PluginCommandInfo {
+	h := o.host.Load()
+	if h == nil {
+		return nil
+	}
+	var out []port.PluginCommandInfo
+	for _, c := range h.PluginCommands() {
+		out = append(out, port.PluginCommandInfo{Name: c.Name(), Description: c.Description()})
+	}
+	return out
+}
+
+func (o *pluginObserver) RunPluginCommand(_ context.Context, name string, args []string) (string, bool, error) {
+	if h := o.host.Load(); h != nil {
+		return h.RunCommand(name, args)
+	}
+	return "", false, fmt.Errorf("plugin host not available")
+}
+
 func (o *pluginObserver) DispatchCommand(name string, args []string) (bool, error) {
 	if h := o.host.Load(); h != nil {
 		return h.DispatchCommand(name, args)

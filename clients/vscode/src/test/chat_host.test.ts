@@ -1010,3 +1010,60 @@ test('a child named on a tool row opens in the panel, and only from the screen t
   await chat.fromView({ kind: 'child', session: 'elsewhere', child: 's_kid02' } as any);
   assert.equal(chat.session, 's1', 'a click from a screen showing another conversation opened something');
 });
+
+// A plugin's slash command (/routine-draft …) used to reach the model as an ordinary prompt: the
+// panel had no path to the daemon's plugin commands. A first word the daemon lists as a command
+// runs it instead, and its answer (what it logged, or its refusal) comes back as a note.
+function commandCompanion(run: any) {
+  const companion = createMockCompanion();
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'commands') return { ok: true, commands: [{ name: 'routine-draft', description: 'draft a routine' }] };
+    if (door === 'command-run') return run;
+    return { ok: true };
+  };
+  return companion;
+}
+function commandChat(companion: any) {
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const posted: any[] = [];
+  (chat as any).post = (m: any) => posted.push(m);
+  (chat as any).draw = () => {};
+  (chat as any).sid = 's1';
+  companion.session = 's1';
+  return { chat, posted };
+}
+
+test('a known plugin command runs instead of reaching the model, and its refusal is the note', async () => {
+  const companion = commandCompanion({ ok: false, error: 'call #8 has no verified sequential order' });
+  const { chat, posted } = commandChat(companion);
+  await chat.fromView({ kind: 'say', text: '/routine-draft probe 8-9', session: 's1' } as any);
+  const run = companion.calls.find((c: any) => c.door === 'command-run');
+  assert.deepEqual(run?.payload, { name: 'routine-draft', text: 'probe 8-9' });
+  assert.ok(!companion.calls.some((c: any) => c.door === 'submit' || c.door === 'steer'), 'not sent to the model');
+  assert.ok(posted.some((m) => m.kind === 'note' && m.text.includes('call #8 has no verified sequential order')));
+});
+
+test('a plugin command\'s log is posted as a note', async () => {
+  const companion = commandCompanion({ ok: true, out: '[dummy-plug] [routine] adopted v2' });
+  const { chat, posted } = commandChat(companion);
+  await chat.fromView({ kind: 'say', text: '/routine-draft x', session: 's1' } as any);
+  assert.ok(posted.some((m) => m.kind === 'note' && m.text.includes('[routine] adopted v2')));
+});
+
+test('a slash word that is no command is still sent to the model', async () => {
+  const companion = commandCompanion({ ok: true });
+  const { chat } = commandChat(companion);
+  await chat.fromView({ kind: 'say', text: '/nope x', session: 's1' } as any);
+  assert.ok(companion.calls.some((c: any) => c.door === 'submit' && c.payload.text === '/nope x'));
+  assert.ok(!companion.calls.some((c: any) => c.door === 'command-run'));
+});
+
+test('a plugin command is refused while a turn runs, as the TUI refuses it', async () => {
+  const companion = commandCompanion({ ok: true });
+  const { chat, posted } = commandChat(companion);
+  (chat as any).sessionActiveTurns.add('s1');
+  await chat.fromView({ kind: 'say', text: '/routine-draft x', session: 's1' } as any);
+  assert.ok(!companion.calls.some((c: any) => c.door === 'command-run' || c.door === 'steer'));
+  assert.ok(posted.some((m) => m.kind === 'note' && m.text.includes('cannot run while a turn is working')));
+});

@@ -28,11 +28,14 @@ type plugin struct {
 	mu       sync.Mutex
 	L        *lua.LState
 	tools    []*luaTool
-	gates    []*lua.LFunction  // declaration gates (magi.register_declaration_gate)
-	commands []*luaCommand     // slash commands registered via magi.register_command
-	probes   []*luaDoctorProbe // -doctor checks registered via magi.register_doctor_probes
-	slots    []*luaSlot        // UI slots registered via magi.register_slot
-	env      port.ToolEnv      // set per tool Execute so bridge calls see the workdir
+	gates    []*lua.LFunction // declaration gates (magi.register_declaration_gate)
+	commands []*luaCommand    // slash commands registered via magi.register_command
+	// capture collects magi.log lines while a command runs for RunCommand. Set and cleared under mu,
+	// which the command holds for its whole run, so no line from another caller lands in it.
+	capture *strings.Builder
+	probes  []*luaDoctorProbe // -doctor checks registered via magi.register_doctor_probes
+	slots   []*luaSlot        // UI slots registered via magi.register_slot
+	env     port.ToolEnv      // set per tool Execute so bridge calls see the workdir
 	// callCtx is the ctx of the tool call in flight, swapped in beside env. Without it a bridge
 	// call had nothing to pass down and used context.Background(), which severed the child from
 	// the parent turn — Ctrl-C then did nothing until the child's own deadline expired.
