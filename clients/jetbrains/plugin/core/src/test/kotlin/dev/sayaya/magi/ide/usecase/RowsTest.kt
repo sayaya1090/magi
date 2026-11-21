@@ -63,6 +63,27 @@ class RowsTest {
         }
     }
 
+    @org.junit.jupiter.api.Test
+    fun `background completion puts its result and children on the launching row`() {
+        val detail = "exit 0\n15:35:07 prepare\n\n[child s_bgchild01, 7 tool call(s)]"
+        for (state in listOf("succeeded", "failed")) {
+            val rows = Rows(ko)
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"dummy_plug","callId":"job"}}}"""))
+            rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"job","background":true,"content":"Started in the background."}}}"""))
+            val done = ev("tool.background", """{"callId":"job","state":"$state","detail":${kotlinx.serialization.json.JsonPrimitive(detail.replace("\\n", "\n"))}}""")
+            rows.feed(done)
+            val row = rows.list().single()
+            org.junit.jupiter.api.Assertions.assertEquals(listOf("s_bgchild01"), row.children, "the row opens the child the job ran")
+            org.junit.jupiter.api.Assertions.assertEquals(detail.replace("\\n", "\n"), row.outputText, "the output is the result, not the launch message")
+            org.junit.jupiter.api.Assertions.assertEquals(done.seq, row.outputSeq)
+        }
+        val rows = Rows(ko)
+        rows.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"bash","callId":"j"}}}"""))
+        rows.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"j","background":true,"content":"started bg_1"}}}"""))
+        rows.feed(ev("tool.background", """{"callId":"j","state":"succeeded"}"""))
+        org.junit.jupiter.api.Assertions.assertEquals("started bg_1", rows.list().single().outputText, "no detail keeps the launch output")
+    }
+
 
     @org.junit.jupiter.api.Test
     fun `confirmed output retains source and identifies each result`() {

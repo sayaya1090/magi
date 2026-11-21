@@ -123,7 +123,22 @@ export function resolveOutputItem(events: Event[], outputId: string): OutputItem
         partOf(e).kind === 'tool-result' &&
         partOf(e).toolResult?.callId === parsed.callId
     );
-    if (!resultEv) return null;
+    if (!resultEv) {
+      // A background job's result is the detail of its completion fact, under the same id shape.
+      const done = events.find(
+        (e) =>
+          e.seq === parsed.resultSeq &&
+          e.type === 'tool.background' &&
+          (e.data as { callId?: unknown } | undefined)?.callId === parsed.callId
+      );
+      const detail = (done?.data as { detail?: unknown } | undefined)?.detail;
+      if (typeof detail !== 'string') return null;
+      const launch = events.find(
+        (e) => partOf(e).kind === 'tool-call' && partOf(e).toolCall?.callId === parsed.callId
+      );
+      const name = partOf(launch).toolCall?.name || '도구';
+      return { outputId, kind: 'tool-result', content: detail, title: `${name} 결과`, language: 'plaintext' };
+    }
 
     const toolResult = partOf(resultEv).toolResult;
     if (!toolResult) return null;

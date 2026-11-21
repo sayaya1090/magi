@@ -306,6 +306,14 @@ class Rows(private val words: Words) {
                 if (i < 0 || state !in listOf("succeeded", "failed", "killed", "unknown")) false
                 else {
                     rows[i] = rows[i].copy(background = false, ok = if (state == "unknown") null else state == "succeeded", note = state == "succeeded" && rows[i].note)
+                    // 일의 결과와 돌린 자식은 시작이 아니라 완료와 함께 온다. 이것이 없으면 행에는 "시작됨"만 남고
+                    // 그 행에서 자식을 열 수 없다. detail 이 없으면(일반 백그라운드 bash) 시작 출력을 그대로 둔다.
+                    val detail = str(e, "detail").orEmpty()
+                    if (detail.isNotEmpty()) rows[i] = rows[i].copy(
+                        outputText = detail, outputSeq = e.seq.takeIf { it > 0 }, outputJson = false,
+                        out = if (state == "succeeded") rows[i].out else detail,
+                        children = childrenNamed(detail).ifEmpty { rows[i].children },
+                    )
                     true
                 }
             }

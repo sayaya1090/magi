@@ -230,6 +230,12 @@ func fold(events []event.Event) ([]Row, foldStats) {
 						ok := state == "succeeded"
 						out[i].Ok = &ok
 					}
+					// The job's result and the children it ran arrive with its completion, not its
+					// launch: without this the row keeps "started" and cannot open the child.
+					if detail := str(d, "detail"); detail != "" {
+						out[i].Out = detail
+						out[i].Children = app.ChildrenNamed(detail)
+					}
 					break
 				}
 			}

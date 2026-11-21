@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import { rows } from '../core/transcript';
 import { stagesStrip, updateStages } from '../web/chat_adapter';
 import { Event } from '../core/protocol';
+import { resolveOutputItem } from '../core/output';
 
 test('background launch stays busy until its own process exit; replay keeps terminal outcome', () => {
   const events: Event[] = [
@@ -145,4 +146,21 @@ test('a plain step after a graph follows the graph end, not the step before it',
   assert.equal(paths.length, 10, 'ten edges, the graph feeding the next step');
   assert.ok(paths.some((d) => d.startsWith('<path d="M810 16 ') && d.includes(' 917 16 m')), 'join leads to the next step');
   assert.ok(!paths.some((d) => d.startsWith('<path d="M378 16 ') && d.includes(' 917 16 m')), 'the step before the graph does not skip it');
+});
+
+test('a background completion puts its result and its children on the launching row', () => {
+  const detail = 'exit 0\n15:35:07 prepare\n\n[child s_bgchild01, 7 tool call(s)]';
+  const launch: Event[] = [
+    { seq: 1, type: 'part.appended', data: { part: { kind: 'tool-call', toolCall: { callId: 'job', name: 'dummy_plug' } } } },
+    { seq: 2, type: 'part.appended', data: { part: { kind: 'tool-result', toolResult: { callId: 'job', background: true, content: 'Started in the background.' } } } },
+  ];
+  for (const state of ['succeeded', 'failed']) {
+    const events: Event[] = [...launch, { seq: 3, type: 'tool.background', data: { callId: 'job', state, detail } }];
+    const row = rows(events)[0];
+    assert.deepEqual(row.children, ['s_bgchild01'], 'the row opens the child the job ran');
+    assert.ok(row.outputId, 'the row has an output to open');
+    assert.equal(resolveOutputItem(events, row.outputId!)?.content, detail, 'the output is the result, not the launch message');
+  }
+  const plain: Event[] = [...launch, { seq: 3, type: 'tool.background', data: { callId: 'job', state: 'succeeded' } }];
+  assert.equal(resolveOutputItem(plain, rows(plain)[0].outputId!)?.content, 'Started in the background.', 'no detail keeps the launch output');
 });

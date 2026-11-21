@@ -564,3 +564,34 @@ func TestBackgroundRowsFollowProcessExit(t *testing.T) {
 		})
 	}
 }
+
+// A background job's result arrives with its completion, not its launch: the row that only said
+// "started" must show what the job printed and open the children it ran, failed or not.
+func TestBackgroundCompletionFillsTheRowWithItsResultAndChildren(t *testing.T) {
+	for _, state := range []string{"succeeded", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			detail := "exit 0\n15:35:07 준비\n\n[child s_bgchild01, 7 tool call(s)]"
+			events := []event.Event{
+				mk(1, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{"callId": "bg-call", "name": "dummy_plug"}}}, nil),
+				mk(2, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{"callId": "bg-call", "background": true, "content": "Started in the background."}}}, nil),
+				mk(3, "tool.background", map[string]any{"callId": "bg-call", "state": state, "detail": detail}, nil),
+			}
+			row := Rows(events)[0]
+			if row.Out != detail {
+				t.Fatalf("row kept the launch message, not the result: %q", row.Out)
+			}
+			if len(row.Children) != 1 || row.Children[0] != "s_bgchild01" {
+				t.Fatalf("row cannot open the child it ran: %v", row.Children)
+			}
+		})
+	}
+	// No detail (a plain background bash): the launch output stays.
+	events := []event.Event{
+		mk(1, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{"callId": "j", "name": "bash"}}}, nil),
+		mk(2, "part.appended", map[string]any{"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{"callId": "j", "background": true, "content": "started bg_1"}}}, nil),
+		mk(3, "tool.background", map[string]any{"callId": "j", "state": "succeeded"}, nil),
+	}
+	if got := Rows(events)[0].Out; got != "started bg_1" {
+		t.Fatalf("a completion without detail erased the launch output: %q", got)
+	}
+}

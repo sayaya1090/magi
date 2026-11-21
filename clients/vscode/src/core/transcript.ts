@@ -234,7 +234,7 @@ export function rows(events: Event[]): Row[] {
     const d = (e.data ?? {}) as Record<string, unknown>;
     switch (e.type) {
       case 'tool.background': {
-        const d = e.data as { callId?: string; state?: string };
+        const d = e.data as { callId?: string; state?: string; detail?: unknown };
         if (!d || !['succeeded', 'failed', 'killed', 'unknown'].includes(d.state ?? '')) break;
         const row = [...out].reverse().find((r) => r.who === 'tool' && r.callId === d.callId);
         if (row) {
@@ -242,6 +242,14 @@ export function rows(events: Event[]): Row[] {
           if (d.state !== 'succeeded') delete row.note;
           if (d.state === 'unknown') delete row.ok;
           else row.ok = d.state === 'succeeded';
+          // The job's result and the children it ran arrive with its completion, not its launch:
+          // without this the row keeps "started" and cannot open the child.
+          if (typeof d.detail === 'string' && d.detail !== '' && d.callId) {
+            const kids = childrenNamed(d.detail);
+            if (kids.length) row.children = kids;
+            if (d.state !== 'succeeded') row.out = said(d.detail);
+            row.outputId = makeToolResultOutputId(d.callId, e.seq);
+          }
         }
         break;
       }
