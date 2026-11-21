@@ -48,7 +48,7 @@ func TestARoutineImprovesItselfWithinTheScopeAPersonDelegatedOnce(t *testing.T) 
 	if err := r.command(t, "routine-auto", "writer"); err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("a routine that writes cannot be delegated: %v", err)
 	}
-	if err := r.command(t, "routine-auto", rpe); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
 		t.Fatal(err)
 	}
 

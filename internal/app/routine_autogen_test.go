@@ -73,7 +73,7 @@ func TestARoutineGeneratesComparesAndAppliesItsOwnCandidates(t *testing.T) {
 	worse, better := rpeVariants(script)
 	an.replies = []string{candidateReply("trace the click path", worse),
 		candidateReply("trace the click path and keep asking where the code disagrees", better)}
-	if err := r.command(t, "routine-auto", rpe); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
 		t.Fatal(err)
 	}
 	before := r.logs.text()
@@ -117,7 +117,7 @@ func TestADelegatedCandidateThatReachesNewDataIsLeftForAPerson(t *testing.T) {
 	if reachy == better {
 		t.Fatal("fixture did not change")
 	}
-	if err := r.command(t, "routine-auto", rpe); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
 		t.Fatal(err)
 	}
 	improve := func(id, cand string) string {
@@ -133,5 +133,32 @@ func TestADelegatedCandidateThatReachesNewDataIsLeftForAPerson(t *testing.T) {
 	}
 	if out := improve("r2", better); !strings.Contains(out, "auto-applied") {
 		t.Fatalf("the same data reach is applied: %q", out)
+	}
+}
+
+// explore takes free text, so a changed question may reach other data. A delegation does not cover
+// that unless the person allowed it: under a plain /routine-auto, a candidate whose only change is its
+// explore question is applicable but left for a person; /routine-auto <name> explore-text allows it.
+func TestAnExploreOnlyChangeIsLeftForAPersonUnlessDelegated(t *testing.T) {
+	r, script := setupRPE(t)
+	_, better := rpeVariants(script)
+	if err := r.command(t, "routine-auto", rpe); err != nil {
+		t.Fatal(err)
+	}
+	out, _, failed := r.call(t, "e1", "routine_improve", map[string]any{"name": rpe, "script": better, "hypothesis": "h"}, "allow")
+	if failed || !strings.Contains(out, "verdict: applicable") || !strings.Contains(out, "not auto-applied") ||
+		!strings.Contains(out, "data reach differs (explore questions changed)") || strings.Contains(r.skill(t, rpe), "Trace from the click handler") {
+		t.Fatalf("an explore-only change under a plain delegation must be left for a person: %q", out)
+	}
+	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = r.call(t, "e2", "routine_improve", map[string]any{"name": rpe, "script": better, "hypothesis": "h"}, "allow")
+	if !strings.Contains(out, "auto-applied") || !strings.Contains(r.skill(t, rpe), "Trace from the click handler") {
+		t.Fatalf("with explore-text delegated, the same change is applied: %q", out)
+	}
+	dec, _ := os.ReadFile(filepath.Join(r.s.Workdir, ".magi/routines/"+rpe+"/decisions.jsonl"))
+	if !strings.Contains(string(dec), `"explore_text":true`) {
+		t.Fatalf("the delegation must record that explore questions may change:\n%s", dec)
 	}
 }

@@ -877,6 +877,8 @@ do
     for _, c in ipairs(calls) do
       if c.tool == "explore" then cost.simulated_explore_calls = cost.simulated_explore_calls + 1 end
       if REACH[c.tool] and cost.reach then cost.reach[reach_key(c.tool, c.args)] = true end
+      -- explore takes free text: its arguments are kept whole and compared exactly.
+      if c.tool == "explore" and cost.explore then cost.explore[tostring(c.args)] = true end
     end
     if unv then return "unverified" end
     local exp = type(tk.expect) == "table" and type(tk.expect.evidence) == "table" and tk.expect.evidence or {}
@@ -1120,7 +1122,7 @@ Compare a candidate version of a routine with its active version, and record the
       local n = { solved = 0, regressed = 0, still_failing = 0, kept = 0, unstable = 0, unverified = 0 }
       local rows, diffs, plost, lost, shaky = {}, {}, {}, {}, {}
       local hold_solved, hold_regressed, hold_cheaper, hold_costlier = 0, 0, 0, 0
-      local cost = { active = { calls = 0, simulated_explore_calls = 0, reach = {} }, candidate = { calls = 0, simulated_explore_calls = 0, reach = {} } }
+      local cost = { active = { calls = 0, simulated_explore_calls = 0, reach = {}, explore = {} }, candidate = { calls = 0, simulated_explore_calls = 0, reach = {}, explore = {} } }
       local reps = math.max(1, math.floor(tonumber(tasks.repeats) or 3))
       if not reject then
         for _, tk in ipairs(type(tasks.tasks) == "table" and tasks.tasks or {}) do
@@ -1169,7 +1171,15 @@ Compare a candidate version of a routine with its active version, and record the
         if not cost.active.reach[k] then reach_added[#reach_added + 1] = k end
       end
       table.sort(reach_added)
+      local explore_changed = 0
+      for k in pairs(cost.candidate.explore) do
+        if not cost.active.explore[k] then explore_changed = explore_changed + 1 end
+      end
+      for k in pairs(cost.active.explore) do
+        if not cost.candidate.explore[k] then explore_changed = explore_changed + 1 end
+      end
       cost.active.reach, cost.candidate.reach = nil, nil
+      cost.active.explore, cost.candidate.explore = nil, nil
 
       local verdict, reason
       if reject then
@@ -1219,7 +1229,7 @@ Compare a candidate version of a routine with its active version, and record the
         holdout_cost = { cheaper = hold_cheaper, costlier = hold_costlier,
           sign_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier) },
         evaluation_policy = EVAL_POLICY,
-        data_reach = { added = #reach_added > 0 and reach_added or nil, active = reach_counts.active, candidate = reach_counts.candidate,
+        data_reach = { added = #reach_added > 0 and reach_added or nil, active = reach_counts.active, candidate = reach_counts.candidate, explore_changed = explore_changed,
           compared = "read, grep, glob, list and recall_memory arguments on the tasks; explore not compared" },
         decision = { verdict = verdict, reason = reason, by = "routine_improve" },
       }
@@ -1255,7 +1265,9 @@ Compare a candidate version of a routine with its active version, and record the
       if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
       if #rows > 0 then
         lines[#lines + 1] = #reach_added > 0 and ("data reach: adds " .. table.concat(reach_added, "; "):sub(1, 200))
-          or "data reach: no new read, grep, glob, list or recall_memory arguments (explore not compared)"
+          or "data reach: no new read, grep, glob, list or recall_memory arguments"
+        lines[#lines + 1] = explore_changed > 0 and ("explore questions: " .. explore_changed .. " differ from the active version's")
+          or "explore questions: same as the active version's"
       end
       -- Delegated auto-apply: only an applicable candidate, only inside what the person allowed once.
       local applied, auto_line = false, nil
@@ -1266,6 +1278,8 @@ Compare a candidate version of a routine with its active version, and record the
           if #writes > 0 then why = "it may write (" .. table.concat(writes, ", ") .. ")"
           elseif table.concat(tools, ",") ~= table.concat(type(del.tools) == "table" and del.tools or {}, ",") then why = "its tools differ from the delegated ones"
           elseif magi.json_encode(inputs) ~= tostring(del.inputs) then why = "its inputs differ from the delegated ones"
+          elseif explore_changed > 0 and del.explore_text ~= true then
+            why = "data reach differs (explore questions changed); /routine-auto " .. r.name .. " explore-text allows that"
           elseif #reach_added > 0 then
             why = "its data reach differs (adds " .. table.concat(reach_added, "; "):sub(1, 200) .. ")"
           elseif type(del.evals) ~= "table" or del.evals.contract ~= csha or del.evals.tasks ~= tsha then
@@ -1421,7 +1435,7 @@ Compare a candidate version of a routine with its active version, and record the
   -- approval: an applied version still asks before its next run.
   magi.register_command{
     name = "routine-auto",
-    description = "Let routine_improve apply applicable candidates of a read-only routine by itself, within its current tools, inputs and frozen evals (/routine-auto <name> | /routine-auto <name> off)",
+    description = "Let routine_improve apply applicable candidates of a read-only routine by itself, within its current tools, inputs and frozen evals (/routine-auto <name> [explore-text] | /routine-auto <name> off)",
     execute = function(args)
       local w = words(args)
       local name, off = w[1], w[2]
@@ -1441,13 +1455,17 @@ Compare a candidate version of a routine with its active version, and record the
       end
       local frozen = stored("routine_evals_frozen")[name]
       if type(frozen) ~= "table" then return "freeze the evals of " .. name .. " first (/routine-evals-freeze " .. name .. ")" end
+      if off ~= nil and off ~= "explore-text" then return "usage: /routine-auto <name> [explore-text] | /routine-auto <name> off" end
+      -- explore-text: the person also lets a candidate change the questions it gives explore, which
+      -- may reach other data; without it such a candidate is left for a person.
       local scope = { tools = r.tools, inputs = magi.json_encode(r.inputs), evals = { contract = frozen.contract, tasks = frozen.tasks },
-        at = magi.time(), by = "person" }
+        explore_text = off == "explore-text" or nil, at = magi.time(), by = "person" }
       all[name] = scope
       magi.store_set("routine_auto", all)
       append_line(rdir(name) .. "decisions.jsonl", { at = scope.at, action = "auto-apply delegated", routine = name, by = "person", scope = scope })
       magi.log("[routine] auto-apply delegated for " .. name .. " (tools " .. table.concat(r.tools, ", ") .. ", evals " ..
-        frozen.tasks:sub(1, 12) .. "); /routine-auto " .. name .. " off revokes it")
+        frozen.tasks:sub(1, 12) .. (scope.explore_text and ", explore questions may change" or ", explore questions fixed") ..
+        "); /routine-auto " .. name .. " off revokes it")
     end,
   }
 
