@@ -103,11 +103,37 @@ func TestRoutineLiveExploreReportsRegressionAndHoldoutReuse(t *testing.T) {
 		t.Fatalf("A/A should expose variation without using holdout: %s", aa)
 	}
 
+	r.put(t, "scope/evidence.go", []byte("package evidence\n"))
+	r.put(t, dir+"tasks.json", []byte(`{"tasks":[{"id":"uncertain","input":{"questions":["what is known?"]},"expect":{"evidence":["evidence.go:1"],"conclusion":"UNVERIFIED"}}]}`))
+	if err := r.command(t, "routine-evals-freeze", rpe); err != nil {
+		t.Fatal(err)
+	}
+	r.a.llm = &scriptLLM{steps: [][]port.ProviderEvent{
+		asideText("evidence.go:1\nCONCLUSION: SUPPORTED"),
+		asideText("CONCLUSION: UNVERIFIED"),
+	}}
+	report, _, failed := r.call(t, "conclusion", "routine_compare_explore", map[string]any{
+		"name": rpe, "directory": "scope", "script": script,
+	}, "allow")
+	var statuses struct {
+		Rows []struct {
+			Active, Candidate struct {
+				Citation   string `json:"citation_status"`
+				Conclusion string `json:"conclusion_status"`
+			}
+		}
+	}
+	if failed || json.Unmarshal([]byte(report), &statuses) != nil || len(statuses.Rows) != 1 ||
+		statuses.Rows[0].Active.Citation != "pass" || statuses.Rows[0].Active.Conclusion != "fail" ||
+		statuses.Rows[0].Candidate.Citation != "fail" || statuses.Rows[0].Candidate.Conclusion != "pass" {
+		t.Fatalf("the two dimensions must be independent: %s", report)
+	}
+
 	if r.skill(t, rpe) != before {
 		t.Fatal("comparison modified the active routine")
 	}
 	log, err := os.ReadFile(filepath.Join(r.s.Workdir, dir, "live-explore.jsonl"))
-	if err != nil || strings.Count(string(log), `"phase":"completed"`) != 3 {
+	if err != nil || strings.Count(string(log), `"phase":"completed"`) != 4 {
 		t.Fatalf("comparison ledger: %s (%v)", log, err)
 	}
 }

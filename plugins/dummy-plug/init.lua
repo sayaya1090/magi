@@ -954,6 +954,18 @@ do
     return found, invalid
   end
 
+  local function conclusion_marker(text)
+    local found
+    for line in text:gmatch("[^\r\n]+") do
+      local marker = line:match("^%s*CONCLUSION:%s*(%a+)%s*$")
+      if marker then
+        if (found and found ~= marker) or (marker ~= "SUPPORTED" and marker ~= "UNVERIFIED") then return nil end
+        found = marker
+      end
+    end
+    return found
+  end
+
   magi.register_tool{
     name = "routine_compare_explore",
     description = "Run a read-only routine and a candidate on the same frozen tasks using real scoped explore calls. Records paired citation checks and timings without adopting either version.",
@@ -1022,13 +1034,26 @@ do
             globals = noop_globals(), tools = r.tools, explore_read_scope = scope, measure_explore = true, timeout = 90,
           })
           metrics = metrics or { calls = 0, failures = 0 }
-          local found, invalid = live_evidence(out or "", scope)
-          local observed = live_evidence(table.concat(metrics.answers or {}, "\n"), scope)
-          local missing, expected = {}, task.expect and task.expect.evidence or {}
+          local answer = out or ""
+          local observations = table.concat(metrics.answers or {}, "\n")
+          local found, invalid = live_evidence(answer, scope)
+          local observed = live_evidence(observations, scope)
+          local expect = task.expect or {}
+          local missing, expected = {}, expect.evidence or {}
           for _, ref in ipairs(expected) do if not found[ref] or not observed[ref] then missing[#missing + 1] = ref end end
-          local status = (#expected == 0 or metrics.calls == 0) and "unverified"
-            or (not failure and metrics.failures == 0 and #missing == 0 and #invalid == 0 and "pass" or "fail")
-          return { status = status, missing = missing, invalid = invalid, explore_calls = metrics.calls, explore_failures = metrics.failures,
+          local ran = not failure and metrics.calls > 0 and metrics.failures == 0
+          local citation_status = (#expected == 0 or metrics.calls == 0) and "unverified"
+            or (#missing == 0 and #invalid == 0 and "pass" or "fail")
+          local conclusion_status, marker
+          if expect.conclusion then
+            marker = conclusion_marker(answer)
+            conclusion_status = not ran and "unverified"
+              or (marker == expect.conclusion and conclusion_marker(observations) == marker and "pass" or "fail")
+          end
+          local status = (citation_status == "unverified" or conclusion_status == "unverified") and "unverified"
+            or (ran and citation_status == "pass" and conclusion_status ~= "fail" and "pass" or "fail")
+          return { status = status, citation_status = citation_status, conclusion_status = conclusion_status, conclusion = marker,
+            missing = missing, invalid = invalid, explore_calls = metrics.calls, explore_failures = metrics.failures,
             elapsed_ms = metrics.elapsed_ms, script_failed = failure ~= nil, model_calls = metrics.model_calls, usage_reports = metrics.usage_reports,
             input_tokens = metrics.input_tokens, output_tokens = metrics.output_tokens, cached_tokens = metrics.cached_tokens,
             tokens_known = metrics.tokens_known, cache_reported = metrics.cache_reported, model = metrics.model, profile = metrics.profile }

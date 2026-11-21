@@ -372,7 +372,10 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   model and provider. The report records the snapshot commit and tree, actual backend request
   counts, and token usage when reported. Use `aa: true` on development tasks to run the active
   script twice and see how its results vary. Each arm runs once per task. The report checks
-  citations and leaves adoption to the separate routine commands.
+  citations and leaves adoption to the separate routine commands. For a task with
+  `expect.conclusion`, set it to `SUPPORTED` or `UNVERIFIED` and request a standalone
+  `CONCLUSION: <value>` line. The report scores that line separately from citations and requires
+  it in both the routine output and the explore response. A reviewer still checks the reasoning.
 - **Generating candidates.** `routine_autoimprove{name, problem, rounds}` makes one sidecar call
   (`magi.analyze`) per round with the active script, the problem and feedback from development
   screening in the current run. It screens each candidate against the contract and development
