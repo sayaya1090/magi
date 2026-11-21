@@ -1063,7 +1063,7 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 | `magi.register_slot{target, id?, title?, description?, query?, execute?}` | — | a card on a client screen (`target = "knowledge"`): `query()` returns `{status, items, actions}`, `execute(action_id)` runs a button and returns what to show. An error raised in `execute` reaches the person who pressed it |
 | `magi.notify_slot_change(target?)` | — | tells every watched session that the slots changed, so open screens ask again |
 | `magi.propose_experience{…}` | — | offer a memory or skill to the shared experience store (§2.4) |
-| `magi.approve{reason=, detail=}` | — | inside a tool call: ask the person through the conversation's permission prompt; an "always" grant does not answer it, and it grants nothing else |
+| `magi.approve{reason=, detail=}` | — | inside a tool call: ask the person through the conversation's permission prompt. Only a person answers it: an "always" grant, the permission mode, a headless run or an unanswered prompt never approve it, and answering "always"/"persist" grants nothing else |
 | `magi.sha256(s)` | — | hex sha256 of a string |
 
 ---

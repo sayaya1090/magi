@@ -966,7 +966,7 @@ end
 | `magi.register_slot{target, id?, title?, description?, query?, execute?}` | — | 클라이언트 화면(`target = "knowledge"`)의 카드입니다. `query()`는 `{status, items, actions}`를 돌려주고, `execute(action_id)`는 단추 동작을 실행해 보여 줄 문구를 돌려줍니다. `execute`에서 낸 오류는 단추를 누른 사람에게 그대로 전달됩니다 |
 | `magi.notify_slot_change(target?)` | — | 슬롯이 바뀌었음을 지켜보는 모든 세션에 알려, 열린 화면이 다시 조회하게 합니다 |
 | `magi.propose_experience{…}` | — | 공유 경험 스토어에 메모리나 스킬을 제안 (§2.4) |
-| `magi.approve{reason=, detail=}` | — | 툴 호출 안에서 대화의 권한 창으로 사람에게 승인을 묻습니다. 「항상」 허가로 대신하지 않고, 다른 것은 허가하지 않습니다 |
+| `magi.approve{reason=, detail=}` | — | 툴 호출 안에서 대화의 권한 창으로 사람에게 승인을 묻습니다. 사람만 답할 수 있습니다. 「항상」 허가, 권한 모드, 헤드리스 실행, 답 없는 창은 승인으로 보지 않고, 「항상」·「영구」로 답해도 다른 것은 허가하지 않습니다 |
 | `magi.sha256(s)` | — | 문자열의 sha256(16진수) |
 
 ---

@@ -39,7 +39,12 @@ type routineRig struct {
 
 func newRoutineRig(t *testing.T, dataDir, routine string) *routineRig {
 	t.Helper()
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "ask", Interactive: true, AnswerWait: 5 * time.Second})
+	return newRoutineRigWith(t, dataDir, routine, Config{Permission: "ask", Interactive: true, AnswerWait: 5 * time.Second})
+}
+
+func newRoutineRigWith(t *testing.T, dataDir, routine string, cfg Config) *routineRig {
+	t.Helper()
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, cfg)
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
 	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), DataDir: dataDir,
@@ -318,5 +323,53 @@ print(text and ("read " .. input.file) or ("refused: " .. tostring(why)))`, 1)
 	}
 	if !strings.Contains(out, "refused: ") || !strings.Contains(out, "blocked by policy") || strings.Contains(out, "TOKEN") {
 		t.Fatalf("the routine's read of a secret must still be refused by the policy: %q", out)
+	}
+}
+
+// A routine's approval is a person's, never a policy's. With nobody to ask (a headless run), or
+// nobody answering in time, an "allow" permission mode does not approve it: nothing runs and nothing
+// is recorded as approved, so the next run with a person asks.
+func TestARoutineIsNotApprovedByPolicyWithoutAPerson(t *testing.T) {
+	data := t.TempDir()
+	headless := newRoutineRigWith(t, data, routineFile, Config{Permission: "allow"})
+	out, _, failed := headless.run(t, "h1", map[string]any{"file": "notes.txt"}, "allow")
+	if !failed || strings.Contains(out, "read notes.txt") || !strings.Contains(out, "not approved") {
+		t.Fatalf("a headless allow run approved the routine: %q", out)
+	}
+	slow := newRoutineRigWith(t, data, routineFile, Config{Permission: "allow", Interactive: true, AnswerWait: 50 * time.Millisecond})
+	slow.write(t, routineFile)
+	unanswered := &routineRig{a: slow.a, sid: slow.sid, s: slow.s, host: slow.host}
+	raw, _ := json.Marshal(map[string]any{"name": "readit", "args": map[string]any{"file": "notes.txt"}})
+	outer := &session.ToolCall{CallID: "t1", Name: "run_routine", Args: raw}
+	unanswered.a.executeTool(context.Background(), unanswered.s, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), "")
+	if kids, _ := unanswered.a.store.ChildSessions(context.Background(), unanswered.s.Workdir, string(unanswered.sid)); len(kids) != 0 {
+		t.Fatalf("an unanswered approval ran the routine: %d children", len(kids))
+	}
+	asked := newRoutineRig(t, data, routineFile)
+	if _, asks, _ := asked.run(t, "p1", map[string]any{"file": "notes.txt"}, "deny"); len(asks) != 1 {
+		t.Fatalf("nothing should have been recorded as approved; the next run must ask: %+v", asks)
+	}
+}
+
+// Answering a routine's approval with "always" or "persist" approves that routine version only: it
+// grants no standing permission for run_routine and writes no project allow rule.
+func TestARoutineApprovalGrantsNoToolPermission(t *testing.T) {
+	for _, answer := range []string{"always", "persist"} {
+		r := newRoutineRig(t, t.TempDir(), routineFile)
+		if out, asks, failed := r.run(t, "a-"+answer, map[string]any{"file": "notes.txt"}, answer); failed || len(asks) != 1 || !strings.Contains(out, "read notes.txt") {
+			t.Fatalf("%s: the routine must run once approved: %q %+v", answer, out, asks)
+		}
+		r.a.mu.Lock()
+		granted := false
+		if st, ok := r.a.stateIf(r.sid); ok {
+			granted = st.grants["run_routine"]
+		}
+		r.a.mu.Unlock()
+		if granted {
+			t.Fatalf("%s: a routine approval granted the run_routine tool for the session", answer)
+		}
+		if b, err := os.ReadFile(filepath.Join(r.s.Workdir, ".magi", "config.toml")); err == nil && strings.Contains(string(b), "run_routine") {
+			t.Fatalf("%s: a routine approval wrote a project allow rule: %s", answer, b)
+		}
 	}
 }

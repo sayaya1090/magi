@@ -280,8 +280,11 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   tools. Arguments are checked against `inputs` (required keys, types, no unknown keys) first.
 - **Approval.** The first run, and any run after the script, `inputs` or `tools` changed, shows all
   three in the conversation's permission prompt (`magi.approve`). The approved fingerprint (sha256 of
-  the three) is kept in the plugin store, so it holds after a restart. An "always" grant for
-  `run_routine` does not answer it. Approval grants nothing else: each call still passes the
+  the three) is kept in the plugin store, so it holds after a restart. Only a person answers it:
+  an "always" grant for `run_routine` does not, and neither does the permission mode — with nobody
+  to ask (headless) or nobody answering in time, the routine is not approved and nothing is stored,
+  even in `allow`. Answering "always" or "persist" approves that routine version only; it adds no
+  session grant and no project allow rule. Approval grants nothing else: each call still passes the
   permission gate, and a call outside `tools` is refused.
 - **Read-only.** This version runs routines of `read`, `grep`, `glob`, `list`, `explore` and
   `recall_memory` only.

@@ -210,6 +210,11 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	// come (the run/bus goroutines then all sleep → the Go runtime kills the process).
 	if !a.cfg.Interactive {
 		a.mu.Unlock()
+		// A person's approval (a routine's first run or change) is not something a policy can give:
+		// with nobody to ask, it is not approved, whatever the permission mode.
+		if isFreshApproval(ctx) {
+			return finish(false, "headless", "this needs a person's approval, and this run has no one to ask; this was not a user rejection")
+		}
 		if handed {
 			return finish(false, "headless", "approval is required for delegated work, but this run has no interactive approval channel; this was not a user rejection")
 		}
@@ -304,6 +309,12 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			a.noteOneCallOnly(ctx, sid, tc)
 			return finish(true, "user", "")
 		}
+		if (dec == "always" || dec == "persist") && isFreshApproval(ctx) {
+			// It approves what was shown (one routine version), not the tool: no standing grant
+			// for the session and no project allow rule, or a routine approval would widen the
+			// permission of every later call to the same tool.
+			return finish(true, "user", "")
+		}
 		if dec == "always" || dec == "persist" {
 			a.mu.Lock()
 			if a.stateLocked(home).grants == nil {
@@ -327,7 +338,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		// Nobody answered. Resolve the way a run with no human resolves — by policy — and record
 		// that this is what happened: a decision taken by default reads identically to one somebody
 		// made unless the log says otherwise.
-		byPolicy := !handed && a.Permission() == "allow"
+		byPolicy := !handed && a.Permission() == "allow" && !isFreshApproval(ctx)
 		a.noteUnanswered(ctx, sid, tc, byPolicy)
 		return finish(byPolicy, "timeout", fmt.Sprintf("approval timed out after %s; nobody answered. This was not a user rejection. Do not retry the same call without a new approval.", a.answerBound(sid)))
 	case <-ctx.Done():
@@ -638,8 +649,9 @@ func (a *App) Waiting(sid session.SessionID) (Ask, bool) {
 	return oldest, found
 }
 
-// freshApprovalKey marks a request that must reach the person even when the tool holds an "always"
-// grant: a grant says the tool may run, not that the person has seen what it now shows.
+// freshApprovalKey marks a request only a person can answer (ToolEnv.Approve): it reaches the person
+// even when the tool holds an "always" grant, a policy never answers it (no person to ask, or nobody
+// answering in time, is not an approval), and answering "always" or "persist" grants nothing beyond it.
 type freshApprovalKey struct{}
 
 func asFreshApproval(ctx context.Context) context.Context {
