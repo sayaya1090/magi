@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -47,6 +48,12 @@ func installBridge(p *plugin) {
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "turn_steps", L.NewFunction(p.bridgeTurnSteps))
 	L.SetField(t, "run_script", L.NewFunction(p.bridgeRunScript))
+	L.SetField(t, "approve", L.NewFunction(p.bridgeApprove))
+	L.SetField(t, "sha256", L.NewFunction(func(L *lua.LState) int {
+		sum := sha256.Sum256([]byte(L.CheckString(1)))
+		L.Push(lua.LString(hex.EncodeToString(sum[:])))
+		return 1
+	}))
 	L.SetField(t, "progress", L.NewFunction(p.bridgeProgress))
 	L.SetField(t, "session_id", L.NewFunction(p.bridgeSessionID))
 	L.SetField(t, "council_enabled", L.NewFunction(p.bridgeCouncilEnabled))

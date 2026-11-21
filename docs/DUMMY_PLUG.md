@@ -240,9 +240,10 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 
 ## 10. Planned, not built
 
-1. **Routines as skills.** A skill's body holds a Lua block the person approves once by hash; the
-   model runs the routine by name and pays nothing for writing the script.
-2. **Memory.** Engram proposes a routine when the same sequence repeats.
+1. **Routines that write.** Routines (§12) run read-only tools only; a routine with `bash`, `edit`,
+   `multiedit` or `write` is refused before it asks.
+2. **Candidates from Engram.** Repeated sequences are counted by the dummy plug itself (§12), not by
+   Engram; `propose_experience` writes to the store at once with no review step, so it is not used.
 3. **`ask_user` questions reach the conversation.** Permission asks are already relayed (§8);
    `ask_user` questions are not yet.
 4. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen
@@ -263,3 +264,30 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 - Background runs on a real daemon: the completion turn, an interrupt or a restart mid-script, and how the
   screens draw the launch result. Covered by tests only.
 - Web marks do not take the baked sprite (`data-i`, `Icons.dress`); they are always the drawn shapes.
+- Routines (§12) on a real daemon: the approval prompt on real JetBrains, VS Code and web screens,
+  and the example routine with a real `explore`. Covered by tests with stand-in tools only.
+
+## 12. Routines
+
+A routine is a dummy plug script kept as a skill and run again by name with `run_routine{name, args}`.
+
+- **Format.** A skill file (`.magi/skills/<name>.md` or `.claude/skills/<name>/SKILL.md`) whose
+  frontmatter has `kind: routine`, `tools:` (the tools the script may call, comma-separated) and
+  `inputs:` (one-line JSON Schema). The script is the body's first `lua` block and reads its
+  arguments from `input`. A skill without `kind: routine` is not run.
+- **Execution.** Through `magi.run_script` like `dummy_plug`: a child session records each call, only
+  what the script prints comes back, and `run_script`'s `tools` option limits the run to the listed
+  tools. Arguments are checked against `inputs` (required keys, types, no unknown keys) first.
+- **Approval.** The first run, and any run after the script, `inputs` or `tools` changed, shows all
+  three in the conversation's permission prompt (`magi.approve`). The approved fingerprint (sha256 of
+  the three) is kept in the plugin store, so it holds after a restart. An "always" grant for
+  `run_routine` does not answer it. Approval grants nothing else: each call still passes the
+  permission gate, and a call outside `tools` is refused.
+- **Read-only.** This version runs routines of `read`, `grep`, `glob`, `list`, `explore` and
+  `recall_memory` only.
+- **Candidates.** When a successful `dummy_plug` run's read-only tool sequence (repeats folded) has
+  run three times, its result ends with a candidate id. The person reviews candidates with
+  `/routine-candidates` and registers one with `/routine-register <id> <name>`, which writes
+  `.magi/skills/<name>.md`. Nothing is registered otherwise, and the first run still asks.
+- **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
+  once, hands it to one `explore` per question, and prints each answer under its question.

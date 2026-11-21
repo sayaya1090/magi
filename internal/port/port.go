@@ -587,6 +587,11 @@ type ToolEnv struct {
 	// each one blocks. Without it the person answers the first not knowing there are two more —
 	// which changes the answer, because "is this the whole decision" is part of the decision.
 	AskUser func(q Question) (string, error)
+	// Approve asks the person, through this conversation's permission prompt, to approve what a tool
+	// shows them (reason, and detail as the prompt's arguments). It always asks while a person can
+	// answer — a standing "always" grant for the tool does not answer it — and follows the permission
+	// mode otherwise. Approving here grants nothing else: calls the tool makes still pass their own gate.
+	Approve func(reason string, detail json.RawMessage) (bool, error)
 	// Council asks the configured council for a reading of the work so far and returns their
 	// answers as text. complete marks the call as a DECLARATION that the task is finished: the
 	// council reads the record as a finish, and if it accepts, the application ends the turn.

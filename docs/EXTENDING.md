@@ -462,9 +462,10 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did
 > from the log instead of the agent's account of it. Same row shape as `magi.child_steps(sid)`.
 >
-> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=})`** — inside a tool call only. The
+> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=, tools=})`** — inside a tool call only. The
 > manifest must declare the `call_tools` capability and list the tools its scripts may call in
-> `call_tools = [...]`; none is open by default. Runs `source` in a Lua state of its own: no `os`, `io`,
+> `call_tools = [...]`; none is open by default. `tools = {...}` narrows one run to a subset of
+> those (a call outside it is refused). Runs `source` in a Lua state of its own: no `os`, `io`,
 > modules, loaders or `magi.*`; it has `call_tool(name, args)`, `print`, `json_encode`/`json_decode`, the
 > string, table and math libraries, `call_all({ {name, args}, ... })` and `progress(text)`. `call_all`
 > runs its calls at the same time, at most 8 at once, and returns `{ok=, text=}` or `{ok=false, error=}`
@@ -1062,6 +1063,8 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 | `magi.register_slot{target, id?, title?, description?, query?, execute?}` | — | a card on a client screen (`target = "knowledge"`): `query()` returns `{status, items, actions}`, `execute(action_id)` runs a button and returns what to show. An error raised in `execute` reaches the person who pressed it |
 | `magi.notify_slot_change(target?)` | — | tells every watched session that the slots changed, so open screens ask again |
 | `magi.propose_experience{…}` | — | offer a memory or skill to the shared experience store (§2.4) |
+| `magi.approve{reason=, detail=}` | — | inside a tool call: ask the person through the conversation's permission prompt; an "always" grant does not answer it, and it grants nothing else |
+| `magi.sha256(s)` | — | hex sha256 of a string |
 
 ---
 

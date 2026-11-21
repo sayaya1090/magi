@@ -50,6 +50,19 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	for _, n := range p.manifest.CallTools {
 		declared[n] = true
 	}
+	// tools = {...} narrows this run to a subset of what the plugin declared: a script run for one
+	// purpose (a routine the person approved for these tools) cannot reach the plugin's others.
+	if lt, ok := opts.RawGetString("tools").(*lua.LTable); ok {
+		only := map[string]bool{}
+		for i := 1; i <= lt.Len(); i++ {
+			n := lt.RawGetInt(i).String()
+			if !declared[n] {
+				return fail(L, "run_script: "+n+" is not declared in call_tools (plugin.toml)")
+			}
+			only[n] = true
+		}
+		declared = only
+	}
 	host := p.env.CallTool
 	// child = "task line": run the script in a child session the host opens for it, so its calls are
 	// recorded there and not in this conversation's log. A host without children runs it on the call.
@@ -452,5 +465,35 @@ func execScript(parent context.Context, call toolCaller, note func(string), para
 // that keeps state per conversation (the dummy plug's mode) keys it on this.
 func (p *plugin) bridgeSessionID(L *lua.LState) int {
 	L.Push(lua.LString(p.env.SessionID))
+	return 1
+}
+
+// magi.approve{reason=, detail={...}} -> true | false | (nil, err)
+//
+// Asks the person, through the conversation's permission prompt, to approve what the plugin shows:
+// reason is the prompt's line, detail its arguments. Only inside a tool call. Approving runs nothing
+// and grants nothing else — the calls the plugin makes afterwards pass their own permission gate.
+func (p *plugin) bridgeApprove(L *lua.LState) int {
+	if p.env.Approve == nil {
+		return fail(L, "approve: only available inside a tool call")
+	}
+	spec := L.CheckTable(1)
+	reason := ""
+	if v := spec.RawGetString("reason"); v != lua.LNil {
+		reason = v.String()
+	}
+	detail := json.RawMessage(`{}`)
+	if t, ok := spec.RawGetString("detail").(*lua.LTable); ok {
+		raw, err := scriptJSON(t)
+		if err != nil {
+			return fail(L, "approve: "+err.Error())
+		}
+		detail = raw
+	}
+	ok, err := p.env.Approve(reason, detail)
+	if err != nil {
+		return fail(L, "approve: "+err.Error())
+	}
+	L.Push(lua.LBool(ok))
 	return 1
 }

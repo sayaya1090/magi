@@ -199,7 +199,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	// "ask" (and "auto" for non-edit tools): honor a prior "always" grant.
 	a.mu.Lock()
-	if st, ok := a.stateIf(home); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) {
+	if st, ok := a.stateIf(home); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) && !isFreshApproval(ctx) {
 		a.mu.Unlock()
 		return finish(true, "policy", "")
 	}
@@ -230,7 +230,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	defer func() { <-modal }()
 	a.mu.Lock()
-	if st, ok := a.stateIf(home); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) {
+	if st, ok := a.stateIf(home); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) && !isFreshApproval(ctx) {
 		a.mu.Unlock()
 		return finish(true, "policy", "")
 	}
@@ -636,4 +636,36 @@ func (a *App) Waiting(sid session.SessionID) (Ask, bool) {
 		}
 	}
 	return oldest, found
+}
+
+// freshApprovalKey marks a request that must reach the person even when the tool holds an "always"
+// grant: a grant says the tool may run, not that the person has seen what it now shows.
+type freshApprovalKey struct{}
+
+func asFreshApproval(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshApprovalKey{}, true)
+}
+
+func isFreshApproval(ctx context.Context) bool {
+	v, _ := ctx.Value(freshApprovalKey{}).(bool)
+	return v
+}
+
+// approveForTool is ToolEnv.Approve: it puts what a tool shows (reason, detail) in front of the
+// person as a permission prompt of that tool, under its own call id, and records the decision. The
+// prompt goes where every permission prompt goes (relayed to the parent, one at a time).
+func (a *App) approveForTool(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, reason string, detail json.RawMessage) bool {
+	if len(detail) == 0 {
+		detail = json.RawMessage(`{}`)
+	}
+	call := &session.ToolCall{CallID: tc.CallID + "/approve", Name: tc.Name, Args: detail, Parent: tc.CallID}
+	out := permissionOutcome{}
+	ok := a.requestPermission(asFreshApproval(ctx), sid, actor, call, true, reason, &out)
+	decision := "allow"
+	if !ok {
+		decision = "deny"
+	}
+	dd, _ := json.Marshal(event.PermissionDecidedData{CallID: call.CallID, Decision: decision, Origin: out.Origin, Reason: out.Reason})
+	a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePermissionDecided, actor, dd)
+	return ok
 }

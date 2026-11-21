@@ -424,9 +424,10 @@ magi.register_mcp{
 > 도는 호출(자기 자신)은 빠집니다. 턴을 판정하는 문(landing 의 `land`)이 모델의 신고 대신 기록에서
 > 턴이 한 일을 읽는 자리입니다. 행 모양은 `magi.child_steps(sid)` 와 같습니다.
 >
-> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=})`** — 툴 호출 안에서만 씁니다.
+> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=, tools=})`** — 툴 호출 안에서만 씁니다.
 > 매니페스트에 `call_tools` 능력을 선언하고, 스크립트가 부를 툴을 `call_tools = [...]` 에 적어야
-> 합니다. 적지 않은 툴은 열리지 않습니다. `source` 를 플러그인과 따로 떨어진 Lua 상태에서 돌립니다.
+> 합니다. 적지 않은 툴은 열리지 않습니다. `tools = {...}`는 한 번의 실행을
+> 그 중 일부로 좁힙니다(밖의 호출은 거부됩니다). `source` 를 플러그인과 따로 떨어진 Lua 상태에서 돌립니다.
 > `os`·`io`·모듈·로더·`magi.*` 는 없고, `call_tool(name, args)`·`print`·`json_encode`/`json_decode`,
 > string·table·math 라이브러리, `call_all({ {name, args}, ... })`, `progress(text)` 가 있습니다.
 > `call_all` 은 호출들을 동시에, 한 번에 8개까지 돌리고, 호출마다 `{ok=, text=}` 또는
@@ -965,6 +966,8 @@ end
 | `magi.register_slot{target, id?, title?, description?, query?, execute?}` | — | 클라이언트 화면(`target = "knowledge"`)의 카드입니다. `query()`는 `{status, items, actions}`를 돌려주고, `execute(action_id)`는 단추 동작을 실행해 보여 줄 문구를 돌려줍니다. `execute`에서 낸 오류는 단추를 누른 사람에게 그대로 전달됩니다 |
 | `magi.notify_slot_change(target?)` | — | 슬롯이 바뀌었음을 지켜보는 모든 세션에 알려, 열린 화면이 다시 조회하게 합니다 |
 | `magi.propose_experience{…}` | — | 공유 경험 스토어에 메모리나 스킬을 제안 (§2.4) |
+| `magi.approve{reason=, detail=}` | — | 툴 호출 안에서 대화의 권한 창으로 사람에게 승인을 묻습니다. 「항상」 허가로 대신하지 않고, 다른 것은 허가하지 않습니다 |
+| `magi.sha256(s)` | — | 문자열의 sha256(16진수) |
 
 ---
 
