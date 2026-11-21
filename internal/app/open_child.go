@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -19,9 +20,10 @@ import (
 // against the CHILD, so the start fact, the permission gate and the result land in the child's log
 // and the parent's log keeps only outer and its result. No loop runs in it to write a
 // turn.finished on its own; Close writes it (after the reason, when the script failed), takes the
-// child off the strip and drops its state.
+// child off the strip and drops its state. account, when set, takes the line naming the child
+// ("[child id, N tool call(s)]") for the call's own result, as a spawned child's account is.
 func (a *App) openChild(ctx context.Context, parent session.Session, agent AgentSpec, depth int, actor event.Actor,
-	outer *session.ToolCall, guard *runGuard, turnTask string, count *int32, slots chan struct{}, label string) (port.ChildRun, error) {
+	outer *session.ToolCall, guard *runGuard, turnTask string, count *int32, slots chan struct{}, label string, account func(string)) (port.ChildRun, error) {
 	label = strings.TrimSpace(label)
 	if label == "" {
 		label = outer.Name
@@ -36,15 +38,21 @@ func (a *App) openChild(ctx context.Context, parent session.Session, agent Agent
 	if err != nil {
 		return port.ChildRun{}, fmt.Errorf("open child: %w", err)
 	}
+	// An ask raised inside the child is shown in the parent too: nobody is looking at the child.
+	a.mu.Lock()
+	a.stateLocked(child).relayParent = parent.ID
+	a.mu.Unlock()
 	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: spawnAgentName}, label); err != nil {
 		return port.ChildRun{}, fmt.Errorf("open child: seed: %w", err)
 	}
 	a.subJobs.start(child, outer.Name, label)
 	cs := a.sessionInfo(ctx, child)
 	var once sync.Once
+	var calls int32
 	return port.ChildRun{
 		SessionID: string(child),
 		CallTool: func(cctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
+			atomic.AddInt32(&calls, 1)
 			return a.callInner(cctx, cs, agent, depth, actor, outer, guard, turnTask, count, slots, name, args)
 		},
 		Close: func(text string, failed error) {
@@ -64,6 +72,13 @@ func (a *App) openChild(ctx context.Context, parent session.Session, agent Agent
 				d, _ := json.Marshal(event.TurnFinishedData{})
 				a.appendBestEffort(bg, child, event.TypeTurnFinished, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 				a.subJobs.finish(child, 0, why)
+				if account != nil {
+					line := fmt.Sprintf("[child %s, %d tool call(s)", child, atomic.LoadInt32(&calls))
+					if why != "" {
+						line += ", stopped short: " + why
+					}
+					account(line + "]")
+				}
 				a.mu.Lock()
 				delete(a.states, child)
 				a.usage.forget(child)

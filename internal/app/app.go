@@ -1136,7 +1136,14 @@ func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission
 			return fmt.Errorf("task approval requires an interactive delegated task")
 		}
 	}
-	if st, ok := a.stateIf(c.SessionID); ok {
+	// An ask shown here on behalf of a child a tool drives (relayAskLocked) is answered in the child.
+	target := c.SessionID
+	if st, ok := a.stateIf(c.SessionID); ok && st.perms[c.CallID] == nil {
+		if child, ok := st.relayed[c.CallID]; ok {
+			target = child
+		}
+	}
+	if st, ok := a.stateIf(target); ok {
 		if ch = st.perms[c.CallID]; ch != nil {
 			if c.Decision == "task_allow" {
 				st.delegatedAutoApprove = true

@@ -217,13 +217,19 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.stateLocked(sid).perms = map[string]chan string{}
 	}
 	a.stateLocked(sid).perms[tc.CallID] = ch
-	a.noteAskingLocked(sid, tc.CallID, Ask{ID: tc.CallID, Kind: "permission", What: tc.Name, Args: tc.Args, Reason: reason, Diff: diff, Since: time.Now()})
+	ask := Ask{ID: tc.CallID, Kind: "permission", What: tc.Name, Args: tc.Args, Reason: reason, Diff: diff, Since: time.Now()}
+	a.noteAskingLocked(sid, tc.CallID, ask)
+	relays := a.relayAskLocked(sid, tc.CallID, ask)
 	a.mu.Unlock()
 
 	defer func() {
 		a.mu.Lock()
 		delete(a.stateLocked(sid).perms, tc.CallID)
 		delete(a.stateLocked(sid).asking, tc.CallID)
+		for _, p := range relays {
+			delete(a.stateLocked(p).asking, tc.CallID)
+			delete(a.stateLocked(p).relayed, tc.CallID)
+		}
 		a.mu.Unlock()
 	}()
 
@@ -231,6 +237,13 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		CallID: tc.CallID, Name: tc.Name, Args: event.ToolArgsJSON(tc.Args), Reason: reason, Diff: diff})
 	a.syncBeforeWaiting(ctx, sid)
 	a.publishTransient(sid, event.TypePermissionRequested, actor, rd)
+	if len(relays) > 0 {
+		shown, _ := json.Marshal(event.PermissionRequestedData{
+			CallID: tc.CallID, Name: tc.Name, Args: event.ToolArgsJSON(tc.Args), Reason: relayReason(sid, reason), Diff: diff})
+		for _, p := range relays {
+			a.publishTransient(p, event.TypePermissionRequested, actor, shown)
+		}
+	}
 
 	// A bounded wait when the answerer is in another process (see Config.AnswerWait). The timer is
 	// only armed when one is configured, so the terminal's prompt still waits as long as the person
@@ -505,6 +518,34 @@ type Ask struct {
 	// that two more are coming.
 	Index, Total int
 	Since        time.Time // when it was asked, so a viewer can say how long it has been waiting
+}
+
+// relayAskLocked shows an ask raised in a child a tool drives in every conversation above it (the
+// parent the person is looking at, and its own parents), and notes there which child it belongs to
+// so an answer given in any of them reaches it. It returns the sessions it was shown in, for the
+// caller to take it away from when the ask ends. Caller holds a.mu.
+func (a *App) relayAskLocked(sid session.SessionID, id string, ask Ask) []session.SessionID {
+	var shown []session.SessionID
+	ask.Reason = relayReason(sid, ask.Reason)
+	for p, hops := a.stateLocked(sid).relayParent, 0; p != "" && hops < 8; hops++ {
+		a.noteAskingLocked(p, id, ask)
+		st := a.stateLocked(p)
+		if st.relayed == nil {
+			st.relayed = map[string]session.SessionID{}
+		}
+		st.relayed[id] = sid
+		shown = append(shown, p)
+		p = st.relayParent
+	}
+	return shown
+}
+
+// relayReason says, on an ask shown in a parent, which child it is from.
+func relayReason(child session.SessionID, reason string) string {
+	if reason == "" {
+		return "asked inside child " + string(child)
+	}
+	return "asked inside child " + string(child) + " — " + reason
 }
 
 // noteAskingLocked records an open prompt. Caller holds a.mu.

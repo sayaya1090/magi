@@ -178,11 +178,15 @@ after; end waits until every stage is done, or shows `failed`.
 
 - **Write tools are closed.** `bash`, `edit`, `multiedit` and `write` are not declared, so a script
   cannot change anything.
-- **A question from inside the child would not reach the person.** A permission ask from an inner
-  call is keyed to the child session, and no screen shows it in the conversation. Nothing asks today
-  only because every declared tool runs freely.
-- **The conversation does not point to its child.** The outer call's result carries no child session
-  id, so after the run the person finds the child from the subagent strip only while it runs.
+- **Only permission asks reach the conversation.** A permission ask raised inside the child is shown
+  in the parent conversation too, with "asked inside child <id>" before its reason, and an answer
+  given there goes to the child (`relayAskLocked` in `internal/app/permission.go`, the redirect in
+  `RespondPermission`). An `ask_user` question inside a child is not relayed. Nothing asks today
+  because every declared tool runs freely.
+- **The child is named, but not one click away.** The outer call's result ends with
+  `[child <id>, N tool call(s)]` (and why, when the script stopped short), the line a spawned
+  subagent leaves too. No client opens a child from a tool row yet; JetBrains, VS Code, the web
+  console and the TUI open children only from their subagent lists.
 - **An interrupted run is two items.** After a crash, recovery handles the outer call and the child's
   uncertain calls separately.
 - **Each inner call rereads the child's log** to find its result (`internal/app/inner_call.go:77`).
@@ -208,10 +212,10 @@ after; end waits until every stage is done, or shows `failed`.
 1. **Routines as skills.** A skill's body holds a Lua block the person approves once by hash; the
    model runs the routine by name and pays nothing for writing the script.
 2. **Memory.** Engram proposes a routine when the same sequence repeats.
-3. **Point to the child.** The outer call's result carries the child's session id, and screens open
-   the child from the tool row.
-4. **Asks reach the conversation.** A permission ask from the child shows in the parent's screen and
-   the answer goes back to the child. This must come before write tools.
+3. **Open the child from the tool row.** The result already names the child (§8); what is left is
+   that each screen opens it from the `dummy_plug_run` row.
+4. **Questions reach the conversation.** Permission asks are relayed (§8); `ask_user` questions are
+   not yet. Write tools need the permission part only.
 5. **Write tools.** `bash`, `edit`, `multiedit`, `write` behind a setting, each run of a new routine
    approved by the person.
 6. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen

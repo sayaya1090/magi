@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -546,12 +547,19 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	var background <-chan port.BackgroundCompletion
 	var innerCalls int32
 	innerSlots := make(chan struct{}, max(1, a.cfg.MaxParallelChildren))
+	// The children this call drove itself (OpenChild), named on its result like spawned ones.
+	var opened []string
+	var openedMu sync.Mutex
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		CallTool: func(cctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 			return a.callInner(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, name, args)
 		},
 		OpenChild: func(cctx context.Context, label string) (port.ChildRun, error) {
-			return a.openChild(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, label)
+			return a.openChild(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, label, func(line string) {
+				openedMu.Lock()
+				opened = append(opened, line)
+				openedMu.Unlock()
+			})
 		},
 		PromptArrived: func() <-chan struct{} { return a.promptArrived(sid) },
 		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
@@ -684,6 +692,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			res.Content = appendToContent(res.Content, "\n\n"+acct)
 		}
 	}
+	openedMu.Lock()
+	if len(opened) > 0 {
+		res.Content = appendToContent(res.Content, "\n\n"+strings.Join(opened, "\n"))
+	}
+	openedMu.Unlock()
 	// The tool's OWN success, before post-edit diagnostics/hooks below flip IsError: a write
 	// that landed but fails gofmt/a hook still changed the file, and the council must see
 	// that (broken) change — so change capture keys off this, not the post-diagnostics flag.

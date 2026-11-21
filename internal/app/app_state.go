@@ -186,6 +186,11 @@ type sessionState struct {
 	// event is delivered to this process's bus and nowhere else. Keyed the same way (call id /
 	// question id) so a resolved prompt leaves with its channel.
 	asking map[string]Ask
+	// relayParent is the session an ask raised here is also shown in: the conversation of the tool
+	// that drives this child (openChild), which is what the person is looking at. relayed, on that
+	// parent, maps a call id it shows to the child whose ask it is, so an answer given there reaches it.
+	relayParent session.SessionID
+	relayed     map[string]session.SessionID
 	// doing is the latest live progress note a long-running tool published, and the call it came
 	// out of. Kept for exactly the reason `asking` is: it rides a TRANSIENT event, delivered to
 	// this process's bus and nowhere else, so a viewer in another process cannot see it at all —
