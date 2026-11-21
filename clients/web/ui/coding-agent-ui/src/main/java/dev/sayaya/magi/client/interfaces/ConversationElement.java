@@ -1372,6 +1372,8 @@ public class ConversationElement {
         d.className = "chat-row " + Rows.rowClass(who, hasOk, ok,
                 Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")),
                 str(r, "decision"), str(r, "member"));
+        // An end magi could not learn (a restart lost a background job's end): not a success, not running.
+        if (Js.isTruthy(r.get("unknown"))) d.className += " toolunknown";
         HTMLElement w = el("div");
         w.className = "who";
         w.textContent = whoWord(r, who);
@@ -1493,7 +1495,7 @@ public class ConversationElement {
         DomGlobal.setTimeout(a -> userToggle[0] = true, 0);
 
         HTMLElement head = el("summary");
-        HTMLElement mk = mark(who, hasOk, ok, Js.isTruthy(r.get("note")));
+        HTMLElement mk = mark(who, hasOk, ok, Js.isTruthy(r.get("note")), Js.isTruthy(r.get("unknown")));
         if (mk != null) head.append(mk, DomGlobal.document.createTextNode(" "));
         String summary = summaryLine(r, who, hasOk);
         if ("tool".equals(who)) {
@@ -1555,16 +1557,10 @@ public class ConversationElement {
     }
 
     /** 요약 마크 — 어떻게 끝났나. 스프라이트가 없는 페이지라 원본의 폴백 글리프를 그대로 쓴다. */
-    private static HTMLElement mark(String who, boolean hasOk, boolean ok, boolean note) {
-        String glyph = null, cls = null;
-        if ("tool".equals(who)) {
-            if (!hasOk) { glyph = "\u2699"; cls = "spin"; }
-            else if (ok) { glyph = "\u2713"; cls = "ok"; }
-            else if (note) { glyph = "\u26A0"; cls = "note"; }
-            else { glyph = "\u2717"; cls = "bad"; }
-        } else if ("result".equals(who)) { glyph = "\u2713"; cls = "ok"; }
-        else if ("failed".equals(who)) { glyph = "\u2717"; cls = "bad"; }
-        if (glyph == null) return null;
+    private static HTMLElement mark(String who, boolean hasOk, boolean ok, boolean note, boolean unknown) {
+        String[] gc = Rows.toolMark(who, hasOk, ok, note, unknown);
+        if (gc == null) return null;
+        String glyph = gc[0], cls = gc[1];
         HTMLElement m = el("span");
         m.className = "mk " + cls;
         m.setAttribute("aria-hidden", "true");

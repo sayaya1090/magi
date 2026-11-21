@@ -187,6 +187,9 @@ func showBackgroundResults(msgs []session.Message, evs []event.Event) {
 			r.Background, r.Advisory = false, false
 			if done.state != "unknown" {
 				r.IsError = done.state != "succeeded"
+			} else {
+				// How it ended was lost (a restart): the launch result's IsError=false is not a success.
+				r.MayHaveRun = true
 			}
 			if done.detail != "" {
 				if b, err := json.Marshal(done.detail); err == nil {

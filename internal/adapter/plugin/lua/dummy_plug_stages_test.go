@@ -282,3 +282,25 @@ func TestDummyPlugMarksAHandedStepFailedWhenTheScriptFailsAfterTheGraph(t *testi
 		t.Fatalf("want Collect failed and the graph's nodes still done: %s", stagesJSON(last))
 	}
 }
+
+// A script with no step of its own that fails after its graph still ends failed on screen: the
+// graph's nodes keep the success they earned, and a failed step says the script itself failed.
+func TestDummyPlugShowsAFailureAfterAGraphWithNoStep(t *testing.T) {
+	reports := dummyPlugRun(t, `call_graph({{id="a", tool="read"}}) error("validation failed")`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	last := reports[len(reports)-1]
+	graphDone, failed := false, false
+	for _, s := range last {
+		if s.Label == "a" && s.State == "done" {
+			graphDone = true
+		}
+		if s.After == nil && s.State == "failed" {
+			failed = true
+		}
+	}
+	if !graphDone || !failed {
+		t.Fatalf("want the graph node done and a failed step: %s", stagesJSON(last))
+	}
+}

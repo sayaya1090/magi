@@ -92,4 +92,13 @@ class RowsTest {
         assertEquals(true, Rows.hiddenByCouncil("council", false, 1, open));
         assertEquals(false, Rows.hiddenByCouncil("council", false, 2, open));
     }
+
+    /** A call whose end magi could not learn is not a success and not running: it gets its own mark. */
+    @org.junit.jupiter.api.Test
+    void anUnknownOutcomeIsNeitherASuccessNorRunning() {
+        assertEquals("\u2699 spin", String.join(" ", Rows.toolMark("tool", false, false, false, false)));
+        assertEquals("? note", String.join(" ", Rows.toolMark("tool", false, false, false, true)));
+        assertEquals("\u2713 ok", String.join(" ", Rows.toolMark("tool", true, true, false, false)));
+        assertEquals("\u2717 bad", String.join(" ", Rows.toolMark("tool", true, false, false, false)));
+    }
 }

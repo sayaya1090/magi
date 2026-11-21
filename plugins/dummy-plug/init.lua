@@ -141,11 +141,20 @@ local function track()
     end
   end
   local function finish(ok)
-    if #run.stages == 0 then return end
     local cur = run.stages[run.current]
-    -- A step handed to a graph is still the script's current step: a failure after the graph is a
-    -- failure in it, so it ends failed like a running one. The graph's nodes keep their own states.
-    if cur and (cur.state == "running" or cur.handed) then cur.state = ok and "done" or "failed"; cur.running = 0; cur.handed = nil end
+    if cur and (cur.state == "running" or cur.handed) then
+      -- A step handed to a graph is still the script's current step: a failure after the graph is a
+      -- failure in it, so it ends failed like a running one. The graph's nodes keep their own states.
+      cur.state = ok and "done" or "failed"; cur.running = 0; cur.handed = nil
+    elseif not ok and (#run.stages > 0 or next(graphs) ~= nil) then
+      -- No step is left to carry the failure (a script with only a graph, or one that failed after
+      -- its steps ended): a step of its own says the script failed, after what did succeed.
+      local st = make("script failed")
+      st.state = "failed"
+      run.stages[#run.stages + 1] = st
+    elseif #run.stages == 0 then
+      return
+    end
     report(true)
   end
   return globals, on_call, finish

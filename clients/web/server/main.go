@@ -1325,6 +1325,10 @@ type line struct {
 	// ONE row: the terminal has always drawn them that way, and split across two the question a
 	// reader has — did that work — could only be answered by finding the row below and opening it.
 	Ok *bool `json:"ok,omitempty"`
+	// Unknown marks a call that ended without magi learning how (MayHaveRun: a background job
+	// whose end a restart lost, or a call recovery could not vouch for). Ok stays unset — it is not
+	// a success — and it is not running either, so it is not marked pending.
+	Unknown bool `json:"unknown,omitempty"`
 	// Out is what a failed call wrote. Its own field and not Args: what a tool was ASKED and what
 	// it then said are two different things, and the first attempt at this overwrote one with the
 	// other — so the row that told you a call had failed had stopped telling you what it ran.
@@ -1445,6 +1449,9 @@ func renderMessages(msgs []session.Message) []line {
 					if res, ok := results[p.ToolCall.CallID]; ok {
 						good := !res.IsError
 						row.Ok, row.Note = &good, res.Advisory
+						if res.MayHaveRun {
+							row.Ok, row.Unknown = nil, true
+						}
 						// What it ANSWERED, whether or not it failed.
 						//
 						// Only failures used to travel, on the reasoning that a success is noise
@@ -1545,7 +1552,7 @@ func markPending(rows []line, open bool) []line {
 	// end: Ok is also nil for a call whose result never came — an interrupted turn, or a
 	// compaction that took the result — and a spinner on one of those would be claiming work that
 	// stopped hours ago. If anything follows it, it is over however it ended.
-	case last.Who == "tool" && last.Ok == nil:
+	case last.Who == "tool" && last.Ok == nil && !last.Unknown:
 		last.Pending = true
 	}
 	return rows

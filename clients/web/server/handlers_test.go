@@ -1402,3 +1402,25 @@ func transcriptFrame(body string) string {
 	}
 	return ""
 }
+
+// A call whose outcome magi cannot vouch for (MayHaveRun: a background job whose end a restart lost)
+// is drawn as unknown — not as a success, and not as work still running.
+func TestAnUnknownOutcomeIsNeitherASuccessNorRunning(t *testing.T) {
+	call := session.Message{ID: "m1", Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartToolCall,
+		ToolCall: &session.ToolCall{CallID: "job", Name: "bash", Args: json.RawMessage(`{}`)}}}}
+	res := session.Message{ID: "m2", Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult,
+		ToolResult: &session.ToolResult{CallID: "job", MayHaveRun: true, Content: json.RawMessage(`"started bg_1"`)}}}}
+	rows := markPending(renderMessages([]session.Message{call, res}), true)
+	var row *line
+	for i := range rows {
+		if rows[i].Who == "tool" {
+			row = &rows[i]
+		}
+	}
+	if row == nil {
+		t.Fatalf("no tool row: %+v", rows)
+	}
+	if row.Ok != nil || !row.Unknown || row.Pending {
+		t.Fatalf("want ok unset, unknown, not pending: ok=%v unknown=%v pending=%v", row.Ok, row.Unknown, row.Pending)
+	}
+}

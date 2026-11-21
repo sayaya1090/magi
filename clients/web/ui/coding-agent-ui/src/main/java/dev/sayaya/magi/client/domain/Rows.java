@@ -134,4 +134,22 @@ public final class Rows {
         }
         return out.isEmpty() ? null : out;
     }
+
+    /**
+     * The ending mark of a row as {glyph, class}, or null for none. A tool row with no ending yet is
+     * running; one whose end magi could not learn (unknown — a background job whose end a restart
+     * lost) is neither running nor a success, and is marked as something to look at.
+     */
+    public static String[] toolMark(String who, boolean hasOk, boolean ok, boolean note, boolean unknown) {
+        if ("tool".equals(who)) {
+            if (unknown) return new String[]{"?", "note"};
+            if (!hasOk) return new String[]{"\u2699", "spin"};
+            if (ok) return new String[]{"\u2713", "ok"};
+            if (note) return new String[]{"\u26A0", "note"};
+            return new String[]{"\u2717", "bad"};
+        }
+        if ("result".equals(who)) return new String[]{"\u2713", "ok"};
+        if ("failed".equals(who)) return new String[]{"\u2717", "bad"};
+        return null;
+    }
 }

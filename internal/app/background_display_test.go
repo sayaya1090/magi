@@ -60,3 +60,33 @@ func TestSessionStateShowsABackgroundJobsResultOnItsCall(t *testing.T) {
 		t.Fatalf("the model's history changed: %+v", h)
 	}
 }
+
+// A job whose end could not be learned (a restart lost it) is shown as neither success nor failure:
+// the launch result's IsError=false must not read as "it worked".
+func TestSessionStateMarksABackgroundJobWithAnUnknownEnd(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
+	a.appendPart(ctx, sid, actor, "m1", session.RoleAssistant, session.Part{ID: "p1", Kind: session.PartToolCall,
+		ToolCall: &session.ToolCall{CallID: "job", Name: "bash", Args: json.RawMessage(`{}`)}})
+	a.appendPart(ctx, sid, actor, "m2", session.RoleTool, session.Part{ID: "p2", Kind: session.PartToolResult,
+		ToolResult: &session.ToolResult{CallID: "job", Background: true, Content: json.RawMessage(`"started bg_1"`)}})
+	data, _ := json.Marshal(map[string]any{"callId": "job", "state": "unknown"})
+	a.appendBestEffort(ctx, sid, event.TypeToolBackground, actor, data)
+	msgs, _, err := a.SessionState(ctx, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if r := p.ToolResult; r != nil && r.CallID == "job" {
+				if r.Background || r.IsError || !r.MayHaveRun {
+					t.Fatalf("an unknown end must read as unknown, not success: background=%v isError=%v mayHaveRun=%v", r.Background, r.IsError, r.MayHaveRun)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no result for the background call")
+}
