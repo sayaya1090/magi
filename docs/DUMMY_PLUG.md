@@ -243,12 +243,9 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 1. **Routines as skills.** A skill's body holds a Lua block the person approves once by hash; the
    model runs the routine by name and pays nothing for writing the script.
 2. **Memory.** Engram proposes a routine when the same sequence repeats.
-3. **Open the child from the tool row.** Built: every screen opens it from the call's row (§8).
-4. **Questions reach the conversation.** Permission asks are relayed (§8); `ask_user` questions are
-   not yet. Write tools need the permission part only.
-5. **Write tools.** Built: `bash`, `edit`, `multiedit`, `write` are open and follow the
-   conversation's permission (§5). What is not built is approving a routine once by hash (item 1).
-6. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen
+3. **`ask_user` questions reach the conversation.** Permission asks are already relayed (§8);
+   `ask_user` questions are not yet.
+4. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen
    points (classify, pick, extract, yes/no). The answer is limited to the choices or schema so the
    script can branch on it. Each judgment is a model step in the child's log, counted against a
    limit, and its cost is added to the outer call the way a spawned child reports `Metrics`. This is
