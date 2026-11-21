@@ -140,7 +140,61 @@ func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]sessio
 	// model's amnesia: a compaction landing mid-read replaced the scrollback somebody was
 	// following with a summary of itself, on a console whose log still held every word. The fold
 	// is marked in place instead.
-	return reconstructWhole(dropResurfacedOrigins(evs)), last, nil
+	msgs := reconstructWhole(dropResurfacedOrigins(evs))
+	showBackgroundResults(msgs, evs)
+	return msgs, last, nil
+}
+
+// showBackgroundResults puts each background job's completion on the call that launched it, for the
+// display only. The launch result says "started"; what the job printed, how it ended and the
+// [child ...] lines it ran arrive later as a tool.background fact. A screen drawing from these
+// messages (the web console, the terminal) would otherwise keep "started" on the row and have no
+// child to open from it. The model's history (reconstruct) is not touched: it heard the completion
+// in its own turn, and its prefix must stay as it was.
+func showBackgroundResults(msgs []session.Message, evs []event.Event) {
+	type end struct{ state, detail string }
+	ends := map[string]end{}
+	for _, e := range evs {
+		if e.Type != event.TypeToolBackground {
+			continue
+		}
+		var d struct {
+			CallID string `json:"callId"`
+			State  string `json:"state"`
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(e.Data, &d) != nil || d.CallID == "" {
+			continue
+		}
+		switch d.State {
+		case "succeeded", "failed", "killed", "unknown":
+			ends[d.CallID] = end{d.State, d.Detail}
+		}
+	}
+	if len(ends) == 0 {
+		return
+	}
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			r := p.ToolResult
+			if r == nil || !r.Background {
+				continue
+			}
+			done, ok := ends[r.CallID]
+			if !ok {
+				continue
+			}
+			r.Background, r.Advisory = false, false
+			if done.state != "unknown" {
+				r.IsError = done.state != "succeeded"
+			}
+			if done.detail != "" {
+				if b, err := json.Marshal(done.detail); err == nil {
+					r.Content = b
+				}
+			}
+		}
+	}
 }
 
 // restoreTodos rebuilds a resumed session's plan from the log.

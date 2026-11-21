@@ -169,6 +169,18 @@ func (m *Model) applyEvent(e event.Event) {
 			m.liveCount = d.Progress
 		}
 
+	case event.TypeToolBackground:
+		// A background job's completion: what it printed and the children it ran land on the
+		// block of the call that launched it, which until now said only "started".
+		var d struct {
+			CallID string `json:"callId"`
+			State  string `json:"state"`
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.foldBackgroundEnd(d.CallID, d.State, d.Detail)
+		}
+
 	case event.TypePartAppended:
 		var d event.PartAppendedData
 		if json.Unmarshal(e.Data, &d) != nil {

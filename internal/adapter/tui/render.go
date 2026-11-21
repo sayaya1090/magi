@@ -397,6 +397,37 @@ func balanceFences(s string) string {
 	return s
 }
 
+// foldBackgroundEnd puts a background job's completion on the block of the call that launched it:
+// the outcome, and when the fact carries one, what the job printed and the children it ran. A
+// completion without detail (a plain background command) keeps the launch text.
+func (m *Model) foldBackgroundEnd(callID, state, detail string) {
+	if callID == "" {
+		return
+	}
+	switch state {
+	case "succeeded", "failed", "killed", "unknown":
+	default:
+		return
+	}
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		b := &m.blocks[i]
+		if b.kind != blockToolCall || b.callID != callID {
+			continue
+		}
+		if state != "unknown" {
+			b.ok, b.advisory = state == "succeeded", false
+		}
+		if detail != "" {
+			b.result = detail
+			b.children = app.ChildrenNamed(detail)
+		}
+		if len(m.cache) > i {
+			m.cache = m.cache[:i]
+		}
+		return
+	}
+}
+
 // foldToolResult attaches a tool result to the most recent toolCall block that is
 // still pending, so the call renders as a single line with a flipped glyph. If no
 // such call exists (e.g. a result without a recorded call), it falls back to a
