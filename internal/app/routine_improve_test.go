@@ -53,7 +53,7 @@ func rpeTasks(extra string) []byte {
 				map[string]any{"tool": "explore", "text": "chat_view.ts:746 click"}},
 			"expect": map[string]any{"evidence": []string{"chat_view.ts:746", "main.go:1470"}}}
 	}
-	tasks := []any{vsc("VSC-1", "dev"), vsc("VSC-2", "dev"), vsc("VSC-3", "holdout"), vsc("VSC-4", "holdout"),
+	tasks := []any{vsc("VSC-1", "dev"), vsc("VSC-2", "dev"), vsc("VSC-3", "holdout"), vsc("VSC-4", "holdout"), vsc("VSC-5", "holdout"), vsc("VSC-6", "holdout"),
 		map[string]any{"id": "WEB-1", "split": "dev", "input": q("WEB-1: where is a tool row drawn?"),
 			"fixtures": []any{recall, map[string]any{"tool": "explore", "text": "ConversationElement.java:1372 row"}},
 			"expect":   map[string]any{"evidence": []string{"ConversationElement.java:1372"}}},
@@ -63,7 +63,7 @@ func rpeTasks(extra string) []byte {
 				map[string]any{"tool": "explore", "text": "nothing found"}},
 			"expect": map[string]any{"evidence": []string{"MagiToolWindow.kt:210"}}},
 	}
-	b, _ := json.Marshal(map[string]any{"tasks": tasks, "note": extra})
+	b, _ := json.Marshal(map[string]any{"tasks": tasks, "note": extra, "model": "fixture-model", "revision": "fixture-revision"})
 	return b
 }
 
@@ -116,6 +116,8 @@ func TestRoutineCandidatesAreCheckedComparedAndJudgedWithTheHistoryKept(t *testi
 		"Trace from the click handler to the daemon command. Answer with path:line evidence from the code.", 1)
 	thin := strings.Replace(script, `"\n\nQuestion: " .. tostring(q) ..`,
 		`"\n\nQuestion: " .. tostring(q) .. (tostring(q):find("VSC-1", 1, true) and " Trace from the click handler to the daemon command." or "") ..`, 1)
+	pooledOnly := strings.Replace(script, `"\n\nQuestion: " .. tostring(q) ..`,
+		`"\n\nQuestion: " .. tostring(q) .. (tostring(q):find("VSC%-[1-4]:") and " Trace from the click handler to the daemon command." or "") ..`, 1)
 	broken := strings.Replace(script, rpeAnswerBranch, "  print(a.text)", 1)
 	for name, c := range map[string]string{"better": better, "worse": worse, "thin": thin, "broken": broken} {
 		if c == script {
@@ -127,9 +129,10 @@ func TestRoutineCandidatesAreCheckedComparedAndJudgedWithTheHistoryKept(t *testi
 		extra   map[string]any
 		want    []string
 	}{
-		{"better", better, nil, []string{"verdict: applicable", "solved 4", "regressed 0"}},
+		{"better", better, nil, []string{"verdict: applicable", "solved 6", "regressed 0"}},
 		{"worse", worse, nil, []string{"verdict: rejected", "regressed 1", "JB-close"}},
 		{"thin", thin, nil, []string{"verdict: held", "solved 1", "too thin"}},
+		{"pooled-only", pooledOnly, nil, []string{"verdict: held", "solved 4", "holdout evidence too thin"}},
 		{"broken", broken, nil, []string{"verdict: rejected", "contract", "empty-answer-is-not-a-finding"}},
 		{"scope", script + "\n", map[string]any{"tools": []string{"explore", "recall_memory", "grep"}}, []string{"verdict: rejected", "grep"}},
 	}
@@ -151,10 +154,10 @@ func TestRoutineCandidatesAreCheckedComparedAndJudgedWithTheHistoryKept(t *testi
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("want 5 attempts recorded, got %d:\n%s", len(lines), raw)
+	if len(lines) != 6 {
+		t.Fatalf("want 6 attempts recorded, got %d:\n%s", len(lines), raw)
 	}
-	wantVerdicts := []string{"applicable", "rejected", "held", "rejected", "rejected"}
+	wantVerdicts := []string{"applicable", "rejected", "held", "held", "rejected", "rejected"}
 	for i, line := range lines {
 		var rec struct {
 			Hypothesis string
@@ -191,6 +194,16 @@ func TestRoutineCandidatesAreCheckedComparedAndJudgedWithTheHistoryKept(t *testi
 	if err := r.command(t, "routine-adopt", rpe, wv[1]); err == nil {
 		t.Fatal("a rejected candidate was adopted")
 	}
+	versionPath := dir + "versions/" + bv[1] + ".md"
+	version, err := os.ReadFile(filepath.Join(r.s.Workdir, versionPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.put(t, versionPath, append(append([]byte(nil), version...), '\n'))
+	if err := r.command(t, "routine-adopt", rpe, bv[1]); err == nil || !strings.Contains(err.Error(), "changed on disk") {
+		t.Fatalf("adoption must reject modified candidate bytes: %v", err)
+	}
+	r.put(t, versionPath, version)
 	if err := r.command(t, "routine-adopt", rpe, bv[1]); err != nil {
 		t.Fatal(err)
 	}
@@ -206,5 +219,34 @@ func TestRoutineCandidatesAreCheckedComparedAndJudgedWithTheHistoryKept(t *testi
 	r.put(t, dir+"tasks.json", rpeTasks("edited after freezing"))
 	if out, failed := improve("t1", better, nil); !failed || !strings.Contains(out, "changed since") {
 		t.Fatalf("evals changed after freezing must stop the comparison: %q", out)
+	}
+}
+
+func TestRoutineCallSavingsRequireHoldoutEvidence(t *testing.T) {
+	for _, tc := range []struct{ split, verdict string }{{"dev", "held"}, {"holdout", "applicable"}} {
+		t.Run(tc.split, func(t *testing.T) {
+			baseline := strings.Replace(routineFile, "local text", `call_tool("read", {path=input.file})`+"\nlocal text", 1)
+			r := newRoutineRig(t, t.TempDir(), baseline)
+			const dir = ".magi/routines/readit/"
+			r.put(t, dir+"contract.json", []byte(`{"cases":[{"id":"reads","input":{"file":"notes.txt"},"fixtures":[{"tool":"read","text":"hello"}],"print_contains":["read notes.txt true"]}]}`))
+			var tasks []map[string]any
+			for _, file := range []string{"notes.txt", "README.md", "build.log", "settings.toml"} {
+				tasks = append(tasks, map[string]any{"id": file, "split": tc.split, "input": map[string]string{"file": file},
+					"fixtures": []map[string]string{{"tool": "read", "text": "hello"}}, "expect": map[string][]string{"evidence": {"read " + file + " true"}}})
+			}
+			data, err := json.Marshal(map[string]any{"tasks": tasks})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.put(t, dir+"tasks.json", data)
+			if err := r.command(t, "routine-evals-freeze", "readit"); err != nil {
+				t.Fatal(err)
+			}
+			script := routineFile[strings.Index(routineFile, "\x60\x60\x60lua\n")+7 : strings.LastIndex(routineFile, "\n\x60\x60\x60")]
+			out, _, failed := r.call(t, "cost", "routine_improve", map[string]any{"name": "readit", "script": script, "hypothesis": "remove redundant read"}, "allow")
+			if failed || !strings.Contains(out, "verdict: "+tc.verdict) {
+				t.Fatalf("want %s, got %q", tc.verdict, out)
+			}
+		})
 	}
 }

@@ -324,9 +324,10 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   tools or inputs, checks it against the contract, and only then pairs it with the active version on
   the same tasks (repeated, `repeats`, default 3). Each task is judged on its own: newly solved, newly
   regressed, still failing, kept, unstable, unverified. A broken contract or a lost protected task
-  rejects; another regression, an unsettled task, a gain too thin (one-sided sign test p > 0.10) or no
-  gain on holdout holds; otherwise the candidate is applicable. Effect size with a 95% interval and
-  dry call counts are recorded. Every attempt — baseline, candidate, problem, hypothesis, conditions,
+  rejects. Another regression or an unsettled task holds the candidate. Only holdout
+  tasks count toward the one-sided sign test (p ≤ 0.10), both for quality gains and for
+  reducing calls with quality unchanged. Dry counts include simulated explore calls.
+  They record no model usage. Adoption checks that the compared files still match. Every attempt — baseline, candidate, problem, hypothesis, conditions,
   per-task results, verdict and reason — is appended to `attempts.jsonl`, rejected ones included;
   `routine_history` reads them back for the next candidate. `from_run` (a run from `/routine-trace`)
   and `previous` (an earlier attempt) link an attempt to the run it started from and the attempt it

@@ -97,23 +97,26 @@ func TestARoutineImprovementCycleStartsFromAPickedRunAndFeedsTheNext(t *testing.
 	var rec struct {
 		SourceRun  struct{ Run string } `json:"source_run"`
 		Follows    struct{ Attempt, Verdict string }
-		Conditions struct{ Model, Revision string }
-		Effect     struct {
+		Conditions struct {
+			DeclaredModel    string `json:"declared_model"`
+			DeclaredRevision string `json:"declared_revision"`
+		}
+		Effect struct {
 			Mean, Low, High float64
 			SignP           float64 `json:"sign_p"`
 		}
 		Cost struct {
 			Active, Candidate struct {
-				Calls      int
-				ModelCalls int `json:"model_calls"`
+				Calls                 int
+				SimulatedExploreCalls int `json:"simulated_explore_calls"`
 			}
 		}
 	}
 	if err := json.Unmarshal([]byte(lines[1]), &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec.SourceRun.Run != m[1] || rec.Follows.Attempt != aid[1] || rec.Follows.Verdict != "rejected" || rec.Conditions.Model == "" ||
-		rec.Conditions.Revision == "" || rec.Effect.High <= rec.Effect.Low || rec.Effect.Mean <= 0 || rec.Cost.Candidate.Calls == 0 || rec.Cost.Candidate.ModelCalls == 0 {
+	if rec.SourceRun.Run != m[1] || rec.Follows.Attempt != aid[1] || rec.Follows.Verdict != "rejected" || rec.Conditions.DeclaredModel == "" ||
+		rec.Conditions.DeclaredRevision == "" || rec.Effect.High <= rec.Effect.Low || rec.Effect.Mean <= 0 || rec.Cost.Candidate.Calls == 0 || rec.Cost.Candidate.SimulatedExploreCalls == 0 {
 		t.Fatalf("the attempt lacks its links, conditions, effect or cost: %+v", rec)
 	}
 	args := map[string]any{"questions": []any{"Q1"}}

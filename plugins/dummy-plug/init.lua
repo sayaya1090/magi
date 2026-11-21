@@ -241,7 +241,7 @@ local function load_routine(name)
       end
       local canon = script .. "\n\0inputs\0" .. magi.json_encode(inputs) .. "\0tools\0" .. table.concat(tools, ",")
       return { name = name, path = path, description = fm.description or "", tools = tools, inputs = inputs,
-        script = script, fingerprint = magi.sha256(canon), status = fm.status }
+        script = script, fingerprint = magi.sha256(canon), file_sha256 = magi.sha256(text), status = fm.status }
     end
   end
   return nil, "no routine named " .. name .. " (.magi/skills/" .. name .. ".md or .claude/skills/" .. name .. "/SKILL.md)"
@@ -780,6 +780,7 @@ magi.register_command{
 -- Nothing here needs Engram or a model.
 do
   local IMPROVE_P = 0.10
+  local EVAL_POLICY = "holdout-v1"
 
   local function rdir(name) return ".magi/routines/" .. name .. "/" end
 
@@ -857,10 +858,11 @@ do
     local out, err, calls, unv = dry_run(script, tk.input, tk.fixtures, tools)
     cost.calls = cost.calls + #calls
     for _, c in ipairs(calls) do
-      if c.tool == "explore" then cost.model_calls = cost.model_calls + 1 end
+      if c.tool == "explore" then cost.simulated_explore_calls = cost.simulated_explore_calls + 1 end
     end
     if unv then return "unverified" end
     local exp = type(tk.expect) == "table" and type(tk.expect.evidence) == "table" and tk.expect.evidence or {}
+    if #exp == 0 then return "unverified" end
     local ok = err == nil
     for _, e in ipairs(exp) do
       if not out:find(e, 1, true) then ok = false end
@@ -1049,11 +1051,13 @@ Compare a candidate version of a routine with its active version, and record the
 
       local n = { solved = 0, regressed = 0, still_failing = 0, kept = 0, unstable = 0, unverified = 0 }
       local rows, diffs, plost, lost, shaky = {}, {}, {}, {}, {}
-      local hold_solved = 0
-      local cost = { active = { calls = 0, model_calls = 0 }, candidate = { calls = 0, model_calls = 0 } }
+      local hold_solved, hold_regressed, hold_cheaper, hold_costlier = 0, 0, 0, 0
+      local cost = { active = { calls = 0, simulated_explore_calls = 0 }, candidate = { calls = 0, simulated_explore_calls = 0 } }
       local reps = math.max(1, math.floor(tonumber(tasks.repeats) or 3))
       if not reject then
         for _, tk in ipairs(type(tasks.tasks) == "table" and tasks.tasks or {}) do
+          local active_calls, candidate_calls = cost.active.calls, cost.candidate.calls
+          local holdout = tk.split == "holdout"
           local b = task_result(tk, r.script, r.tools, reps, cost.active)
           local c = task_result(tk, a.script, tools, reps, cost.candidate)
           local tr = transition(b, c)
@@ -1061,14 +1065,18 @@ Compare a candidate version of a routine with its active version, and record the
           local id = tostring(tk.id)
           rows[#rows + 1] = { id = id, split = tostring(tk.split or "dev"), protected = tk.protected == true or nil,
             active = b, candidate = c, transition = tr }
+          if holdout and tr == "kept" then
+            local delta = (cost.candidate.calls - candidate_calls) - (cost.active.calls - active_calls)
+            if delta < 0 then hold_cheaper = hold_cheaper + 1 end
+            if delta > 0 then hold_costlier = hold_costlier + 1 end
+          end
           if tr == "regressed" then
             if tk.protected == true then plost[#plost + 1] = id else lost[#lost + 1] = id end
-            diffs[#diffs + 1] = -1
+            if holdout then hold_regressed = hold_regressed + 1; diffs[#diffs + 1] = -1 end
           elseif tr == "solved" then
-            diffs[#diffs + 1] = 1
-            if tk.split == "holdout" then hold_solved = hold_solved + 1 end
+            if holdout then hold_solved = hold_solved + 1; diffs[#diffs + 1] = 1 end
           elseif tr == "kept" or tr == "still_failing" then
-            diffs[#diffs + 1] = 0
+            if holdout then diffs[#diffs + 1] = 0 end
           else
             shaky[#shaky + 1] = id .. " (" .. tr .. ")"
           end
@@ -1083,7 +1091,7 @@ Compare a candidate version of a routine with its active version, and record the
         for _, d in ipairs(diffs) do v = v + (d - m) ^ 2 end
         local se = (#diffs > 1 and math.sqrt(v / (#diffs - 1)) or 0) / math.sqrt(#diffs)
         effect = { mean = m, low = m - 1.96 * se, high = m + 1.96 * se, tasks = #diffs,
-          sign_p = sign_p(n.solved, n.solved + n.regressed) }
+          sign_p = sign_p(hold_solved, hold_solved + hold_regressed), split = "holdout" }
       end
 
       local verdict, reason
@@ -1096,18 +1104,17 @@ Compare a candidate version of a routine with its active version, and record the
       elseif #shaky > 0 then
         verdict, reason = "held", "results not settled on: " .. table.concat(shaky, ", ")
       elseif n.solved == 0 then
-        if cost.candidate.calls < cost.active.calls then
-          verdict, reason = "applicable", "same task results with fewer calls"
+        local cost_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier)
+        if hold_costlier == 0 and cost_p <= IMPROVE_P then
+          verdict, reason = "applicable", string.format("same task results with fewer calls on %d holdout tasks (sign test p=%.3f)", hold_cheaper, cost_p)
         else
-          verdict, reason = "held", "no task newly solved"
+          verdict, reason = "held", "no quality gain and insufficient holdout evidence of fewer calls"
         end
-      elseif effect.sign_p > IMPROVE_P then
-        verdict, reason = "held", string.format("evidence too thin: %d newly solved, 0 regressed over %d tasks (sign test p=%.3f > %.2f); add tasks before adopting",
-          n.solved, #diffs, effect.sign_p, IMPROVE_P)
-      elseif hold_solved == 0 then
-        verdict, reason = "held", "no gain on the holdout tasks; the gain may fit the dev tasks only"
+      elseif not effect or effect.sign_p > IMPROVE_P then
+        verdict, reason = "held", string.format("holdout evidence too thin: %d newly solved, %d regressed over %d verified tasks (sign test p=%.3f; need <= %.2f)",
+          hold_solved, hold_regressed, #diffs, effect and effect.sign_p or 1, IMPROVE_P)
       else
-        verdict, reason = "applicable", string.format("solves %d tasks (%d holdout), regresses none (sign test p=%.3f)",
+        verdict, reason = "applicable", string.format("solves %d tasks (%d holdout), regresses none (holdout sign test p=%.3f)",
           n.solved, hold_solved, effect.sign_p)
       end
 
@@ -1121,17 +1128,20 @@ Compare a candidate version of a routine with its active version, and record the
       local attempt = {
         id = "a" .. magi.sha256(ver .. tostring(magi.time()) .. tostring(magi.nonce())):sub(1, 8),
         at = magi.time(), routine = r.name,
-        baseline = { version = base, path = r.path },
-        candidate = { version = ver, path = vpath, change = change, tools = tools },
+        baseline = { version = base, path = r.path, file_sha256 = r.file_sha256 },
+        candidate = { version = ver, path = vpath, change = change, tools = tools, file_sha256 = magi.sha256(vtext) },
         problem = a.problem, hypothesis = a.hypothesis, expected = a.expected, source = a.source,
         source_run = source_run, follows = follows,
         conditions = { evals = { contract = csha, tasks = tsha, frozen_at = frozen.at }, repeats = reps, tools = tools,
           mode = "dry run on fixed fixtures: no tool reached, no model",
-          revision = tasks.revision and tostring(tasks.revision) or "not declared in tasks.json: fixtures stand in for the repository",
-          model = "none: explore answers come from fixtures (session model " .. tostring(magi.model and magi.model() or "?") .. ")" },
+          declared_revision = tasks.revision and tostring(tasks.revision) or nil,
+          declared_model = tasks.model and tostring(tasks.model) or nil, actual_model_calls = 0 },
         contract = #contract_rows > 0 and contract_rows or nil,
         tasks = #rows > 0 and rows or nil,
         summary = n, effect = effect, cost = cost,
+        holdout_cost = { cheaper = hold_cheaper, costlier = hold_costlier,
+          sign_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier) },
+        evaluation_policy = EVAL_POLICY,
         decision = { verdict = verdict, reason = reason, by = "routine_improve" },
       }
       local aok, aerr = append_line(dir .. "attempts.jsonl", attempt)
@@ -1157,11 +1167,11 @@ Compare a candidate version of a routine with its active version, and record the
             row.active, row.candidate, row.transition)
         end
         if effect then
-          lines[#lines + 1] = string.format("effect: %+.2f per task (95%% interval %+.2f..%+.2f over %d tasks), sign test p=%.3f",
+          lines[#lines + 1] = string.format("effect: %+.2f per task (approximate 95%% interval %+.2f..%+.2f over %d holdout tasks), sign test p=%.3f",
             effect.mean, effect.low, effect.high, effect.tasks, effect.sign_p)
         end
-        lines[#lines + 1] = string.format("cost (dry, x%d): active %d calls / %d explore, candidate %d calls / %d explore", reps,
-          cost.active.calls, cost.active.model_calls, cost.candidate.calls, cost.candidate.model_calls)
+        lines[#lines + 1] = string.format("cost (dry, x%d; no model calls): active %d calls / %d simulated explore, candidate %d calls / %d simulated explore", reps,
+          cost.active.calls, cost.active.simulated_explore_calls, cost.candidate.calls, cost.candidate.simulated_explore_calls)
       end
       if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
       lines[#lines + 1] = "recorded as attempt " .. attempt.id .. " in " .. dir .. "attempts.jsonl; " ..
@@ -1228,6 +1238,17 @@ Compare a candidate version of a routine with its active version, and record the
       if d.verdict ~= "applicable" then
         return "candidate " .. ver .. " was " .. tostring(d.verdict) .. ": " .. tostring(d.reason) .. "; only an applicable candidate can be adopted"
       end
+      if att.evaluation_policy ~= EVAL_POLICY then
+        return "candidate " .. ver .. " was evaluated under an older policy; compare it again"
+      end
+      local current_evals, expected_evals = {}, (att.conditions or {}).evals or {}
+      for _, key in ipairs({ "contract", "tasks" }) do
+        local raw = magi.read_file(dir .. key .. ".json")
+        current_evals[key] = type(raw) == "string" and magi.sha256(raw) or nil
+        if not current_evals[key] or current_evals[key] ~= expected_evals[key] then
+          return "candidate " .. ver .. " evaluation inputs changed; compare it again"
+        end
+      end
       local base = r.fingerprint:sub(1, 12)
       if type(att.baseline) ~= "table" or att.baseline.version ~= base then
         return "candidate " .. ver .. " was compared with " .. tostring(type(att.baseline) == "table" and att.baseline.version) ..
@@ -1235,6 +1256,9 @@ Compare a candidate version of a routine with its active version, and record the
       end
       local vtext, cur = magi.read_file(dir .. "versions/" .. ver .. ".md"), magi.read_file(r.path)
       if type(vtext) ~= "string" or type(cur) ~= "string" then return "the candidate's or the active version's file is missing" end
+      if magi.sha256(vtext) ~= att.candidate.file_sha256 or magi.sha256(cur) ~= att.baseline.file_sha256 then
+        return "candidate or active version changed on disk; compare it again"
+      end
       local ok1, e1 = magi.write_file(dir .. "versions/" .. base .. ".md", cur)
       if not ok1 then return "could not keep the active version: " .. tostring(e1) end
       local ok2, e2 = magi.write_file(r.path, vtext)
