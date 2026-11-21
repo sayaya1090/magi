@@ -850,6 +850,17 @@ class RowsTest {
         assertEquals(null, editSides("edit", """{"path":"a","old":"x"}"""))
     }
 
+    @Test
+    fun `재선언 거절은 직전 카운슬과 별도 행이다`() {
+        val r = Rows(ko)
+        r.feed(ev("council.convened", """{"round":1,"task":"t"}"""))
+        r.feed(ev("council.decided", """{"round":1,"decision":"continue"}"""))
+        r.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"redeclared"}"""))
+        val councilRows = r.list().filter { it.who == Who.Council }
+        assertEquals(listOf(1 to true, 0 to false), councilRows.drop(1).map { it.convene to it.closing })
+        assertEquals("redeclared", councilRows.last().text)
+    }
+
     /**
      * 카운슬 한 번은 화면에서 **한 줄**이다 — 「완료/반대」만. 소집과 세 평결과 종합의 전문은 그 줄을
      * 눌러야 펼쳐진다. 같은 대화의 두 번째 카운슬은 따로 접히고 따로 펼쳐진다.

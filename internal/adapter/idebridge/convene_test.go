@@ -18,7 +18,8 @@ func TestCouncilRowsCarryTheirConveneAndMarkTheClosingRow(t *testing.T) {
 		evs = append(evs,
 			mk(base, string(event.TypeCouncilConvened), map[string]any{"round": 1, "task": "t"}, nil),
 			mk(base+1, string(event.TypeCouncilVerdict), map[string]any{"round": 1, "member": "Melchior", "decision": "done", "rationale": "ok"}, nil),
-			mk(base+2, string(event.TypeCouncilDecided), map[string]any{"round": 1, "decision": "done"}, nil))
+			mk(base+2, string(event.TypeCouncilDecided), map[string]any{"round": 1, "decision": "done"}, nil),
+			mk(base+3, string(event.TypeCouncilDecided), map[string]any{"round": 1, "decision": "continue", "note": "redeclared"}, nil))
 	}
 	var got []string
 	for _, r := range Rows(evs) {
@@ -26,7 +27,7 @@ func TestCouncilRowsCarryTheirConveneAndMarkTheClosingRow(t *testing.T) {
 			got = append(got, fmt.Sprintf("%d/%v/%v", r.Convene, r.Opened, r.Closing))
 		}
 	}
-	want := "1/true/false 1/false/false 1/false/true 2/true/false 2/false/false 2/false/true"
+	want := "1/true/false 1/false/false 1/false/true 0/false/false 2/true/false 2/false/false 2/false/true 0/false/false"
 	if strings.Join(got, " ") != want {
 		t.Fatalf("council rows (convene/opened/closing):\n got %s\nwant %s", strings.Join(got, " "), want)
 	}

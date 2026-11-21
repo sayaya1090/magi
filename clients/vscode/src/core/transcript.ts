@@ -215,6 +215,7 @@ export function rows(events: Event[]): Row[] {
   // How many councils this stream has opened. A verdict belongs to the newest one — see the note
   // at `council.verdict` on why the round number cannot do this job.
   let convene = 0;
+  let councilOpen = false;
   // Where each member's verdict sits in `out`, so the fact can land on its preview's place rather
   // than beside it.
   const verdicts = new Map<string, number>();
@@ -501,8 +502,8 @@ export function rows(events: Event[]): Row[] {
             : String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
         out.push({
           seq: e.seq, who: 'council',
-          convene: convene || undefined,
-          closing: convene > 0 || undefined,
+          convene: councilOpen ? convene : undefined,
+          closing: councilOpen || undefined,
           text: [note, counts, debated].filter(Boolean).join(' — '),
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
@@ -510,6 +511,7 @@ export function rows(events: Event[]): Row[] {
           // thing is not spelled two ways across one screen.
           silent: t !== null && n('voters') === 0 && n('silent') > 0 ? true : undefined,
         });
+        councilOpen = false;
         break;
       }
       /**
@@ -612,6 +614,7 @@ export function rows(events: Event[]): Row[] {
         // A new convene. Every council opens at round 1, so the round number alone cannot tell two
         // of them apart — this is what keys a verdict to the round it belongs to.
         convene += 1;
+        councilOpen = true;
         break;
       }
       case 'council.verdict': {
@@ -707,6 +710,7 @@ export function rows(events: Event[]): Row[] {
         break;
       }
       case 'turn.finished':
+        councilOpen = false;
         /**
          * ⚠ **A turn that could not be verified is not a turn that finished.**
          *

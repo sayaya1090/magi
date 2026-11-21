@@ -148,6 +148,7 @@ func fold(events []event.Event) ([]Row, foldStats) {
 	// the fact can land on its preview's place rather than beside it. See the note at the verdict
 	// case on why the round number cannot be the key.
 	convene := 0
+	councilOpen := false
 	verdictAt := map[string]int{}
 	dropDraft := func(key string) {
 		row, ok := drafts[key]
@@ -362,7 +363,10 @@ func fold(events []event.Event) ([]Row, foldStats) {
 
 		case event.TypeCouncilDecided:
 			row := decidedRow(e.Seq, d)
-			row.Convene, row.Closing = convene, convene > 0
+			if councilOpen {
+				row.Convene, row.Closing = convene, true
+				councilOpen = false
+			}
 			out = append(out, row)
 
 		case event.TypeInterjectionDeferred:
@@ -414,6 +418,7 @@ func fold(events []event.Event) ([]Row, foldStats) {
 			// A new convene. Every council opens at round 1, so the round number alone cannot tell
 			// two of them apart — this is what keys a verdict to the round it belongs to.
 			convene++
+			councilOpen = true
 
 		case event.TypeCouncilVerdict:
 			row := verdictRow(e.Seq, d)
@@ -464,6 +469,7 @@ func fold(events []event.Event) ([]Row, foldStats) {
 			}
 
 		case event.TypeTurnFinished:
+			councilOpen = false
 			// ⚠ A turn that could not be verified is not a turn that finished. The core sets this
 			// when the execution-evidence gate could not confirm the outcome, in its own words so
 			// the turn is "labeled UNVERIFIED rather than laundered into a confident success".

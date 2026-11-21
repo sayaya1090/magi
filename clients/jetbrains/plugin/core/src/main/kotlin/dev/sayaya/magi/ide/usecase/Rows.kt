@@ -217,6 +217,7 @@ class Rows(private val words: Words) {
 
     /** 이 흐름이 연 소집의 수. 평결은 가장 최근 것에 속한다 — 사유는 [verdict] 의 주석. */
     private var convene = 0
+    private var councilOpen = false
 
     /** 멤버별 평결이 [rows] 의 어디에 있나. 사실이 프리뷰 **옆이 아니라 자리에** 내려앉게 한다. */
     private val verdictAt = mutableMapOf<String, Int>()
@@ -275,6 +276,7 @@ class Rows(private val words: Words) {
         // 소집 셈과 평결 자리도 처음부터 — 안 지우면 새 대화의 첫 평결이 옛 대화의 행 자리에
         // 내려앉는다(이 함수의 `touched` 와 같은 사유).
         convene = 0
+        councilOpen = false
         verdictAt.clear()
         todos = emptyList()
         context = null
@@ -330,6 +332,7 @@ class Rows(private val words: Words) {
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> { foldProgress = null; compaction(e) }
             "turn.finished" -> {
+                councilOpen = false
                 foldProgress = null
                 elidedThisTurn = 0
                 // 실행-증거 게이트 미통과 상태(`unverified`) 처리:
@@ -733,6 +736,7 @@ class Rows(private val words: Words) {
         // 새 소집. 카운슬은 언제나 1회차로 열리므로 회차 번호만으로는 둘을 못 가른다 —
         // 평결을 제 라운드에 매다는 열쇠가 이것이다.
         convene += 1
+        councilOpen = true
         val members = (d["members"] as? kotlinx.serialization.json.JsonArray)
             ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
             .orEmpty()
@@ -956,9 +960,10 @@ class Rows(private val words: Words) {
             // continue 를 지금 붙들고 있는 반대가 무엇인지. 항목 필드가 아니라 why 에 싣는 것은
             // 1판의 축약이다 — 어휘에는 feedback 이 따로 있다(docs/TRANSCRIPT.ko.md §2).
             why = d["feedback"]?.jsonPrimitive?.content,
-            convene = convene,
-            closing = true,
+            convene = if (councilOpen) convene else 0,
+            closing = councilOpen,
         )
+        councilOpen = false
         return true
     }
 

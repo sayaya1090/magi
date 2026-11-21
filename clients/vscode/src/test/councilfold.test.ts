@@ -65,3 +65,16 @@ test('a council without an outcome stays open: in progress, or cut before the ne
   assert.equal(shown.length, 3 + 1, 'the decided one folds to its closing line');
   assert.ok(shown[3].closing);
 });
+
+test('a repeated declaration rejection stays independent of the previous council', () => {
+  const rs = rows([
+    { seq: 1, type: 'council.convened', data: { round: 1, task: 't' } },
+    { seq: 2, type: 'council.decided', data: { round: 1, decision: 'continue' } },
+    { seq: 3, type: 'council.decided', data: { round: 1, decision: 'continue', note: 'redeclared' } },
+  ]);
+  const shown = councilFold(rs, new Set());
+  assert.deepEqual(shown.map(r => [r.seq, r.convene, r.closing]), [
+    [2, 1, true], [3, undefined, undefined],
+  ]);
+  assert.equal(shown[1].text, 'redeclared');
+});
