@@ -585,7 +585,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			return a.callInner(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, name, args)
 		},
 		ParallelToolSafe: func(name string) bool {
-			return a.allParallelSafe([]*session.ToolCall{{Name: name}})
+			return a.innerParallelSafe(name)
 		},
 		OpenChild: func(cctx context.Context, label string) (port.ChildRun, error) {
 			return a.openChild(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, label, func(line string) {

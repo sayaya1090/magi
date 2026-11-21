@@ -215,6 +215,25 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		}
 		return finish(a.Permission() == "allow", "headless", a.denyReason(tc.Name))
 	}
+	// One person, one prompt on screen. Calls a script runs together reach here together; each
+	// waits for the slot, then checks again for an "always" the prompt before it may have granted.
+	modal := a.stateLocked(home).modal
+	if modal == nil {
+		modal = make(chan struct{}, 1)
+		a.stateLocked(home).modal = modal
+	}
+	a.mu.Unlock()
+	select {
+	case modal <- struct{}{}:
+	case <-ctx.Done():
+		return finish(false, "cancelled", "approval request cancelled; no user rejection was received")
+	}
+	defer func() { <-modal }()
+	a.mu.Lock()
+	if st, ok := a.stateIf(home); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) {
+		a.mu.Unlock()
+		return finish(true, "policy", "")
+	}
 	ch := make(chan string, 1)
 	if a.stateLocked(sid).perms == nil {
 		a.stateLocked(sid).perms = map[string]chan string{}

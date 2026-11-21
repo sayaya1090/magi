@@ -1254,6 +1254,26 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 	return true
 }
 
+// innerParallelSafe is allParallelSafe for the calls a tool's script runs together. A danger tool
+// (bash) is held apart in a step only so two prompts are not raised at once; requestPermission now
+// shows one prompt at a time per conversation, so its branches may run together. What else kept a
+// call apart still does: a file writer (the change capture), an MCP call (its own prompt and
+// effects magi cannot see), a question to the person, a subagent that writes.
+func (a *App) innerParallelSafe(name string) bool {
+	if a.changesFile(name) || strings.HasPrefix(name, "mcp__") || name == "ask_user" {
+		return false
+	}
+	if a.tools != nil {
+		if t, ok := a.tools.Get(name); ok {
+			m := port.ToolMetaOf(t)
+			if m.Subagent && !m.ReadOnlyChildren && !m.IsolatedChildren {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // repeatedStepNote is what the record says when a step was an exact repeat of the one before it.
 const repeatedStepNote = "That step repeated the previous one exactly — the same words and the same calls — " +
 	"and those calls all succeeded a moment ago, so nothing new was asked for. The calls were not run " +

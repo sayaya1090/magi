@@ -124,7 +124,7 @@ sequenceDiagram
 화면은 단계를 32px 표시 아래에 이름을 단 노드로 그리고, 노드 사이를 화살표로 잇습니다. JetBrains `ProgressStages`(`clients/jetbrains/plugin/intellij/src/main/kotlin/dev/sayaya/magi/ide/ui/ProgressStages.kt:34`), VS Code `updateStages`(`clients/vscode/src/web/chat_adapter.ts:1720`), 웹 `StageStrip`(`clients/web/ui/coding-agent-ui/src/main/java/dev/sayaya/magi/client/interfaces/StageStrip.java:24`)입니다. 시작과 끝도 단계의 상태를 따릅니다. 시작은 어느 단계든 진행 중이거나 대기 중이면 `running`, 그 뒤로는 `done`입니다. 끝은 모든 단계가 끝날 때까지 기다리고, 실패가 있으면 `failed`를 보입니다.
 
 
-`call_graph({...})`는 선행 태스크가 성공하면 해당 태스크를 실행합니다. 각 태스크의 `id`와 `tool`을 지정하고, 필요에 따라 `args`, `label`, 앞서 선언한 태스크 ID 목록인 `after`를 넣습니다. 각 분기는 자기 선행 태스크가 끝나는 즉시 진행합니다. 호스트는 병렬 실행이 안전한 호출을 최대 8개까지 함께 실행하고, 단독 실행이 필요한 호출은 하나씩 실행합니다. 진행 이벤트에는 첫 태스크의 `after`를 빈 배열로, 나머지 태스크의 `after`를 선행 ID 목록으로 보냅니다. 완료한 태스크는 다른 분기가 진행 중이어도 성공 색으로 표시합니다.
+`call_graph({...})`는 선행 태스크가 성공하면 해당 태스크를 실행합니다. 각 태스크의 `id`와 `tool`을 지정하고, 필요에 따라 `args`, `label`, 앞서 선언한 태스크 ID 목록인 `after`를 넣습니다. 각 분기는 자기 선행 태스크가 끝나는 즉시 진행합니다. 호스트는 병렬 실행이 안전한 호출을 최대 8개까지 함께 실행하고, 단독 실행이 필요한 호출은 하나씩 실행합니다. 스크립트 안에서는 `bash`를 비롯한 위험 도구 목록의 도구도 병렬 실행이 안전한 호출로 봅니다. 승인이 필요하면 대화에는 승인 창이 한 번에 하나만 뜨고, 다음 창은 앞 창에 답한 뒤에 뜹니다. 파일을 쓰는 도구(`write`, `edit`, `multiedit`), `mcp__` 도구, `ask_user`, 쓰기 권한이 있는 서브에이전트는 계속 단독으로 실행합니다. 진행 이벤트에는 첫 태스크의 `after`를 빈 배열로, 나머지 태스크의 `after`를 선행 ID 목록으로 보냅니다. 완료한 태스크는 다른 분기가 진행 중이어도 성공 색으로 표시합니다.
 
 태스크가 실패해도 독립 분기는 계속 진행할 수 있으며, 해당 태스크에 의존하는 후속 태스크는 `skipped`가 됩니다. 자식 세션에는 개별 도구 결과, 실패한 태스크 ID와 후속 태스크의 생략 사유를 담은 `error` 이벤트, `turn.finished`가 남습니다. 도구가 성공으로 응답했지만 결과가 기대와 다른 경우는 스크립트에서 결과를 검사하고 직접 오류를 발생시켜야 합니다.
 

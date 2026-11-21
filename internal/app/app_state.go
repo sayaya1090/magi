@@ -186,6 +186,10 @@ type sessionState struct {
 	// event is delivered to this process's bus and nowhere else. Keyed the same way (call id /
 	// question id) so a resolved prompt leaves with its channel.
 	asking map[string]Ask
+	// modal is the one prompt slot of the conversation a person looks at (keyed by permissionHome):
+	// calls a script runs together may each need asking, and two prompts at once replace each other
+	// on screen. A request holds it from the moment its prompt shows until it is decided.
+	modal chan struct{}
 	// relayParent is the session an ask raised here is also shown in: the conversation of the tool
 	// that drives this child (openChild), which is what the person is looking at. relayed, on that
 	// parent, maps a call id it shows to the child whose ask it is, so an answer given there reaches it.
