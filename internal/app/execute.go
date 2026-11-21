@@ -597,7 +597,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	var fileExperiment func(context.Context, map[string]string, func(port.FileExperimentCall)) (map[string]string, error)
 	if runner, ok := a.tools.(port.FileExperimentRunner); ok {
 		fileExperiment = func(ctx context.Context, files map[string]string, run func(port.FileExperimentCall)) (map[string]string, error) {
-			return runner.FileExperiment(ctx, files, a.policy.Decide, run)
+			return runner.FileExperiment(ctx, files, func(name string, args json.RawMessage) (string, string) {
+				return a.policy.decideFixturePath(workdir, name, args)
+			}, run)
 		}
 	}
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{

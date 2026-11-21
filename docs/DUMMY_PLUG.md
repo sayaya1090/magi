@@ -318,7 +318,10 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   candidate scripts in two disposable directories seeded with the same text fixtures (`files`).
   It supports `read`, `write`, `edit` and `multiedit` and reports final file hashes, differing paths
   and script or tool failures, including partial writes. The host deletes both copies. This
-  comparison uses only the supplied files and does not adopt a candidate.
+  comparison uses only the supplied files. Before seeding fixtures or running file calls, it
+  checks tool policy against the supplied path and its normalized workspace-relative and absolute
+  forms. Policy denials and requests for approval block the operation. The comparison opens no
+  approval prompts and leaves adoption to the separate routine commands.
 - **Improvement.** A routine's evals live in `.magi/routines/<name>/`: `contract.json` (cases run dry
   on fixed fixtures — control flow: the recalled policy reaches each `explore`, an empty or failed
   answer is reported as no answer, a branch no fixture answers stays unverified) and `tasks.json`

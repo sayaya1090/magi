@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -289,6 +290,32 @@ func (p *Policy) Decide(toolName string, args json.RawMessage) (verdict, reason 
 // fileTouch asks what this call does to a file, through whatever the policy was given. A Policy
 // with no answer behind it falls back to the builtin names, which is what it did before a tool
 // could say so itself.
+// decideFixturePath checks the supplied path and its workspace spellings.
+// The caller passes the original arguments to the disposable file tools.
+func (p *Policy) decideFixturePath(workdir, tool string, args json.RawMessage) (string, string) {
+	if verdict, reason := p.Decide(tool, args); verdict != "" {
+		return verdict, reason
+	}
+	var target struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(args, &target) != nil || !filepath.IsLocal(target.Path) {
+		return "", "" // The file tool handles invalid and outside paths.
+	}
+	relative := filepath.Clean(target.Path)
+	for _, path := range []string{filepath.ToSlash(relative), filepath.ToSlash(filepath.Join(workdir, relative))} {
+		target.Path = path
+		raw, err := json.Marshal(target)
+		if err != nil {
+			return "deny", "could not encode the fixture path"
+		}
+		if verdict, reason := p.Decide(tool, raw); verdict != "" {
+			return verdict, reason
+		}
+	}
+	return "", ""
+}
+
 func (p *Policy) fileTouch(tool string, args json.RawMessage) (fileTouch, bool) {
 	if p.touches != nil {
 		return p.touches(tool, args)

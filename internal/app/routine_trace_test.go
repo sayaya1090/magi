@@ -377,3 +377,33 @@ error("after writing")`,
 		t.Fatalf("unsafe path changed original: %q %v", body, err)
 	}
 }
+
+func TestRoutineWriteComparisonHonorsWorkspaceAbsolutePolicy(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.file(t, filepath.Join(".magi", "skills", "writer.md"), writerRoutine)
+	protected := filepath.Join(r.s.Workdir, "out.txt")
+	r.a.policy = newPolicy(nil, []string{"write(" + filepath.ToSlash(protected) + ")"}, nil)
+
+	input := map[string]any{
+		"name": "writer", "args": map[string]any{"text": "baseline"},
+		"files":  map[string]string{"out.txt": "fixture"},
+		"script": `local r, e = call_tool("write", {Path="./out.txt", content="candidate"}); if not r then error(e) end`,
+	}
+	out, _, failed := r.call(t, "fixture-policy", "routine_compare_writes", input, "allow")
+	if !failed || !strings.Contains(out, "fixture path blocked by tool policy") {
+		t.Fatalf("protected fixture was seeded: %q", out)
+	}
+	input["files"] = map[string]string{}
+	out, _, failed = r.call(t, "call-policy", "routine_compare_writes", input, "allow")
+	var report struct {
+		Active, Candidate struct {
+			Files       json.RawMessage
+			FailedCalls int `json:"failed_calls"`
+		}
+	}
+	if failed || json.Unmarshal([]byte(out), &report) != nil ||
+		report.Active.FailedCalls != 1 || report.Candidate.FailedCalls != 1 ||
+		string(report.Active.Files) != "[]" || string(report.Candidate.Files) != "[]" {
+		t.Fatalf("protected write ran in a fixture copy: %q", out)
+	}
+}
