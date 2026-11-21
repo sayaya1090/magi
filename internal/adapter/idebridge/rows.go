@@ -155,6 +155,12 @@ type Row struct {
 	Rule string `json:"rule,omitempty"`
 	// Opened marks the row that OPENS a round — the convened row, not a verdict.
 	Opened bool `json:"opened,omitempty"`
+	// Convene is which council of this stream the row belongs to (1, 2, ...): the unit a council folds
+	// and opens by. Every council opens at round 1, so the round alone cannot tell two of them apart.
+	Convene int `json:"convene,omitempty"`
+	// Closing marks the decided row of a convene: the one line that stands for the whole council when
+	// it is folded.
+	Closing bool `json:"closing,omitempty"`
 	// ReadOnly says the turn this round judges changed no files. On the opening row because it
 	// says what KIND of turn is being weighed.
 	ReadOnly bool `json:"readOnly,omitempty"`

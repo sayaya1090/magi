@@ -361,7 +361,9 @@ func fold(events []event.Event) ([]Row, foldStats) {
 			}
 
 		case event.TypeCouncilDecided:
-			out = append(out, decidedRow(e.Seq, d))
+			row := decidedRow(e.Seq, d)
+			row.Convene, row.Closing = convene, convene > 0
+			out = append(out, row)
 
 		case event.TypeInterjectionDeferred:
 			// ⚠ One event type carries BOTH ends of this state: the core writes it with
@@ -406,13 +408,16 @@ func fold(events []event.Event) ([]Row, foldStats) {
 			out = append(out, &Row{Seq: e.Seq, Who: WhoSystem, Text: text})
 
 		case event.TypeCouncilConvened:
-			out = append(out, convenedRow(e.Seq, d))
+			row := convenedRow(e.Seq, d)
+			row.Convene = convene + 1 // counted just below, after this row
+			out = append(out, row)
 			// A new convene. Every council opens at round 1, so the round number alone cannot tell
 			// two of them apart — this is what keys a verdict to the round it belongs to.
 			convene++
 
 		case event.TypeCouncilVerdict:
 			row := verdictRow(e.Seq, d)
+			row.Convene = convene
 			// ⚠ **A preview and the fact it becomes are ONE row, not two.**
 			//
 			// The core shows a round as it lands — `publishTransient` puts each verdict on the bus

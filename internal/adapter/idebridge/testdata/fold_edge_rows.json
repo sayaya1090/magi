@@ -46,6 +46,7 @@
     "text": "judge the fix",
     "round": 2,
     "opened": true,
+    "convene": 1,
     "evidence": "task:   judge the fix  ",
     "summary": "judge the fix",
     "id": "13"
@@ -55,6 +56,7 @@
     "who": "council",
     "text": "a round opened",
     "opened": true,
+    "convene": 2,
     "summary": "a round opened",
     "id": "14"
   },
@@ -88,6 +90,7 @@
     "who": "council",
     "text": "",
     "round": 2,
+    "convene": 2,
     "decision": "continue",
     "member": "balthasar",
     "id": "18"
