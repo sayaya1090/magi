@@ -1,13 +1,19 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // logBuf keeps what the plugins logged: a command's output goes to the log the person reads.
@@ -190,5 +196,46 @@ func TestAWritingRoutineIsApprovedOnceAndEachWriteStillAsks(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(r.s.Workdir, "out.txt")); string(b) != "hi" {
 		t.Fatalf("a refused write happened: out.txt = %q", b)
+	}
+}
+
+// overlapTool stands in for a writing tool and measures how many of its calls ran at the same time.
+type overlapTool struct {
+	name         string
+	active, peak int32
+}
+
+func (o *overlapTool) Name() string            { return o.name }
+func (o *overlapTool) Description() string     { return "overlap probe " + o.name }
+func (o *overlapTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (o *overlapTool) Execute(context.Context, json.RawMessage, port.ToolEnv) (session.ToolResult, error) {
+	n := atomic.AddInt32(&o.active, 1)
+	for {
+		p := atomic.LoadInt32(&o.peak)
+		if n <= p || atomic.CompareAndSwapInt32(&o.peak, p, n) {
+			break
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	atomic.AddInt32(&o.active, -1)
+	return session.ToolResult{Content: json.RawMessage(`"ok"`)}, nil
+}
+
+const pairRoutine = "---\nkind: routine\ndescription: two writes at once\ntools: bash\ninputs: {\"type\":\"object\",\"properties\":{}}\n---\n```lua\nlocal r = call_all({ {\"bash\", {command=\"a\"}}, {\"bash\", {command=\"b\"}} })\nprint(r[1].ok, r[2].ok)\n```\n"
+
+// A routine's writing calls run one at a time even when the script asks for them together (call_all)
+// and the host would let them overlap: in "allow" no write waits on a prompt, so only the routine's
+// serial list keeps them apart. (The routine's own approval still asks; it is a person's.)
+func TestARoutinesWritingCallsNeverOverlap(t *testing.T) {
+	r := newRoutineRigWith(t, t.TempDir(), routineFile, Config{Permission: "allow", Interactive: true, AnswerWait: 5 * time.Second})
+	probe := &overlapTool{name: "bash"}
+	r.a.tools.Register(probe)
+	r.file(t, filepath.Join(".magi", "skills", "pair.md"), pairRoutine)
+	out, asks, failed := r.call(t, "p1", "run_routine", map[string]any{"name": "pair"}, "allow")
+	if failed || len(asks) != 1 || !strings.Contains(out, "true\ttrue") {
+		t.Fatalf("the routine must be approved once and run both writes: %q %+v", out, asks)
+	}
+	if p := atomic.LoadInt32(&probe.peak); p != 1 {
+		t.Fatalf("a routine's writes overlapped: %d ran at once", p)
 	}
 }
