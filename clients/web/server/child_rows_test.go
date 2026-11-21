@@ -17,7 +17,7 @@ func TestAToolRowCarriesTheChildItRan(t *testing.T) {
 	rows := renderMessages([]session.Message{{
 		Role: session.RoleAssistant,
 		Parts: []session.Part{
-			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "dummy_plug_run", Args: json.RawMessage(`{"goal":"count"}`)}},
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "dummy_plug", Args: json.RawMessage(`{"goal":"count"}`)}},
 			{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: "c1", Content: content}},
 			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c2", Name: "read", Args: json.RawMessage(`{"path":"a"}`)}},
 			{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: "c2", Content: json.RawMessage(`"hello"`)}},

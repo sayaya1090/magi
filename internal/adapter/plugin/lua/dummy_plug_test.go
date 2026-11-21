@@ -33,9 +33,9 @@ func TestDummyPlugIsOneToolThatRunsItsScriptInAChild(t *testing.T) {
 			t.Fatalf("%s is still registered: a script runs at once", gone)
 		}
 	}
-	run, ok := sink.Get("dummy_plug_run")
+	run, ok := sink.Get("dummy_plug")
 	if !ok {
-		t.Fatal("dummy-plug registered no dummy_plug_run")
+		t.Fatal("dummy-plug registered no dummy_plug")
 	}
 	if d := run.Description(); !strings.Contains(d, "call_tool") || !strings.Contains(d, "plan(") || !strings.Contains(d, "print") {
 		t.Fatalf("the tool's description must say what a script can use: %q", d)

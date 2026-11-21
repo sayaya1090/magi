@@ -13,7 +13,7 @@ func TestAToolRowThatRanAChildOpensIt(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 	m.width, m.height = 120, 40
-	call := block{kind: blockToolCall, name: "dummy_plug_run", args: `{"goal":"count docs"}`, callID: "c1"}
+	call := block{kind: blockToolCall, name: "dummy_plug", args: `{"goal":"count docs"}`, callID: "c1"}
 	out := foldToolResultInto([]block{{kind: blockUser, text: "go"}, call}, "c1", "35 docs\n\n[child s_kid01, 2 tool call(s)]", true, false)
 	if !reflect.DeepEqual(out[1].children, []string{"s_kid01"}) {
 		t.Fatalf("the folded result must carry the child it names: %v", out[1].children)
@@ -33,7 +33,7 @@ func TestAToolRowThatRanAChildOpensIt(t *testing.T) {
 	}
 
 	// The strip already has the child: its pane is opened.
-	done := &agentPane{sid: "s_kid01", role: "dummy_plug_run", done: true}
+	done := &agentPane{sid: "s_kid01", role: "dummy_plug", done: true}
 	m.doneRoster = []*agentPane{done}
 	if !m.openChildAt(m.blockLineStart[1]) || !m.zoom || m.viewedPane() != done {
 		t.Fatalf("a click on the head must open the strip's pane for the child (zoom=%v)", m.zoom)

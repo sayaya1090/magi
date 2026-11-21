@@ -111,7 +111,7 @@ class RowsTest {
     @Test
     fun `자식을 돌린 호출의 행은 그 자식을 싣는다 — 실패해도, 그리고 코어가 쓴 줄만`() {
         val r = Rows(ko)
-        r.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"dummy_plug_run","callId":"c1"}}}"""))
+        r.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"dummy_plug","callId":"c1"}}}"""))
         r.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"c1","content":"35 docs\n\n[child s_kid01, 2 tool call(s)]"}}}"""))
         r.feed(ev("part.appended", """{"part":{"kind":"tool-call","toolCall":{"name":"explore","callId":"c2"}}}"""))
         r.feed(ev("part.appended", """{"part":{"kind":"tool-result","toolResult":{"callId":"c2","isError":true,"content":"boom\n\n[child s_kid02, 1 step(s), stopped short: x]"}}}"""))

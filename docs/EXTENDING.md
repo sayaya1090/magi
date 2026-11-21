@@ -499,7 +499,7 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > end take the steps' states: start is `running` while any step runs or waits and `done` after; end
 > is `waiting` until then, and `done`, or `failed` when a step failed. A list identical to the last
 > one is not sent again, and between two unforced reports at least 100 ms pass. The `dummy-plug`
-> plugin is built on both. It is one tool, `dummy_plug_run`, whose description says what a script can
+> plugin is built on both. It is one tool, `dummy_plug`, whose description says what a script can
 > use; there is no mode to enter or leave. Each script runs as a child named by the call's `goal`. It
 > lends its scripts `plan({name, ...})`, which lists every step so the first report already shows
 > them all, and `stage(name)`, which opens the next one (a planned one by that name, or a new one

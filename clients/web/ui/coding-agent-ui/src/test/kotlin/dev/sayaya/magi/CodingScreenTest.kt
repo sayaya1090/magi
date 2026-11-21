@@ -1427,7 +1427,7 @@ internal class CodingScreenTest : GwtTestSpec({
 
     Given("자식을 돌린 호출이 있는 대화") {
         When("툴 행이 자기가 돌린 아이를 싣고 오면") {
-            page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"},{"who":"tool","tool":"dummy_plug_run","args":"{}","ok":true,"children":["s_kid"]},{"who":"tool","tool":"read","args":"{}","ok":true}]')""")
+            page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"},{"who":"tool","tool":"dummy_plug","args":"{}","ok":true,"children":["s_kid"]},{"who":"tool","tool":"read","args":"{}","ok":true}]')""")
             Then("그 행에만 아이로 가는 단추가 서고, 누르면 그 아이로 간다") {
                 // 서브에이전트 띠는 도는 동안만 아이를 보여 준다. 끝난 뒤 그 아이를 찾을 길은
                 // 그것을 돌린 호출의 행이다 — 행이 아이를 싣고 오면 거기서 바로 간다.

@@ -126,7 +126,7 @@ Limits: 200 tool calls per run, 60 s by default (timeout up to 300), 16000 bytes
 Use it for loops, filtering and many reads whose contents you do not need to see.]]
 
 magi.register_tool{
-  name = "dummy_plug_run",
+  name = "dummy_plug",
   description = USE,
   schema = {
     type = "object",

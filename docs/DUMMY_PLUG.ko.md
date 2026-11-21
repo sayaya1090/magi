@@ -8,9 +8,9 @@
 
 | 용어 | 뜻 |
 |---|---|
-| 더미 플러그 | `plugins/dummy-plug` 플러그인. 도구 `dummy_plug_run` 하나가 모델이 쓴 Lua 스크립트를 받아 실행합니다. |
+| 더미 플러그 | `plugins/dummy-plug` 플러그인. 도구 `dummy_plug` 하나가 모델이 쓴 Lua 스크립트를 받아 실행합니다. |
 | 스크립트 | 모델이 쓴 Lua 소스. 도구를 부르고, 모델이 볼 것만 출력합니다. |
-| 바깥 호출 | 모델 자신의 `dummy_plug_run` 호출. 대화에 기록됩니다. |
+| 바깥 호출 | 모델 자신의 `dummy_plug` 호출. 대화에 기록됩니다. |
 | 안쪽 호출 | 스크립트가 하는 도구 호출(`call_tool`, `call_all`). 호스트가 다른 호출과 똑같이 실행합니다. |
 | 자식 세션 | 스크립트 실행 한 번을 위해 여는 세션. 대화를 부모로 두며, 모델이 구동하지 않습니다. 다만 스크립트가 부르는 도구는 자기 모델을 쓸 수 있습니다(`explore`는 모델이 구동하는 서브에이전트를 띄웁니다). |
 | 단계 | 사람이 보는 실행의 한 걸음(`plan`, `stage`). 구조화된 데이터로 알립니다. |
@@ -27,7 +27,7 @@
 
 ```mermaid
 flowchart LR
-  M["모델"] -->|"dummy_plug_run(goal, script)"| T["dummy-plug init.lua"]
+  M["모델"] -->|"dummy_plug(goal, script)"| T["dummy-plug init.lua"]
   T -->|"magi.run_script(child = goal)"| B["Lua 브리지"]
   B -->|"ToolEnv.OpenChild"| C["자식 세션"]
   B -->|"call_tool, call_all"| C
@@ -40,7 +40,7 @@ flowchart LR
 
 | 조각 | 위치 | 하는 일 |
 |---|---|---|
-| `dummy_plug_run` | `plugins/dummy-plug/init.lua:129` | 유일한 도구. 설명에 스크립트가 쓸 수 있는 것을 적어 둡니다. `goal`이 자식의 이름이 됩니다. |
+| `dummy_plug` | `plugins/dummy-plug/init.lua:129` | 유일한 도구. 설명에 스크립트가 쓸 수 있는 것을 적어 둡니다. `goal`이 자식의 이름이 됩니다. |
 | `track` | `plugins/dummy-plug/init.lua:47` | `plan`, `stage`, 호출마다의 시작·끝으로 실행의 단계를 유지하고 알립니다. |
 | `magi.run_script` | `internal/adapter/plugin/lua/bridge_script.go:34` | 별도 Lua 상태에서 스크립트를 실행합니다. `child`가 있으면 자식을 열고(`:57`) 출력과 함께 닫습니다(`:72`). |
 | `ToolEnv.OpenChild` | `internal/port/port.go:515`, `ChildRun`은 `:1006` | 호스트의 범용 지점. 더미 플러그라는 낱말이 없습니다. |
@@ -58,7 +58,7 @@ sequenceDiagram
   participant Plug as dummy-plug
   participant Host as 호스트
   participant Child as 자식 로그
-  Model->>Plug: dummy_plug_run(goal, script)
+  Model->>Plug: dummy_plug(goal, script)
   Plug->>Host: run_script(child = goal)
   Host->>Child: Parent를 달고 생성, 프롬프트 = goal
   loop call_tool 또는 call_all마다
@@ -71,7 +71,7 @@ sequenceDiagram
   Host-->>Model: 출력만
 ```
 
-자식은 스크립트가 도는 동안 서브에이전트 줄에 나타났다가 끝나면 사라집니다. 단계 목록은 바깥 호출의 행에 실리므로, 사람은 `dummy_plug_run` 행 아래의 칸에서 실행을 지켜봅니다.
+자식은 스크립트가 도는 동안 서브에이전트 줄에 나타났다가 끝나면 사라집니다. 단계 목록은 바깥 호출의 행에 실리므로, 사람은 `dummy_plug` 행 아래의 칸에서 실행을 지켜봅니다.
 
 ## 4. 무엇이 어디에 기록되나
 

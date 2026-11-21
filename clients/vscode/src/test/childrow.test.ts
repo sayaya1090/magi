@@ -11,7 +11,7 @@ test('a tool row names the child its call ran, and the row offers to open it', (
   let seq = 1;
   const pair = (callId: string, isError: boolean, content: string): any[] => [
     { seq: seq++, type: 'part.appended',
-      data: { part: { kind: 'tool-call', toolCall: { callId, name: 'dummy_plug_run', args: { goal: 'g' } } } } },
+      data: { part: { kind: 'tool-call', toolCall: { callId, name: 'dummy_plug', args: { goal: 'g' } } } } },
     { seq: seq++, type: 'part.appended',
       data: { part: { kind: 'tool-result', toolResult: { callId, isError, content } } } },
   ];

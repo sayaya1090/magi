@@ -144,7 +144,7 @@ class ToolRowHeadTest : BasePlatformTestCase() {
             fun buttons(c: Container): List<javax.swing.JButton> = c.components.flatMap {
                 (if (it is javax.swing.JButton) listOf(it) else emptyList()) + (if (it is Container) buttons(it) else emptyList())
             }
-            val ran = dev.sayaya.magi.ide.usecase.Row(who = dev.sayaya.magi.ide.usecase.Who.Tool, text = "dummy_plug_run", tool = "dummy_plug_run", ok = true, children = listOf("s_kid01"))
+            val ran = dev.sayaya.magi.ide.usecase.Row(who = dev.sayaya.magi.ide.usecase.Who.Tool, text = "dummy_plug", tool = "dummy_plug", ok = true, children = listOf("s_kid01"))
             val open = buttons(render.invoke(view, ran) as Container).filter { it.getClientProperty("magi.child") != null }
             assertEquals("a tool row that ran a child offers exactly one way into it", 1, open.size)
             assertEquals("s_kid01", open.single().getClientProperty("magi.child"))

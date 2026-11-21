@@ -12,9 +12,9 @@ code at commit `f245a8413`; everything marked as planned has no code yet. The pl
 
 | Term | Meaning |
 |---|---|
-| dummy plug | The `plugins/dummy-plug` plugin. One tool, `dummy_plug_run`, takes a Lua script from the model and runs it. |
+| dummy plug | The `plugins/dummy-plug` plugin. One tool, `dummy_plug`, takes a Lua script from the model and runs it. |
 | script | The Lua source the model writes. It calls tools and prints what the model should see. |
-| outer call | The model's own `dummy_plug_run` call, recorded in the conversation. |
+| outer call | The model's own `dummy_plug` call, recorded in the conversation. |
 | inner call | A tool call the script makes (`call_tool`, `call_all`). The host runs it like any call. |
 | child session | A session opened for one script run, with the conversation as its parent. No model drives it; a tool the script calls may still run one of its own (`explore` runs a model-driven subagent). |
 | stage | One step of a run as the person sees it (`plan`, `stage`), reported as structured data. |
@@ -42,7 +42,7 @@ only the result.
 
 ```mermaid
 flowchart LR
-  M["model"] -->|"dummy_plug_run(goal, script)"| T["dummy-plug init.lua"]
+  M["model"] -->|"dummy_plug(goal, script)"| T["dummy-plug init.lua"]
   T -->|"magi.run_script(child = goal)"| B["Lua bridge"]
   B -->|"ToolEnv.OpenChild"| C["child session"]
   B -->|"call_tool, call_all"| C
@@ -55,7 +55,7 @@ flowchart LR
 
 | Piece | Where | What it does |
 |---|---|---|
-| `dummy_plug_run` | `plugins/dummy-plug/init.lua:129` | The only tool. Its description tells the model what a script can use. `goal` names the child. |
+| `dummy_plug` | `plugins/dummy-plug/init.lua:129` | The only tool. Its description tells the model what a script can use. `goal` names the child. |
 | `track` | `plugins/dummy-plug/init.lua:47` | Keeps the run's stages from `plan`, `stage` and each call's start and end, and reports them. |
 | `magi.run_script` | `internal/adapter/plugin/lua/bridge_script.go:34` | Runs the script in a Lua state of its own. With `child` it opens a child (`:57`) and closes it with the output (`:72`). |
 | `ToolEnv.OpenChild` | `internal/port/port.go:515`, `ChildRun` at `:1006` | The host's generic hook. Nothing in it names the dummy plug. |
@@ -76,7 +76,7 @@ sequenceDiagram
   participant Plug as dummy-plug
   participant Host as host
   participant Child as child log
-  Model->>Plug: dummy_plug_run(goal, script)
+  Model->>Plug: dummy_plug(goal, script)
   Plug->>Host: run_script(child = goal)
   Host->>Child: create with Parent, prompt = goal
   loop each call_tool or call_all
@@ -90,7 +90,7 @@ sequenceDiagram
 ```
 
 The child shows on the subagent strip while the script runs and leaves it when the script ends. The
-stage list rides the outer call's row, so the strip under the `dummy_plug_run` row is where the
+stage list rides the outer call's row, so the strip under the `dummy_plug` row is where the
 person watches the run.
 
 ## 4. What is recorded where
