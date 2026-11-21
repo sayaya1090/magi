@@ -282,3 +282,43 @@ func TestATerminalStartedInTheHandoverGapIsNotAlone(t *testing.T) {
 		t.Fatal("the terminal started in the gap never got its place")
 	}
 }
+
+// A terminal that found itself alone but could not turn its exclusive mark into the shared one it
+// keeps for life would run unseen: the next terminal would find the mark free and recover a turn this
+// one is in. The conversion's failure stops the start, and the hold is let go so others can decide.
+func TestATerminalWhoseMarkCannotTurnSharedDoesNotStart(t *testing.T) {
+	defer func(f func(*os.File, int) error, w interface{ Write([]byte) (int, error) }) {
+		tuiFlock, tuiStderr = f, w
+	}(tuiFlock, tuiStderr)
+	tuiStderr = &bytes.Buffer{}
+	tuiFlock = func(f *os.File, how int) error {
+		if how == unix.LOCK_SH|unix.LOCK_NB && strings.HasSuffix(f.Name(), ".tui.lock") {
+			_ = unix.Flock(int(f.Fd()), unix.LOCK_UN) // the kernel lets the exclusive lock go first
+			return unix.EIO
+		}
+		return realFlock(f, how)
+	}
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	release, sole, share, err := holdTUI(sock)
+	share()
+	release()
+	if err == nil || !errors.Is(err, unix.EIO) {
+		t.Fatalf("a mark that cannot turn shared must stop the start, naming why (sole=%v err=%v)", sole, err)
+	}
+	tuiFlock = realFlock
+	done := make(chan bool, 1)
+	go func() {
+		r, s, sh, e := holdTUI(sock)
+		sh()
+		r()
+		done <- e == nil && s
+	}()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("after a failed start the next terminal must be free to decide it is alone")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a failed start left the gate or the mark held")
+	}
+}

@@ -27,8 +27,8 @@ import (
 //     is alone and, if it is, while it recovers. Terminals take it one at a time, so none can start
 //     inside another's handover.
 //
-// sole reports that this terminal found the mark free, i.e. no other terminal here is alive. share
-// ends the decision (and recovery): the mark is held shared and the gate is let go. release ends the
+// sole reports that this terminal found the mark free, i.e. no other terminal here is alive; by then
+// the mark is already held shared. share ends the decision (and recovery) by letting the gate go. release ends the
 // hold. A non-nil err means the hold could not be placed and the terminal must not start: running
 // unseen would let a later terminal recover a turn this one is in. The one exception is a filesystem
 // with no flock at all (classifyLock: lockUnsupported) — no terminal there can hold anything, so none
@@ -73,13 +73,14 @@ func holdTUI(sock string) (release func(), sole bool, share func(), err error) {
 	// 2. The mark: free means no other terminal is alive.
 	switch err := tuiFlock(mark, unix.LOCK_EX|unix.LOCK_NB); {
 	case err == nil:
-		return release, true, func() {
-			// Still behind the gate, so no terminal of this kind can start in the conversion's gap.
-			if err := waitLock(mark, unix.LOCK_SH, "another terminal took this workspace's mark"); err != nil {
-				fmt.Fprintf(tuiStderr, "magi: terminal hold lost (%v); a terminal started from now may not see this one\n", err)
-			}
-			letGateGo()
-		}, nil
+		// Alone. Turn the mark shared now, behind the gate and before any recovery, so no terminal of
+		// this kind can start in the conversion's gap. A conversion that fails would leave this
+		// terminal unseen by the next one, so it stops the start like any other hold that cannot be
+		// placed; share then only lets the gate go once recovery is done.
+		if err := waitLock(mark, unix.LOCK_SH, "another terminal took this workspace's mark"); err != nil {
+			return fail(err)
+		}
+		return release, true, letGateGo, nil
 	case classifyLock(err) != lockWait:
 		return fail(err)
 	}
