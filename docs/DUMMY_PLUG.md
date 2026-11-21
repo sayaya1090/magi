@@ -544,5 +544,27 @@ calling a model. To measure different outcomes, run each policy explicitly on th
 Each run enforces the supplied host request and time limits across its explore children.
 The optional `reported_token_limit` stops further requests after the reported total reaches
 the limit. Usage arrives after a request, so that final request can exceed the limit.
-The implementation covers this one read-only family. It records the use of the bundled lesson
-and leaves future lesson promotion and selection across families to the design above.
+`routine_task_families` lists the registered families and their applicable lesson without model
+calls. The agent selects a family when it interprets a request. The first family uses the bundled
+lesson. `/routine-lesson promote <run-id> <run-id>` lets a person share that lesson with the
+`implementation-evidence` family after reviewing two completed traces with checked expected
+references and different client/action pairs. Call `routine_trace_path` with
+`family: "implementation-evidence"` and `action: "claim"` to investigate a related code claim.
+The run records which lesson it used. `/routine-lesson withdraw` reverses the sharing.
+The command shows the source runs, including partial and failed observations. Holdout runs are
+excluded from lesson review, promotion and policy replay.
+
+For a paired trial, write `policy-tasks.json` in the family directory with a `tasks` array.
+Each entry has `id`, `split` (`dev` or `holdout`), optional `protected` and an `input`
+object with the same fields as `routine_trace_path`. Every handoff in the input needs an expected
+citation. Freeze it with `/routine-trace-policy freeze`, then call `routine_compare_trace_policy`
+with the chosen split. The tool asks for approval once, runs both policies against the same
+snapshot and model under identical per-arm limits, and records paired outcomes and run IDs.
+The total budget per comparison is at most 32 backend requests and 600 seconds. A failed
+baseline is insufficient evidence of a gain. A partial baseline and a complete candidate
+count as a solved pair.
+
+`/routine-trace-policy adopt <comparison-id>` requires the current frozen tasks, a fresh
+holdout comparison against the active policy, at least one gain, zero regressions and successful
+protected candidate cases. Use `use` for an explicit manual policy switch.
+Both paths keep the preceding version for rollback.

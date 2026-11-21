@@ -195,7 +195,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true, routine_trace_path = true }
+  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true, routine_trace_path = true, routine_task_families = true, routine_compare_trace_policy = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -965,8 +965,62 @@ do
   local TRACE_FAMILY = "client-daemon-call-trace"
   local TRACE_DIR = ".magi/routines/" .. TRACE_FAMILY .. "/"
   local TRACE_LESSON = "cite-executable-handoff"
+  local TRACE_LESSON_DETAILS = {
+    id = TRACE_LESSON,
+    condition = "The task must establish a call between two components or verify a claim about an executable path.",
+    technique = "Cite the actual call at each handoff, with its scope-relative path and line.",
+    benefit = "Separates a dispatch label from the statement that performs the action.",
+    limitation = "A valid citation cannot establish whether a particular runtime action succeeded.",
+  }
   local TRACE_CLIENTS = { web = true, vscode = true, jetbrains = true }
   local TRACE_ACTIONS = { recovery = true, cancellation = true, approval = true }
+  local TRACE_FAMILIES = {
+    [TRACE_FAMILY] = { description = "Trace a client action through its handlers and daemon calls.",
+      actions = TRACE_ACTIONS, instruction = "Cite the exact executable calls as workspace-relative path:line." },
+    ["implementation-evidence"] = { description = "Verify a claim about implemented behavior against the executable statements.",
+      actions = { claim = true }, instruction = "Cite the executable statement for each check as workspace-relative path:line. State what remains unverified." },
+  }
+
+  local function trace_lessons()
+    return decode(magi.read_file(TRACE_DIR .. "lessons.json")) or {}
+  end
+
+  local function trace_run(id)
+    if type(id) ~= "string" or not id:match("^%x+$") then return nil end
+    return decode(magi.read_file(TRACE_DIR .. "runs/" .. id .. ".json"))
+  end
+
+  local function trace_runs()
+    local runs = {}
+    for _, file in ipairs(magi.list_files(TRACE_DIR .. "runs") or {}) do
+      local id = file:match("^(%x+)%.json$")
+      local run = id and trace_run(id)
+      if run then runs[#runs + 1] = run end
+    end
+    return runs
+  end
+
+  magi.register_tool{
+    name = "routine_task_families",
+    description = "Find read-only routine task families and applicable lessons before planning a request. Does not run a routine or call a model.",
+    schema = { type = "object", properties = {} },
+    execute = function()
+      local promoted = trace_lessons()[TRACE_LESSON]
+      local families = {}
+      for id, family in pairs(TRACE_FAMILIES) do
+        local actions = {}
+        for action in pairs(family.actions) do actions[#actions + 1] = action end
+        table.sort(actions)
+        families[#families + 1] = { id = id, description = family.description, actions = actions,
+          lesson = (id == TRACE_FAMILY or promoted) and TRACE_LESSON or nil,
+          lesson_status = promoted and "corroborated" or (id == TRACE_FAMILY and "bundled" or nil),
+          guidance = (id == TRACE_FAMILY or promoted) and TRACE_LESSON_DETAILS or nil }
+      end
+      table.sort(families, function(a, b) return a.id < b.id end)
+      return magi.json_encode(families)
+    end,
+  }
+
   local TRACE_POLICY = { ["whole-v1"] = true, ["handoff-v1"] = true }
   -- A run uses the policy it read before approval. Replay uses the same decision function.
   local function trace_next(policy, proved, total)
@@ -987,7 +1041,7 @@ local checked = 0
 while true do
   local decision = next_trace_step(checked)
   if decision == "done" then break end
-  local q = {input.question, "Cite the exact executable calls as workspace-relative path:line."}
+  local q = {input.question, input.instruction}
   if decision == "whole" then
     q[#q + 1] = "Trace these handoffs: " .. table.concat(input.handoffs, "; ")
   else
@@ -1005,13 +1059,14 @@ while true do
 end
 ]]
 
-  magi.register_tool{
+  local trace_tool = {
     name = "routine_trace_path",
     description = "Trace a client-to-daemon call path once with the active, approved read-only policy. Supply the task-specific question and ordered handoffs with source references to check, and use the existing task budget.",
     schema = { type = "object", properties = {
       question = { type = "string" }, directory = { type = "string" },
+      family = { type = "string", enum = { TRACE_FAMILY, "implementation-evidence" } },
       client = { type = "string", enum = { "web", "vscode", "jetbrains" } },
-      action = { type = "string", enum = { "recovery", "cancellation", "approval" } },
+      action = { type = "string", enum = { "recovery", "cancellation", "approval", "claim" } },
       handoffs = { type = "array", items = { type = "object", properties = {
         label = { type = "string" }, evidence = { type = "string", description = "Expected scope-relative path:line, if known" },
       }, required = { "label" } } },
@@ -1019,12 +1074,14 @@ end
       timeout = { type = "number", minimum = 1, maximum = 300 },
       reported_token_limit = { type = "integer", minimum = 0, maximum = 1000000 },
     }, required = { "question", "directory", "client", "action", "handoffs", "request_limit", "timeout" } },
-    execute = function(a)
+    execute = function(a, policy_override, split)
       if not (magi.script_features and magi.script_features.explore_request_limit) then
         return "call-path tracing requires an updated magi host", true
       end
       a = a or {}
-      if not TRACE_CLIENTS[a.client] or not TRACE_ACTIONS[a.action] then
+      local family_id = a.family or TRACE_FAMILY
+      local family = TRACE_FAMILIES[family_id]
+      if not family or not TRACE_CLIENTS[a.client] or not family.actions[a.action] then
         return "a supported client and action are required", true
       end
       local scope, timeout, cap = a.directory, a.timeout, a.request_limit
@@ -1054,14 +1111,19 @@ end
       end
       local config = trace_policy()
       if not config then return "invalid call-path policy file", true end
-      local policy = config.active
+      local policy = policy_override or config.active
       local id = magi.nonce()
-      local version = magi.sha256(TRACE_SCRIPT)
+      local lesson = (family_id == TRACE_FAMILY or trace_lessons()[TRACE_LESSON]) and TRACE_LESSON or nil
+      local instruction = family.instruction
+      if lesson and family_id ~= TRACE_FAMILY then
+        instruction = instruction .. " Follow each handoff to the actual call, beyond its dispatch label."
+      end
+      local version = magi.sha256(TRACE_SCRIPT .. "\0" .. family_id .. "\0" .. instruction)
       local key = magi.sha256(magi.workdir() .. "\n" .. scope .. "\n" .. version .. "\n" .. policy)
       local approvals = stored("trace_policy_approvals")
-      if approvals[key] ~= true then
+      if not policy_override and approvals[key] ~= true then
         local ok, why = magi.approve{ reason = "Run read-only call-path policy " .. policy .. " in " .. scope,
-          detail = { family = TRACE_FAMILY, policy = policy, scope = scope, script = TRACE_SCRIPT, version = version, tools = {"explore"} } }
+          detail = { family = family_id, lesson = lesson, policy = policy, scope = scope, script = TRACE_SCRIPT, instruction = instruction, version = version, tools = {"explore"} } }
         if not ok then return tostring(why or "call-path policy was not approved"), true end
         approvals[key] = true
         local saved, err = magi.store_set("trace_policy_approvals", approvals)
@@ -1069,15 +1131,16 @@ end
       end
 
       local path = TRACE_DIR .. "runs/" .. id .. ".json"
-      local record = { id = id, phase = "started", family = TRACE_FAMILY, policy = policy, source_routine = "routine_trace_path",
-        routine_version = version, lesson = TRACE_LESSON, session = magi.session_id(), planned = planned,
-        client = a.client, action = a.action, scope = scope,
+      local record = { id = id, phase = "started", family = family_id, policy = policy, source_routine = "routine_trace_path",
+        routine_version = version, lesson = lesson, session = magi.session_id(), planned = planned,
+        started_at = magi.time(),
+        client = a.client, action = a.action, scope = scope, evaluation_split = split,
         request_limit = cap, timeout = timeout, reported_token_limit = tokens }
       local saved, err = magi.write_file(path, magi.json_encode(record))
       if not saved then return "could not record call-path plan: " .. tostring(err), true end
 
-      local decisions, verified, checked = {}, {}, {}
-      local src = "local input = json_decode(" .. string.format("%q", magi.json_encode{ question = a.question, handoffs = labels }) .. ")\n" .. TRACE_SCRIPT
+      local decisions, verified, checked, citations = {}, {}, {}, {}
+      local src = "local input = json_decode(" .. string.format("%q", magi.json_encode{ question = a.question, handoffs = labels, instruction = instruction }) .. ")\n" .. TRACE_SCRIPT
       local out, failure, metrics = magi.run_script(src, {
         tools = {"explore"}, explore_read_scope = scope, measure_explore = true,
         explore_request_limit = cap, explore_token_limit = tokens, timeout = timeout,
@@ -1096,6 +1159,15 @@ end
               else
                 verified[i] = next(found) ~= nil
               end
+              if verified[i] then
+                if expected[i] then citations[i] = expected[i]
+                else
+                  local refs = {}
+                  for ref in pairs(found) do refs[#refs + 1] = ref end
+                  table.sort(refs)
+                  citations[i] = refs[1]
+                end
+              end
               return verified[i]
             end
             if index == 0 then
@@ -1108,9 +1180,11 @@ end
         },
       })
       record.phase = failure and "failed" or "completed"
-      record.decisions, record.handoffs = decisions, {}
+      record.decisions, record.handoffs, record.evidence = decisions, {}, {}
+      record.completed_at = magi.time()
       for i = 1, #labels do
         record.handoffs[i] = not checked[i] and "unchecked" or (verified[i] and "verified_reference" or "unverified")
+        if citations[i] then record.evidence[#record.evidence + 1] = { handoff = i, citation = citations[i] } end
         if record.phase == "completed" and not verified[i] then record.phase = "partial" end
       end
       if metrics then
@@ -1120,20 +1194,22 @@ end
       saved, err = magi.write_file(path, magi.json_encode(record))
       if not saved then return "call-path run " .. id .. " ended but its outcome could not be recorded: " .. tostring(err), true end
       local message = (out or "") .. "\n[call-path run " .. id .. " · " .. policy .. "] " .. table.concat(record.handoffs, ", ")
-      if failure then return message .. "\n" .. failure, true end
-      return message
+      if failure then return message .. "\n" .. failure, true, record end
+      return message, false, record
     end,
   }
 
+  magi.register_tool(trace_tool)
+
   magi.register_command{
     name = "routine-trace-policy",
-    description = "Inspect, replay or change the call-path policy (/routine-trace-policy [replay <run-id>|use <version>|rollback])",
+    description = "Inspect, replay or change the call-path policy (/routine-trace-policy [freeze|replay <run-id>|adopt <comparison-id>|use <version>|rollback])",
     execute = function(args)
       local w, config = words(args), trace_policy()
       if not config then return "invalid call-path policy file" end
       if w[1] == "replay" and w[2] and w[2]:match("^%x+$") then
         local run = decode(magi.read_file(TRACE_DIR .. "runs/" .. w[2] .. ".json"))
-        if not run or type(run.handoffs) ~= "table" then return "no finished call-path run " .. w[2] end
+        if not run or run.evaluation_split == "holdout" or type(run.handoffs) ~= "table" then return "no finished call-path run " .. w[2] end
         for _, version in ipairs({"whole-v1", "handoff-v1"}) do
           local choices, passed = {}, 0
           for _, status in ipairs(run.handoffs) do
@@ -1146,7 +1222,30 @@ end
         end
         return
       end
-      if w[1] == "use" and TRACE_POLICY[w[2]] then
+      if w[1] == "freeze" and #w == 1 then
+        local raw = magi.read_file(TRACE_DIR .. "policy-tasks.json")
+        local tasks = decode(raw)
+        if not tasks or type(tasks.tasks) ~= "table" then return "write policy-tasks.json with a tasks array first" end
+        local saved, err = magi.write_file(TRACE_DIR .. "policy-tasks.sha256", magi.sha256(raw))
+        if not saved then return tostring(err) end
+        magi.log("call-path policy tasks frozen")
+        return
+      end
+      if w[1] == "adopt" and #w == 2 and w[2]:match("^%x+$") then
+        local result = decode(magi.read_file(TRACE_DIR .. "comparisons/" .. w[2] .. ".json"))
+        local raw = magi.read_file(TRACE_DIR .. "policy-tasks.json")
+        if not result or result.phase ~= "completed" or result.split ~= "holdout" or not raw
+          or result.tasks_hash ~= magi.sha256(raw) or result.tasks_hash ~= magi.read_file(TRACE_DIR .. "policy-tasks.sha256")
+          or result.holdout_use ~= 1 or result.active ~= config.active or not TRACE_POLICY[result.candidate]
+          or result.regressed ~= 0 or type(result.solved) ~= "number" or result.solved < 1 then
+          return "adoption requires a fresh holdout comparison with a gain and no regressions"
+        end
+        for _, row in ipairs(result.rows or {}) do
+          if row.protected and row.candidate ~= "completed" then return "a protected task is unresolved" end
+        end
+        config.previous[#config.previous + 1] = config.active
+        config.active = result.candidate
+      elseif w[1] == "use" and TRACE_POLICY[w[2]] then
         if config.active ~= w[2] then
           config.previous[#config.previous + 1] = config.active
           config.active = w[2]
@@ -1159,11 +1258,62 @@ end
         magi.log("call-path policy: " .. config.active .. " (available: whole-v1, handoff-v1)")
         return
       else
-        return "usage: /routine-trace-policy [replay <run-id>|use <whole-v1|handoff-v1>|rollback]"
+        return "usage: /routine-trace-policy [freeze|replay <run-id>|adopt <comparison-id>|use <whole-v1|handoff-v1>|rollback]"
       end
       local ok, err = magi.write_file(TRACE_DIR .. "policy.json", magi.json_encode(config))
       if not ok then return tostring(err) end
       magi.log("call-path policy: " .. config.active)
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-lesson",
+    description = "Review a shared lesson or promote it with two reviewed run IDs (/routine-lesson [promote <run-id> <run-id>|withdraw])",
+    execute = function(args)
+      local w, lessons = words(args), trace_lessons()
+      if w[1] == nil then
+        local distinct, outcomes = {}, {}
+        local count, calls, tokens, known = 0, 0, 0, 0
+        for _, run in ipairs(trace_runs()) do
+          if run.lesson == TRACE_LESSON and run.evaluation_split ~= "holdout" then
+            count = count + 1
+            local task = tostring(run.client) .. "/" .. tostring(run.action)
+            distinct[task] = true
+            outcomes[run.phase] = (outcomes[run.phase] or 0) + 1
+            if run.metrics then
+              calls = calls + (run.metrics.model_calls or 0)
+              tokens = tokens + (run.metrics.input_tokens or 0) + (run.metrics.output_tokens or 0)
+              if run.metrics.tokens_known then known = known + 1 end
+            end
+            magi.log(tostring(run.id) .. " " .. task .. " " .. tostring(run.phase))
+          end
+        end
+        local task_count = 0
+        for _ in pairs(distinct) do task_count = task_count + 1 end
+        magi.log(magi.json_encode({ lesson = TRACE_LESSON_DETAILS, promotion = lessons[TRACE_LESSON],
+          runs = count, client_action_groups = task_count, outcomes = outcomes, model_calls = calls,
+          reported_tokens = tokens, runs_with_complete_usage = known }))
+        return
+      elseif w[1] == "promote" and #w == 3 then
+        local a, b = trace_run(w[2]), trace_run(w[3])
+        local function anchored(run)
+          if not run or run.family ~= TRACE_FAMILY or run.lesson ~= TRACE_LESSON or run.phase ~= "completed"
+            or run.evaluation_split == "holdout" or type(run.planned) ~= "table" or #run.planned == 0 then return false end
+          for _, step in ipairs(run.planned) do if step ~= "check-reference" then return false end end
+          return true
+        end
+        if not anchored(a) or not anchored(b) or (a.client == b.client and a.action == b.action) then
+          return "promotion needs two completed, reference-checked runs from different client/action tasks"
+        end
+        lessons[TRACE_LESSON] = { status = "corroborated", runs = {a.id, b.id}, at = magi.time() }
+      elseif w[1] == "withdraw" and #w == 1 then
+        lessons[TRACE_LESSON] = nil
+      else
+        return "usage: /routine-lesson [promote <run-id> <run-id>|withdraw]"
+      end
+      local ok, err = magi.write_file(TRACE_DIR .. "lessons.json", magi.json_encode(lessons))
+      if not ok then return tostring(err) end
+      magi.log(TRACE_LESSON .. (lessons[TRACE_LESSON] and " promoted" or " withdrawn"))
     end,
   }
 
@@ -1179,12 +1329,113 @@ end
         magi.log(raw)
         return
       end
-      for _, file in ipairs(magi.list_files(TRACE_DIR .. "runs") or {}) do
-        if file:match("^%x+%.json$") then
-          local report = decode(magi.read_file(TRACE_DIR .. "runs/" .. file))
-          if report then magi.log(tostring(report.id) .. " " .. tostring(report.policy) .. " " .. tostring(report.phase)) end
+      for _, run in ipairs(trace_runs()) do
+        magi.log(tostring(run.id) .. " " .. tostring(run.family) .. " " .. tostring(run.policy) .. " " .. tostring(run.phase))
+      end
+    end,
+  }
+
+  magi.register_tool{
+    name = "routine_compare_trace_policy",
+    description = "Explicitly compare whole-v1 and handoff-v1 on frozen policy tasks using one Git snapshot and separate, equal budgets. Does not activate either policy.",
+    schema = { type = "object", properties = { split = { type = "string", enum = { "dev", "holdout" } } } },
+    execute = function(a)
+      local split = a and a.split or "dev"
+      if split ~= "dev" and split ~= "holdout" then return "invalid policy comparison split", true end
+      local config = trace_policy()
+      if not config then return "invalid call-path policy configuration", true end
+      local baseline = config.active
+      local candidate = baseline == "whole-v1" and "handoff-v1" or "whole-v1"
+      if type(magi.with_explore_comparison) ~= "function" then return "policy comparison requires an updated host", true end
+      local path = TRACE_DIR .. "policy-tasks.json"
+      local raw = magi.read_file(path)
+      local frozen = magi.read_file(TRACE_DIR .. "policy-tasks.sha256")
+      if not raw or magi.sha256(raw) ~= frozen then return "freeze current policy tasks with /routine-trace-policy freeze", true end
+      local data = decode(raw)
+      local selected, seen, inputs = {}, {}, {}
+      local request_total, timeout_total = 0, 0
+      for _, task in ipairs(data and data.tasks or {}) do
+        if type(task) ~= "table" or type(task.id) ~= "string" or task.id == "" or seen[task.id]
+          or type(task.input) ~= "table" or (task.split ~= "dev" and task.split ~= "holdout") then
+          return "policy tasks need distinct IDs, inputs and an explicit split", true
+        end
+        seen[task.id] = true
+        local fingerprint = magi.sha256(magi.json_encode({ question = task.input.question, handoffs = task.input.handoffs }))
+        if inputs[fingerprint] and inputs[fingerprint] ~= task.split then return "a policy task appears in both splits", true end
+        inputs[fingerprint] = task.split
+        if task.split == split then
+          local input = task.input
+          if type(input.handoffs) ~= "table" or #input.handoffs < 1 or #input.handoffs > 4
+            or type(input.request_limit) ~= "number" or input.request_limit % 1 ~= 0 or input.request_limit < 1
+            or type(input.timeout) ~= "number" or input.timeout < 1 or input.timeout > 300 then
+            return "policy comparison requires valid handoffs and budgets", true
+          end
+          for _, handoff in ipairs(input.handoffs) do
+            if type(handoff) ~= "table" or type(handoff.evidence) ~= "string" or not handoff.evidence:match("^[%w_./%-]+:%d+$") then
+              return "policy comparison requires a reference for every handoff", true
+            end
+          end
+          request_total, timeout_total = request_total + 2 * input.request_limit, timeout_total + 2 * input.timeout
+          selected[#selected + 1] = task
         end
       end
+      if #selected == 0 or #selected > 4 then return "select one to four frozen tasks", true end
+      if request_total > 32 or timeout_total > 600 then return "paired comparison exceeds 32 requests or 600 seconds of total budget", true end
+      local approved, approval_err = magi.approve{
+        reason = "Run a paired, read-only comparison of call-path policies on " .. #selected .. " " .. split .. " tasks",
+        detail = { split = split, tasks_hash = frozen, tasks = selected, tools = {"explore"},
+          request_limit = request_total, timeout = timeout_total,
+          policies = {baseline, candidate}, script = TRACE_SCRIPT },
+      }
+      if not approved then return tostring(approval_err or "policy comparison was not approved"), true end
+      local report, err = magi.with_explore_comparison(function(revision, tree)
+        local result = { id = magi.nonce(), phase = "started", split = split, revision = revision, tree = tree, tasks_hash = frozen,
+          active = baseline, candidate = candidate, rows = {}, solved = 0, regressed = 0 }
+        local comparisons = TRACE_DIR .. "comparisons/"
+        if split == "holdout" then
+          result.holdout_use = 1
+          for _, file in ipairs(magi.list_files(comparisons) or {}) do
+            if file:match("^%x+%.json$") then
+              local previous = decode(magi.read_file(comparisons .. file))
+              if previous and previous.split == "holdout" and previous.tasks_hash == frozen then
+                result.holdout_use = result.holdout_use + 1
+              end
+            end
+          end
+        end
+        local result_path = comparisons .. result.id .. ".json"
+        local started, start_err = magi.write_file(result_path, magi.json_encode(result))
+        if not started then return nil, tostring(start_err) end
+        for i, task in ipairs(selected) do
+          local function arm(policy)
+            local message, _, run = trace_tool.execute(task.input, policy, split)
+            return run, not run and message or nil
+          end
+          local base, trial, problem
+          if i % 2 == 1 then
+            base, problem = arm(result.active)
+            if base then trial, problem = arm(result.candidate) end
+          else
+            trial, problem = arm(result.candidate)
+            if trial then base, problem = arm(result.active) end
+          end
+          if not base or not trial then return nil, problem end
+          local b, c = base.phase == "completed", trial.phase == "completed"
+          if b and not c then result.regressed = result.regressed + 1 end
+          if c and base.phase == "partial" then result.solved = result.solved + 1 end
+          result.rows[#result.rows + 1] = { id = task.id, baseline_run = base.id, candidate_run = trial.id,
+            active = base.phase, candidate = trial.phase, protected = task.protected == true }
+        end
+        if magi.read_file(path) ~= raw or magi.read_file(TRACE_DIR .. "policy-tasks.sha256") ~= frozen then
+          return nil, "policy tasks changed during comparison"
+        end
+        result.phase = "completed"
+        local saved, why = magi.write_file(result_path, magi.json_encode(result))
+        if not saved then return nil, tostring(why) end
+        return magi.json_encode(result)
+      end)
+      if not report then return tostring(err), true end
+      return report
     end,
   }
 
