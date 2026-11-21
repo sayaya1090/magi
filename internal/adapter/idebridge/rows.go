@@ -124,6 +124,9 @@ type Row struct {
 	// Stages are the steps the tool reported in tool.progress on this call; each report replaces the
 	// last and the final one stays after the result.
 	Stages []event.ProgressStage `json:"stages,omitempty"`
+	// Children are the child sessions the call ran, read from the lines the core ends its result with
+	// (app.ChildrenNamed): a spawned subagent or a child the tool drove. A screen opens them from here.
+	Children []string `json:"children,omitempty"`
 
 	// Note marks a result that DID the work and left something the agent must read.
 	//

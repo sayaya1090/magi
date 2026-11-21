@@ -1801,6 +1801,28 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     addActionListener { openOutput(r, sourceSession) }
                 })
             }
+            // 이 호출이 돌린 자식으로 가는 길 — 서브에이전트 목록은 도는 동안만 그 아이를 보여 준다.
+            // 목록의 아이를 누른 것과 같은 곳(그 세션의 고정 탭)으로 간다.
+            r.children?.firstOrNull()?.let { kid ->
+                actions.add(JButton(com.intellij.icons.AllIcons.Actions.Forward).apply {
+                    toolTipText = MagiBundle.msg("chat.child.open")
+                    accessibleContext.accessibleName = MagiBundle.msg("chat.child.open")
+                    isBorderPainted = false
+                    isContentAreaFilled = false
+                    isFocusPainted = false
+                    margin = JBUI.emptyInsets()
+                    border = JBUI.Borders.empty(2)
+                    val iconSize = java.awt.Dimension(icon.iconWidth + JBUI.scale(4), icon.iconHeight + JBUI.scale(4))
+                    preferredSize = iconSize
+                    minimumSize = iconSize
+                    maximumSize = iconSize
+                    iconTextGap = 0
+                    putClientProperty("magi.action", true)
+                    putClientProperty("magi.child", kid)
+                    cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                    addActionListener { MagiTabs.open(project, kid, "⛐" + kid.takeLast(6)) }
+                })
+            }
             actions.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(copying.current(p, r)) })
             // 헤더가 시각을 싣는 행(도구·말·카운슬)은 아이콘도 헤더에 싣는다 — [아이콘] [시각] 한 줄.
             // 헤더가 없는 행(생각 등)만 본문 옆에 세운다.

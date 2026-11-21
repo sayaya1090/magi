@@ -186,6 +186,21 @@ export interface Row {
   folded?: boolean;
   /** Read-only output document ID for finalized assistant text or tool result. Absent for drafts or unresolvable items. */
   outputId?: string;
+  /** Child sessions the call ran, named by the core at the end of its result (childrenNamed). */
+  children?: string[];
+}
+
+/**
+ * The child sessions a tool result names, in order and each once. The core ends the result of a call
+ * that ran children with one line per child, "[child <id>, …]" (a spawned subagent, or a child the
+ * tool drove); only a line that starts so names one. Same rule as the core's app.ChildrenNamed.
+ */
+export function childrenNamed(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/^\[child (s_[0-9A-Za-z_-]+)[,\]]/gm)) {
+    if (!out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
 }
 
 /**
@@ -372,6 +387,11 @@ export function rows(events: Event[]): Row[] {
             // The reason travels with the failure. Read the VALUE, not its rendering: `content` is
             // often a JSON string, and stringifying it again leaves the escapes on the screen.
             if (p.toolResult.isError && !advisory) row.out = said(p.toolResult.content);
+            // The children it ran, failed or not: the row is the way into them once the strip forgets.
+            // Read from the WHOLE content — said() keeps one line, and the child lines close the result.
+            const whole = p.toolResult.content;
+            const kids = childrenNamed(typeof whole === 'string' ? whole : whole == null ? '' : JSON.stringify(whole));
+            if (kids.length) row.children = kids;
             if (p.toolResult.content !== undefined && p.toolResult.content !== null) {
               row.outputId = makeToolResultOutputId(call ?? '', e.seq);
             }

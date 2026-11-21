@@ -85,6 +85,12 @@ export const OutputMessageSchema = v.object({
   outputId: NonEmptyStringSchema,
 });
 
+export const ChildMessageSchema = v.object({
+  kind: v.literal('child'),
+  session: NonEmptyStringSchema,
+  child: NonEmptyStringSchema,
+});
+
 export const AnswerMessageSchema = v.object({
   kind: v.literal('answer'),
   callId: NonEmptyStringSchema,
@@ -135,6 +141,7 @@ export const WebviewToHostMessageSchema = v.union([
   DiffMessageSchema,
   OpenMessageSchema,
   OutputMessageSchema,
+  ChildMessageSchema,
   CopyMessageSchema,
   AnswerMessageSchema,
   ReplyMessageSchema,

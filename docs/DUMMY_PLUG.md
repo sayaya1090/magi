@@ -183,10 +183,14 @@ after; end waits until every stage is done, or shows `failed`.
   given there goes to the child (`relayAskLocked` in `internal/app/permission.go`, the redirect in
   `RespondPermission`). An `ask_user` question inside a child is not relayed. Nothing asks today
   because every declared tool runs freely.
-- **The child is named, but not one click away.** The outer call's result ends with
+- **A row opens its first child only.** The outer call's result ends with
   `[child <id>, N tool call(s)]` (and why, when the script stopped short), the line a spawned
-  subagent leaves too. No client opens a child from a tool row yet; JetBrains, VS Code, the web
-  console and the TUI open children only from their subagent lists.
+  subagent leaves too. Every client reads that line (`app.ChildrenNamed` in
+  `internal/app/child_named.go`, with the same rule copied into the VS Code and JetBrains folds)
+  and puts an "open the child" action on the call's row: a click on the head in the TUI, a button
+  on the row in JetBrains (a tab of its own), VS Code (the panel switches to the child) and the web
+  console (the child's page). When one call ran several children, the row opens the first; the
+  rest are reached from the subagent list.
 - **An interrupted run is two items.** After a crash, recovery handles the outer call and the child's
   uncertain calls separately.
 - **Each inner call rereads the child's log** to find its result (`internal/app/inner_call.go:77`).
@@ -212,8 +216,7 @@ after; end waits until every stage is done, or shows `failed`.
 1. **Routines as skills.** A skill's body holds a Lua block the person approves once by hash; the
    model runs the routine by name and pays nothing for writing the script.
 2. **Memory.** Engram proposes a routine when the same sequence repeats.
-3. **Open the child from the tool row.** The result already names the child (§8); what is left is
-   that each screen opens it from the `dummy_plug_run` row.
+3. **Open the child from the tool row.** Built: every screen opens it from the call's row (§8).
 4. **Questions reach the conversation.** Permission asks are relayed (§8); `ask_user` questions are
    not yet. Write tools need the permission part only.
 5. **Write tools.** `bash`, `edit`, `multiedit`, `write` behind a setting, each run of a new routine

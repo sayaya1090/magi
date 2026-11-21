@@ -63,6 +63,8 @@ data class Row(
     val out: String? = null,
     /** 도구가 알린 진행 단계. 도는 동안 진행 말(`tool.progress`)이 갈아 끼우고, 끝난 뒤엔 마지막 목록이 남는다. */
     val stages: List<dev.sayaya.magi.ide.model.ProgressStage>? = null,
+    /** 이 호출이 돌린 자식 세션들. 코어가 결과 끝에 남기는 `[child <id>, …]` 줄에서 읽는다([childrenNamed]). */
+    val children: List<String>? = null,
     // user 행 표시
     val pending: Boolean = false,
     val queued: Boolean = false,
@@ -128,6 +130,14 @@ data class Row(
  * 이벤트를 먹고 행 목록을 유지한다. [feed] 는 전사 워커 스레드에서, [list] 는 EDT 에서 오므로
  * 목록 접근은 잠근다 — 목록을 **복사해** 내주는 이유이기도 하다(그리는 동안 바뀌면 안 된다).
  */
+/**
+ * 결과가 이름 댄 자식 세션들(순서대로, 한 번씩). 자식을 돌린 호출의 결과 끝에 코어가 자식마다 한 줄
+ * `[child <id>, …]` 를 남긴다 — 서브에이전트도, 도구가 직접 몬 자식도. 그 모양으로 **시작하는** 줄만
+ * 이름이다(줄 중간의 인용은 아니다). 코어 `app.ChildrenNamed` 와 같은 규칙.
+ */
+fun childrenNamed(text: String): List<String> =
+    Regex("""^\[child (s_[0-9A-Za-z_-]+)[,\]]""", RegexOption.MULTILINE).findAll(text).map { it.groupValues[1] }.distinct().toList()
+
 class Rows(private val words: Words) {
 
     /**
@@ -579,6 +589,8 @@ class Rows(private val words: Words) {
                     outputSeq = e.seq.takeIf { it > 0 },
                     outputJson = raw != null && !(raw is JsonPrimitive && raw.isString),
                     out = if (isError && !advisory) said else null,
+                    // 돌린 자식들 — 실패했어도. 띠는 도는 동안만 그 아이를 보여 주니, 끝난 뒤의 길은 이 행이다.
+                    children = childrenNamed(said).ifEmpty { null },
                 )
                 if (rows[i].ok == true) noteDisk(rows[i].tool, rows[i].args)
             }

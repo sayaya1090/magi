@@ -60,6 +60,8 @@ data class BridgeRow(
     val fileNav: BridgeFileNav? = null,
     /** 확정된 답이나 도구 결과의 읽기 전용 가상 문서 식별자. */
     val outputId: String = "",
+    /** 이 호출이 돌린 자식 세션들 — 코어가 결과 끝에 남기는 `[child <id>, …]` 줄에서 문이 읽는다. */
+    val children: List<String>? = null,
 )
 
 /** 이동 지점 하나. [BridgeRow.fileNav] 참조. */

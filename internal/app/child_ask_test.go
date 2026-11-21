@@ -88,3 +88,68 @@ func TestAnAskInADrivenChildIsAnsweredFromTheParent(t *testing.T) {
 		t.Fatalf("the parent's result must name the child it drove: %v", r)
 	}
 }
+
+// The parent was shown the child's ask, so it must be told when the ask ends — however it ends — or a
+// screen on the parent (the TUI closes its prompt on permission.decided) keeps a prompt that is gone.
+func TestAParentShownAChildsAskIsToldWhenItEnds(t *testing.T) {
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "ask", Interactive: true, AnswerWait: 3 * time.Second})
+	a.tools.Register(&childWriter{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	evs, unsub, err := a.Subscribe(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unsub()
+	s := a.sessionInfo(ctx, sid)
+	args, _ := json.Marshal(map[string]string{"path": filepath.Join(s.Workdir, "never.txt"), "content": "x"})
+	outer := &session.ToolCall{CallID: "outer", Name: "child_writer", Args: args}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), "")
+	}()
+	var ask Ask
+	found := false
+	for end := time.Now().Add(2 * time.Second); time.Now().Before(end) && !found; time.Sleep(20 * time.Millisecond) {
+		if ask, found = a.Waiting(sid); found && ask.What != "write" {
+			found = false
+		}
+	}
+	if !found {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+		t.Fatal("the child's ask never showed in the parent conversation")
+	}
+	if err := a.RespondPermission(ctx, command.RespondPermission{SessionID: sid, CallID: ask.ID, Decision: "deny"}); err != nil {
+		t.Fatalf("a refusal given in the parent must reach the child: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the child never went on after the refusal")
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case e, ok := <-evs:
+			if !ok {
+				t.Fatal("the parent's stream closed before the ask's end reached it")
+			}
+			if e.Type == event.TypePermissionDecided {
+				var d event.PermissionDecidedData
+				if json.Unmarshal(e.Data, &d) == nil && d.CallID == ask.ID {
+					if d.Decision != "deny" {
+						t.Fatalf("the parent was told the wrong ending: %+v", d)
+					}
+					return
+				}
+			}
+		case <-deadline:
+			t.Fatal("the parent never heard that the ask it showed has ended")
+		}
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // handleKey processes global keybindings and the permission modal.
@@ -199,6 +200,53 @@ func (m *Model) thoughtClickSkip(line int) bool {
 	m.lastThoughtAt = now
 	m.lastThoughtLine = line
 	return skip
+}
+
+// openChildAt opens the child session a tool block names when the click lands on its head.
+//
+// The head and the line under it (childLine) take the click; the body keeps its own (toggleThoughtAt).
+// The child opens in the zoom view the way a subagent row in the panel does: its live pane, its
+// finished pane, or, when the strip no longer has one (a past turn), a finished pane made for it and
+// read from its session.
+func (m *Model) openChildAt(line int) bool {
+	i := -1
+	for j := len(m.blockLineStart) - 1; j >= 0; j-- {
+		if line >= m.blockLineStart[j] {
+			i = j
+			break
+		}
+	}
+	if i < 0 || i >= len(m.blocks) {
+		return false
+	}
+	b := m.blocks[i]
+	if b.kind != blockToolCall || len(b.children) == 0 || line > m.blockLineStart[i]+1 {
+		return false
+	}
+	sid := session.SessionID(b.children[0])
+	for k, p := range m.panes {
+		if p.sid == sid {
+			m.focusPane, m.zoomPane, m.zoom = k, nil, true
+			m.vp.GotoBottom()
+			return true
+		}
+	}
+	var pin *agentPane
+	for _, p := range m.doneRoster {
+		if p.sid == sid {
+			pin = p
+			break
+		}
+	}
+	if pin == nil {
+		pin = &agentPane{sid: sid, role: b.name, done: true}
+		if m.app != nil {
+			m.refreshChildBlocks(pin)
+		}
+	}
+	m.focusPane, m.zoomPane, m.zoom = -1, pin, true
+	m.vp.GotoBottom()
+	return true
 }
 
 // viewedPane returns the subagent pane shown in the zoom view: a finished pane

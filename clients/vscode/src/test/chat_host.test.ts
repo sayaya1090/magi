@@ -996,3 +996,17 @@ test('node sends acknowledge success and rejection without composing merged text
   assert.ok(posted.some(m=>m.kind==='nodeSendResult'&&m.id==='2'&&m.ok));
   chat.dispose();
 });
+
+test('a child named on a tool row opens in the panel, and only from the screen that showed it', async () => {
+  const companion: any = createMockCompanion();
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).post = () => {};
+  (chat as any).draw = () => {};
+  (chat as any).openStream = async () => {};
+  (chat as any).sid = 's1';
+  await chat.fromView({ kind: 'child', session: 's1', child: 's_kid01' } as any);
+  assert.equal(chat.session, 's_kid01', 'the child named on the row did not open');
+  (chat as any).sid = 's1';
+  await chat.fromView({ kind: 'child', session: 'elsewhere', child: 's_kid02' } as any);
+  assert.equal(chat.session, 's1', 'a click from a screen showing another conversation opened something');
+});

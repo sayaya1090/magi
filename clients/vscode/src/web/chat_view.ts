@@ -741,6 +741,24 @@ function paintViewport(tail = followingTail) {
       }
       controls.append(openOutputBtn);
     }
+    // The child the call ran: the strip shows it only while it runs, so afterwards this is the way in.
+    if (r.who === 'tool' && r.children && r.children.length) {
+      const boundChild = r.children[0];
+      const openChildBtn = iconButton('child-open-btn', uiText.openChild, 'M2 2h5v1H3v10h10V9h1v5H2V2zm7 0h5v5h-1V3.7L8.4 8.3 7.7 7.6 12.3 3H9z');
+      openChildBtn.type = 'button';
+      openChildBtn.title = uiText.openChild + ' (' + boundChild + ')';
+      openChildBtn.setAttribute('aria-label', uiText.openChild);
+      openChildBtn.dataset.child = boundChild;
+      if (!boundSession) {
+        openChildBtn.disabled = true;
+      } else {
+        openChildBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          actions.openChild(boundSession, boundChild);
+        });
+      }
+      controls.append(openChildBtn);
+    }
     d.dataset.copyText = [r.text, r.rawArgs || r.args, r.out].filter(Boolean).join('\n\n');
     const copy = iconButton('copy-btn', uiText.copy, 'M5 1h9v11h-3v3H1V4h4zm1 3h5v7h2V2H6zM2 5v9h8V5z');
     copy.disabled = !boundSession;

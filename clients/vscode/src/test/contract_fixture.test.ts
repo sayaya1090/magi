@@ -388,6 +388,7 @@ function runHostScenario(fixture: FixtureData): void {
     openFile: () => { documentsOpened++; return true; },
     openDiff: () => { documentsOpened++; return true; },
     openOutput: () => { documentsOpened++; return true; },
+    openChild: () => true,
     answer: () => { newRequests++; return true; },
     reply: () => { newRequests++; return true; },
     say: () => { newRequests++; return true; },

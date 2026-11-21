@@ -163,6 +163,9 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 			} else if m.toggleCouncilAt(m.selAL) {
 				m.refresh()
 				return nil
+			} else if m.openChildAt(m.selAL) {
+				m.refresh()
+				return nil
 			} else if m.toggleThoughtAt(m.selAL) {
 				m.refresh()
 				return nil

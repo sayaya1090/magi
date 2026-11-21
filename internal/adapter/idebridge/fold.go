@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/event"
 )
 
@@ -569,6 +570,8 @@ func appendPart(out *[]*Row, seq int64, p map[string]any) {
 			// Read the VALUE, not its rendering: content is often a JSON string, and stringifying it
 			// again leaves the escapes on screen.
 			r.Out = said(res["content"])
+			// The children the call ran, from the lines the core ends the result with, failed or not.
+			r.Children = app.ChildrenNamed(r.Out)
 			return
 		}
 	case "image":

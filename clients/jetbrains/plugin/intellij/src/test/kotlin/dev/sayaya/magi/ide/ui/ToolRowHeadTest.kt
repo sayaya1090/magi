@@ -136,4 +136,21 @@ class ToolRowHeadTest : BasePlatformTestCase() {
         assertEquals(Look.row().getBorderInsets(panel).left, Look.pendingRow().getBorderInsets(panel).left)
     }
 
+    /** 자식을 돌린 호출의 행은 그 자식으로 가는 길이다 — 서브에이전트 목록은 도는 동안만 그 아이를 보여 준다. */
+    fun testAToolRowThatRanAChildOffersToOpenIt() {
+        val view = MagiToolWindow.View(project, sendSession = { "s1" }, sendConnection = { _, _, _ -> })
+        try {
+            val render = view.javaClass.getDeclaredMethod("renderRow", dev.sayaya.magi.ide.usecase.Row::class.java).apply { isAccessible = true }
+            fun buttons(c: Container): List<javax.swing.JButton> = c.components.flatMap {
+                (if (it is javax.swing.JButton) listOf(it) else emptyList()) + (if (it is Container) buttons(it) else emptyList())
+            }
+            val ran = dev.sayaya.magi.ide.usecase.Row(who = dev.sayaya.magi.ide.usecase.Who.Tool, text = "dummy_plug_run", tool = "dummy_plug_run", ok = true, children = listOf("s_kid01"))
+            val open = buttons(render.invoke(view, ran) as Container).filter { it.getClientProperty("magi.child") != null }
+            assertEquals("a tool row that ran a child offers exactly one way into it", 1, open.size)
+            assertEquals("s_kid01", open.single().getClientProperty("magi.child"))
+            assertEquals(MagiBundle.msg("chat.child.open"), open.single().toolTipText)
+            val plain = dev.sayaya.magi.ide.usecase.Row(who = dev.sayaya.magi.ide.usecase.Who.Tool, text = "read", tool = "read", ok = true)
+            assertTrue("a call that ran no child offers none", buttons(render.invoke(view, plain) as Container).none { it.getClientProperty("magi.child") != null })
+        } finally { com.intellij.openapi.util.Disposer.dispose(view) }
+    }
 }

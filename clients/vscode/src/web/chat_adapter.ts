@@ -43,6 +43,7 @@ export interface WebviewActionAdapter {
   openFile(session: string, callId: string, seq?: number): boolean;
   openDiff(session: string, callId: string): boolean;
   openOutput(session: string, outputId: string): boolean;
+  openChild(session: string, child: string): boolean;
   copyText(session: string, text: string): boolean;
   answer(callId: string, decision: string): boolean;
   reply(
@@ -81,6 +82,12 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
     openOutput(session: string, outputId: string): boolean {
       if (!session || !outputId) return false;
       vs.postMessage({ kind: 'output', session, outputId });
+      return true;
+    },
+
+    openChild(session: string, child: string): boolean {
+      if (!session || !child) return false;
+      vs.postMessage({ kind: 'child', session, child });
       return true;
     },
 

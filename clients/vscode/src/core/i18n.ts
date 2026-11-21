@@ -20,7 +20,7 @@ const en = {
   councilEnableConfirm: 'Enable council for subsequent requests? Changing instructions may rebuild part of the context cache.',
   councilDisableConfirm: 'Disable council for subsequent requests? Changing instructions may rebuild part of the context cache.',
   collapse: 'Collapse', collapseArgs: 'Collapse arguments', expandArgs: 'Expand all arguments',
-  companionInfo: 'Show companion information and settings', copy: 'Copy', openOutput: 'Open in editor (read-only)',
+  companionInfo: 'Show companion information and settings', copy: 'Copy', openOutput: 'Open in editor (read-only)', openChild: 'Open the child session it ran',
 };
 const ko: typeof en = {
   nodeRemove:'다이어그램 요소 제거', nodeAbout:'이 다이어그램 요소에 대해:', nodeExplain:'이 다이어그램 요소를 설명해 주세요:',
@@ -44,7 +44,7 @@ const ko: typeof en = {
   councilEnableConfirm: '카운슬을 켜시겠습니까? 다음 요청부터 적용되며, 지침 변경으로 컨텍스트 캐시 일부가 다시 생성될 수 있습니다.',
   councilDisableConfirm: '카운슬을 끄시겠습니까? 다음 요청부터 적용되며, 지침 변경으로 컨텍스트 캐시 일부가 다시 생성될 수 있습니다.',
   collapse: '접기', collapseArgs: '인자 접기', expandArgs: '인자 전체 펼치기',
-  companionInfo: '컴패니언 정보 및 설정 보기', copy: '복사', openOutput: '편집창에서 열기 (읽기 전용)',
+  companionInfo: '컴패니언 정보 및 설정 보기', copy: '복사', openOutput: '편집창에서 열기 (읽기 전용)', openChild: '이 호출이 돌린 자식 세션 열기',
 };
 
 /** VS Code language, with English fallback for languages without a translation. */

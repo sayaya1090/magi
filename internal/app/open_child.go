@@ -73,11 +73,7 @@ func (a *App) openChild(ctx context.Context, parent session.Session, agent Agent
 				a.appendBestEffort(bg, child, event.TypeTurnFinished, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 				a.subJobs.finish(child, 0, why)
 				if account != nil {
-					line := fmt.Sprintf("[child %s, %d tool call(s)", child, atomic.LoadInt32(&calls))
-					if why != "" {
-						line += ", stopped short: " + why
-					}
-					account(line + "]")
+					account(openChildAccount(string(child), atomic.LoadInt32(&calls), why))
 				}
 				a.mu.Lock()
 				delete(a.states, child)
@@ -87,4 +83,14 @@ func (a *App) openChild(ctx context.Context, parent session.Session, agent Agent
 			})
 		},
 	}, nil
+}
+
+// openChildAccount is the line naming a child a tool drove, for the call's own result: the same form
+// as a spawned child's (childAccount), so ChildrenNamed reads both.
+func openChildAccount(child string, calls int32, why string) string {
+	line := fmt.Sprintf("[child %s, %d tool call(s)", child, calls)
+	if why != "" {
+		line += ", stopped short: " + why
+	}
+	return line + "]"
 }

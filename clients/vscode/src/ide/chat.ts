@@ -716,6 +716,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         catch (error) { this.post({ kind: 'note', text: '복사하지 못했습니다: ' + String(error) }); }
         break;
       }
+      case 'child': {
+        // Opened only from the screen that showed this conversation: a click that arrives after the
+        // panel moved elsewhere names a child of somebody else's row.
+        if (!m.session || !m.child) break;
+        if (this.session && m.session !== this.session) break;
+        this.showSession(m.child);
+        break;
+      }
       case 'output': {
         if (!m.session || !m.outputId) break;
         if (this.session && m.session !== this.session) {

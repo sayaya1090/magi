@@ -1354,6 +1354,15 @@ public class ConversationElement {
         cardsWith(box);
     }
 
+    /** 행이 싣고 온 자식 세션 중 첫째(없으면 빈 문자열). */
+    private static String firstChild(JsPropertyMap<Object> r) {
+        Object kids = r.get("children");
+        if (kids == null) return "";
+        jsinterop.base.JsArrayLike<Object> list = Js.asArrayLike(kids);
+        if (list.getLength() == 0 || list.getAt(0) == null) return "";
+        return String.valueOf(list.getAt(0));
+    }
+
     private HTMLElement rowNode(JsPropertyMap<Object> r) {
         String who = str(r, "who");
         boolean hasOk = r.has("ok") && r.get("ok") != null;
@@ -1396,6 +1405,19 @@ public class ConversationElement {
             Tips.on(source, tr("action.view_source"));
             source.addEventListener("click", evt -> { evt.preventDefault(); evt.stopPropagation(); showSource(raw); });
             actions.append(source, copyChip(raw));
+        }
+        // 자식을 돌린 호출의 행은 그 아이로 가는 길이다. 띠는 도는 동안만 아이를 보여 주고,
+        // 끝난 뒤 그 아이를 찾을 곳은 그것을 돌린 이 행이다(서버가 결과 끝의 [child …] 줄에서 읽어 싣는다).
+        String kid = firstChild(r);
+        if (!kid.isEmpty()) {
+            HTMLElement open = el("button");
+            open.setAttribute("type", "button");
+            open.className = "copy open-child hit48";
+            open.append(Icons.shape("#i-sl-share-from-square", null));
+            open.setAttribute("aria-label", tr("action.open_child") + ": " + kid);
+            Tips.on(open, tr("action.open_child"));
+            open.addEventListener("click", evt -> { evt.preventDefault(); evt.stopPropagation(); GoSharing.sub(kid); });
+            actions.append(open);
         }
         header.append(actions);
         String at = str(r, "at");

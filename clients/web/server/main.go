@@ -1329,6 +1329,9 @@ type line struct {
 	// it then said are two different things, and the first attempt at this overwrote one with the
 	// other — so the row that told you a call had failed had stopped telling you what it ran.
 	Out string `json:"out,omitempty"`
+	// Children are the child sessions the call ran (app.ChildrenNamed), read from the whole result
+	// before Out is clipped, so the page can open each from the call's row.
+	Children []string `json:"children,omitempty"`
 	// Pending marks the last user prompt when nothing has answered it yet. Whether a prompt is
 	// being worked on is a fact about it, and the page had no way to show that at all.
 	Pending bool `json:"pending,omitempty"`
@@ -1458,6 +1461,13 @@ func renderMessages(msgs []session.Message) []line {
 						// exactly what got dropped. The same treatment the tool's own output gets
 						// before the model reads it, out of the same function.
 						row.Out = text.HeadTail(string(res.Content), 8000)
+						// The children it ran, from the whole result: the lines naming them close it, and Out
+						// above may have clipped its middle. A JSON string is read as the text it holds.
+						var said string
+						if json.Unmarshal(res.Content, &said) != nil {
+							said = string(res.Content)
+						}
+						row.Children = app.ChildrenNamed(said)
 					}
 					out = append(out, row)
 				}

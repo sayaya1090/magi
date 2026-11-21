@@ -646,6 +646,7 @@
   "type.operations": "Operations agent",
   "type.spreadsheet": "Spreadsheet agent",
   "action.view_source": "View source (read-only)",
+  "action.open_child": "Open the child session it ran",
   "field.council": "Council",
   "council.enable_confirm": "Enable council for subsequent requests? Changing instructions may rebuild part of the context cache.",
   "council.disable_confirm": "Disable council for subsequent requests? Changing instructions may rebuild part of the context cache.",

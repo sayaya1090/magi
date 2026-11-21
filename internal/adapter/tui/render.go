@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/change"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -68,9 +69,12 @@ type block struct {
 	ok       bool // tool success (toolResult, or a toolCall's attached result)
 	// A tool result is folded into its toolCall block so the call renders as one
 	// line whose leading glyph flips ⚙ → ✓/✗ on completion.
-	done     bool   // the toolCall's result has arrived
-	result   string // the toolCall's result summary text
-	expanded bool   // a reasoning block individually expanded by a click
+	done   bool   // the toolCall's result has arrived
+	result string // the toolCall's result summary text
+	// children are the child sessions the result names (app.ChildrenNamed): a spawned subagent or a
+	// child the tool drove. A click on the call's head opens the first one.
+	children []string
+	expanded bool // a reasoning block individually expanded by a click
 	// convene is the council a verdict or outcome block belongs to (1, 2, ... in this stream);
 	// councilLine marks the outcome, the one line a folded council shows (ok = accepted).
 	convene     int
@@ -580,6 +584,10 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			if s := summarizeResult(blk.result, sumW-4); s != "" {
 				head += styleToolResult.Render("  ⟶ " + s)
 			}
+		}
+		// The child this call ran, on the line under its head: a click on either opens it (openChildAt).
+		if line := childLine(blk.children); line != "" {
+			head += "\n" + styleToolArgs.Render(line)
 		}
 		if diff != "" {
 			return m.toolSection(head + "\n" + m.renderCodeDiff(diff, rawPath(blk.args), m.bodyWidth()-2, diffBaseLine(blk)))
@@ -1105,6 +1113,18 @@ func rebuildBlocks(msgs []session.Message) []block {
 	return out
 }
 
+// childLine is the line under a call's head naming the child it ran, or "" when it ran none.
+func childLine(children []string) string {
+	if len(children) == 0 {
+		return ""
+	}
+	line := "↳ child " + children[0]
+	if len(children) > 1 {
+		line += fmt.Sprintf(" +%d", len(children)-1)
+	}
+	return line + " — click to open"
+}
+
 // foldToolResultInto attaches a tool result to its toolCall block by callID (mirrors
 // Model.foldToolResult for the resume/rebuild and subagent-pane paths). Matching by
 // callID keeps parallel results — which complete out of order — paired to the right
@@ -1114,6 +1134,7 @@ func foldToolResultInto(out []block, callID, text string, ok, advisory bool) []b
 		for i := len(out) - 1; i >= 0; i-- {
 			if out[i].kind == blockToolCall && out[i].callID == callID && !out[i].done {
 				out[i].done, out[i].ok, out[i].result, out[i].advisory = true, ok, text, advisory
+				out[i].children = app.ChildrenNamed(text)
 				return out
 			}
 			if out[i].kind == blockAssistant || out[i].kind == blockUser {
@@ -1126,6 +1147,7 @@ func foldToolResultInto(out []block, callID, text string, ok, advisory bool) []b
 			out[i].done = true
 			out[i].ok = ok
 			out[i].result = text
+			out[i].children = app.ChildrenNamed(text)
 			return out
 		}
 		if out[i].kind == blockAssistant || out[i].kind == blockUser {

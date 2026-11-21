@@ -1545,3 +1545,6 @@ Playwright `layout` 묶음은 스트리밍 중 기존 행·선택·스크롤 위
 
 `councilfold.test.ts`는 전사에서 카운슬 한 번이 종합 판정 한 줄로 서는지 잽니다. `rows()`가 소집·평결·종합 행에 같은 `convene`을 싣고 종합 행에만 `closing`을 붙이는지, 어댑터의 `councilFold`가 접힌 소집의 소집·평결 행을 빼고 펼친 소집(`councilKey`)만 되돌리는지, `councilLine`이 패널 언어로 「카운슬: 완료」 또는 「카운슬: 반대」를 돌려주는지 확인합니다. webview가 그 줄을 눌러 펼치는 동작(`chat_view.ts`의 `flipCouncil`)은 실제 VS Code 화면에서 확인하지 않았습니다.
 
+## 도구 행에서 자식 열기 (2026-11-21)
+
+`childrow.test.ts`는 자식을 돌린 호출의 행이 그 자식을 싣는지 잽니다. `rows()`가 결과 끝의 `[child <id>, …]` 줄에서 자식을 읽어 성공한 행과 실패한 행 모두에 `children`을 싣는지, 줄 중간에 인용만 된 것은 싣지 않는지, `child` 메시지를 웹뷰 프로토콜이 받아들이고 아이디가 없으면 거절하는지, 웹뷰가 행에 `child-open-btn`을 두고 `actions.openChild`로 호스트에 보내는지 확인합니다. `chat_host.test.ts`의 「a child named on a tool row opens in the panel, and only from the screen that showed it」은 호스트가 그 메시지를 받으면 패널을 자식 세션으로 바꾸고, 다른 대화를 보던 화면에서 온 클릭은 무시하는지 잽니다. 실제 VS Code 화면에서 단추를 누르는 동작은 확인하지 않았습니다.

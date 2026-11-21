@@ -123,7 +123,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 // decision when policy is "ask" (F-LOOP-PERMISSION).
 type permissionOutcome struct{ Origin, Reason string }
 
-func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool, reason string, outcomes ...*permissionOutcome) bool {
+func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool, reason string, outcomes ...*permissionOutcome) (granted bool) {
 	finish := func(allowed bool, origin, why string) bool {
 		if allowed {
 			why = ""
@@ -231,6 +231,22 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			delete(a.stateLocked(p).relayed, tc.CallID)
 		}
 		a.mu.Unlock()
+		// The parents were shown this ask, so they hear that it ended, however it ended (answered,
+		// timed out, cancelled): a screen on a parent closes its prompt on permission.decided. The
+		// decision itself is recorded once, in this session's log (execute.go); this only tells.
+		if len(relays) > 0 {
+			dec, out := "deny", permissionOutcome{}
+			if granted {
+				dec = "allow"
+			}
+			if len(outcomes) > 0 && outcomes[0] != nil {
+				out = *outcomes[0]
+			}
+			dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: dec, Origin: out.Origin, Reason: out.Reason})
+			for _, p := range relays {
+				a.publishTransient(p, event.TypePermissionDecided, actor, dd)
+			}
+		}
 	}()
 
 	rd, _ := json.Marshal(event.PermissionRequestedData{
