@@ -126,7 +126,8 @@ func TestARoutineIsApprovedOnceAndRunsByNameAfterARestart(t *testing.T) {
 		t.Fatalf("first run: %q (failed=%v)", out, failed)
 	}
 	if len(asks) != 1 || asks[0].ID != "r1/approve" || !strings.Contains(asks[0].Reason, "read") ||
-		!strings.Contains(string(asks[0].Args), `call_tool(\"read\"`) || !strings.Contains(string(asks[0].Args), `"tools":["read"]`) {
+		!strings.Contains(string(asks[0].Args), `call_tool(\"read\"`) || !strings.Contains(string(asks[0].Args), `"tools":["read"]`) ||
+		!strings.Contains(string(asks[0].Args), `"required":["file"]`) {
 		t.Fatalf("the first run must show the script and its tools once: %+v", asks)
 	}
 	if kids, err := r.a.store.ChildSessions(context.Background(), r.s.Workdir, string(r.sid)); err != nil || len(kids) != 1 {
@@ -290,5 +291,32 @@ func TestARepeatedScriptIsOfferedAsARoutineAndRegisteredOnlyByThePerson(t *testi
 	out, asks, failed := r.call(t, "rc", "run_routine", map[string]any{"name": "countnotes"}, "allow")
 	if failed || len(asks) != 1 || !strings.Contains(out, "true") {
 		t.Fatalf("the registered routine must ask once and run: %q %+v", out, asks)
+	}
+}
+
+// Approving a routine lets it run; it does not let its calls past the gate. Approved with "always",
+// the routine runs again without being asked about — and its read of a secret path is still refused
+// by the policy, exactly as the same read would be outside a routine.
+func TestAnApprovedRoutinesCallsStillPassThePermissionGate(t *testing.T) {
+	guarded := strings.Replace(routineFile, `local text = call_tool("read", {path=input.file})
+print("read " .. input.file .. " " .. tostring(#text > 0))`,
+		`local text, why = call_tool("read", {path=input.file})
+print(text and ("read " .. input.file) or ("refused: " .. tostring(why)))`, 1)
+	if guarded == routineFile {
+		t.Fatal("fixture did not change")
+	}
+	r := newRoutineRig(t, t.TempDir(), guarded)
+	if err := os.WriteFile(filepath.Join(r.s.Workdir, ".env"), []byte("TOKEN=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, asks, _ := r.run(t, "g1", map[string]any{"file": "notes.txt"}, "always"); len(asks) != 1 || !strings.Contains(out, "read notes.txt") {
+		t.Fatalf("first run: %q %+v", out, asks)
+	}
+	out, asks, _ := r.run(t, "g2", map[string]any{"file": ".env"}, "allow")
+	if len(asks) != 0 {
+		t.Fatalf("the approved routine was asked about again: %+v", asks)
+	}
+	if !strings.Contains(out, "refused: ") || !strings.Contains(out, "blocked by policy") || strings.Contains(out, "TOKEN") {
+		t.Fatalf("the routine's read of a secret must still be refused by the policy: %q", out)
 	}
 }
