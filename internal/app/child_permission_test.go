@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -75,5 +76,39 @@ func TestAScriptsWriteInAskModeIsAskedInTheParent(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "ask", Interactive: true, AnswerWait: 3 * time.Second})
 	if _, asked := runChildWrite(t, a, sid, "asked.txt"); !asked {
 		t.Fatal("in ask mode a script's write must be asked in the conversation")
+	}
+}
+
+func TestDelegatedTaskApprovalFromChildCoversTheNextChild(t *testing.T) {
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "ask", Interactive: true, AnswerWait: time.Second})
+	a.mu.Lock()
+	a.stateLocked(sid).handedFrom = "test delegator"
+	a.mu.Unlock()
+	a.tools.Register(&childWriter{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	parent := a.sessionInfo(ctx, sid)
+	path := filepath.Join(parent.Workdir, "first.txt")
+	raw, _ := json.Marshal(map[string]string{"path": path, "content": "first"})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.executeTool(ctx, parent, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, &session.ToolCall{CallID: "first", Name: "child_writer", Args: raw}, newRunGuard(nil), "")
+	}()
+	waitFor(t, "the first child write prompt", func() bool { ask, ok := a.Waiting(sid); return ok && ask.What == "write" })
+	ask, _ := a.Waiting(sid)
+	if err := a.RespondPermission(ctx, command.RespondPermission{SessionID: sid, CallID: ask.ID, Decision: "task_allow"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if written, asked := runChildWrite(t, a, sid, "second.txt"); !written || asked {
+		t.Fatalf("the next child must inherit task approval: written=%v asked=%v", written, asked)
 	}
 }

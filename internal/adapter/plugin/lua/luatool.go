@@ -23,6 +23,7 @@ type luaTool struct {
 	// prepare and finish stage a tool that runs one child: see luatool_staged.go.
 	prepare, finish *lua.LFunction
 	meta            port.ToolMetadata
+	background      bool
 }
 
 func (t *luaTool) Name() string            { return t.name }
@@ -46,6 +47,48 @@ func (t *luaTool) reentered() session.ToolResult {
 //	return { ... }           -- success, JSON content
 //	return content, true     -- second value true marks an error
 func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	if t.background {
+		var options struct {
+			Background bool `json:"background"`
+		}
+		if json.Unmarshal(raw, &options) == nil && options.Background {
+			if heldBy(ctx, t.plugin) {
+				return t.reentered(), nil
+			}
+			if env.StartBackground == nil {
+				return errResult("background execution is only available for a top-level tool call"), nil
+			}
+			start := env.StartBackground
+			env.StartBackground, env.ObserveBackground = nil, nil
+			err := start(func(jobCtx context.Context) port.BackgroundCompletion {
+				result, err := t.executeCall(jobCtx, raw, env, true)
+				if err != nil {
+					return port.BackgroundCompletion{Exit: 1, Detail: err.Error()}
+				}
+				var text string
+				if json.Unmarshal(result.Content, &text) != nil {
+					text = string(result.Content)
+				}
+				status := port.BackgroundCompletion{Detail: text}
+				if result.IsError {
+					status.Exit = 1
+				}
+				return status
+			})
+			if err != nil {
+				return errResult(err.Error()), nil
+			}
+			return session.ToolResult{Content: json.RawMessage(`"Started in the background. The result will arrive in a completion notice."`), Background: true}, nil
+		}
+	}
+	return t.execute(ctx, raw, env)
+}
+
+func (t *luaTool) execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	return t.executeCall(ctx, raw, env, false)
+}
+
+func (t *luaTool) executeCall(ctx context.Context, raw json.RawMessage, env port.ToolEnv, background bool) (session.ToolResult, error) {
 	if t.prepare != nil {
 		return t.executeStaged(ctx, raw, env)
 	}
@@ -55,7 +98,13 @@ func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	t.plugin.mu.Lock()
 	defer t.plugin.mu.Unlock()
 
+	if err := ctx.Err(); background && err != nil {
+		return errResult(err.Error()), nil
+	}
 	L := t.plugin.L
+	if L == nil {
+		return errResult(pluginGone), nil
+	}
 	// Expose the current workdir/permissions to bridge calls for THIS call only —
 	// restore afterwards so observation handlers and context providers (which run
 	// outside any tool call) keep the load-time seeded env instead of whatever

@@ -38,6 +38,7 @@ type App struct {
 	backgroundAuthority atomic.Bool
 	backgroundMu        sync.Mutex
 	backgroundOwned     map[string]bool
+	backgroundCancels   map[session.SessionID]map[string]context.CancelFunc // guarded by mu
 
 	// subJobs is the register the pane strip polls for running children — see subagent_jobs.go.
 	subJobs subagentJobs
@@ -594,7 +595,7 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 func (a *App) HoldForUpdate() (func(), bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.closed || a.holding || a.promptAdmissions > 0 {
+	if a.closed || a.holding || a.promptAdmissions > 0 || len(a.backgroundCancels) > 0 {
 		return nil, false
 	}
 	for _, st := range a.states {
@@ -1074,6 +1075,9 @@ func (a *App) Interrupt(ctx context.Context, c command.Interrupt) error {
 	}
 	a.mu.Lock()
 	var cancel context.CancelFunc
+	for _, stop := range a.backgroundCancels[c.SessionID] {
+		stop()
+	}
 	if st, ok := a.stateIf(c.SessionID); ok {
 		cancel = st.cancel
 		st.cancelSweep = sweep
@@ -1129,13 +1133,6 @@ func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission
 	// opposite of what they chose with no reason to doubt their own screen.
 	a.mu.Lock()
 	var ch chan string
-	if c.Decision == "task_allow" {
-		st, ok := a.stateIf(c.SessionID)
-		if !ok || st.handedFrom == "" || !a.cfg.Interactive {
-			a.mu.Unlock()
-			return fmt.Errorf("task approval requires an interactive delegated task")
-		}
-	}
 	// An ask shown here on behalf of a child a tool drives (relayAskLocked) is answered in the child.
 	target := c.SessionID
 	if st, ok := a.stateIf(c.SessionID); ok && st.perms[c.CallID] == nil {
@@ -1146,7 +1143,12 @@ func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission
 	if st, ok := a.stateIf(target); ok {
 		if ch = st.perms[c.CallID]; ch != nil {
 			if c.Decision == "task_allow" {
-				st.delegatedAutoApprove = true
+				home, found := a.stateIf(a.permissionHomeLocked(target))
+				if !found || home.handedFrom == "" || !a.cfg.Interactive {
+					a.mu.Unlock()
+					return fmt.Errorf("task approval requires an interactive delegated task")
+				}
+				home.delegatedAutoApprove = true
 			}
 			delete(st.perms, c.CallID)
 			delete(st.asking, c.CallID)

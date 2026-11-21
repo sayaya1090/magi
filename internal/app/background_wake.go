@@ -3,6 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/port"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -16,9 +20,13 @@ var backgroundActor = event.Actor{Kind: event.ActorSystem, ID: "background"}
 // tool.background fact for the screens, so the model learned of it when the person next spoke.
 // A note says how the job ended and a turn starts to act on it. A job that ends while a turn runs
 // (or at the instant one ends) is held and delivered when that turn has fully ended, not dropped.
-func (a *App) wakeOnBackground(sid session.SessionID, callID, state string, exit int) {
-	note := fmt.Sprintf("[background job finished] The background command started by call %s has ended: %s, exit %d. "+
-		"Read its output (bash_output) and continue the task from where it stood.", callID, state, exit)
+func (a *App) wakeOnBackground(sid session.SessionID, callID, state string, status port.BackgroundCompletion) {
+	note := fmt.Sprintf("[background job finished] The background work started by call %s has ended: %s, exit %d.", callID, state, status.Exit)
+	if status.Detail == "" {
+		note += " Read its output (bash_output) and continue the task from where it stood."
+	} else {
+		note += "\n" + status.Detail
+	}
 	a.mu.Lock()
 	if a.closed || a.holding {
 		a.mu.Unlock()
@@ -74,4 +82,58 @@ func (a *App) wakePromptWaiters(sid session.SessionID) {
 		close(st.promptWake)
 		st.promptWake = nil
 	}
+}
+
+// startToolBackground admits one worker and ties it to session interruption and app shutdown.
+// The worker waits until its launch result is recorded before it reports progress or completes.
+func (a *App) startToolBackground(ctx context.Context, sid session.SessionID, callID string, ready <-chan struct{}, work func(context.Context) port.BackgroundCompletion) (<-chan port.BackgroundCompletion, context.CancelFunc, func(), error) {
+	a.mu.Lock()
+	if a.closed || a.holding || ctx.Err() != nil {
+		a.mu.Unlock()
+		return nil, nil, nil, fmt.Errorf("the application or starting turn is stopping")
+	}
+	jobCtx, cancel := context.WithCancel(a.bgContext())
+	if a.backgroundCancels == nil {
+		a.backgroundCancels = make(map[session.SessionID]map[string]context.CancelFunc)
+	}
+	if a.backgroundCancels[sid] == nil {
+		a.backgroundCancels[sid] = make(map[string]context.CancelFunc)
+	}
+	a.backgroundCancels[sid][callID] = cancel
+	a.wg.Add(1)
+	a.mu.Unlock()
+	done := make(chan port.BackgroundCompletion, 1)
+	go func() {
+		defer func() {
+			if crash := recover(); crash != nil {
+				done <- port.BackgroundCompletion{Exit: 1, Detail: fmt.Sprintf("background tool panicked: %v\n%s", crash, firstFrames(string(debug.Stack()), 8))}
+			}
+			close(done)
+		}()
+		<-ready
+		if jobCtx.Err() != nil {
+			done <- port.BackgroundCompletion{Killed: true}
+			return
+		}
+		status := work(jobCtx)
+		status.Killed = status.Killed || jobCtx.Err() != nil
+		done <- status
+	}()
+	return done, cancel, func() {
+		cancel()
+		a.mu.Lock()
+		delete(a.backgroundCancels[sid], callID)
+		if len(a.backgroundCancels[sid]) == 0 {
+			delete(a.backgroundCancels, sid)
+		}
+		a.mu.Unlock()
+		a.wg.Done()
+	}, nil
+}
+
+func backgroundDetail(detail string) string {
+	if strings.TrimSpace(detail) == "" {
+		return "The tool returned no output."
+	}
+	return string(capToolResult([]byte(detail)))
 }

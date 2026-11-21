@@ -47,11 +47,15 @@ end
 local function track()
   local run = { stages = {}, current = 0, made = 0 }
   local batches = {}
+  local graphs = {}
   local function report(force)
     local out = {}
     for _, st in ipairs(run.stages) do
       out[#out + 1] = { id = st.id, label = st.name, kind = st.kind, state = st.state,
         done = st.done, total = st.total, running = st.running }
+    end
+    for _, graph in ipairs(graphs) do
+      for _, task in ipairs(graph) do out[#out + 1] = task end
     end
     local cur = run.stages[run.current]
     magi.progress(cur and cur.name or "", { stages = out, force = force })
@@ -84,13 +88,16 @@ local function track()
   }
   local function on_call(e)
     if e.phase == "graph" then
-      local out = {}
+      local graph = {}
+      local prefix = "g" .. e.graph_id .. ":"
       for _, task in ipairs(e.graph) do
-        local deps = task.after
-        out[#out + 1] = { id = task.id, label = clip(task.label), kind = kind_of(task.tool), state = task.state,
+        local deps = {}
+        for _, dep in ipairs(task.after) do deps[#deps + 1] = prefix .. dep end
+        graph[#graph + 1] = { id = prefix .. task.id, label = clip(task.label), kind = kind_of(task.tool), state = task.state,
           after = #deps > 0 and deps or nil, graph = true }
       end
-      magi.progress("", { stages = out, force = true })
+      graphs[e.graph_id] = graph
+      report(true)
       return
     end
     if e.batch == 0 then return end -- a single call_tool is not a step of its own
@@ -138,12 +145,14 @@ Use it for loops, filtering and many reads whose contents you do not need to see
 
 magi.register_tool{
   name = "dummy_plug",
+  background = true,
   description = USE,
   schema = {
     type = "object",
     properties = {
       goal = { type = "string", description = "one line: what the script is for (the subagent's task line)" },
       script = { type = "string", description = "Lua source to run" },
+      background = { type = "boolean", description = "Return immediately and deliver the script result in a completion notice. Default false." },
       timeout = { type = "number", description = "seconds, default 60, at most 300" },
       output = { type = "number", description = "bytes of printed output kept, default 16000, at most 64000" },
     },

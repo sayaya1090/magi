@@ -536,6 +536,45 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 	var background <-chan port.BackgroundCompletion
+	var finishBackground func()
+	var cancelBackground context.CancelFunc
+	ready := make(chan struct{})
+	defer func() {
+		if finishBackground != nil {
+			// The launch never reached the completion observer. Cancel before releasing the worker.
+			cancelBackground()
+			close(ready)
+			<-background
+			a.backgroundMu.Lock()
+			delete(a.backgroundOwned, string(sid)+"/"+tc.CallID)
+			a.backgroundMu.Unlock()
+			finishBackground()
+		}
+	}()
+	observeBackground := func(done <-chan port.BackgroundCompletion) {
+		background = done
+		a.backgroundMu.Lock()
+		if a.backgroundOwned == nil {
+			a.backgroundOwned = map[string]bool{}
+		}
+		a.backgroundOwned[string(sid)+"/"+tc.CallID] = true
+		a.backgroundMu.Unlock()
+	}
+	var startBackground func(func(context.Context) port.BackgroundCompletion) error
+	if depth == 0 && tc.Parent == "" && !agent.Trial {
+		startBackground = func(work func(context.Context) port.BackgroundCompletion) error {
+			if background != nil {
+				return fmt.Errorf("this call already started background work")
+			}
+			done, cancel, finish, err := a.startToolBackground(ctx, sid, tc.CallID, ready, work)
+			if err != nil {
+				return err
+			}
+			finishBackground, cancelBackground = finish, cancel
+			observeBackground(done)
+			return nil
+		}
+	}
 	var innerCalls int32
 	innerSlots := make(chan struct{}, max(1, a.cfg.MaxParallelChildren))
 	// The children this call drove itself (OpenChild), named on its result like spawned ones.
@@ -555,22 +594,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				openedMu.Unlock()
 			})
 		},
-		PromptArrived: func() <-chan struct{} { return a.promptArrived(sid) },
-		ObserveBackground: func(done <-chan port.BackgroundCompletion) {
-			background = done
-			a.backgroundMu.Lock()
-			if a.backgroundOwned == nil {
-				a.backgroundOwned = map[string]bool{}
-			}
-			a.backgroundOwned[string(sid)+"/"+tc.CallID] = true
-			a.backgroundMu.Unlock()
-		},
-		SessionID:    sid,
-		Workdir:      workdir,
-		ScratchLogs:  scratch.logsDir(),
-		ScratchTmp:   scratch.tmpDir(),
-		Platform:     a.plat,
-		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
+		PromptArrived:     func() <-chan struct{} { return a.promptArrived(sid) },
+		ObserveBackground: observeBackground,
+		StartBackground:   startBackground,
+		SessionID:         sid,
+		Workdir:           workdir,
+		ScratchLogs:       scratch.logsDir(),
+		ScratchTmp:        scratch.tmpDir(),
+		Platform:          a.plat,
+		EmitProgress:      func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
 		EmitStages: func(text string, stages []event.ProgressStage) {
 			a.emitToolStages(sid, actor, tc.CallID, tc.Name, text, stages)
 		},
@@ -763,9 +795,19 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		res.Content = frameSubagentReport(res.Content)
 	}
 	resultEmitted = true
-	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
-		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
-	})
+	part := session.Part{ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res}
+	if finishBackground == nil {
+		a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, part)
+	} else {
+		data, err := json.Marshal(event.PartAppendedData{MessageID: toolMsgID, Role: session.RoleTool, Part: part})
+		if err == nil {
+			err = a.appendFact(ctx, sid, event.TypePartAppended, actor, data)
+		}
+		if err != nil {
+			a.emitError(context.WithoutCancel(ctx), sid, actor, "background work was not started: could not save the launch result: "+err.Error())
+			return
+		}
+	}
 	// An observer that asks hears which tool finished, with what arguments, and whether it
 	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
 	// tool no meaning here; an extension decides what matters to it.
@@ -779,8 +821,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	}
 	if res.Background && background != nil {
 		releaseExperience := guardExperience(guard).background()
+		finish := finishBackground
+		finishBackground = nil
+		if finish != nil {
+			close(ready)
+		}
 		go func() {
 			defer releaseExperience()
+			if finish != nil {
+				defer finish()
+			}
 			status, ok := <-background
 			state := "unknown"
 			if ok {
@@ -791,14 +841,25 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 					state = "failed"
 				}
 			}
-			data, _ := json.Marshal(map[string]any{"callId": tc.CallID, "state": state, "exit": status.Exit})
+			fact := map[string]any{"callId": tc.CallID, "state": state, "exit": status.Exit}
+			if finish != nil {
+				a.clearDoing(sid, tc.CallID)
+				openedMu.Lock()
+				if len(opened) > 0 {
+					status.Detail += "\n\n" + strings.Join(opened, "\n")
+				}
+				openedMu.Unlock()
+				status.Detail = backgroundDetail(status.Detail)
+				fact["detail"] = status.Detail
+			}
+			data, _ := json.Marshal(fact)
 			a.backgroundMu.Lock()
 			a.appendBestEffort(context.Background(), sid, event.TypeToolBackground, actor, data)
 			delete(a.backgroundOwned, string(sid)+"/"+tc.CallID)
 			a.backgroundMu.Unlock()
 			// A job magi killed is not news; a child's job belongs to the child's own turn.
 			if ok && !status.Killed && depth == 0 {
-				a.wakeOnBackground(sid, tc.CallID, state, status.Exit)
+				a.wakeOnBackground(sid, tc.CallID, state, status)
 			}
 		}()
 	}

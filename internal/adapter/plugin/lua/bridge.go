@@ -182,7 +182,7 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 	}
 	p.tools = append(p.tools, &luaTool{
 		plugin: p, name: name, description: desc, schema: schema, fn: fn, meta: meta,
-		prepare: prepare, finish: finish,
+		prepare: prepare, finish: finish, background: spec.RawGetString("background") == lua.LTrue,
 	})
 	return 0
 }

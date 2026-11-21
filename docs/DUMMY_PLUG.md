@@ -159,6 +159,16 @@ review reproduced it; the tests `TestAToolRunsItsCallsInAChildSessionItDrives`,
 `TestAFailedChildEndsWithItsReason` and `TestAChildNeverClosedIsLeftForRecovery` now hold all three
 cases.
 
+`dummy_plug(..., background = true)` returns at once with a launch result, and the script runs on in
+the same child after the conversation's turn ends, so the model can carry on or go idle. Only a
+top-level call can do this (`ToolEnv.StartBackground` is nil in a child and in a trial). The work is
+cancelled by an interrupt of the conversation and by shutdown, and holds back an update restart
+while it runs (`HoldForUpdate`). When it ends, a `tool.background` fact and a
+`[background job finished]` note carry the script's output or failure reason, and the child line,
+and open a new turn (`wakeOnBackground`). If the launch result cannot be saved, the work is
+cancelled before it starts and an `error` says so. Test:
+`TestDummyPlugBackgroundReportsTheChildFailure`.
+
 ## 7. Progress stage contract
 
 A stage is `{id, label, kind, state, done, total, running}` (`internal/core/event/payload.go:511`).
@@ -185,6 +195,13 @@ after; end waits until every stage is done, or shows `failed`.
 `call_graph({...})` runs named tasks after their predecessors succeed. Declare each task with `id` and `tool`, optional `args` and `label`, and an `after` list of IDs declared earlier. A task can start as soon as its own predecessors finish. The host allows up to eight parallel-safe calls and runs an exclusive call on its own. The progress event uses `after: []` for a root and lists predecessor IDs for other graph tasks. Completed tasks use the success color while other branches continue.
 
 If a task fails, independent branches can continue and affected successors become `skipped`. The child session keeps the individual tool results and an `error` event with failed task IDs and the reasons successors were skipped, followed by `turn.finished`. To detect an unexpected result from a tool that reports success, the script must check that result and raise an error itself.
+
+The plugin keeps every graph a run declared and sends it with the steps in each later report,
+including the last one, so `stage()` before or after a graph does not drop it, nor its `failed` and
+`skipped` tasks. Each graph's IDs get a `g<N>:` prefix (`graph_id` from `call_graph`), so two graphs
+that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
+`TestDummyPlugKeepsGraphInFinalReportAfterStage`, `TestDummyPlugKeepsFailedAndSkippedGraphTasksAfterStage`,
+`TestDummyPlugKeepsSeparateGraphsWithReusedTaskIDs`.
 
 ## 8. What it does not do
 
@@ -246,4 +263,6 @@ If a task fails, independent branches can continue and affected successors becom
   hop was not run end to end.
 - The steps strip on real JetBrains, VS Code and web screens, and in a dark theme. Headless tests
   measured the layout (mark height, arrow position, colours).
+- Background runs on a real daemon: the completion turn, an interrupt or a restart mid-script, and how the
+  screens draw the launch result. Covered by tests only.
 - Web marks do not take the baked sprite (`data-i`, `Icons.dress`); they are always the drawn shapes.

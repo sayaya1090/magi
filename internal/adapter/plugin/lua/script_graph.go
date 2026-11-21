@@ -22,6 +22,7 @@ func installScriptGraph(L *lua.LState, ctx context.Context, call toolCaller, saf
 		text  string
 		ok    bool
 	}
+	graphID := 0
 	L.SetGlobal("call_graph", L.NewFunction(func(L *lua.LState) int {
 		list := L.CheckTable(1)
 		if list.Len() == 0 || list.Len() > 200 {
@@ -81,6 +82,7 @@ func installScriptGraph(L *lua.LState, ctx context.Context, call toolCaller, saf
 			}
 			tasks[i], ids[t.id] = t, i
 		}
+		graphID++
 		publish := func() {
 			graph := make([]any, 0, len(tasks))
 			for _, t := range tasks {
@@ -90,7 +92,7 @@ func installScriptGraph(L *lua.LState, ctx context.Context, call toolCaller, saf
 				}
 				graph = append(graph, map[string]any{"id": t.id, "label": t.label, "tool": t.tool, "state": t.state, "after": deps})
 			}
-			fire(map[string]any{"phase": "graph", "graph": graph})
+			fire(map[string]any{"phase": "graph", "graph_id": graphID, "graph": graph})
 		}
 		publish()
 		out := L.NewTable()

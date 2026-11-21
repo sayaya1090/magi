@@ -489,6 +489,7 @@ type Question struct {
 type BackgroundCompletion struct {
 	Exit   int
 	Killed bool
+	Detail string
 }
 
 // ToolEnv carries per-execution context and capabilities granted to a tool.
@@ -498,6 +499,8 @@ type ToolEnv struct {
 	// ObserveBackground registers a completion signal synchronously before Execute returns.
 	// The signal outlives the turn context; closing it without an exit means unknown.
 	ObserveBackground func(<-chan BackgroundCompletion)
+	// StartBackground runs an admitted tool operation beyond the lifetime of its starting turn.
+	StartBackground func(func(context.Context) BackgroundCompletion) error
 	// PromptArrived returns a channel that closes when the person sends this conversation a new
 	// message. A tool that waits (wait_for) ends its wait on it, so the message is read at once.
 	PromptArrived func() <-chan struct{}

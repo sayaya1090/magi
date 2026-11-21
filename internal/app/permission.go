@@ -545,6 +545,11 @@ type Ask struct {
 func (a *App) permissionHome(sid session.SessionID) session.SessionID {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.permissionHomeLocked(sid)
+}
+
+// permissionHomeLocked requires a.mu.
+func (a *App) permissionHomeLocked(sid session.SessionID) session.SessionID {
 	home := sid
 	for hops := 0; hops < 8; hops++ {
 		st, ok := a.stateIf(home)

@@ -109,6 +109,8 @@ sequenceDiagram
 
 `f245a8413` 전에는 `Close`가 끝을 쓰지 않아, 정상 완료한 자식도 재시작 뒤 끊긴 턴으로 읽혔습니다. 검토에서 재현됐고, 이제 시험 `TestAToolRunsItsCallsInAChildSessionItDrives`, `TestAFailedChildEndsWithItsReason`, `TestAChildNeverClosedIsLeftForRecovery`가 세 경우를 모두 지킵니다.
 
+`dummy_plug(..., background = true)`는 시작 결과만 남기고 바로 반환합니다. 스크립트는 대화의 턴이 끝난 뒤에도 같은 자식에서 계속 돌므로, 모델은 다른 일을 하거나 대기 상태로 돌아갈 수 있습니다. 최상위 호출만 이렇게 할 수 있습니다(자식과 시험 실행에서는 `ToolEnv.StartBackground`가 nil). 작업은 대화의 중단과 종료에서 취소되고, 도는 동안에는 업데이트 재시작을 막습니다(`HoldForUpdate`). 끝나면 `tool.background` 사실과 `[background job finished]` 알림이 스크립트의 출력이나 실패 사유, 자식 줄을 싣고 새 턴을 엽니다(`wakeOnBackground`). 시작 결과를 저장하지 못하면 작업을 시작 전에 취소하고 `error`로 남깁니다. 시험은 `TestDummyPlugBackgroundReportsTheChildFailure`입니다.
+
 ## 7. 진행 단계 계약
 
 단계 하나는 `{id, label, kind, state, done, total, running}`입니다(`internal/core/event/payload.go:511`).
@@ -125,6 +127,8 @@ sequenceDiagram
 `call_graph({...})`는 선행 태스크가 성공하면 해당 태스크를 실행합니다. 각 태스크의 `id`와 `tool`을 지정하고, 필요에 따라 `args`, `label`, 앞서 선언한 태스크 ID 목록인 `after`를 넣습니다. 각 분기는 자기 선행 태스크가 끝나는 즉시 진행합니다. 호스트는 병렬 실행이 안전한 호출을 최대 8개까지 함께 실행하고, 단독 실행이 필요한 호출은 하나씩 실행합니다. 진행 이벤트에는 첫 태스크의 `after`를 빈 배열로, 나머지 태스크의 `after`를 선행 ID 목록으로 보냅니다. 완료한 태스크는 다른 분기가 진행 중이어도 성공 색으로 표시합니다.
 
 태스크가 실패해도 독립 분기는 계속 진행할 수 있으며, 해당 태스크에 의존하는 후속 태스크는 `skipped`가 됩니다. 자식 세션에는 개별 도구 결과, 실패한 태스크 ID와 후속 태스크의 생략 사유를 담은 `error` 이벤트, `turn.finished`가 남습니다. 도구가 성공으로 응답했지만 결과가 기대와 다른 경우는 스크립트에서 결과를 검사하고 직접 오류를 발생시켜야 합니다.
+
+플러그인은 실행 중 선언된 그래프를 모두 보관하고, 이후 모든 보고(마지막 보고 포함)에 단계와 함께 보냅니다. 그래서 그래프 앞뒤의 `stage()`가 그래프나 그 안의 `failed`, `skipped` 태스크를 지우지 않습니다. 그래프마다 ID 앞에 `g<N>:`을 붙이므로(`call_graph`가 주는 `graph_id`), 같은 태스크 ID를 쓰는 두 그래프나 단계와 이름이 같은 태스크(`s1`)도 섞이지 않습니다. 시험은 `TestDummyPlugKeepsGraphInFinalReportAfterStage`, `TestDummyPlugKeepsFailedAndSkippedGraphTasksAfterStage`, `TestDummyPlugKeepsSeparateGraphsWithReusedTaskIDs`입니다.
 
 ## 8. 하지 않는 것
 
@@ -159,4 +163,5 @@ sequenceDiagram
 - 실제 데몬에서 더미 플러그 자식이 서브에이전트 줄에 뜨는지, 재시작 뒤 실제 복구에서 끝남으로 읽히는지. 시험으로만 확인했습니다.
 - 마지막 단계 보고가 실제 클라이언트에 닿는지. `tool.progress`는 저장하지 않는 일시 이벤트이고, 이 구간은 처음부터 끝까지 돌려 보지 않았습니다.
 - 실제 JetBrains, VS Code, 웹 화면과 다크 테마에서의 진행 단계 칸. 헤드리스 시험으로 배치(표시 높이, 화살표 위치, 색)만 쟀습니다.
+- 실제 데몬에서의 백그라운드 실행. 완료 턴, 스크립트 도중의 중단·재시작, 화면이 시작 결과를 그리는 방식은 시험으로만 확인했습니다.
 - 웹 표시는 구운 스프라이트(`data-i`, `Icons.dress`)를 쓰지 않고 언제나 직접 그린 도형입니다.

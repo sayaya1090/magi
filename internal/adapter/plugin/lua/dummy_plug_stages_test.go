@@ -123,3 +123,62 @@ func TestDummyPlugMarksTheStepAScriptFailedIn(t *testing.T) {
 		t.Fatalf("want a failed and b still waiting: %s", stagesJSON(last))
 	}
 }
+
+func TestDummyPlugKeepsGraphInFinalReportAfterStage(t *testing.T) {
+	reports := dummyPlugRun(t, `stage("Prepare") call_graph({{id="a", tool="read"}, {id="join", tool="read", after={"a"}}})`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	last := reports[len(reports)-1]
+	for _, step := range last {
+		if step.Label == "join" && step.State == "done" && step.After != nil && len(*step.After) == 1 {
+			return
+		}
+	}
+	t.Fatalf("final report lost the completed join: %s", stagesJSON(last))
+}
+
+func TestDummyPlugKeepsFailedAndSkippedGraphTasksAfterStage(t *testing.T) {
+	reports := dummyPlugRun(t, `stage("Prepare") call_graph({{id="failure", tool="grep"}, {id="join", tool="read", after={"failure"}}})`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	last := reports[len(reports)-1]
+	ids := map[string]bool{}
+	states := map[string]string{}
+	for _, step := range last {
+		if ids[step.ID] {
+			t.Fatalf("duplicate step ID: %s", stagesJSON(last))
+		}
+		ids[step.ID] = true
+		states[step.Label] = step.State
+	}
+	if states["failure"] != "failed" || states["join"] != "skipped" {
+		t.Fatalf("final report lost the failed task or skipped join: %s", stagesJSON(last))
+	}
+}
+
+func TestDummyPlugKeepsSeparateGraphsWithReusedTaskIDs(t *testing.T) {
+	reports := dummyPlugRun(t, `stage("Prepare")
+ call_graph({{id="s1", label="First root", tool="read"}, {id="join", label="First join", tool="read", after={"s1"}}})
+ stage("Continue")
+ call_graph({{id="s1", label="Second root", tool="read"}, {id="join", label="Second join", tool="read", after={"s1"}}})`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	last := reports[len(reports)-1]
+	byLabel := map[string]event.ProgressStage{}
+	ids := map[string]bool{}
+	for _, stage := range last {
+		if ids[stage.ID] {
+			t.Fatalf("duplicate stage ID: %s", stagesJSON(last))
+		}
+		ids[stage.ID], byLabel[stage.Label] = true, stage
+	}
+	for _, prefix := range []string{"First", "Second"} {
+		root, join := byLabel[prefix+" root"], byLabel[prefix+" join"]
+		if root.State != "done" || join.State != "done" || join.After == nil || len(*join.After) != 1 || (*join.After)[0] != root.ID {
+			t.Fatalf("final report lost %s graph or its edge: %s", prefix, stagesJSON(last))
+		}
+	}
+}

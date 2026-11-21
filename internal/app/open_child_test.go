@@ -231,3 +231,41 @@ func TestDummyPlugGraphFailureIsRecordedInTheChildSession(t *testing.T) {
 	}
 	t.Fatalf("child log lacks the failed input and blocked join: %+v", log)
 }
+
+func TestDummyPlugBackgroundReportsTheChildFailure(t *testing.T) {
+	a, sid, _ := newWorkflowApp(t, &fakeLLM{}, &scriptPlatform{}, Config{Permission: "allow"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), Logf: func(message string) { t.Log(message) }})
+	if _, err := host.Load(ctx, filepath.Join("..", "..", "plugins", "dummy-plug")); err != nil {
+		t.Fatal(err)
+	}
+	args, err := json.Marshal(map[string]any{"background": true, "script": `call_graph({
+   {id="missing", tool="read", args={path="background-missing-input.txt"}},
+   {id="join", tool="list", after={"missing"}},
+ })`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := a.sessionInfo(ctx, sid)
+	outer := &session.ToolCall{CallID: "background-graph", Name: "dummy_plug", Args: args}
+	a.executeTool(ctx, parent, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), "")
+	cancel()
+	result := toolResultFor(t, a, sid, outer.CallID)
+	if result == nil || !result.Background || result.IsError {
+		t.Fatalf("expected background launch result, got %+v", result)
+	}
+	waitFor(t, "background completion note", func() bool { _, notes, _ := countTurnsAndNotes(t, a, sid); return notes == 1 })
+	_, _, note := countTurnsAndNotes(t, a, sid)
+	if !strings.Contains(note, "background-missing-input.txt") || !strings.Contains(note, "join skipped: blocked by missing") {
+		t.Fatalf("completion note lost the script failure: %s", note)
+	}
+	children, err := a.store.ChildSessions(context.Background(), parent.Workdir, string(sid))
+	if err != nil || len(children) != 1 {
+		t.Fatalf("want one child, got %v (%v)", children, err)
+	}
+	entries, err := a.store.Read(context.Background(), children[0].ID, 0)
+	if err != nil || len(entries) == 0 || entries[len(entries)-1].Type != event.TypeTurnFinished {
+		t.Fatalf("child has no terminal event: %v (%v)", entries, err)
+	}
+}
