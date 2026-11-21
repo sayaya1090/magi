@@ -263,3 +263,22 @@ func TestDummyPlugKeepsTheStepACallAllFollowsAGraphIn(t *testing.T) {
 		t.Fatalf("want one step Collect with the call_all's 2/2, done: %s", stagesJSON(last))
 	}
 }
+
+// A script that fails after a graph it handed its step to ends failed on screen too: the step the
+// failure happened in reads failed, while the graph's own nodes keep the success they earned.
+func TestDummyPlugMarksAHandedStepFailedWhenTheScriptFailsAfterTheGraph(t *testing.T) {
+	reports := dummyPlugRun(t, `stage("Collect")
+ call_graph({{id="a", tool="read"}, {id="b", tool="read"}})
+ error("validation failed")`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	last := reports[len(reports)-1]
+	states := map[string]string{}
+	for _, s := range last {
+		states[s.Label] = s.State
+	}
+	if states["Collect"] != "failed" || states["a"] != "done" || states["b"] != "done" {
+		t.Fatalf("want Collect failed and the graph's nodes still done: %s", stagesJSON(last))
+	}
+}
