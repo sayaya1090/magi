@@ -99,6 +99,10 @@ public interface CompanionSource {
      */
     void suggest(CompanionContext ctx, String prefix, java.util.function.Consumer<String> text);
 
+    default void pluginCommands(CompanionContext ctx, java.util.function.Consumer<Object> done) {
+        done.accept(null);
+    }
+
     /**
      * 돌고 있는 턴을 멈춘다(/interrupt) — 답하는 것과 같은 권한이다: "그건 하지 마"라고 말할 수
      * 있는 사람이 "그만"이라고도 말할 수 있다.

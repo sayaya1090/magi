@@ -66,6 +66,7 @@
   "composer.node.about": "다이어그램 요소:",
   "composer.node.explain": "이 다이어그램 요소를 설명해 주세요:",
   "composer.node.remove": "다이어그램 요소 빼기",
+  "composer.slash.commands": "슬래시 명령",
   "composer.node.tip": "이 다이어그램 요소는 다음 메시지와 함께 전송됩니다",
   "action.interrupt": "중단",
   "action.keep": "이 컴패니언은 계속 허용",

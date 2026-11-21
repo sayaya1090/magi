@@ -43,6 +43,11 @@ public class FakeCompanionSource implements CompanionSource {
     private static final String SLOW = "s_slow", UNREAD = "s_unread";
 
     @Override
+    public void pluginCommands(CompanionContext ctx, Consumer<Object> done) {
+        done.accept(Global.JSON.parse("[{\"name\":\"routine-draft\",\"description\":\"Draft a routine\"},{\"name\":\"routine-trace\"}]"));
+    }
+
+    @Override
     public void start(Listener l) {
         listener = l;
         // 층위 전환은 주소(셸)의 것 — 단독 테스트는 이 훅으로 컨텍스트를 갈아탄다.

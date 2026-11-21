@@ -16,6 +16,20 @@ import io.kotest.matchers.string.shouldNotContain
  */
 @GwtHtml("codingtest.html")
 internal class CodingScreenTest : GwtTestSpec({
+    Given("플러그인 슬래시 명령 목록") {
+        When("입력창에서 /를 입력하고 이름을 좁히면") {
+            val input = page.locator("#dock .composer #t textarea")
+            input.fill("/")
+            page.waitForCondition { page.locator(".slash-commands button").count() == 2 }
+            input.fill("/routine-d")
+            page.waitForCondition { page.locator(".slash-commands button").count() == 1 }
+            input.press("Enter")
+            Then("명령이 입력창에 채워지고 전송되지는 않는다") {
+                input.inputValue() shouldBe "/routine-draft "
+                page.locator(".slash-commands").isVisible shouldBe false
+            }
+        }
+    }
     Given("고정 컨텍스트(타입 1)와 여덟 행의 전사") {
         When("화면이 그려지면") {
             Then("전사 여덟 행 — 목소리와 끝이 클래스에 실린다") {

@@ -384,6 +384,16 @@ ${idePaletteCss}
   .stages .stage-graph .stage-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .stages .stage-wires { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
   .stages .stage-wires svg { fill: none; stroke: var(--vscode-descriptionForeground); stroke-width: 1.25; }
+
+.slash-commands { max-height: 15rem; overflow-y: auto; padding: 4px; border-radius: 12px;
+  background: var(--vscode-editorSuggestWidget-background); color: var(--vscode-editorSuggestWidget-foreground);
+  border: 1px solid var(--vscode-editorSuggestWidget-border); }
+.slash-commands button { display: block; width: 100%; min-height: 48px; padding: 6px 12px; text-align: start;
+  border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+.slash-commands button small { display: block; opacity: .8; }
+.slash-commands button:hover, .slash-commands button[data-active="true"] {
+  background: var(--vscode-editorSuggestWidget-selectedBackground); color: var(--vscode-editorSuggestWidget-selectedForeground); }
+.slash-commands button:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false"><svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg></button></header>
 <aside id="info" aria-label="컴패니언 정보" hidden></aside>

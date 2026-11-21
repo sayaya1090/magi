@@ -147,6 +147,7 @@ export const WebviewToHostMessageSchema = v.union([
   ReplyMessageSchema,
   MentionMessageSchema,
   SuggestMessageSchema,
+  v.object({ kind: v.literal("slashCommands"), request: v.number() }),
   SettleMessageSchema,
 ]);
 
@@ -547,6 +548,7 @@ export const HostToWebviewMessageSchema = v.union([
   ComposeMessageSchema,
   MentionsMessageSchema,
   SuggestionMessageSchema,
+  v.object({ kind: v.literal("slashCommands"), request: v.number(), commands: v.array(v.object({ name: v.string(), description: v.optional(v.string()) })) }),
   SessionCreatedMessageSchema,
   SessionCreationFailedMessageSchema,
   ReplyResultMessageSchema,

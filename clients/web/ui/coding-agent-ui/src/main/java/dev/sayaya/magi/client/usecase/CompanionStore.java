@@ -149,6 +149,10 @@ public class CompanionStore implements CompanionSource.Listener {
     }
 
     /** 컴포저가 쓰다 만 말의 다음 — 답은 이어붙일 글이다(빈 답은 "할 말 없음"이고 정상이다). */
+    public void pluginCommands(Consumer<Object> done) {
+        source.pluginCommands(ctx, done);
+    }
+
     public void suggest(String prefix, Consumer<String> text) {
         if (ctx == null) { text.accept(""); return; }
         source.suggest(ctx, prefix, text);

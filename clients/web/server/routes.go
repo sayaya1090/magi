@@ -105,5 +105,7 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		"/meet-hand":     s.meetHand,
 		"/push":          s.push,
 		"/sw.js":         s.serviceWorker,
+
+		"/plugin-commands": s.pluginCommands,
 	}
 }

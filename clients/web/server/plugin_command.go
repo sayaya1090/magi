@@ -9,6 +9,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // slashCommand splits `/name rest`. Only the shape: whether name is a command is the companion's
@@ -78,4 +79,26 @@ func (a *commandAnswer) write(w http.ResponseWriter) {
 	if _, err := w.Write([]byte(a.text)); err != nil {
 		log.Printf("magi-web: answering a plugin command: %v", err)
 	}
+}
+
+func (s *server) pluginCommands(w http.ResponseWriter, r *http.Request) {
+	if s.forwarded(w, r, s.proxy) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	list := []port.PluginCommandInfo{}
+	err := s.browse(r, func(cl *daemon.Client, _ session.SessionID) error {
+		commands, err := cl.PluginCommands()
+		list = append(list, commands...)
+		return err
+	})
+	if err != nil {
+		http.Error(w, err.Error(), daemonSaysNo(err))
+		return
+	}
+	writeJSON(w, "plugin commands", list)
 }

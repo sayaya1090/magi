@@ -33,6 +33,11 @@ func TestTheConsoleRunsAPluginCommandInsteadOfSayingIt(t *testing.T) {
 	f := newFleetFixture(t)
 	eng := commandEngine{&recordingEngine{}}
 	sock := f.liveDaemon(t, shortTempDir(t), "api", eng)
+	list := get(t, f.srv.pluginCommands, "/plugin-commands?d="+url.QueryEscape(sock))
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"routine-draft"`) || len(eng.seen()) != 0 {
+		t.Fatalf("command list: %d %s, actions = %v", list.Code, list.Body, eng.seen())
+	}
+
 	submit := func(text string) (int, string) {
 		w := post(t, f.srv, f.srv.submit, "/submit?d="+url.QueryEscape(sock), url.Values{"text": {text}})
 		return w.Code, strings.TrimSpace(w.Body.String())

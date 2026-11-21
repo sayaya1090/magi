@@ -54,6 +54,7 @@ export interface WebviewActionAdapter {
   ): boolean;
   say(text: string, creationTaskId?: string, session?: string): boolean;
   act(command: string): boolean;
+  slashCommands?(request: number): void;
   suggest(text: string, reqId: number, target: string): boolean;
   mention(text: string, reqId: number, target: string): boolean;
   drop(): void;
@@ -163,6 +164,9 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
       return true;
     },
 
+    slashCommands(request: number): void {
+      vs.postMessage({ kind: 'slashCommands', request });
+    },
     suggest(text: string, reqId: number, target: string): boolean {
       vs.postMessage({ kind: 'suggest', text, reqId, target });
       return true;
@@ -240,6 +244,7 @@ export interface HostMessageHandlers {
     text?: string;
   }): void;
   onMentions?(payload: { files: string[]; reqId: number; target: string }): void;
+  onSlashCommands?(payload: { request: number; commands: {name: string; description?: string}[] }): void;
   onSuggestion?(payload: { text: string; reqId: number; target: string }): void;
   onPrompts?(payload: { texts: string[] }): void;
 }
@@ -263,6 +268,9 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
     return true;
   } else if (m.kind === 'mentions') {
     handlers.onMentions?.(m);
+    return true;
+  } else if (m.kind === 'slashCommands') {
+    handlers.onSlashCommands?.(m);
     return true;
   } else if (m.kind === 'suggestion') {
     handlers.onSuggestion?.(m);
@@ -516,6 +524,7 @@ export interface WebviewInputAdapter {
   submitChoice(callId: string, option: string): boolean;
   handleCompose(text: string): void;
   handleMentions(files: string[], reqId?: number, target?: string): void;
+  handleSlashCommands?(request: number, commands: {name: string; description?: string}[]): void;
   handleSuggestion(text: string, reqId?: number, target?: string): void;
   /** The composer's ↑/↓ list arrived (the `prompts` door). Optional so test doubles need not care. */
   handlePrompts?(texts: string[]): void;
@@ -617,6 +626,10 @@ export function createWebviewInputAdapter(
 ): WebviewInputAdapter {
   const { say, sendBtn, replyModeEl, replyTargetEl, replyCancelEl, noteEl, hintEl } = elements;
   const suggestCtrl = suggestController ?? createSuggestController();
+  let slashRequest = 0;
+  let slashIndex = 0;
+  let slashChoices: HTMLButtonElement[] = [];
+  let slashPopup: HTMLElement | undefined;
   let currentCompanionKey = '';
   let currentSession = '';
   let currentGeneration: number | undefined = undefined;
@@ -656,7 +669,8 @@ export function createWebviewInputAdapter(
     }, SENDING_EXPIRES_MS);
   }
 
-  function clearAutoCompletion(): void {
+  function clearAutoCompletion(closeMenu = true): void {
+    if (closeMenu) closeSlash();
     suggestCtrl.invalidate();
     if (hintEl) hintEl.textContent = '';
   }
@@ -732,7 +746,7 @@ export function createWebviewInputAdapter(
     if (webviewId) currentWebviewId = webviewId;
 
     suggestCtrl.onSessionChange(currentSession);
-    clearAutoCompletion();
+    clearAutoCompletion(isDifferent || Boolean(activeAsk));
 
     if (isDifferent) {
       const res = answerState.switchContext(currentCompanionKey, currentSession, {
@@ -1009,8 +1023,70 @@ export function createWebviewInputAdapter(
     updateInFlightStatus();
   }
 
+  const slashPrefix = () => /^\/([\w-]*)$/.exec(say.value)?.[1];
+  function closeSlash(): void {
+    slashRequest++;
+    slashPopup?.remove();
+    slashPopup = undefined;
+    slashChoices = [];
+  }
+
+  function handleSlashCommands(request: number, commands: {name: string; description?: string}[]): void {
+    const prefix = slashPrefix();
+    if (disposed || request !== slashRequest || prefix === undefined || !hintEl) return;
+    const matches = commands.filter(c => c.name.startsWith(prefix));
+    if (!matches.length) return;
+    slashPopup = say.ownerDocument.createElement('div');
+    slashPopup.className = 'slash-commands';
+    const ko = say.ownerDocument.documentElement.lang.startsWith('ko');
+    slashPopup.setAttribute('role', 'group');
+    slashPopup.setAttribute('aria-label', ko ? '슬래시 명령' : 'Slash commands');
+    slashIndex = 0;
+    slashChoices = matches.map((command, i) => {
+      const option = say.ownerDocument.createElement('button');
+      option.type = 'button';
+      option.textContent = '/' + command.name;
+      if (command.description) {
+        const description = say.ownerDocument.createElement('small');
+        description.textContent = command.description;
+        option.append(description);
+      }
+      option.dataset.active = String(i === 0);
+      option.addEventListener('mousedown', event => event.preventDefault());
+      option.addEventListener('click', () => {
+        say.value = '/' + command.name + ' ';
+        onInput();
+        say.focus();
+      });
+      slashPopup!.append(option);
+      return option;
+    });
+    hintEl.before(slashPopup);
+  }
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.isComposing || e.keyCode === 229) return;
+    if (slashChoices.length) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSlash();
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        slashChoices[slashIndex].dataset.active = 'false';
+        slashIndex = (slashIndex + (e.key === 'ArrowUp' ? -1 : 1) + slashChoices.length) % slashChoices.length;
+        slashChoices[slashIndex].dataset.active = 'true';
+        slashChoices[slashIndex].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+        e.preventDefault();
+        slashChoices[slashIndex].click();
+        return;
+      }
+    }
+    if (e.key === 'Escape') closeSlash();
     if (e.key === 'Escape' && answerState.getPendingQuestion()) {
       e.preventDefault();
       exitAnswerMode();
@@ -1048,11 +1124,17 @@ export function createWebviewInputAdapter(
   };
 
   const onInput = (): void => {
+    closeSlash();
     if (hintEl) hintEl.textContent = '';
     const v = say.value;
     const target = answerState.onInputChange(v).target;
     if (activeCreationTaskId && !currentSession) {
       answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, v);
+    }
+    if (target === 'general' && slashPrefix() !== undefined) {
+      suggestCtrl.invalidate();
+      actions.slashCommands?.(slashRequest);
+      return;
     }
     suggestCtrl.scheduleInput({
       text: v,
@@ -1071,6 +1153,7 @@ export function createWebviewInputAdapter(
 
   say.addEventListener('keydown', onKeyDown);
   say.addEventListener('input', onInput);
+  say.addEventListener('blur', closeSlash);
   sendBtn.addEventListener('click', onSendClick);
   replyCancelEl?.addEventListener('click', onCancelClick);
 
@@ -1088,6 +1171,7 @@ export function createWebviewInputAdapter(
     submitChoice,
     handleCompose,
     handleMentions,
+    handleSlashCommands,
     handleSuggestion,
     handlePrompts,
     handleReplyResult,
@@ -1100,9 +1184,11 @@ export function createWebviewInputAdapter(
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      closeSlash();
       suggestCtrl.dispose();
       say.removeEventListener('keydown', onKeyDown);
       say.removeEventListener('input', onInput);
+      say.removeEventListener('blur', closeSlash);
       sendBtn.removeEventListener('click', onSendClick);
       replyCancelEl?.removeEventListener('click', onCancelClick);
     },
@@ -1254,6 +1340,7 @@ export function createWebviewReceiveHandlers(
     onMentions(payload) {
       options.inputAdapter.handleMentions(payload.files, payload.reqId, payload.target);
     },
+    onSlashCommands(payload) { options.inputAdapter.handleSlashCommands?.(payload.request, payload.commands); },
     onSuggestion(payload) {
       options.inputAdapter.handleSuggestion(payload.text, payload.reqId, payload.target);
     },

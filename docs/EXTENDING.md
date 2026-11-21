@@ -589,6 +589,10 @@ TUI, a plugin command is refused while a turn is running. What the command logge
 while it ran, or the string it returned as an error, is shown on one line above the input — those
 clients have no stderr to read. A UI effect such as `magi.clear_transcript()` is not relayed to them.
 
+Type `/` at the start of an empty composer to see the active companion’s plugin commands and their descriptions.
+Type part of a command to narrow the list. Use the arrow keys and Enter, or click an item, to put
+the command in the composer. Add any arguments and send it to run it. Escape dismisses the list.
+
 ### 3.4 `magi.set_llm_headers` — custom headers for the LLM backend
 
 For an internal gateway (LiteLLM and the like) that requires a header such as `X-CLIENT-API-KEY`, or

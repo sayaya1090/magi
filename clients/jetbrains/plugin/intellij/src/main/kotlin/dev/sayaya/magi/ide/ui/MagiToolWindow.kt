@@ -286,6 +286,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             border = JBUI.Borders.empty(2, 12, 6, 12)
         }
         /** 마지막으로 수신된 입력 자동완성 제안. Tab 키 입력 시 적용됩니다. */
+        private var slashPopup: com.intellij.openapi.ui.popup.JBPopup? = null
+        private val slashPrefix = Regex("/[A-Za-z0-9_-]*")
         private var suggestion: String? = null
         // 압축 막대와 그 갱신 타이머. 하단을 짓는 init 블록이 쓰므로 그보다 먼저 선언한다
         // (그리는 일은 아래 [paintFold]).
@@ -955,6 +957,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     sendDrafts.edited()
                     if (!restoringAnswerDraft) answers.edit(input.text)
                     suggestCoordinator.bumpEpoch()
+                    slashPopup?.cancel()
                     dropSuggestion(); debounce.restart()
                     updateComposerHint()
                     // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
@@ -1126,6 +1129,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             sendDrafts.close()
             answerTransitions.dispose()
             answers.close()
+            slashPopup?.cancel()
             suggestCoordinator.dispose()
             // 메인 패널만 전역 레지스트리와 도구 어댑터를 해제합니다(리뷰 F1·F2):
             // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
@@ -2294,7 +2298,43 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
         }
 
+        private fun askSlashCommands(typed: String) {
+            val sid = currentSendSession()?.takeIf { it.isNotBlank() } ?: return
+            val epoch = inputEpoch
+            val connect = sendConnection ?: { target: String, trouble: (String) -> Unit, work: (Companion) -> Unit ->
+                workspace.onDaemon(target, trouble, work)
+            }
+            connect(sid, {}) { comp ->
+                val commands = comp.pluginCommands().filter { it.name.startsWith(typed.drop(1)) }
+                SwingUtilities.invokeLater {
+                    if (closing.get() || !input.isShowing || !input.hasFocus() || inputEpoch != epoch ||
+                        currentSendSession() != sid || input.text != typed || answers.active != null || commands.isEmpty()
+                    ) return@invokeLater
+                    val labels = commands.associateBy {
+                        "/" + it.name + if (it.description.isNullOrBlank()) "" else "  ·  " + it.description
+                    }
+                    val popup = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                        .createPopupChooserBuilder(labels.keys.toList())
+                        .setTitle(MagiBundle.msg("chat.command.palette"))
+                        .setItemChosenCallback { label ->
+                            if (currentSendSession() == sid && inputEpoch == epoch) {
+                                labels[label]?.let { input.text = "/" + it.name + " " }
+                                input.caretPosition = input.document.length
+                                input.requestFocusInWindow()
+                            }
+                        }
+                        .createPopup()
+                    slashPopup = popup
+                    popup.showUnderneathOf(input)
+                }
+            }
+        }
+
         private fun askSuggestion() {
+            if (slashPrefix.matches(input.text)) {
+                if (answers.active == null) askSlashCommands(input.text)
+                return
+            }
             atToken()?.let { askFiles(it); return } // @멘션은 제안 스위치와 무관하다(파일 찾기다)
             val enabled = suggestRequest != null || LocalPrefs.suggest(project)
             val prefix = input.text
@@ -2838,7 +2878,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
         }
 
-        private fun invalidateComposer() { suggestCoordinator.bumpEpoch(); debounce.stop(); dropSuggestion() }
+        private fun invalidateComposer() { suggestCoordinator.bumpEpoch(); debounce.stop(); slashPopup?.cancel(); dropSuggestion() }
 
         private fun applyAnswerTransition(transition: AnswerTransitionCoordinator.Transition) {
             for (effect in transition.effects) {

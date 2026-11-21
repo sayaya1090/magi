@@ -860,6 +860,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         this.post({ kind: 'mentions', files: files.slice(0, 20), reqId: m.reqId, target: m.target });
         break;
       }
+      case 'slashCommands': {
+        const response = await this.companion.ask('commands');
+        if (!callerWebviewId || callerWebviewId === this.currentWebviewId) {
+          this.post({ kind: 'slashCommands', request: m.request, commands: response?.ok ? response.commands ?? [] : [] });
+        }
+        break;
+      }
       case 'suggest': {
         // The composer's ghost text — the same door the console uses for its own.
         // ⚠ This asks the model every time typing pauses, so it is switchable like the other two

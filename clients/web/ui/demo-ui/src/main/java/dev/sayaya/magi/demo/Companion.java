@@ -48,6 +48,8 @@ final class Companion {
         // POST는 501이었다(실측). 아래 삼킴 분기에 얹지 않는 이유는 빈 답이 지우라는 뜻이어서다:
         // 받아만 두면 501이 조용한 빈칸으로 바뀔 뿐 힌트는 여전히 안 뜬다. 쓰다 만 말에 <b>이어
         // 붙는</b> 글이므로 앞 빈칸까지 답의 일부다. 짝은 편집기의 유령 글자(/complete, Workspace).
+        if ("/plugin-commands".equals(path)) return Mock.json(
+                "[{\"name\":\"routine-trace\",\"description\":\"List recent tool calls\"}]");
         if ("/suggest".equals(path)) return Mock.json(" and show me the failing ones");
         if (Mock.wrote(init)) {
             // 바꾸는 부름들(모델·결재·백엔드·보고서 양식·접기·보내기)은 받아만 둔다:

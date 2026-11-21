@@ -1034,6 +1034,16 @@ function commandChat(companion: any) {
   return { chat, posted };
 }
 
+test('the slash palette fetches descriptions without sending a prompt or running a command', async () => {
+  const companion = commandCompanion({ ok: true });
+  const { chat, posted } = commandChat(companion);
+  await chat.fromView({ kind: 'slashCommands', request: 8 });
+  assert.deepEqual(companion.calls.map(c => c.door), ['commands']);
+  assert.deepEqual(posted, [{ kind: 'slashCommands', request: 8, commands: [
+    { name: 'routine-draft', description: 'draft a routine' },
+  ] }]);
+});
+
 test('a known plugin command runs instead of reaching the model, and its refusal is the note', async () => {
   const companion = commandCompanion({ ok: false, error: 'call #8 has no verified sequential order' });
   const { chat, posted } = commandChat(companion);

@@ -141,7 +141,9 @@ public class ConversationElement {
         // 세션과 상태가 이 조각에서 온다 — 컴패니언이 다른 대화로 떠나거나 일을 시작하면
         // 컴포저가 말하는 것도 달라져야 한다.
         store.aimed().subscribe(row -> {
+            String oldTarget = slashTarget();
             aimed = row;
+            if (!oldTarget.equals(slashTarget())) clearSlash();
             reach();
             paintFold();
             paintStages();
@@ -183,8 +185,10 @@ public class ConversationElement {
      * 보내기 전에 한 번 묻는 이유다(운영 paintCompanionChrome의 onSession).
      */
     private void layer(dev.sayaya.magi.bridge.CompanionContext ctx) {
+        String oldTarget = slashTarget();
         pastNow = ctx == null ? null : ctx.past;
         subNow = ctx == null || ctx.sub == null || ctx.sub.isEmpty() ? null : ctx.sub;
+        if (!oldTarget.equals(slashTarget())) clearSlash();
         // 칩은 보고 있는 대화의 것이다 — 지난 일 A에서 B로 넘어가도 조준한 세션은 그대로라 여기서 갈아 끼운다.
         swapNodes();
         // 지난 일과 자식은 <b>같은 자리</b>를 대신한다 — 둘 다 지금 대화를 물리고 그 자리에 선다.
@@ -339,6 +343,9 @@ public class ConversationElement {
     private final HTMLElement stopBtn = el("md-filled-tonal-button");
     private final HTMLElement note = el("div");   // 컴포저 아래 한 줄 — 지금 이 상자의 몫
     private final HTMLElement hint = el("div");   // 모델이 내민 다음 말(흐리게, Tab이 가져간다)
+    private final HTMLElement slashMenu = el("div");
+    private final java.util.List<HTMLElement> slashOptions = new java.util.ArrayList<>();
+    private int slashEpoch, slashIndex;
     private String suggested = "";
     private int suggestAt = 0;
     private String parked = "";                   // 다른 몫으로 쓰던 초고는 지우지 않고 맡아 둔다
@@ -361,6 +368,7 @@ public class ConversationElement {
         // 처음 한 번은 반드시 입힌다: 첫 상태가 기본값과 같다는 이유로 건너뛰면 버튼과 필드가
         // 이름 없이 선다(실측: 보내기 버튼의 접근 이름이 "send"라는 id였다).
         if (now == wasAnswering && dressed) return;
+        clearSlash();
         wasAnswering = now;
         dressed = true;
         field.setAttribute("label", tr(now ? "label.answer" : "label.ask"));
@@ -659,7 +667,10 @@ public class ConversationElement {
         foldBar.setAttribute("hidden", "");
         nodeChips.className = "nodechips";
         nodeChips.setAttribute("hidden", "");
-        form.append(progressStages.element(), foldBar, nodeChips, box, hint, note);
+        slashMenu.className = "slash-commands";
+        slashMenu.setAttribute("role", "group");
+        slashMenu.setAttribute("hidden", "");
+        form.append(progressStages.element(), foldBar, nodeChips, slashMenu, box, hint, note);
         Js.asPropertyMap(DomGlobal.window).set("magiDiagramComposer", true);
         DomGlobal.window.addEventListener("magi-diagram-select", evt -> {
             Object detail = Js.asPropertyMap(evt).get("detail");
@@ -687,7 +698,7 @@ public class ConversationElement {
         // 입력기가 음절을 맺는 키가 같은 키라, 가드가 없으면 글자를 맺는 순간 말이 나간다.
         field.addEventListener("keydown", evt -> {
             elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
-            if (!"Enter".equals(k.key) || k.shiftKey || composing(k)) return;
+            if (evt.defaultPrevented || !"Enter".equals(k.key) || k.shiftKey || composing(k)) return;
             evt.preventDefault();
             send();
         });
@@ -708,6 +719,7 @@ public class ConversationElement {
         if (typed.isEmpty() && picked.isEmpty()) return;
         String v = withNodes(typed, picked);
         // 보낸 말 아래에 남은 제안은 방금 친 것에 대한 것이 아니다.
+        clearSlash();
         clearSuggest();
         // 컴패니언이 있지 않은 대화라면, 보내기 전에 물어야 할 것이 하나 있다.
         String to = Moves.to(pastNow, aimed == null ? null : aimed.session);
@@ -973,11 +985,12 @@ public class ConversationElement {
      */
     private void wireSuggest() {
         HTMLElement inner = field;
-        inner.addEventListener("input", evt -> clearSuggest()); // 방금 친 것이 달라졌다 — 서 있던 제안은 낡았다
+        inner.addEventListener("input", evt -> { clearSuggest(); showSlash(); }); // 방금 친 것이 달라졌다 — 서 있던 제안은 낡았다
         // 타이핑이 멎은 뒤(400ms)에 묻는다 — 멈출 때마다 타이머를 손으로 다시 거는 대신 rx가 센다.
         dev.sayaya.rx.Observable.fromEvent(inner, "input").debounceTime(400).subscribe(e -> askSuggest());
         inner.addEventListener("keydown", evt -> {
             elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            if (!composing(k) && slashKey(k)) { evt.preventDefault(); return; }
             if ("Tab".equals(k.key) && !suggested.isEmpty() && !composing(k)) {
                 evt.preventDefault();
                 value(value() + suggested);      // 쓰다 만 자리에서 이어진다 — 대신하지 않는다
@@ -986,7 +999,7 @@ public class ConversationElement {
             }
             if ("Escape".equals(k.key)) clearSuggest();
         });
-        inner.addEventListener("blur", evt -> clearSuggest());
+        inner.addEventListener("blur", evt -> { clearSuggest(); clearSlash(); });
     }
 
     private void askSuggest() {
@@ -997,6 +1010,7 @@ public class ConversationElement {
         // 이 도움은 없는 것이다.
         if (!Prefs.on("suggest", true)) return;
         String said = value();
+        if (said.matches("/[A-Za-z0-9_-]*")) return;
         if (said.trim().isEmpty()) { clearSuggest(); return; }   // 빈 칸은 짐작할 자리가 아니다
         final int mine = ++suggestAt;
         store.suggest(said, text -> {
@@ -1009,6 +1023,83 @@ public class ConversationElement {
             hint.textContent = suggested.trim();
             hint.removeAttribute("hidden");
         });
+    }
+
+    private void clearSlash() {
+        slashEpoch++;
+        slashOptions.clear();
+        slashMenu.replaceChildren();
+        slashMenu.setAttribute("hidden", "");
+    }
+
+    private String slashTarget() {
+        return aimed == null ? "" : aimed.socket + "|" + aimed.peer + "|" + aimed.session + "|" + pastNow + "|" + subNow;
+    }
+
+    private void showSlash() {
+        clearSlash();
+        String typed = value();
+        if (!May.can("prompt") || !typed.matches("/[A-Za-z0-9_-]*") || store.answering()) return;
+        final int request = slashEpoch;
+        final String target = slashTarget();
+        store.pluginCommands(data -> {
+            if (request != slashEpoch || !target.equals(slashTarget()) || !typed.equals(value()) || data == null) return;
+            JsArrayLike<Object> commands = Js.uncheckedCast(data);
+            for (int i = 0; i < commands.getLength(); i++) {
+                JsPropertyMap<Object> command = Js.uncheckedCast(commands.getAt(i));
+                String name = str2(command, "name");
+                if (name.isEmpty() || !name.startsWith(typed.substring(1))) continue;
+                HTMLElement option = el("button");
+                option.setAttribute("type", "button");
+                option.textContent = "/" + name;
+                String description = str2(command, "description");
+                if (!description.isEmpty()) {
+                    HTMLElement detail = el("small");
+                    detail.textContent = description;
+                    option.append(detail);
+                }
+                option.setAttribute("data-active", Boolean.toString(slashOptions.isEmpty()));
+                option.addEventListener("mousedown", event -> event.preventDefault());
+                option.addEventListener("click", event -> {
+                    value("/" + name + " ");
+                    clearSlash();
+                    rememberDraft();
+                    field.focus();
+                });
+                slashOptions.add(option);
+                slashMenu.append(option);
+            }
+            if (!slashOptions.isEmpty()) {
+                slashIndex = 0;
+                slashMenu.setAttribute("aria-label", tr("composer.slash.commands"));
+                slashMenu.removeAttribute("hidden");
+            }
+        });
+    }
+
+    private boolean slashKey(elemental2.dom.KeyboardEvent key) {
+        if (slashOptions.isEmpty()) {
+            if ("Escape".equals(key.key)) clearSlash();
+            return false;
+        }
+        switch (key.key) {
+            case "Escape": clearSlash(); return true;
+            case "ArrowUp":
+            case "ArrowDown":
+                slashOptions.get(slashIndex).setAttribute("data-active", "false");
+                int delta = "ArrowUp".equals(key.key) ? -1 : 1;
+                slashIndex = (slashIndex + delta + slashOptions.size()) % slashOptions.size();
+                HTMLElement active = slashOptions.get(slashIndex);
+                active.setAttribute("data-active", "true");
+                active.scrollIntoView(false);
+                return true;
+            case "Enter":
+            case "Tab":
+                if (key.shiftKey) return false;
+                slashOptions.get(slashIndex).click();
+                return true;
+            default: return false;
+        }
     }
 
     private void clearSuggest() {

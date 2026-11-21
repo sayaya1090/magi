@@ -91,6 +91,11 @@ public class BridgeCompanionSource implements CompanionSource {
     }
 
     @Override
+    public void pluginCommands(CompanionContext ctx, Consumer<Object> done) {
+        Console.fetchList("/plugin-commands" + q(ctx), done::accept);
+    }
+
+    @Override
     public void suggest(CompanionContext ctx, String prefix, Consumer<String> text) {
         URLSearchParams body = new URLSearchParams();
         body.set("prefix", prefix);
