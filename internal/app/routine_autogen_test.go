@@ -75,7 +75,7 @@ func TestARoutineGeneratesComparesAndAppliesItsOwnCandidates(t *testing.T) {
 	}
 	an.replies = []string{candidateReply("trace the click path", worse),
 		candidateReply("trace the click path and keep asking where the code disagrees", better)}
-	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
 		t.Fatal(err)
 	}
 	before := r.logs.text()
@@ -136,7 +136,7 @@ func TestADelegatedCandidateThatReachesNewDataIsLeftForAPerson(t *testing.T) {
 	if reachy == better {
 		t.Fatal("fixture did not change")
 	}
-	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
 		t.Fatal(err)
 	}
 	improve := func(id, cand string) string {
@@ -169,7 +169,7 @@ func TestAnExploreOnlyChangeIsLeftForAPersonUnlessDelegated(t *testing.T) {
 		!strings.Contains(out, "data reach differs (explore questions changed)") || strings.Contains(r.skill(t, rpe), "Trace from the click handler") {
 		t.Fatalf("an explore-only change under a plain delegation must be left for a person: %q", out)
 	}
-	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
 		t.Fatal(err)
 	}
 	out, _, _ = r.call(t, "e2", "routine_improve", map[string]any{"name": rpe, "script": better, "hypothesis": "h"}, "allow")

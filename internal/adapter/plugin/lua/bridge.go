@@ -48,6 +48,10 @@ func installBridge(p *plugin) {
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "turn_steps", L.NewFunction(p.bridgeTurnSteps))
 	L.SetField(t, "run_script", L.NewFunction(p.bridgeRunScript))
+	scriptFeatures := L.NewTable()
+	scriptFeatures.RawSetString("file_fixture", lua.LTrue)
+	scriptFeatures.RawSetString("explore_read_scope", lua.LTrue)
+	L.SetField(t, "script_features", scriptFeatures)
 	L.SetField(t, "approve", L.NewFunction(p.bridgeApprove))
 	L.SetField(t, "sha256", L.NewFunction(func(L *lua.LState) int {
 		sum := sha256.Sum256([]byte(L.CheckString(1)))
@@ -109,6 +113,7 @@ func installBridge(p *plugin) {
 	// Plugin custom settings: read [plugins.<name>], persist own values.
 	L.SetField(t, "store_get", L.NewFunction(p.bridgeStoreGet))
 	L.SetField(t, "store_set", L.NewFunction(p.bridgeStoreSet))
+	L.SetField(t, "store_prune_fields", L.NewFunction(p.bridgeStorePruneFields))
 	L.SetField(t, "store_compare_exchange", L.NewFunction(p.bridgeStoreCompareExchange))
 	// User config.toml access (dotted keys), gated by config:read/write permissions.
 	L.SetField(t, "get_config_key", L.NewFunction(p.bridgeGetConfigKey))

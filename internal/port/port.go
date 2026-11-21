@@ -492,8 +492,19 @@ type BackgroundCompletion struct {
 	Detail string
 }
 
+// FileExperimentCall executes a built-in file tool against a disposable fixture.
+type FileExperimentCall func(context.Context, string, json.RawMessage) (session.ToolResult, error)
+
+// FileExperimentRunner is implemented by a registry that can run isolated built-in file tools.
+type FileExperimentRunner interface {
+	FileExperiment(context.Context, map[string]string, func(string, json.RawMessage) (string, string), func(FileExperimentCall)) (map[string]string, error)
+}
+
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
+	// FileExperiment creates a fresh fixture and returns the final file hashes.
+	FileExperiment func(context.Context, map[string]string, func(FileExperimentCall)) (map[string]string, error)
+
 	Checkpoint func(context.Context, CheckpointRequest) (CheckpointResult, error)
 
 	// ObserveBackground registers a completion signal synchronously before Execute returns.

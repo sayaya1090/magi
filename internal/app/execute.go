@@ -594,7 +594,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// The children this call drove itself (OpenChild), named on its result like spawned ones.
 	var opened []string
 	var openedMu sync.Mutex
+	var fileExperiment func(context.Context, map[string]string, func(port.FileExperimentCall)) (map[string]string, error)
+	if runner, ok := a.tools.(port.FileExperimentRunner); ok {
+		fileExperiment = func(ctx context.Context, files map[string]string, run func(port.FileExperimentCall)) (map[string]string, error) {
+			return runner.FileExperiment(ctx, files, a.policy.Decide, run)
+		}
+	}
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
+		FileExperiment: fileExperiment,
 		CallTool: func(cctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 			return a.callInner(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, name, args)
 		},

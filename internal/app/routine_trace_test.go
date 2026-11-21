@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -194,7 +195,7 @@ func TestRoutineTraceCleansLegacyArgumentsAndCandidatePreviews(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
-	legacy := `{"routine_last_session":"legacy","routine_trace:legacy":{"prompts":{"1":"old-prompt"},"calls":[{"n":1,"turn":1,"tool":"read","args":"old-argument","ok":true}]},"routine_candidates":{"t123":{"kind":"trace","sequence":"read","prompt":"old-prompt","script":"old-preview","calls":[{"tool":"read","args":"old-argument","ok":true}]}}}`
+	legacy := `{"routine_last_session":"legacy","routine_trace:older":{"calls":[{"n":1,"tool":"read","args":"older-argument"}]},"routine_trace:legacy":{"prompts":{"1":"old-prompt"},"calls":[{"n":1,"turn":1,"tool":"read","args":"old-argument","ok":true}]},"routine_candidates":{"t123":{"kind":"trace","sequence":"read","prompt":"old-prompt","script":"old-preview","calls":[{"tool":"read","args":"old-argument","ok":true}]}}}`
 	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +212,7 @@ func TestRoutineTraceCleansLegacyArgumentsAndCandidatePreviews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range []string{"old-prompt", "old-argument", "old-preview"} {
+	for _, value := range []string{"old-prompt", "old-argument", "old-preview", "older-argument"} {
 		for _, output := range []string{string(store), r.logs.text(), r.skill(t, "legacy")} {
 			if strings.Contains(output, value) {
 				t.Fatalf("legacy trace exposed %q in %s", value, output)
@@ -329,5 +330,50 @@ func TestARoutinesWritingGraphTasksNeverOverlap(t *testing.T) {
 	}
 	if p := atomic.LoadInt32(&probe.peak); p != 1 {
 		t.Fatalf("a routine's graph writes overlapped: %d ran at once", p)
+	}
+}
+
+func TestRoutineWriteComparisonUsesIndependentFixtures(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.file(t, filepath.Join(".magi", "skills", "writer.md"), writerRoutine)
+	r.file(t, "out.txt", "workspace original")
+	out, asks, failed := r.call(t, "paired", "routine_compare_writes", map[string]any{
+		"name": "writer", "args": map[string]any{"text": "baseline"},
+		"files": map[string]string{"out.txt": "fixture"},
+		"script": `local before = call_tool("write", {path="out.txt", content="candidate"})
+if not before then error("write did not run") end
+error("after writing")`,
+	}, "deny")
+	var report struct {
+		Candidate struct {
+			Error string
+			Files map[string]string
+		}
+		DifferingFiles []string `json:"differing_files"`
+		SameFileState  bool     `json:"same_file_state"`
+	}
+	if failed || len(asks) != 0 || json.Unmarshal([]byte(out), &report) != nil {
+		t.Fatalf("comparison: %q %+v", out, asks)
+	}
+	if report.SameFileState || len(report.DifferingFiles) != 1 || report.DifferingFiles[0] != "out.txt" ||
+		!strings.Contains(report.Candidate.Error, "after writing") || report.Candidate.Files["out.txt"] == "" {
+		t.Fatalf("comparison omitted the partial write: %s", out)
+	}
+	body, err := os.ReadFile(filepath.Join(r.s.Workdir, "out.txt"))
+	if err != nil || string(body) != "workspace original" {
+		t.Fatalf("workspace changed: %q %v", body, err)
+	}
+	scope := filepath.Join(r.s.Workdir, "out.txt")
+	out, _, failed = r.call(t, "escape", "routine_compare_writes", map[string]any{
+		"name": "writer", "args": map[string]any{"text": "baseline"},
+		"files":  map[string]string{},
+		"script": fmt.Sprintf(`local r, e = call_tool("write", {path=%q, content="escape"}); if not r then error(e) end`, scope),
+	}, "allow")
+	if failed || !strings.Contains(out, "outside workdir") {
+		t.Fatalf("unsafe path was not refused: %s", out)
+	}
+	body, err = os.ReadFile(scope)
+	if err != nil || string(body) != "workspace original" {
+		t.Fatalf("unsafe path changed original: %q %v", body, err)
 	}
 }

@@ -195,7 +195,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true }
+  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -340,9 +340,38 @@ local function load_candidates()
   return cands
 end
 
-local last_traced_session = magi.store_get("routine_last_session")
-if type(last_traced_session) == "string" and last_traced_session ~= "" then load_trace(last_traced_session) end
-load_candidates()
+local function clean_traces()
+  if type(magi.store_prune_fields) == "function" then
+    local ok, err = magi.store_prune_fields("routine_trace:", { { "prompts" }, { "calls", "*", "args" } })
+    if not ok then magi.log("[routine] could not clean stored traces: " .. tostring(err)) end
+  else
+    local sid = magi.store_get("routine_last_session")
+    if type(sid) == "string" and sid ~= "" then load_trace(sid) end
+  end
+  load_candidates()
+end
+
+clean_traces()
+
+magi.register_command{
+  name = "routine-trace-clean",
+  description = "Clean legacy stored traces and list saved drafts that may contain copied values",
+  execute = function()
+    clean_traces()
+    local files = magi.list_files(".magi/skills") or {}
+    for _, file in ipairs(files) do
+      if file:match("%.md$") then
+        local path = ".magi/skills/" .. file
+        local text = magi.read_file(path)
+        local header = type(text) == "string" and text:match("^%-%-%-\n(.-)\n%-%-%-\n")
+        if header and (header:find("\nsource: trace ", 1, true) or header:find("\nsource: repeated stretch ", 1, true))
+          and not header:find("(synthetic arguments; observed completion order)", 1, true) then
+          magi.log("[routine] saved draft may contain legacy arguments: " .. path)
+        end
+      end
+    end
+  end,
+}
 
 local function draft_from_calls(calls)
   if #calls == 0 then return nil, "no calls in that stretch" end
@@ -576,6 +605,10 @@ magi.register_tool{
     end
     local bad = check_inputs(r.inputs, a.args)
     if bad then return "routine " .. r.name .. ": " .. bad, true end
+    local explore_scope = stored("routine_explore_scopes")[r.name .. ":" .. r.fingerprint:sub(1, 12)]
+    if explore_scope and not (magi.script_features and magi.script_features.explore_read_scope) then
+      return "scoped explore requires an updated magi host; nothing ran", true
+    end
     local all = stored("routine_approvals")
     local prev = type(all[r.name]) == "table" and all[r.name] or nil
     if not prev or prev.fingerprint ~= r.fingerprint then
@@ -584,7 +617,7 @@ magi.register_tool{
         reason = why .. " — it may call: " .. table.concat(r.tools, ", ") .. (#writes > 0 and (" — it may WRITE with " ..
           table.concat(writes, ", ") .. "; each write still asks as usual, one at a time") or ""),
         detail = { routine = r.name, path = r.path, tools = r.tools, writes = writes, inputs = r.inputs, script = r.script,
-          fingerprint = r.fingerprint, previous = prev and prev.fingerprint or nil },
+          fingerprint = r.fingerprint, previous = prev and prev.fingerprint or nil, explore_read_scope = explore_scope },
       }
       if ok == nil then return "routine " .. r.name .. " could not be approved: " .. tostring(aerr), true end
       if not ok then return "routine " .. r.name .. " was not approved; nothing ran", true end
@@ -596,10 +629,50 @@ magi.register_tool{
     local out, rerr = magi.run_script(src, {
       timeout = a.timeout, output = a.output, globals = globals, on_call = on_call,
       child = "routine " .. r.name, tools = r.tools, serial = writes,
+      explore_read_scope = explore_scope,
     })
     finish(rerr == nil)
     if rerr then return (out or "") .. "[" .. rerr .. "]", true end
     return out
+  end,
+}
+
+magi.register_tool{
+  name = "routine_compare_writes",
+  description = "Compare the active and candidate scripts on separate copies of the same explicit text fixtures. Runs local read/write/edit/multiedit only and reports errors and changed file hashes.",
+  schema = { type = "object", properties = {
+    name = { type = "string" }, script = { type = "string" },
+    files = { type = "object", additionalProperties = { type = "string" } },
+    args = { type = "object" },
+  }, required = { "name", "script", "files" } },
+  execute = function(a)
+    if not (magi.script_features and magi.script_features.file_fixture) then
+      return "isolated writes require an updated magi host; nothing ran", true
+    end
+    local r, err = load_routine(a and a.name)
+    if not r then return err, true end
+    if type(a.script) ~= "string" or type(a.files) ~= "table" then return "candidate script and file fixtures required", true end
+    local writable = false
+    for _, tool in ipairs(r.tools) do
+      if tool == "write" or tool == "edit" or tool == "multiedit" then writable = true
+      elseif tool ~= "read" then return "file experiments do not support " .. tool, true end
+    end
+    if not writable then return "the routine declares no supported writing tool", true end
+    local bad = check_inputs(r.inputs, a.args)
+    if bad then return bad, true end
+    local prefix = "local input = json_decode(" .. string.format("%q", magi.json_encode(a.args or {})) .. ")\n"
+    local active, active_err, active_files, active_failures = magi.run_script(prefix .. r.script, { file_fixture = a.files, tools = r.tools })
+    if not active_files then return tostring(active_err), true end
+    local candidate, candidate_err, candidate_files, candidate_failures = magi.run_script(prefix .. a.script, { file_fixture = a.files, tools = r.tools })
+    if not candidate_files then return tostring(candidate_err), true end
+    local changed = {}
+    for path, hash in pairs(active_files) do if candidate_files[path] ~= hash then changed[#changed + 1] = path end end
+    for path in pairs(candidate_files) do if not active_files[path] then changed[#changed + 1] = path end end
+    table.sort(changed)
+    local result = { active = { output = active, error = active_err, files = active_files, failed_calls = active_failures },
+      candidate = { output = candidate, error = candidate_err, files = candidate_files, failed_calls = candidate_failures },
+      differing_files = changed, same_file_state = #changed == 0 }
+    return magi.json_encode(result)
   end,
 }
 
@@ -948,6 +1021,12 @@ do
     end
     local ok1, e1 = magi.write_file(dir .. "versions/" .. base .. ".md", cur)
     if not ok1 then return nil, "could not keep the active version: " .. tostring(e1) end
+    if by == "auto" and delegation and delegation.explore_scope then
+      local scopes = stored("routine_explore_scopes")
+      scopes[name .. ":" .. ver] = delegation.explore_scope
+      local ok, err = magi.store_set("routine_explore_scopes", scopes)
+      if not ok then return nil, "could not persist the explore scope: " .. tostring(err) end
+    end
     local ok2, e2 = magi.write_file(r.path, vtext)
     if not ok2 then return nil, "could not write " .. r.path .. ": " .. tostring(e2) end
     local stack = stored("routine_rollback")
@@ -1231,8 +1310,8 @@ Compare a candidate version of a routine with its active version, and record the
         if #writes > 0 then why = "it may write (" .. table.concat(writes, ", ") .. ")"
         elseif table.concat(tools, ",") ~= table.concat(type(del.tools) == "table" and del.tools or {}, ",") then why = "its tools differ from the delegated ones"
         elseif magi.json_encode(inputs) ~= tostring(del.inputs) then why = "its inputs differ from the delegated ones"
-        elseif explore_changed > 0 and del.explore_text ~= true then
-          why = "data reach differs (explore questions changed); /routine-auto " .. r.name .. " explore-text allows that"
+        elseif explore_changed > 0 and type(del.explore_scope) ~= "string" then
+          why = "data reach differs (explore questions changed); /routine-auto " .. r.name .. " explore-text <directory> allows that within the directory"
         elseif #reach_added > 0 then
           why = "its data reach differs (adds " .. table.concat(reach_added, "; "):sub(1, 200) .. ")"
         elseif type(del.evals) ~= "table" or del.evals.contract ~= csha or del.evals.tasks ~= tsha then
@@ -1241,7 +1320,7 @@ Compare a candidate version of a routine with its active version, and record the
         if why then
           auto_line = "not auto-applied: outside the delegated scope — " .. why .. "; a person may adopt it with /routine-adopt " .. r.name .. " " .. ver
         else
-          local ok, prev = adopt_version(r.name, ver, "auto", { at = del.at })
+          local ok, prev = adopt_version(r.name, ver, "auto", { at = del.at, explore_scope = del.explore_scope })
           if ok then
             applied = true
             auto_line = "auto-applied " .. ver .. " (was " .. prev .. ") under the delegation of " .. tostring(del.at) ..
@@ -1396,10 +1475,10 @@ Compare a candidate version of a routine with its active version, and record the
   -- approval: an applied version still asks before its next run.
   magi.register_command{
     name = "routine-auto",
-    description = "Let routine_improve apply applicable candidates of a read-only routine by itself, within its current tools, inputs and frozen evals (/routine-auto <name> [explore-text] | /routine-auto <name> off)",
+    description = "Let routine_improve apply applicable candidates of a read-only routine by itself, within its current tools, inputs and frozen evals (/routine-auto <name> [explore-text <directory>] | /routine-auto <name> off)",
     execute = function(args)
       local w = words(args)
-      local name, off = w[1], w[2]
+      local name, off, directory = w[1], w[2], w[3]
       if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-auto <name> | /routine-auto <name> off" end
       local all = stored("routine_auto")
       if off == "off" then
@@ -1416,16 +1495,29 @@ Compare a candidate version of a routine with its active version, and record the
       end
       local frozen = stored("routine_evals_frozen")[name]
       if type(frozen) ~= "table" then return "freeze the evals of " .. name .. " first (/routine-evals-freeze " .. name .. ")" end
-      if off ~= nil and off ~= "explore-text" then return "usage: /routine-auto <name> [explore-text] | /routine-auto <name> off" end
-      -- explore-text: the person also lets a candidate change the questions it gives explore, which
-      -- may reach other data; without it such a candidate is left for a person.
+      if off ~= nil and off ~= "explore-text" then return "usage: /routine-auto <name> [explore-text <directory>] | /routine-auto <name> off" end
+      if off == "explore-text" then
+        if not (magi.script_features and magi.script_features.explore_read_scope) then
+          return "scoped explore requires an updated magi host"
+        end
+        if not directory or directory == "." or directory:find(":", 1, true)
+          or directory:find("\\", 1, true) or directory:sub(1, 1) == "/" or w[4] then
+          return "usage: /routine-auto <name> explore-text <workspace subdirectory>"
+        end
+        for part in directory:gmatch("[^/]+") do
+          if part == ".." then return "explore scope must stay within the workspace" end
+        end
+      elseif directory then
+        return "usage: /routine-auto <name> [explore-text <directory>]"
+      end
       local scope = { tools = r.tools, inputs = magi.json_encode(r.inputs), evals = { contract = frozen.contract, tasks = frozen.tasks },
-        explore_text = off == "explore-text" or nil, at = magi.time(), by = "person" }
+        explore_text = off == "explore-text" or nil, explore_scope = directory, at = magi.time(), by = "person" }
       all[name] = scope
-      magi.store_set("routine_auto", all)
+      local saved, save_err = magi.store_set("routine_auto", all)
+      if not saved then return "could not save the delegation: " .. tostring(save_err) end
       append_line(rdir(name) .. "decisions.jsonl", { at = scope.at, action = "auto-apply delegated", routine = name, by = "person", scope = scope })
       magi.log("[routine] auto-apply delegated for " .. name .. " (tools " .. table.concat(r.tools, ", ") .. ", evals " ..
-        frozen.tasks:sub(1, 12) .. (scope.explore_text and ", explore questions may change" or ", explore questions fixed") ..
+        frozen.tasks:sub(1, 12) .. (scope.explore_text and ", explore limited to " .. scope.explore_scope or ", explore questions fixed") ..
         "); /routine-auto " .. name .. " off revokes it")
     end,
   }

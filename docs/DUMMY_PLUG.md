@@ -311,6 +311,14 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   `glob` are skipped. `/routine-candidates` lists the suggestions and `/routine-register <id> <name>`
   saves the selected candidate. The separate suggestion for a `dummy_plug` script whose tool
   sequence succeeds three times still uses that script.
+- **Legacy traces.** On load, the plug-in clears copied arguments and message text from all of
+  its stored traces and trace candidates. `/routine-trace-clean` repeats the cleanup and lists
+  saved workspace drafts that may still contain legacy values. It leaves the saved files intact.
+- **Writing comparison.** `routine_compare_writes{name, script, files, args}` runs the active and
+  candidate scripts in two disposable directories seeded with the same text fixtures (`files`).
+  It supports `read`, `write`, `edit` and `multiedit` and reports final file hashes, differing paths
+  and script or tool failures, including partial writes. The host deletes both copies. This
+  comparison uses only the supplied files and does not adopt a candidate.
 - **Improvement.** A routine's evals live in `.magi/routines/<name>/`: `contract.json` (cases run dry
   on fixed fixtures — control flow: the recalled policy reaches each `explore`, an empty or failed
   answer is reported as no answer, a branch no fixture answers stays unverified) and `tasks.json`
@@ -346,8 +354,10 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   `list` and `recall_memory` on the tasks (`path`, `pattern`, `query`, …). A candidate that adds
   arguments the active version never used is outside a delegation and left for a person. `explore`
   takes free text, so its arguments are compared whole: a candidate whose explore questions differ
-  is left for a person too, unless the delegation was given as `/routine-auto <name> explore-text`,
-  which the decision record states (`explore_text: true`).
+  is left for a person too, unless the delegation uses `/routine-auto <name> explore-text <directory>`.
+  That directory becomes the `explore` child's file-tool root on future runs of the auto-applied
+  version. It remains in effect if the delegation is revoked. The decision record includes
+  `explore_scope`. Earlier delegations with no directory need to be renewed.
 - **Generating candidates.** `routine_autoimprove{name, problem, rounds}` makes one sidecar call
   (`magi.analyze`) per round with the active script, the problem and feedback from development
   screening in the current run. It screens each candidate against the contract and development

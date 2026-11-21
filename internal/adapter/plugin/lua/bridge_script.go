@@ -69,7 +69,20 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	// child = "task line": run the script in a child session the host opens for it, so its calls are
 	// recorded there and not in this conversation's log. A host without children runs it on the call.
 	var child *port.ChildRun
-	if label, ok := opts.RawGetString("child").(lua.LString); ok && p.env.OpenChild != nil && !dry {
+	fileFixture := opts.RawGetString("file_fixture")
+	fixtureFiles, isolated := fileFixture.(*lua.LTable)
+	if fileFixture != lua.LNil && !isolated {
+		return fail(L, "run_script: file_fixture must be a table")
+	}
+	if isolated && (dry || p.env.FileExperiment == nil) {
+		return fail(L, "run_script: isolated file experiment unavailable")
+	}
+	scopeOption := opts.RawGetString("explore_read_scope")
+	exploreScope, scoped := scopeOption.(lua.LString)
+	if scopeOption != lua.LNil && (!scoped || exploreScope == "") {
+		return fail(L, "run_script: explore_read_scope must be a nonempty directory")
+	}
+	if label, ok := opts.RawGetString("child").(lua.LString); ok && p.env.OpenChild != nil && !dry && !isolated {
 		ch, err := p.env.OpenChild(p.spawnCtx(), string(label))
 		if err != nil {
 			return fail(L, "run_script: "+err.Error())
@@ -130,6 +143,9 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 			dryMu.Unlock()
 			return res, nil
 		}
+		if name == "explore" && exploreScope != "" {
+			ctx = port.WithExploreReadScope(ctx, string(exploreScope))
+		}
 		return host(ctx, name, args)
 	}
 	// serial = {...} names tools that never run alongside another call in this run, whatever the host
@@ -143,8 +159,53 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		inner := safe
 		safe = func(name string) bool { return !one[name] && inner != nil && inner(name) }
 	}
-	if dry {
+	if dry || isolated {
 		safe = func(string) bool { return false }
+	}
+	if isolated {
+		files := map[string]string{}
+		valid := true
+		fixtureFiles.ForEach(func(key, val lua.LValue) {
+			name, keyOK := key.(lua.LString)
+			body, valOK := val.(lua.LString)
+			if !keyOK || !valOK {
+				valid = false
+				return
+			}
+			files[string(name)] = string(body)
+		})
+		if !valid {
+			return fail(L, "run_script: file_fixture must map paths to text")
+		}
+		var out string
+		var scriptErr error
+		var failedCalls int
+		state, err := p.env.FileExperiment(p.spawnCtx(), files, func(run port.FileExperimentCall) {
+			host = func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
+				result, err := run(ctx, name, args)
+				if err != nil || result.IsError {
+					failedCalls++
+				}
+				return result, err
+			}
+			out, scriptErr = execScript(p.spawnCtx(), call, nil, safe, scriptHooksOf(L, opts), src, timeout, limit)
+		})
+		if err != nil {
+			return fail(L, "run_script: "+err.Error())
+		}
+		L.Push(lua.LString(out))
+		if scriptErr != nil {
+			L.Push(lua.LString(scriptErr.Error()))
+		} else {
+			L.Push(lua.LNil)
+		}
+		hashes := L.NewTable()
+		for path, hash := range state {
+			hashes.RawSetString(path, lua.LString(hash))
+		}
+		L.Push(hashes)
+		L.Push(lua.LNumber(failedCalls))
+		return 4
 	}
 	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, safe, scriptHooksOf(L, opts), src, timeout, limit)
 	if child != nil {

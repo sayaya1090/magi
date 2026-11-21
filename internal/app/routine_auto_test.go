@@ -48,7 +48,7 @@ func TestARoutineImprovesItselfWithinTheScopeAPersonDelegatedOnce(t *testing.T) 
 	if err := r.command(t, "routine-auto", "writer"); err == nil || !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("a routine that writes cannot be delegated: %v", err)
 	}
-	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,14 +76,14 @@ func TestARoutineImprovesItselfWithinTheScopeAPersonDelegatedOnce(t *testing.T) 
 		}
 	}
 	_, asks, _ := r.call(t, "run1", "run_routine", map[string]any{"name": rpe, "args": args}, "allow")
-	if len(asks) != 1 || !strings.Contains(asks[0].Reason, "changed since it was approved") {
+	if len(asks) != 1 || !strings.Contains(asks[0].Reason, "changed since it was approved") || !strings.Contains(string(asks[0].Args), `"explore_read_scope":"clients"`) {
 		t.Fatalf("applying is not run approval: the applied version asks: %+v", asks)
 	}
 	if err := r.command(t, "routine-rollback", rpe); err != nil || active() {
 		t.Fatalf("rollback: %v", err)
 	}
 
-	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
 		t.Fatal(err)
 	}
 	if out := improve("rolled-back", better); !strings.Contains(out, "was rolled back by a person") || active() {
@@ -98,7 +98,7 @@ func TestARoutineImprovesItselfWithinTheScopeAPersonDelegatedOnce(t *testing.T) 
 	if out := improve("b2", distinct); !strings.Contains(out, "verdict: applicable") || !strings.Contains(out, "outside the delegated scope") || active() {
 		t.Fatalf("evals changed since the delegation: left for a person: %q", out)
 	}
-	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
 		t.Fatal(err)
 	}
 	if out := improve("distinct", distinct); !strings.Contains(out, "\nauto-applied ") || !active() {

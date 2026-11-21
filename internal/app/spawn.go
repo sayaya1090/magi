@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -77,6 +79,26 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	return a.spawnChildFrom(ctx, parent, actor, spec, onProgress, parent.Workdir, nil, nil)
 }
 
+func scopedExploreDirectory(workdir, scope string) (string, error) {
+	if !filepath.IsLocal(scope) || filepath.Clean(scope) == "." {
+		return "", fmt.Errorf("scoped explore: specify a workspace subdirectory")
+	}
+	base, err := filepath.EvalSymlinks(workdir)
+	if err != nil {
+		return "", fmt.Errorf("scoped explore: %w", err)
+	}
+	root := filepath.Join(base, scope)
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil || resolved != root {
+		return "", fmt.Errorf("scoped explore: directory must exist without symlink aliases")
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("scoped explore: scope must be a directory")
+	}
+	return root, nil
+}
+
 func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor event.Actor, spec port.SpawnSpec, onProgress func(string), source string, trialMemory *string, checkpoint *checkpointWorkspace) (port.SpawnResult, error) {
 	meter := &trialMetrics{started: time.Now()}
 	ctx = context.WithValue(ctx, trialMetricsKey{}, meter)
@@ -118,6 +140,22 @@ func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor 
 	// that cannot be made fails the spawn outright instead of leaving a child session behind with
 	// nowhere to work.
 	workdir, workspace, base := parent.Workdir, "", ""
+	if scope := port.ExploreReadScope(ctx); spec.ToolName == "explore" && scope != "" {
+		if len(a.cfg.Hooks) > 0 || spec.Workspace != "" || spec.Trial {
+			return port.SpawnResult{}, fmt.Errorf("scoped explore: incompatible workspace or lifecycle hooks")
+		}
+		root, err := scopedExploreDirectory(parent.Workdir, scope)
+		if err != nil {
+			return port.SpawnResult{}, err
+		}
+		workdir = root
+		spec.Tools = []string{"read", "grep", "glob", "list"}
+		spec.System += "\nYour workspace root is the delegated directory. Use paths relative to it."
+		spec.Lean, spec.Trial = true, true
+		empty := ""
+		trialMemory = &empty
+	}
+
 	if spec.Workspace == "checkpoint" {
 		workdir, workspace = source, source
 		if hasHEAD(ctx, source) {
@@ -149,7 +187,7 @@ func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor 
 	// carry one. Project files a cloned child's log under the PARENT's project — keyed by its own
 	// temp clone it would land where no child listing ever scans.
 	project := ""
-	if workspace != "" {
+	if workdir != parent.Workdir {
 		project = parent.Workdir
 	}
 	child, err := a.CreateSession(ctx, command.CreateSession{

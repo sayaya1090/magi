@@ -247,7 +247,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// not read files has no business being handed one — and ephemeral: it rides the same trailing-
 	// message path as the rest of volatileContext and is never persisted. It changes only when the
 	// person types, which is never during an unattended run, so it sits with the stable tier.
-	if a.cfg.Autocomplete.AmbientOn() && agent.allows("read") {
+	if !agent.Trial && a.cfg.Autocomplete.AmbientOn() && agent.allows("read") {
 		if f, ok := a.openFileFor(s.ID); ok {
 			txt := f.text
 			if len(txt) > ambientCap {
