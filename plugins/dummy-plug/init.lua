@@ -1139,7 +1139,7 @@ end
       local saved, err = magi.write_file(path, magi.json_encode(record))
       if not saved then return "could not record call-path plan: " .. tostring(err), true end
 
-      local decisions, verified, checked, citations = {}, {}, {}, {}
+      local decisions, verified, checked, citations, diagnostics = {}, {}, {}, {}, {}
       local src = "local input = json_decode(" .. string.format("%q", magi.json_encode{ question = a.question, handoffs = labels, instruction = instruction }) .. ")\n" .. TRACE_SCRIPT
       local out, failure, metrics = magi.run_script(src, {
         tools = {"explore"}, explore_read_scope = scope, measure_explore = true,
@@ -1151,7 +1151,20 @@ end
             return decision
           end,
           check_trace_evidence = function(answer, index)
-            local found = live_evidence(answer, scope)
+            local found, invalid = live_evidence(answer, scope)
+            local rejected = {}
+            for _, ref in ipairs(invalid) do rejected[ref] = true end
+            local refs = {}
+            for ref in pairs(found) do refs[#refs + 1] = ref end
+            table.sort(refs)
+            local function preview(items)
+              local result = {}
+              for i = 1, math.min(#items, 8) do result[i] = items[i]:sub(1, 240) end
+              return result
+            end
+            local observation = { handoff = index, resolved = preview(refs), rejected = preview(invalid),
+              resolved_count = #refs, rejected_count = #invalid, checks = {} }
+            diagnostics[#diagnostics + 1] = observation
             local function check(i)
               checked[i] = true
               if expected[i] then
@@ -1159,6 +1172,10 @@ end
               else
                 verified[i] = next(found) ~= nil
               end
+              observation.checks[#observation.checks + 1] = { handoff = i,
+                expected = expected[i] and expected[i]:sub(1, 240) or nil,
+                outcome = verified[i] and "verified" or
+                  (rejected[expected[i]] and "rejected" or "missing") }
               if verified[i] then
                 if expected[i] then citations[i] = expected[i]
                 else
@@ -1182,6 +1199,8 @@ end
       record.phase = failure and "failed" or "completed"
       record.decisions, record.handoffs, record.evidence = decisions, {}, {}
       record.completed_at = magi.time()
+      record.citation_diagnostics = diagnostics
+      record.script_timed_out = failure ~= nil and failure:match("^script stopped at its time limit") ~= nil
       for i = 1, #labels do
         record.handoffs[i] = not checked[i] and "unchecked" or (verified[i] and "verified_reference" or "unverified")
         if citations[i] then record.evidence[#record.evidence + 1] = { handoff = i, citation = citations[i] } end
@@ -1190,6 +1209,7 @@ end
       if metrics then
         metrics.answers = nil
         record.metrics = metrics
+        record.request_limit_reached = type(metrics.model_calls) == "number" and metrics.model_calls >= cap
       end
       saved, err = magi.write_file(path, magi.json_encode(record))
       if not saved then return "call-path run " .. id .. " ended but its outcome could not be recorded: " .. tostring(err), true end

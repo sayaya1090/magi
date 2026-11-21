@@ -123,7 +123,7 @@ func TestRoutineFamilyPairedPolicyComparisonAndAdoption(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := &scriptLLM{steps: [][]port.ProviderEvent{
-		asideText("proof.go:1"), asideText("proof.go:1"), asideText("proof.go:2"),
+		asideText("proof.go:1\nproof.go:99"), asideText("proof.go:1"), asideText("proof.go:2"),
 	}}
 	r.a.llm = model
 	input := map[string]any{"split": "holdout"}
@@ -141,12 +141,18 @@ func TestRoutineFamilyPairedPolicyComparisonAndAdoption(t *testing.T) {
 		Rows            []struct {
 			Active, Candidate string
 			CandidateRun      string `json:"candidate_run"`
+			BaselineRun       string `json:"baseline_run"`
 		}
 	}
 	if failed || len(asks) != 1 || model.call != 3 || json.Unmarshal([]byte(out), &report) != nil ||
 		report.Tree == "" || report.Phase != "completed" || report.Solved != 1 || report.Regressed != 0 ||
 		len(report.Rows) != 1 || report.Rows[0].Active != "partial" || report.Rows[0].Candidate != "completed" {
 		t.Fatalf("paired holdout: %s, calls=%d, approvals=%d", out, model.call, len(asks))
+	}
+	raw, err := os.ReadFile(filepath.Join(r.s.Workdir, dir, "runs", report.Rows[0].BaselineRun+".json"))
+	if err != nil || !strings.Contains(string(raw), `"rejected":["proof.go:99"]`) ||
+		!strings.Contains(string(raw), `"expected":"proof.go:2","handoff":2,"outcome":"missing"`) {
+		t.Fatalf("citation diagnostics: %s (%v)", raw, err)
 	}
 	if err := r.command(t, "routine-trace-policy", "replay", report.Rows[0].CandidateRun); err == nil {
 		t.Fatal("holdout run must stay out of replay")
