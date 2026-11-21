@@ -83,13 +83,28 @@ func TestARoutineImprovesItselfWithinTheScopeAPersonDelegatedOnce(t *testing.T) 
 		t.Fatalf("rollback: %v", err)
 	}
 
+	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+		t.Fatal(err)
+	}
+	if out := improve("rolled-back", better); !strings.Contains(out, "was rolled back by a person") || active() {
+		t.Fatalf("renewing delegation must not undo a rollback: %q", out)
+	}
+	distinct := better + "\n-- independently versioned candidate"
+
 	r.put(t, ".magi/routines/"+rpe+"/tasks.json", rpeTasks("edited and frozen again"))
 	if err := r.command(t, "routine-evals-freeze", rpe); err != nil {
 		t.Fatal(err)
 	}
-	if out := improve("b2", better); !strings.Contains(out, "verdict: applicable") || !strings.Contains(out, "outside the delegated scope") || active() {
+	if out := improve("b2", distinct); !strings.Contains(out, "verdict: applicable") || !strings.Contains(out, "outside the delegated scope") || active() {
 		t.Fatalf("evals changed since the delegation: left for a person: %q", out)
 	}
+	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
+		t.Fatal(err)
+	}
+	if out := improve("distinct", distinct); !strings.Contains(out, "\nauto-applied ") || !active() {
+		t.Fatalf("a distinct version can still be applied: %q", out)
+	}
+
 	if err := r.command(t, "routine-auto", rpe, "off"); err != nil {
 		t.Fatal(err)
 	}

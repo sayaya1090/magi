@@ -962,6 +962,13 @@ do
     local r, err = load_routine(name)
     if not r then return nil, err end
     local dir, att = rdir(name), nil
+    if by == "auto" then
+      for _, decision in ipairs(read_lines(dir .. "decisions.jsonl")) do
+        if (decision.action == "rolled back" or decision.action == "rollback requested") and decision.replaced == ver then
+          return nil, "candidate " .. ver .. " was rolled back by a person; use /routine-adopt to restore it explicitly"
+        end
+      end
+    end
     for _, a in ipairs(read_lines(dir .. "attempts.jsonl")) do
       if type(a.candidate) == "table" and a.candidate.version == ver then att = a end
     end
@@ -1008,124 +1015,106 @@ do
   local IMPROVE_USE = [[
 Compare a candidate version of a routine with its active version, and record the attempt. You pass the candidate's whole script, the problem it addresses and your hypothesis (read routine_history first: earlier attempts, and why they were rejected). The candidate is checked against the routine's frozen contract (fixed fixtures, run dry: control flow only), then paired with the active version on the same frozen tasks. Each task is judged on its own — newly solved, newly regressed, still failing, kept — and the verdict is applicable, held (gain too thin, unstable or regressions to review) or rejected (contract broken, a protected task lost, tools or inputs changed). It never changes the active routine, its evals or its tools; a person adopts an applicable candidate.]]
 
-  local improve_spec = {
-    name = "routine_improve",
-    description = IMPROVE_USE,
-    schema = {
-      type = "object",
-      properties = {
-        name = { type = "string", description = "the routine to improve" },
-        script = { type = "string", description = "the candidate's whole Lua script" },
-        problem = { type = "string", description = "what kept going wrong, with the runs that showed it" },
-        hypothesis = { type = "string", description = "what this change should improve, and why" },
-        expected = { type = "string", description = "the effect you expect on the tasks" },
-        source = { type = "string", description = "the runs or attempts this candidate came from (ids)" },
-        from_run = { type = "string", description = "the run this started from (an id from /routine-trace); it must exist" },
-        previous = { type = "string", description = "the attempt this one follows (an id from routine_history); it must exist" },
-        tools = { type = "array", items = { type = "string" }, description = "only if it differs from the active version's (it will be rejected: tools are the person's to change)" },
-        inputs = { type = "object", description = "only if it differs from the active version's (rejected likewise)" },
-      },
-      required = { "name", "script", "hypothesis" },
-    },
-    execute = function(a)
-      a = a or {}
-      local r, err = load_routine(a.name)
-      if not r then return err, true end
-      if type(a.script) ~= "string" or a.script == "" then return "script is required", true end
-      if type(a.hypothesis) ~= "string" or a.hypothesis == "" then
-        return "hypothesis is required: what this change should improve, and why", true
+  local function improve(a, dev_only)
+    a = a or {}
+    local r, err = load_routine(a.name)
+    if not r then return err, true end
+    if type(a.script) ~= "string" or a.script == "" then return "script is required", true end
+    if type(a.hypothesis) ~= "string" or a.hypothesis == "" then
+      return "hypothesis is required: what this change should improve, and why", true
+    end
+    local dir = rdir(r.name)
+    -- Links: the run the person picked to start from, and the attempt this one follows. Both must
+    -- exist, so an attempt never points at something that was not there.
+    local source_run, follows
+    if a.from_run ~= nil and a.from_run ~= "" then
+      local fr = tostring(a.from_run)
+      local runs = stored("routine_runs")
+      for _, x in ipairs(type(runs.list) == "table" and runs.list or {}) do
+        if x.id == fr then source_run = { run = fr, goal = x.goal, code_hash = magi.sha256(tostring(x.script)):sub(1, 12) } end
       end
-      local dir = rdir(r.name)
-      -- Links: the run the person picked to start from, and the attempt this one follows. Both must
-      -- exist, so an attempt never points at something that was not there.
-      local source_run, follows
-      if a.from_run ~= nil and a.from_run ~= "" then
-        local fr = tostring(a.from_run)
-        local runs = stored("routine_runs")
-        for _, x in ipairs(type(runs.list) == "table" and runs.list or {}) do
-          if x.id == fr then source_run = { run = fr, goal = x.goal, code_hash = magi.sha256(tostring(x.script)):sub(1, 12) } end
+      if not source_run then return "no run " .. fr .. " (see /routine-trace); nothing was compared", true end
+    end
+    if a.previous ~= nil and a.previous ~= "" then
+      for _, p in ipairs(read_lines(dir .. "attempts.jsonl")) do
+        if p.id == a.previous then
+          local d = type(p.decision) == "table" and p.decision or {}
+          follows = { attempt = p.id, verdict = d.verdict, reason = d.reason }
         end
-        if not source_run then return "no run " .. fr .. " (see /routine-trace); nothing was compared", true end
       end
-      if a.previous ~= nil and a.previous ~= "" then
-        for _, p in ipairs(read_lines(dir .. "attempts.jsonl")) do
-          if p.id == a.previous then
-            local d = type(p.decision) == "table" and p.decision or {}
-            follows = { attempt = p.id, verdict = d.verdict, reason = d.reason }
-          end
-        end
-        if not follows then return "no attempt " .. tostring(a.previous) .. " of " .. r.name .. " (see routine_history); nothing was compared", true end
+      if not follows then return "no attempt " .. tostring(a.previous) .. " of " .. r.name .. " (see routine_history); nothing was compared", true end
+    end
+    local ctext, ttext = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
+    if type(ctext) ~= "string" or type(ttext) ~= "string" then
+      return "routine " .. r.name .. " has no " .. dir .. "contract.json and tasks.json; a person writes them and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
+    end
+    local frozen = stored("routine_evals_frozen")[r.name]
+    if type(frozen) ~= "table" then
+      return "evals for " .. r.name .. " are not frozen; a person reviews " .. dir .. "contract.json and tasks.json and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
+    end
+    local csha, tsha = magi.sha256(ctext), magi.sha256(ttext)
+    if csha ~= frozen.contract or tsha ~= frozen.tasks then
+      return "evals for " .. r.name .. " changed since they were frozen at " .. tostring(frozen.at) .. "; a person reviews the change and freezes them again; nothing was compared", true
+    end
+    local contract, tasks = decode(ctext), decode(ttext)
+    if not contract or not tasks then return "contract.json or tasks.json is not a JSON object", true end
+    local tools = r.tools
+    if type(a.tools) == "table" then
+      local seen = {}
+      tools = {}
+      for _, t in ipairs(a.tools) do
+        t = tostring(t)
+        if not seen[t] then seen[t] = true; tools[#tools + 1] = t end
       end
-      local ctext, ttext = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
-      if type(ctext) ~= "string" or type(ttext) ~= "string" then
-        return "routine " .. r.name .. " has no " .. dir .. "contract.json and tasks.json; a person writes them and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
-      end
-      local frozen = stored("routine_evals_frozen")[r.name]
-      if type(frozen) ~= "table" then
-        return "evals for " .. r.name .. " are not frozen; a person reviews " .. dir .. "contract.json and tasks.json and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
-      end
-      local csha, tsha = magi.sha256(ctext), magi.sha256(ttext)
-      if csha ~= frozen.contract or tsha ~= frozen.tasks then
-        return "evals for " .. r.name .. " changed since they were frozen at " .. tostring(frozen.at) .. "; a person reviews the change and freezes them again; nothing was compared", true
-      end
-      local contract, tasks = decode(ctext), decode(ttext)
-      if not contract or not tasks then return "contract.json or tasks.json is not a JSON object", true end
-      local tools = r.tools
-      if type(a.tools) == "table" then
-        local seen = {}
-        tools = {}
-        for _, t in ipairs(a.tools) do
-          t = tostring(t)
-          if not seen[t] then seen[t] = true; tools[#tools + 1] = t end
-        end
-        table.sort(tools)
-      end
-      local inputs = type(a.inputs) == "table" and a.inputs or r.inputs
-      local ver, base = version_of(a.script, inputs, tools), r.fingerprint:sub(1, 12)
-      if ver == base then return "the candidate is the active version " .. base .. "; nothing to compare", true end
+      table.sort(tools)
+    end
+    local inputs = type(a.inputs) == "table" and a.inputs or r.inputs
+    local ver, base = version_of(a.script, inputs, tools), r.fingerprint:sub(1, 12)
+    if ver == base then return "the candidate is the active version " .. base .. "; nothing to compare", true end
 
-      -- Gates, not scores: what a candidate may not change.
-      local reject
-      local had, has, added, dropped = {}, {}, {}, {}
-      for _, t in ipairs(r.tools) do had[t] = true end
-      for _, t in ipairs(tools) do
-        has[t] = true
-        if not had[t] then added[#added + 1] = t end
-      end
-      for _, t in ipairs(r.tools) do
-        if not has[t] then dropped[#dropped + 1] = t end
-      end
-      if #added > 0 or #dropped > 0 then
-        reject = "tool scope changed (" .. (#added > 0 and ("adds " .. table.concat(added, ", ")) or "") ..
-          ((#added > 0 and #dropped > 0) and "; " or "") .. (#dropped > 0 and ("drops " .. table.concat(dropped, ", ")) or "") ..
-          "): a candidate changes its script only; its tools are the person's to change"
-      elseif magi.json_encode(inputs) ~= magi.json_encode(r.inputs) then
-        reject = "input schema changed: a candidate changes its script only"
-      end
-      local writes = {}
-      for _, t in ipairs(tools) do
-        if WRITES[t] then writes[#writes + 1] = t end
-      end
+    -- Gates, not scores: what a candidate may not change.
+    local reject
+    local had, has, added, dropped = {}, {}, {}, {}
+    for _, t in ipairs(r.tools) do had[t] = true end
+    for _, t in ipairs(tools) do
+      has[t] = true
+      if not had[t] then added[#added + 1] = t end
+    end
+    for _, t in ipairs(r.tools) do
+      if not has[t] then dropped[#dropped + 1] = t end
+    end
+    if #added > 0 or #dropped > 0 then
+      reject = "tool scope changed (" .. (#added > 0 and ("adds " .. table.concat(added, ", ")) or "") ..
+        ((#added > 0 and #dropped > 0) and "; " or "") .. (#dropped > 0 and ("drops " .. table.concat(dropped, ", ")) or "") ..
+        "): a candidate changes its script only; its tools are the person's to change"
+    elseif magi.json_encode(inputs) ~= magi.json_encode(r.inputs) then
+      reject = "input schema changed: a candidate changes its script only"
+    end
+    local writes = {}
+    for _, t in ipairs(tools) do
+      if WRITES[t] then writes[#writes + 1] = t end
+    end
 
-      local contract_rows, cfail, cpass, cunv = {}, {}, 0, {}
-      if not reject then
-        for _, c in ipairs(type(contract.cases) == "table" and contract.cases or {}) do
-          local res, why = check_case(c, a.script, tools)
-          contract_rows[#contract_rows + 1] = { id = tostring(c.id), result = res, why = why ~= "" and why or nil }
-          if res == "fail" then cfail[#cfail + 1] = tostring(c.id) .. " (" .. why .. ")"
-          elseif res == "pass" then cpass = cpass + 1
-          else cunv[#cunv + 1] = tostring(c.id) end
-        end
-        if #cfail > 0 then reject = "breaks the contract: " .. table.concat(cfail, "; ") end
+    local contract_rows, cfail, cpass, cunv = {}, {}, 0, {}
+    if not reject then
+      for _, c in ipairs(type(contract.cases) == "table" and contract.cases or {}) do
+        local res, why = check_case(c, a.script, tools)
+        contract_rows[#contract_rows + 1] = { id = tostring(c.id), result = res, why = why ~= "" and why or nil }
+        if res == "fail" then cfail[#cfail + 1] = tostring(c.id) .. " (" .. why .. ")"
+        elseif res == "pass" then cpass = cpass + 1
+        else cunv[#cunv + 1] = tostring(c.id) end
       end
+      if #cfail > 0 then reject = "breaks the contract: " .. table.concat(cfail, "; ") end
+    end
 
-      local n = { solved = 0, regressed = 0, still_failing = 0, kept = 0, unstable = 0, unverified = 0 }
-      local rows, diffs, plost, lost, shaky = {}, {}, {}, {}, {}
-      local hold_solved, hold_regressed, hold_cheaper, hold_costlier = 0, 0, 0, 0
-      local cost = { active = { calls = 0, simulated_explore_calls = 0, reach = {}, explore = {} }, candidate = { calls = 0, simulated_explore_calls = 0, reach = {}, explore = {} } }
-      local reps = math.max(1, math.floor(tonumber(tasks.repeats) or 3))
-      if not reject then
-        for _, tk in ipairs(type(tasks.tasks) == "table" and tasks.tasks or {}) do
+    local n = { solved = 0, regressed = 0, still_failing = 0, kept = 0, unstable = 0, unverified = 0 }
+    local rows, diffs, plost, lost, shaky = {}, {}, {}, {}, {}
+    local hold_solved, hold_regressed, hold_cheaper, hold_costlier = 0, 0, 0, 0
+    local cost = { active = { calls = 0, simulated_explore_calls = 0, reach = {}, explore = {} }, candidate = { calls = 0, simulated_explore_calls = 0, reach = {}, explore = {} } }
+    local reps = math.max(1, math.floor(tonumber(tasks.repeats) or 3))
+    if not reject then
+      for _, tk in ipairs(type(tasks.tasks) == "table" and tasks.tasks or {}) do
+        if not dev_only or tk.split ~= "holdout" then
           local active_calls, candidate_calls = cost.active.calls, cost.candidate.calls
           local holdout = tk.split == "holdout"
           local b = task_result(tk, r.script, r.tools, reps, cost.active)
@@ -1152,166 +1141,201 @@ Compare a candidate version of a routine with its active version, and record the
           end
         end
       end
+    end
 
-      local effect
-      if #diffs > 0 then
-        local m, v = 0, 0
-        for _, d in ipairs(diffs) do m = m + d end
-        m = m / #diffs
-        for _, d in ipairs(diffs) do v = v + (d - m) ^ 2 end
-        local se = (#diffs > 1 and math.sqrt(v / (#diffs - 1)) or 0) / math.sqrt(#diffs)
-        effect = { mean = m, low = m - 1.96 * se, high = m + 1.96 * se, tasks = #diffs,
-          sign_p = sign_p(hold_solved, hold_solved + hold_regressed), split = "holdout" }
-      end
-
-      local reach_added, reach_counts = {}, { active = 0, candidate = 0 }
-      for k in pairs(cost.active.reach) do reach_counts.active = reach_counts.active + 1 end
-      for k in pairs(cost.candidate.reach) do
-        reach_counts.candidate = reach_counts.candidate + 1
-        if not cost.active.reach[k] then reach_added[#reach_added + 1] = k end
-      end
-      table.sort(reach_added)
-      local explore_changed = 0
-      for k in pairs(cost.candidate.explore) do
-        if not cost.active.explore[k] then explore_changed = explore_changed + 1 end
-      end
-      for k in pairs(cost.active.explore) do
-        if not cost.candidate.explore[k] then explore_changed = explore_changed + 1 end
-      end
-      cost.active.reach, cost.candidate.reach = nil, nil
-      cost.active.explore, cost.candidate.explore = nil, nil
-
-      local verdict, reason
-      if reject then
-        verdict, reason = "rejected", reject
-      elseif #plost > 0 then
-        verdict, reason = "rejected", "protected task regressed: " .. table.concat(plost, ", ") .. " — a gain elsewhere does not offset it"
-      elseif #lost > 0 then
-        verdict, reason = "held", "regressions to review: " .. table.concat(lost, ", ") .. " — not offset by what it solves"
-      elseif #shaky > 0 then
-        verdict, reason = "held", "results not settled on: " .. table.concat(shaky, ", ")
-      elseif n.solved == 0 then
-        local cost_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier)
-        if hold_costlier == 0 and cost_p <= IMPROVE_P then
-          verdict, reason = "applicable", string.format("same task results with fewer calls on %d holdout tasks (sign test p=%.3f)", hold_cheaper, cost_p)
-        else
-          verdict, reason = "held", "no quality gain and insufficient holdout evidence of fewer calls"
+    if dev_only then
+      -- This feedback stays in the current generation loop. Full attempts may contain
+      -- holdout results directly or through their verdict and follow-up notes.
+      if reject then return reject, true end
+      local problems = {}
+      for _, row in ipairs(rows) do
+        if row.transition == "regressed" or row.transition == "unstable" or row.transition == "unverified" then
+          problems[#problems + 1] = row.id .. ": " .. row.transition
         end
-      elseif not effect or effect.sign_p > IMPROVE_P then
-        verdict, reason = "held", string.format("holdout evidence too thin: %d newly solved, %d regressed over %d verified tasks (sign test p=%.3f; need <= %.2f)",
-          hold_solved, hold_regressed, #diffs, effect and effect.sign_p or 1, IMPROVE_P)
+      end
+      if #problems > 0 then return table.concat(problems, "; "), true end
+      return "passed development screening"
+    end
+
+    local effect
+    if #diffs > 0 then
+      local m, v = 0, 0
+      for _, d in ipairs(diffs) do m = m + d end
+      m = m / #diffs
+      for _, d in ipairs(diffs) do v = v + (d - m) ^ 2 end
+      local se = (#diffs > 1 and math.sqrt(v / (#diffs - 1)) or 0) / math.sqrt(#diffs)
+      effect = { mean = m, low = m - 1.96 * se, high = m + 1.96 * se, tasks = #diffs,
+        sign_p = sign_p(hold_solved, hold_solved + hold_regressed), split = "holdout" }
+    end
+
+    local reach_added, reach_counts = {}, { active = 0, candidate = 0 }
+    for k in pairs(cost.active.reach) do reach_counts.active = reach_counts.active + 1 end
+    for k in pairs(cost.candidate.reach) do
+      reach_counts.candidate = reach_counts.candidate + 1
+      if not cost.active.reach[k] then reach_added[#reach_added + 1] = k end
+    end
+    table.sort(reach_added)
+    local explore_changed = 0
+    for k in pairs(cost.candidate.explore) do
+      if not cost.active.explore[k] then explore_changed = explore_changed + 1 end
+    end
+    for k in pairs(cost.active.explore) do
+      if not cost.candidate.explore[k] then explore_changed = explore_changed + 1 end
+    end
+    cost.active.reach, cost.candidate.reach = nil, nil
+    cost.active.explore, cost.candidate.explore = nil, nil
+
+    local verdict, reason
+    if reject then
+      verdict, reason = "rejected", reject
+    elseif #plost > 0 then
+      verdict, reason = "rejected", "protected task regressed: " .. table.concat(plost, ", ") .. " — a gain elsewhere does not offset it"
+    elseif #lost > 0 then
+      verdict, reason = "held", "regressions to review: " .. table.concat(lost, ", ") .. " — not offset by what it solves"
+    elseif #shaky > 0 then
+      verdict, reason = "held", "results not settled on: " .. table.concat(shaky, ", ")
+    elseif n.solved == 0 then
+      local cost_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier)
+      if hold_costlier == 0 and cost_p <= IMPROVE_P then
+        verdict, reason = "applicable", string.format("same task results with fewer calls on %d holdout tasks (sign test p=%.3f)", hold_cheaper, cost_p)
       else
-        verdict, reason = "applicable", string.format("solves %d tasks (%d holdout), regresses none (holdout sign test p=%.3f)",
-          n.solved, hold_solved, effect.sign_p)
+        verdict, reason = "held", "no quality gain and insufficient holdout evidence of fewer calls"
       end
+    elseif not effect or effect.sign_p > IMPROVE_P then
+      verdict, reason = "held", string.format("holdout evidence too thin: %d newly solved, %d regressed over %d verified tasks (sign test p=%.3f; need <= %.2f)",
+        hold_solved, hold_regressed, #diffs, effect and effect.sign_p or 1, IMPROVE_P)
+    else
+      verdict, reason = "applicable", string.format("solves %d tasks (%d holdout), regresses none (holdout sign test p=%.3f)",
+        n.solved, hold_solved, effect.sign_p)
+    end
 
-      local vpath = dir .. "versions/" .. ver .. ".md"
-      local vtext = "---\nkind: routine\ndescription: " .. (tostring(r.description):gsub("\n", " ")) .. "\ntools: " ..
-        table.concat(tools, ", ") .. "\ninputs: " .. magi.json_encode(inputs) .. "\n---\nCandidate " .. ver .. " of " .. r.name ..
-        ". Hypothesis: " .. (a.hypothesis:gsub("\n", " ")) .. "\n\n```lua\n" .. a.script .. "\n```\n"
-      local wok, werr = magi.write_file(vpath, vtext)
-      if not wok then return "could not write " .. vpath .. ": " .. tostring(werr), true end
-      local change = diff_summary(r.script, a.script)
-      local attempt = {
-        id = "a" .. magi.sha256(ver .. tostring(magi.time()) .. tostring(magi.nonce())):sub(1, 8),
-        at = magi.time(), routine = r.name,
-        baseline = { version = base, path = r.path, file_sha256 = r.file_sha256 },
-        candidate = { version = ver, path = vpath, change = change, tools = tools, file_sha256 = magi.sha256(vtext) },
-        problem = a.problem, hypothesis = a.hypothesis, expected = a.expected, source = a.source,
-        source_run = source_run, follows = follows,
-        conditions = { evals = { contract = csha, tasks = tsha, frozen_at = frozen.at }, repeats = reps, tools = tools,
-          mode = "dry run on fixed fixtures: no tool reached, no model",
-          declared_revision = tasks.revision and tostring(tasks.revision) or nil,
-          declared_model = tasks.model and tostring(tasks.model) or nil, actual_model_calls = 0 },
-        contract = #contract_rows > 0 and contract_rows or nil,
-        tasks = #rows > 0 and rows or nil,
-        summary = n, effect = effect, cost = cost,
-        holdout_cost = { cheaper = hold_cheaper, costlier = hold_costlier,
-          sign_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier) },
-        evaluation_policy = EVAL_POLICY,
-        data_reach = { added = #reach_added > 0 and reach_added or nil, active = reach_counts.active, candidate = reach_counts.candidate, explore_changed = explore_changed,
-          compared = "read, grep, glob, list and recall_memory arguments on the tasks; explore not compared" },
-        decision = { verdict = verdict, reason = reason, by = "routine_improve" },
-      }
-      local aok, aerr = append_line(dir .. "attempts.jsonl", attempt)
-      if not aok then return "could not record the attempt: " .. tostring(aerr), true end
+    local vpath = dir .. "versions/" .. ver .. ".md"
+    local vtext = "---\nkind: routine\ndescription: " .. (tostring(r.description):gsub("\n", " ")) .. "\ntools: " ..
+      table.concat(tools, ", ") .. "\ninputs: " .. magi.json_encode(inputs) .. "\n---\nCandidate " .. ver .. " of " .. r.name ..
+      ". Hypothesis: " .. (a.hypothesis:gsub("\n", " ")) .. "\n\n```lua\n" .. a.script .. "\n```\n"
+    local wok, werr = magi.write_file(vpath, vtext)
+    if not wok then return "could not write " .. vpath .. ": " .. tostring(werr), true end
+    local change = diff_summary(r.script, a.script)
+    local attempt = {
+      id = "a" .. magi.sha256(ver .. tostring(magi.time()) .. tostring(magi.nonce())):sub(1, 8),
+      at = magi.time(), routine = r.name,
+      baseline = { version = base, path = r.path, file_sha256 = r.file_sha256 },
+      candidate = { version = ver, path = vpath, change = change, tools = tools, file_sha256 = magi.sha256(vtext) },
+      problem = a.problem, hypothesis = a.hypothesis, expected = a.expected, source = a.source,
+      source_run = source_run, follows = follows,
+      conditions = { evals = { contract = csha, tasks = tsha, frozen_at = frozen.at }, repeats = reps, tools = tools,
+        mode = "dry run on fixed fixtures: no tool reached, no model",
+        declared_revision = tasks.revision and tostring(tasks.revision) or nil,
+        declared_model = tasks.model and tostring(tasks.model) or nil, actual_model_calls = 0 },
+      contract = #contract_rows > 0 and contract_rows or nil,
+      tasks = #rows > 0 and rows or nil,
+      summary = n, effect = effect, cost = cost,
+      holdout_cost = { cheaper = hold_cheaper, costlier = hold_costlier,
+        sign_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier) },
+      evaluation_policy = EVAL_POLICY,
+      data_reach = { added = #reach_added > 0 and reach_added or nil, active = reach_counts.active, candidate = reach_counts.candidate, explore_changed = explore_changed,
+        compared = "read, grep, glob, list and recall_memory arguments on the tasks; explore not compared" },
+      decision = { verdict = verdict, reason = reason, by = "routine_improve" },
+    }
+    local aok, aerr = append_line(dir .. "attempts.jsonl", attempt)
+    if not aok then return "could not record the attempt: " .. tostring(aerr), true end
 
-      local lines = {
-        string.format("routine %s: candidate %s vs active %s (%s)", r.name, ver, base, change),
-        "verdict: " .. verdict .. " — " .. reason,
-      }
-      if source_run then lines[#lines + 1] = "from run " .. source_run.run .. " (" .. tostring(source_run.goal) .. ")" end
-      if follows then
-        lines[#lines + 1] = "follows attempt " .. follows.attempt .. " (" .. tostring(follows.verdict) .. ": " .. tostring(follows.reason) .. ")"
+    local lines = {
+      string.format("routine %s: candidate %s vs active %s (%s)", r.name, ver, base, change),
+      "verdict: " .. verdict .. " — " .. reason,
+    }
+    if source_run then lines[#lines + 1] = "from run " .. source_run.run .. " (" .. tostring(source_run.goal) .. ")" end
+    if follows then
+      lines[#lines + 1] = "follows attempt " .. follows.attempt .. " (" .. tostring(follows.verdict) .. ": " .. tostring(follows.reason) .. ")"
+    end
+    if #contract_rows > 0 then
+      lines[#lines + 1] = string.format("contract: pass %d, fail %d, unverified %d%s", cpass, #cfail, #cunv,
+        #cunv > 0 and (" (" .. table.concat(cunv, ", ") .. ")") or "")
+    end
+    if #rows > 0 then
+      lines[#lines + 1] = string.format("tasks (paired, x%d): solved %d, regressed %d, still failing %d, kept %d, unstable %d, unverified %d",
+        reps, n.solved, n.regressed, n.still_failing, n.kept, n.unstable, n.unverified)
+      for _, row in ipairs(rows) do
+        lines[#lines + 1] = string.format("  %s [%s%s]: %s -> %s = %s", row.id, row.split, row.protected and ", protected" or "",
+          row.active, row.candidate, row.transition)
       end
-      if #contract_rows > 0 then
-        lines[#lines + 1] = string.format("contract: pass %d, fail %d, unverified %d%s", cpass, #cfail, #cunv,
-          #cunv > 0 and (" (" .. table.concat(cunv, ", ") .. ")") or "")
+      if effect then
+        lines[#lines + 1] = string.format("effect: %+.2f per task (approximate 95%% interval %+.2f..%+.2f over %d holdout tasks), sign test p=%.3f",
+          effect.mean, effect.low, effect.high, effect.tasks, effect.sign_p)
       end
-      if #rows > 0 then
-        lines[#lines + 1] = string.format("tasks (paired, x%d): solved %d, regressed %d, still failing %d, kept %d, unstable %d, unverified %d",
-          reps, n.solved, n.regressed, n.still_failing, n.kept, n.unstable, n.unverified)
-        for _, row in ipairs(rows) do
-          lines[#lines + 1] = string.format("  %s [%s%s]: %s -> %s = %s", row.id, row.split, row.protected and ", protected" or "",
-            row.active, row.candidate, row.transition)
+      lines[#lines + 1] = string.format("cost (dry, x%d; no model calls): active %d calls / %d simulated explore, candidate %d calls / %d simulated explore", reps,
+        cost.active.calls, cost.active.simulated_explore_calls, cost.candidate.calls, cost.candidate.simulated_explore_calls)
+    end
+    if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
+    if #rows > 0 then
+      lines[#lines + 1] = #reach_added > 0 and ("data reach: adds " .. table.concat(reach_added, "; "):sub(1, 200))
+        or "data reach: no new read, grep, glob, list or recall_memory arguments"
+      lines[#lines + 1] = explore_changed > 0 and ("explore questions: " .. explore_changed .. " differ from the active version's")
+        or "explore questions: same as the active version's"
+    end
+    -- Delegated auto-apply: only an applicable candidate, only inside what the person allowed once.
+    local applied, auto_line = false, nil
+    if verdict == "applicable" then
+      local del = stored("routine_auto")[r.name]
+      if type(del) == "table" then
+        local why
+        if #writes > 0 then why = "it may write (" .. table.concat(writes, ", ") .. ")"
+        elseif table.concat(tools, ",") ~= table.concat(type(del.tools) == "table" and del.tools or {}, ",") then why = "its tools differ from the delegated ones"
+        elseif magi.json_encode(inputs) ~= tostring(del.inputs) then why = "its inputs differ from the delegated ones"
+        elseif explore_changed > 0 and del.explore_text ~= true then
+          why = "data reach differs (explore questions changed); /routine-auto " .. r.name .. " explore-text allows that"
+        elseif #reach_added > 0 then
+          why = "its data reach differs (adds " .. table.concat(reach_added, "; "):sub(1, 200) .. ")"
+        elseif type(del.evals) ~= "table" or del.evals.contract ~= csha or del.evals.tasks ~= tsha then
+          why = "the evals changed since the delegation of " .. tostring(del.at)
         end
-        if effect then
-          lines[#lines + 1] = string.format("effect: %+.2f per task (approximate 95%% interval %+.2f..%+.2f over %d holdout tasks), sign test p=%.3f",
-            effect.mean, effect.low, effect.high, effect.tasks, effect.sign_p)
-        end
-        lines[#lines + 1] = string.format("cost (dry, x%d; no model calls): active %d calls / %d simulated explore, candidate %d calls / %d simulated explore", reps,
-          cost.active.calls, cost.active.simulated_explore_calls, cost.candidate.calls, cost.candidate.simulated_explore_calls)
-      end
-      if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
-      if #rows > 0 then
-        lines[#lines + 1] = #reach_added > 0 and ("data reach: adds " .. table.concat(reach_added, "; "):sub(1, 200))
-          or "data reach: no new read, grep, glob, list or recall_memory arguments"
-        lines[#lines + 1] = explore_changed > 0 and ("explore questions: " .. explore_changed .. " differ from the active version's")
-          or "explore questions: same as the active version's"
-      end
-      -- Delegated auto-apply: only an applicable candidate, only inside what the person allowed once.
-      local applied, auto_line = false, nil
-      if verdict == "applicable" then
-        local del = stored("routine_auto")[r.name]
-        if type(del) == "table" then
-          local why
-          if #writes > 0 then why = "it may write (" .. table.concat(writes, ", ") .. ")"
-          elseif table.concat(tools, ",") ~= table.concat(type(del.tools) == "table" and del.tools or {}, ",") then why = "its tools differ from the delegated ones"
-          elseif magi.json_encode(inputs) ~= tostring(del.inputs) then why = "its inputs differ from the delegated ones"
-          elseif explore_changed > 0 and del.explore_text ~= true then
-            why = "data reach differs (explore questions changed); /routine-auto " .. r.name .. " explore-text allows that"
-          elseif #reach_added > 0 then
-            why = "its data reach differs (adds " .. table.concat(reach_added, "; "):sub(1, 200) .. ")"
-          elseif type(del.evals) ~= "table" or del.evals.contract ~= csha or del.evals.tasks ~= tsha then
-            why = "the evals changed since the delegation of " .. tostring(del.at)
-          end
-          if why then
-            auto_line = "not auto-applied: outside the delegated scope — " .. why .. "; a person may adopt it with /routine-adopt " .. r.name .. " " .. ver
+        if why then
+          auto_line = "not auto-applied: outside the delegated scope — " .. why .. "; a person may adopt it with /routine-adopt " .. r.name .. " " .. ver
+        else
+          local ok, prev = adopt_version(r.name, ver, "auto", { at = del.at })
+          if ok then
+            applied = true
+            auto_line = "auto-applied " .. ver .. " (was " .. prev .. ") under the delegation of " .. tostring(del.at) ..
+              "; its next run asks for approval; /routine-rollback " .. r.name .. " restores " .. prev
+            local summary = "[routine] auto-applied " .. ver .. " to " .. r.name .. " (was " .. prev .. "): " .. reason ..
+              ". Undo with /routine-rollback " .. r.name
+            magi.log(summary)
+            local sid = type(magi.session_id) == "function" and magi.session_id() or ""
+            if sid ~= "" and type(magi.notify) == "function" then pcall(magi.notify, sid, summary) end
           else
-            local ok, prev = adopt_version(r.name, ver, "auto", { at = del.at })
-            if ok then
-              applied = true
-              auto_line = "auto-applied " .. ver .. " (was " .. prev .. ") under the delegation of " .. tostring(del.at) ..
-                "; its next run asks for approval; /routine-rollback " .. r.name .. " restores " .. prev
-              local summary = "[routine] auto-applied " .. ver .. " to " .. r.name .. " (was " .. prev .. "): " .. reason ..
-                ". Undo with /routine-rollback " .. r.name
-              magi.log(summary)
-              local sid = type(magi.session_id) == "function" and magi.session_id() or ""
-              if sid ~= "" and type(magi.notify) == "function" then pcall(magi.notify, sid, summary) end
-            else
-              auto_line = "not auto-applied: " .. tostring(prev)
-            end
+            auto_line = "not auto-applied: " .. tostring(prev)
           end
         end
       end
-      if auto_line then lines[#lines + 1] = auto_line end
-      lines[#lines + 1] = "recorded as attempt " .. attempt.id .. " in " .. dir .. "attempts.jsonl; " ..
-        (applied and "applied" or verdict == "applicable" and ("a person may adopt it with /routine-adopt " .. r.name .. " " .. ver) or "it cannot be adopted")
-      lines[#lines + 1] = "checked: control flow on fixed fixtures, run dry — not the accuracy of real explore answers, not effects on files, not new tasks"
-      return table.concat(lines, "\n")
-    end,
+    end
+    if auto_line then lines[#lines + 1] = auto_line end
+    lines[#lines + 1] = "recorded as attempt " .. attempt.id .. " in " .. dir .. "attempts.jsonl; " ..
+      (applied and "applied" or verdict == "applicable" and ("a person may adopt it with /routine-adopt " .. r.name .. " " .. ver) or "it cannot be adopted")
+    lines[#lines + 1] = "checked: control flow on fixed fixtures, run dry — not the accuracy of real explore answers, not effects on files, not new tasks"
+    return table.concat(lines, "\n")
+  end
+
+  magi.register_tool{
+    name = "routine_improve",
+    description = IMPROVE_USE,
+    schema = {
+      type = "object",
+      properties = {
+        name = { type = "string", description = "the routine to improve" },
+        script = { type = "string", description = "the candidate's whole Lua script" },
+        problem = { type = "string", description = "what kept going wrong, with the runs that showed it" },
+        hypothesis = { type = "string", description = "what this change should improve, and why" },
+        expected = { type = "string", description = "the effect you expect on the tasks" },
+        source = { type = "string", description = "the runs or attempts this candidate came from (ids)" },
+        from_run = { type = "string", description = "the run this started from (an id from /routine-trace); it must exist" },
+        previous = { type = "string", description = "the attempt this one follows (an id from routine_history); it must exist" },
+        tools = { type = "array", items = { type = "string" }, description = "only if it differs from the active version's (it will be rejected: tools are the person's to change)" },
+        inputs = { type = "object", description = "only if it differs from the active version's (rejected likewise)" },
+      },
+      required = { "name", "script", "hypothesis" },
+    },
+    execute = function(a) return improve(a, false) end,
   }
-  magi.register_tool(improve_spec)
 
   magi.register_tool{
     name = "routine_history",
@@ -1326,16 +1350,13 @@ Compare a candidate version of a routine with its active version, and record the
     end,
   }
 
-  -- routine_autoimprove: the loop that proposes candidates by itself. Each round asks the sidecar
-  -- model (magi.analyze, one call) for one candidate from the active script, the problem and the
-  -- earlier attempts — holdout task ids hidden, so candidates are not written against the tasks that
-  -- judge them — compares it with routine_improve, and hands the verdict to the next round. It stops
-  -- at the first applicable candidate, which is applied only inside a /routine-auto delegation.
-  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only: keep the tools it calls and the inputs it reads. Do not repeat an attempt that was rejected or held; address why it was. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
+  -- Select on development cases and the contract, then evaluate the selected candidate once.
+  -- The final verdict is returned to the caller and never fed back to this generator.
+  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only: keep the tools it calls and the inputs it reads. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
 
   magi.register_tool{
     name = "routine_autoimprove",
-    description = "Improve a routine without asking: each round generates one candidate (one sidecar model call) from the active script, the problem and the earlier attempts, compares it with routine_improve and feeds the verdict to the next round. Stops at the first applicable candidate, which is applied only within a /routine-auto delegation. Rejected rounds are recorded, not announced.",
+    description = "Generate routine candidates and screen them on development cases. Compare the first passing candidate on the full frozen evaluation, including holdout, and apply it only within a /routine-auto delegation.",
     schema = { type = "object", properties = {
       name = { type = "string", description = "the routine" },
       problem = { type = "string", description = "what keeps going wrong, with the runs that showed it" },
@@ -1347,20 +1368,11 @@ Compare a candidate version of a routine with its active version, and record the
       if not r then return err, true end
       if type(a.problem) ~= "string" or a.problem == "" then return "problem is required: what keeps going wrong", true end
       local rounds = math.max(1, math.min(5, math.floor(tonumber(a.rounds) or 3)))
-      local holdout = {}
-      local tasks = decode(magi.read_file(rdir(r.name) .. "tasks.json"))
-      for _, tk in ipairs(tasks and type(tasks.tasks) == "table" and tasks.tasks or {}) do
-        if tk.split == "holdout" and tk.id ~= nil then holdout[#holdout + 1] = tostring(tk.id) end
-      end
-      table.sort(holdout, function(x, y) return #x > #y end)
-      local out, previous = {}, nil
+      local out, feedback = {}, {}
       for i = 1, rounds do
-        local cur = load_routine(r.name) or r
-        local hist = history_text(r.name, 5)
-        for _, id in ipairs(holdout) do hist = replace_plain(hist, id, "<holdout task>") end
-        local prompt = "Routine " .. r.name .. "\ntools: " .. table.concat(cur.tools, ", ") .. "\ninputs: " .. magi.json_encode(cur.inputs) ..
-          "\n\nProblem: " .. a.problem .. "\n\nActive script:\n```lua\n" .. cur.script ..
-          "\n```\n\nEarlier attempts, newest first (holdout tasks hidden):\n" .. hist
+        local prompt = "Routine " .. r.name .. "\ntools: " .. table.concat(r.tools, ", ") .. "\ninputs: " .. magi.json_encode(r.inputs) ..
+          "\n\nProblem: " .. a.problem .. "\n\nActive script:\n```lua\n" .. r.script ..
+          "\n```\n\nDevelopment feedback from this run:\n" .. table.concat(feedback, "\n")
         local ok, raw, gerr = pcall(magi.analyze, { system = GENERATE_SYSTEM, text = prompt, label = "routine-candidate" })
         if not ok or type(raw) ~= "string" then
           out[#out + 1] = string.format("round %d: no candidate (%s)", i, tostring(ok and gerr or raw))
@@ -1370,17 +1382,17 @@ Compare a candidate version of a routine with its active version, and record the
         if not hyp or not script then
           out[#out + 1] = string.format("round %d: the generator's reply had no hypothesis or script; nothing compared", i)
         else
-          local res = tostring((improve_spec.execute({ name = r.name, script = script, hypothesis = hyp, problem = a.problem,
-            previous = previous, source = "routine_autoimprove round " .. i })))
-          local verdict = res:match("verdict: (%a+)")
-          local reason = res:match("verdict: %a+ — ([^\n]*)") or res:match("^[^\n]*")
-          local aid = res:match("recorded as attempt (a%x+)")
-          if aid then previous = aid end
-          out[#out + 1] = string.format("round %d: %s — %s (hypothesis: %s)", i, verdict or "not compared", tostring(reason), hyp)
-          if verdict == "applicable" then
-            local auto = res:match("\n(auto%-applied [^\n]*)") or res:match("\n(not auto%-applied[^\n]*)")
-            if auto then out[#out + 1] = "  " .. auto end
-            break
+          local candidate = { name = r.name, script = script, hypothesis = hyp, problem = a.problem,
+            source = "routine_autoimprove round " .. i }
+          local result, failed = improve(candidate, true)
+          if failed then
+            local line = string.format("round %d: development screening failed — %s (hypothesis: %s)", i, result, hyp)
+            feedback[#feedback + 1] = line
+            out[#out + 1] = line
+          else
+            local final, final_failed = improve(candidate, false)
+            out[#out + 1] = string.format("round %d: full evaluation\n%s", i, final)
+            return table.concat(out, "\n"), final_failed
           end
         end
       end
@@ -1481,13 +1493,20 @@ Compare a candidate version of a routine with its active version, and record the
       local last = list[#list]
       local text = magi.read_file(rdir(name) .. "versions/" .. tostring(last.from) .. ".md")
       if type(text) ~= "string" then return "the earlier version " .. tostring(last.from) .. " is missing" end
+      -- Save the person's veto before restoring the old version, so a write failure
+      -- cannot leave a restored routine eligible for automatic reapplication.
+      local decisions = rdir(name) .. "decisions.jsonl"
+      local recorded, record_err = append_line(decisions, { at = magi.time(), action = "rollback requested", routine = name,
+        version = last.from, replaced = last.to, by = "person" })
+      if not recorded then return "could not record rollback: " .. tostring(record_err) end
       local ok, e = magi.write_file(last.path, text)
       if not ok then return "could not write " .. tostring(last.path) .. ": " .. tostring(e) end
       list[#list] = nil
       stack[name] = list
       magi.store_set("routine_rollback", stack)
-      append_line(rdir(name) .. "decisions.jsonl", { at = magi.time(), action = "rolled back", routine = name,
+      local audited, audit_err = append_line(decisions, { at = magi.time(), action = "rolled back", routine = name,
         version = last.from, replaced = last.to, by = "person" })
+      if not audited then magi.log("[routine] could not record rollback completion: " .. tostring(audit_err)) end
       magi.log("[routine] rolled " .. name .. " back to " .. tostring(last.from) .. "; its next run asks for approval")
     end,
   }

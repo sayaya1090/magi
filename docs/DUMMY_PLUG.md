@@ -352,11 +352,15 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   takes free text, so its arguments are compared whole: a candidate whose explore questions differ
   is left for a person too, unless the delegation was given as `/routine-auto <name> explore-text`,
   which the decision record states (`explore_text: true`).
-- **Generating candidates.** `routine_autoimprove{name, problem, rounds}` proposes candidates by
-  itself: each round makes one sidecar call (`magi.analyze`) with the active script, the problem and
-  the earlier attempts, with holdout task ids replaced by `<holdout task>`. It compares the reply with
-  `routine_improve`, linked to the previous round, and stops at the first applicable candidate (applied
-  only within a delegation). Rejected rounds are recorded, not announced. The dummy plug declares
-  `analyze` for this; generation costs model calls, the comparison does not.
+- **Generating candidates.** `routine_autoimprove{name, problem, rounds}` makes one sidecar call
+  (`magi.analyze`) per round with the active script, the problem and feedback from development
+  screening in the current run. It screens each candidate against the contract and development
+  cases. The first passing candidate receives one full evaluation, including holdout, and ends
+  the run regardless of the verdict. The full evaluation is recorded in `attempts.jsonl`. Its
+  results are kept out of future candidate prompts. Generation uses model calls. Fixture
+  comparisons run dry.
+- **After rollback.** `/routine-rollback <name>` also blocks automatic reapplication of the
+  removed version, even if you renew the delegation. You can still restore it explicitly
+  with `/routine-adopt <name> <version>` when it meets the adoption checks.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.

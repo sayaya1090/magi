@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -63,14 +62,17 @@ func rpeVariants(script string) (worse, better string) {
 	return
 }
 
-// The routine improves itself: each round a candidate is generated from the active script, the
-// problem and the earlier attempts (holdout task ids hidden), compared, and the next round follows the
-// last attempt. A rejected round is only recorded; the first applicable one is applied under the
-// delegation and the rounds stop.
 func TestARoutineGeneratesComparesAndAppliesItsOwnCandidates(t *testing.T) {
 	an := &scriptedAnalyzer{}
 	r, script := setupRPEWith(t, an)
 	worse, better := rpeVariants(script)
+	// Move the protected regression into development so it can guide round two.
+	tasks := strings.Replace(string(rpeTasks("")), `"id":"JB-close","input"`, `"id":"DEV-close","input"`, 1)
+	tasks = strings.Replace(tasks, `"protected":true,"split":"holdout"`, `"protected":true,"split":"dev"`, 1)
+	r.put(t, ".magi/routines/"+rpe+"/tasks.json", []byte(tasks))
+	if err := r.command(t, "routine-evals-freeze", rpe); err != nil {
+		t.Fatal(err)
+	}
 	an.replies = []string{candidateReply("trace the click path", worse),
 		candidateReply("trace the click path and keep asking where the code disagrees", better)}
 	if err := r.command(t, "routine-auto", rpe, "explore-text"); err != nil {
@@ -78,15 +80,15 @@ func TestARoutineGeneratesComparesAndAppliesItsOwnCandidates(t *testing.T) {
 	}
 	before := r.logs.text()
 	out, asks, failed := r.call(t, "ai", "routine_autoimprove", map[string]any{"name": rpe, "problem": "VS Code click paths are missed", "rounds": 3}, "allow")
-	if failed || len(asks) != 0 || !strings.Contains(out, "round 1: rejected") || !strings.Contains(out, "round 2: applicable") || !strings.Contains(out, "auto-applied") {
+	if failed || len(asks) != 0 || !strings.Contains(out, "round 1: development screening failed") || !strings.Contains(out, "verdict: applicable") || !strings.Contains(out, "auto-applied") {
 		t.Fatalf("rounds: %q %+v", out, asks)
 	}
 	if len(an.prompts) != 2 {
 		t.Fatalf("the rounds stop at the first applicable candidate: %d generations", len(an.prompts))
 	}
 	p2 := an.prompts[1]
-	if !strings.Contains(p2, "rejected") || !strings.Contains(p2, "<holdout task>") || strings.Contains(p2, "JB-close") {
-		t.Fatalf("the next generation reads why the last one was rejected, with holdout tasks hidden:\n%s", p2)
+	if !strings.Contains(p2, "DEV-close: regressed") || strings.Contains(p2, "holdout") || strings.Contains(p2, "sign test") {
+		t.Fatalf("the next round receives development feedback only:\n%s", p2)
 	}
 	if !strings.Contains(r.skill(t, rpe), "Trace from the click handler") {
 		t.Fatal("the applicable candidate was not applied")
@@ -99,12 +101,29 @@ func TestARoutineGeneratesComparesAndAppliesItsOwnCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	var first, second struct {
-		ID      string
-		Follows struct{ Attempt string }
+	if len(lines) != 1 || !strings.Contains(lines[0], "routine_autoimprove round 2") {
+		t.Fatalf("only the selected candidate gets a full evaluation record: %s", raw)
 	}
-	if len(lines) != 2 || json.Unmarshal([]byte(lines[0]), &first) != nil || json.Unmarshal([]byte(lines[1]), &second) != nil || second.Follows.Attempt != first.ID {
-		t.Fatalf("the second attempt must follow the first: %s", raw)
+}
+
+func TestARoutineHoldoutFailureEndsGenerationAndStaysOutOfLaterPrompts(t *testing.T) {
+	an := &scriptedAnalyzer{}
+	r, script := setupRPEWith(t, an)
+	worse, better := rpeVariants(script)
+	an.replies = []string{candidateReply("trace the click path", worse), candidateReply("preserve the policy question", better)}
+	args := map[string]any{"name": rpe, "problem": "VS Code click paths are missed", "rounds": 3}
+	out, _, failed := r.call(t, "ai1", "routine_autoimprove", args, "allow")
+	if failed || len(an.prompts) != 1 || !strings.Contains(out, "verdict: rejected") || !strings.Contains(out, "JB-close") {
+		t.Fatalf("holdout failure should end the invocation after one generation: %q", out)
+	}
+	out, _, failed = r.call(t, "ai2", "routine_autoimprove", args, "allow")
+	if failed || len(an.prompts) != 2 || !strings.Contains(out, "verdict: applicable") {
+		t.Fatalf("second invocation: %q", out)
+	}
+	for _, hidden := range []string{"JB-close", "protected task regressed", "sign test", "trace the click path"} {
+		if strings.Contains(an.prompts[1], hidden) {
+			t.Fatalf("prior full evaluation leaked %q into the generator:\n%s", hidden, an.prompts[1])
+		}
 	}
 }
 
