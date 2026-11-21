@@ -509,13 +509,14 @@ type ToolProgressData struct {
 // (tool, mcp, web, harness, subagent, or empty) and a screen picks its own icon for it. State is
 // done, running or waiting. Done/Total count the step's calls; Running is how many are in flight.
 type ProgressStage struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Kind    string `json:"kind,omitempty"`
-	State   string `json:"state"`
-	Done    int    `json:"done,omitempty"`
-	Total   int    `json:"total,omitempty"`
-	Running int    `json:"running,omitempty"`
+	After   *[]string `json:"after,omitempty"` // Nil for linear steps, empty for graph roots.
+	ID      string    `json:"id"`
+	Label   string    `json:"label"`
+	Kind    string    `json:"kind,omitempty"`
+	State   string    `json:"state"`
+	Done    int       `json:"done,omitempty"`
+	Total   int       `json:"total,omitempty"`
+	Running int       `json:"running,omitempty"`
 }
 
 // ToolArgsJSON is the ONE place that decides what a call's arguments look like on the wire.

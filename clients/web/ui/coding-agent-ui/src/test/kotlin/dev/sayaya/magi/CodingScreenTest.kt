@@ -425,6 +425,28 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("getComputedStyle(document.querySelector('#dock .stages')).display") shouldBe "none"
             }
         }
+        When("서로 독립된 두 분기 중 하나가 먼저 끝나면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now', true, undefined, undefined, [{id:'fast',label:'Fast',state:'done',after:[]},{id:'slow',label:'Slow',state:'running',after:[]},{id:'join',label:'Join',state:'waiting',after:['fast','slow']}])")
+            Then("분기가 나뉘고 합류는 대기하며 두 테마에서 완료색을 적용한다") {
+                val graph = page.locator("#dock .stage-graph")
+                graph.waitFor()
+                graph.locator(".stage-wires path").count() shouldBe 5
+                graph.locator("[data-stage-id=fast]").evaluate("e => getComputedStyle(e).gridRowStart") shouldBe "1"
+                graph.locator("[data-stage-id=slow]").evaluate("e => getComputedStyle(e).gridRowStart") shouldBe "2"
+                graph.locator("[data-stage-id=join]").getAttribute("data-state") shouldBe "waiting"
+                val root = page.locator("html")
+                val previous = root.getAttribute("color-theme")
+                try {
+                    for ((theme, color) in listOf("light" to "rgb(21, 128, 61)", "dark" to "rgb(134, 239, 172)")) {
+                        root.evaluate("(e, theme) => e.setAttribute('color-theme', theme)", theme)
+                        graph.locator("[data-stage-id=fast]").evaluate("e => getComputedStyle(e).color") shouldBe color
+                    }
+                } finally {
+                    root.evaluate("(e, theme) => theme === null ? e.removeAttribute('color-theme') : e.setAttribute('color-theme', theme)", previous)
+                }
+                page.evaluate("window.__magi_test_fleet('working', 's_now')")
+            }
+        }
         When("압축이 요약 조각 셋 중 하나를 끝냈으면") {
             page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 1, total: 3, chars: 840, elapsedMs: 12500})")
             Then("컴포저 위 막대가 보이고 끝난 조각의 비율로 찬다") {

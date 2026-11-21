@@ -152,6 +152,7 @@ data class ProgressStage(
     val done: Int = 0,
     val total: Int = 0,
     val running: Int = 0,
+    val after: List<String>? = null,
 )
 
 @Serializable

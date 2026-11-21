@@ -181,6 +181,11 @@ VS Code `updateStages` (`clients/vscode/src/web/chat_adapter.ts:1720`), web `Sta
 Start and end use the stages' states: start is `running` while any stage runs or waits and `done`
 after; end waits until every stage is done, or shows `failed`.
 
+
+`call_graph({...})` runs named tasks after their predecessors succeed. Declare each task with `id` and `tool`, optional `args` and `label`, and an `after` list of IDs declared earlier. A task can start as soon as its own predecessors finish. The host allows up to eight parallel-safe calls and runs an exclusive call on its own. The progress event uses `after: []` for a root and lists predecessor IDs for other graph tasks. Completed tasks use the success color while other branches continue.
+
+If a task fails, independent branches can continue and affected successors become `skipped`. The child session keeps the individual tool results and an `error` event with failed task IDs and the reasons successors were skipped, followed by `turn.finished`. To detect an unexpected result from a tool that reports success, the script must check that result and raise an error itself.
+
 ## 8. What it does not do
 
 - **Only permission asks reach the conversation.** A permission ask raised inside the child is shown

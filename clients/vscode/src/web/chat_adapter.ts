@@ -1654,7 +1654,7 @@ export function councilLine(r: { decision?: string }, language?: string): { text
 }
 
 /** One step of a call's progress as the tool reported it (core event.ProgressStage). */
-export interface ProgressStage { id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number }
+export interface ProgressStage { id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number; after?: string[] }
 
 // The marks a node draws: plain shapes in a 24-unit box, stroked in the node's colour (currentColor).
 const STAGE_MARK: Record<string, string> = {
@@ -1723,6 +1723,54 @@ export function stagesStrip(doc: Document, lang: string): HTMLElement {
   return strip;
 }
 
+function layoutStageGraph(doc: Document, strip: HTMLElement, state: StagesState, stages: ProgressStage[]): void {
+  const graph = doc.createElement('div');
+  graph.className = 'stage-graph';
+  const positions = new Map<string, { column: number; row: number }>();
+  const rows = new Map<number, number>();
+  const consumed = new Set<string>();
+  const edges: Array<[number, number, number, number]> = [];
+  const nodes: HTMLElement[] = [];
+  const place = (el: HTMLElement, column: number, row: number) => {
+    el.setAttribute('style', `grid-column:${column + 1};grid-row:${row + 1}`);
+    nodes.push(el);
+  };
+  place(state.start.el, 0, 0);
+  let lastColumn = 0;
+  for (const stage of stages) {
+    const parents = (stage.after ?? []).flatMap((id) => {
+      const position = positions.get(id);
+      if (!position) return [];
+      consumed.add(id);
+      return [position];
+    });
+    const column = 1 + Math.max(0, ...parents.map((p) => p.column));
+    const row = rows.get(column) ?? 0;
+    rows.set(column, row + 1);
+    positions.set(stage.id, { column, row });
+    lastColumn = Math.max(lastColumn, column);
+    place(state.nodes.get(stage.id)!.el, column, row);
+    for (const parent of parents.length ? parents : [{ column: 0, row: 0 }]) {
+      edges.push([parent.column, parent.row, column, row]);
+    }
+  }
+  place(state.end.el, lastColumn + 1, 0);
+  for (const [id, p] of positions) {
+    if (!consumed.has(id)) edges.push([p.column, p.row, lastColumn + 1, 0]);
+  }
+  const wires = doc.createElement('div');
+  wires.className = 'stage-wires';
+  wires.setAttribute('aria-hidden', 'true');
+  wires.innerHTML = `<svg width="${(lastColumn + 2) * 144}" height="${Math.max(1, ...rows.values()) * 76}">${edges.map(([from, fromRow, to, toRow]) => {
+    const x = from * 144 + 90, y = fromRow * 76 + 16;
+    const endX = to * 144 + 53, endY = toRow * 76 + 16;
+    const bend = (x + endX) / 2;
+    return `<path d="M${x} ${y} C${bend} ${y} ${bend} ${endY} ${endX} ${endY} m-5 -4 l5 4 -5 4"/>`;
+  }).join('')}</svg>`;
+  graph.append(wires, ...nodes);
+  strip.replaceChildren(graph);
+}
+
 /** Shows these steps in the strip, keeping each step's node and touching only what changed. */
 export function updateStages(doc: Document, strip: HTMLElement, stages: ProgressStage[]): void {
   const s = (strip as unknown as { __stages?: StagesState }).__stages;
@@ -1744,12 +1792,20 @@ export function updateStages(doc: Document, strip: HTMLElement, stages: Progress
   }
   const live = stages.some((x) => x.state === 'running' || x.state === 'waiting');
   const startState = stages.length === 0 || stages.every((x) => x.state === 'waiting') ? 'waiting' : live ? 'running' : 'done';
-  const endState = stages.length === 0 || live ? 'waiting' : stages.some((x) => x.state === 'failed') ? 'failed' : 'done';
+  const endState = stages.length === 0 || live ? 'waiting' : stages.some((x) => x.state === 'failed' || x.state === 'skipped') ? 'failed' : 'done';
   markStage(s.start, 'start', startState);
   markStage(s.end, 'end', endState);
-  const order = stages.map((x) => x.id).join('\u0000');
+  const graph = stages.some((x) => x.after !== undefined);
+  const order = JSON.stringify(stages.map((x) => [x.id, x.after]));
   if (order !== s.order) {
     s.order = order;
+    if (graph) {
+      layoutStageGraph(doc, strip, s, stages);
+      return;
+    }
+    for (const node of [s.start, ...s.nodes.values(), s.end]) {
+      if (node.el.getAttribute('style') !== null) node.el.removeAttribute('style');
+    }
     const line: HTMLElement[] = [s.start.el];
     for (const x of stages) line.push(stageArrow(doc), (s.nodes.get(x.id) as StageNode).el);
     line.push(stageArrow(doc), s.end.el);

@@ -83,6 +83,16 @@ local function track()
     stage = function(name) open(name); report(true) end,
   }
   local function on_call(e)
+    if e.phase == "graph" then
+      local out = {}
+      for _, task in ipairs(e.graph) do
+        local deps = task.after
+        out[#out + 1] = { id = task.id, label = clip(task.label), kind = kind_of(task.tool), state = task.state,
+          after = #deps > 0 and deps or nil, graph = true }
+      end
+      magi.progress("", { stages = out, force = true })
+      return
+    end
     if e.batch == 0 then return end -- a single call_tool is not a step of its own
     local i = batches[e.batch]
     if not i then
@@ -118,6 +128,7 @@ Run one Lua script that calls tools for you, as a subagent no model drives: only
 In the script:
 - call_tool(name, args) runs a tool and returns its text, or nil and the reason. Open tools: read, grep, glob, list, explore, recall_memory, bash, edit, multiedit, write. Each call follows the conversation's permission mode, as the model's own call would: one the person must approve is asked in the conversation and the script waits for the answer; a refusal comes back as nil and the reason. glob and list return a JSON array: json_decode it.
 - call_all({ {name, args}, ... }) runs several calls at the same time (at most 8 at once) and returns { {ok=true, text=} or {ok=false, error=} } in the order asked; one failure does not stop the rest.
+- call_graph({{id="a", tool="glob", args={pattern="docs/*.md"}}, {id="b", tool="read", after={"a"}, args={path="README.md"}}, ...}) runs tasks once their named predecessors succeed. Declare predecessors first. Independent safe calls overlap; a task with multiple predecessors joins their branches. The call returns output by task ID, or stops the script after a failure and skips its dependents.
 - plan({name, ...}) lists the steps ahead (call it first): the person watching sees them all from the start, each updated in place. stage(name) opens the next step (a planned one by that name, or a new one). call_all fills the open step (or opens one) with its tool and k/n.
 - progress(text) reports where the script is; print(...) is the only output, so keep it to what you need.
 - json_encode(v) / json_decode(s), and Lua's string, table and math libraries. No files, processes or modules of its own.

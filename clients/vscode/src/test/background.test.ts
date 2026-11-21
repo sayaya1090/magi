@@ -64,4 +64,25 @@ test('the steps a tool reports ride its own row, and a strip keeps a node per st
   assert.equal(role('end')[0].attrs['data-state'], 'done', 'end lights when every step is done');
   updateStages(doc, strip, [{ id: 's1', label: 'list', kind: 'tool', state: 'done' }, { id: 's2', label: 'check', state: 'failed' }]);
   assert.equal(role('end')[0].attrs['data-state'], 'failed', 'end shows a failure');
+
+  const branched = [
+    { id: 's1', label: 'fast', state: 'done', after: [] },
+    { id: 'slow', label: 'slow', state: 'running', after: [] },
+    { id: 'next', label: 'next', state: 'done', after: ['s1'] },
+    { id: 'join', label: 'join', state: 'waiting', after: ['next', 'slow'] },
+  ];
+  updateStages(doc, strip, branched);
+  const graph = kids()[0];
+  assert.equal(graph.className, 'stage-graph');
+  assert.equal(graph.children[0].innerHTML.match(/<path /g)?.length, 6);
+  const graphNode = (id: string) => graph.children.find((child) => child.attrs['data-stage-id'] === id);
+  assert.equal(graphNode('s1')?.attrs.style, 'grid-column:2;grid-row:1');
+  assert.equal(graphNode('slow')?.attrs.style, 'grid-column:2;grid-row:2');
+  assert.equal(graphNode('join')?.attrs['data-state'], 'waiting');
+  assert.equal(graph.children.find((child) => child.attrs['data-role'] === 'end')?.attrs['data-state'], 'waiting');
+  assert.equal(graphNode('s1'), first[0]);
+  updateStages(doc, strip, branched.map((step) => ({ ...step, state: step.id === 'slow' ? 'failed' : step.id === 'join' ? 'skipped' : 'done' })));
+  assert.equal(kids()[0], graph);
+  assert.equal(graphNode('join')?.attrs['data-state'], 'skipped');
+  assert.equal(graph.children.find((child) => child.attrs['data-role'] === 'end')?.attrs['data-state'], 'failed');
 });

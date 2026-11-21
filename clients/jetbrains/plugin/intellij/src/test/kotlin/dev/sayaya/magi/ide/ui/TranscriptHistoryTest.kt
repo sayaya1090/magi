@@ -316,7 +316,7 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         assertEquals("running", state("start")); assertEquals("waiting", state("end"))
         strip.update(listOf(step("a", null, "done"), step("b", null, "done")))
         assertEquals("done", state("start")); assertEquals("done", state("end"))
-        assertEquals("start and end are drawn like a done step", Look.body, role(strip, "end").single().foreground)
+        assertEquals("the completed run uses the success color", Look.success, role(strip, "end").single().foreground)
         strip.update(listOf(step("a", null, "done"), step("b", null, "failed")))
         assertEquals("done", state("start")); assertEquals("failed", state("end"))
     }
@@ -353,6 +353,41 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         strip.update(listOf(step("a"), step("b")))
         assertEquals("back in the order of the last report", listOf("a", "b"), shown())
         assertSame("each step keeps its node", a, node("a"))
+    }
+
+    fun testProgressGraphKeepsFinishedBranchVisibleWhileJoinWaits() {
+        val strip = ProgressStages()
+        val stages = listOf(
+            step("fast", null, "done").copy(after = emptyList()),
+            step("slow", null, "running").copy(after = emptyList()),
+            step("next", null, "done").copy(after = listOf("fast")),
+            step("join", null, "waiting").copy(after = listOf("next", "slow")),
+        )
+        fun node(id: String) = role(strip, "step").single { it.getClientProperty(ProgressStages.ID) == id }
+        strip.update(stages)
+        val layout = strip.layout as java.awt.GridBagLayout
+        val finished = node("fast")
+        assertEquals(layout.getConstraints(finished).gridx, layout.getConstraints(node("slow")).gridx)
+        assertTrue(layout.getConstraints(finished).gridy != layout.getConstraints(node("slow")).gridy)
+        assertTrue(layout.getConstraints(node("join")).gridx > layout.getConstraints(node("next")).gridx)
+        val wasDark = !com.intellij.ui.JBColor.isBright()
+        try {
+            com.intellij.ui.JBColor.setDark(false)
+            assertEquals(java.awt.Color(0x15803D).rgb, finished.foreground.rgb)
+            com.intellij.ui.JBColor.setDark(true)
+            assertEquals(java.awt.Color(0x86EFAC).rgb, finished.foreground.rgb)
+        } finally {
+            com.intellij.ui.JBColor.setDark(wasDark)
+        }
+        assertEquals("waiting", role(strip, "end").single().getClientProperty(ProgressStages.STATE))
+        strip.update(stages.map { it.copy(state = when (it.id) {
+            "slow" -> "failed"
+            "join" -> "skipped"
+            else -> it.state
+        }) })
+        assertSame(finished, node("fast"))
+        assertEquals("skipped", node("join").getClientProperty(ProgressStages.STATE))
+        assertEquals("failed", role(strip, "end").single().getClientProperty(ProgressStages.STATE))
     }
 
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {

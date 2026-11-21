@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	luaplugin "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -193,4 +194,40 @@ func TestAChildNeverClosedIsLeftForRecovery(t *testing.T) {
 	if _, ok := unfinishedTurn(evs); !ok {
 		t.Fatal("a child cut off mid-script must read as unfinished")
 	}
+}
+
+func TestDummyPlugGraphFailureIsRecordedInTheChildSession(t *testing.T) {
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
+	ctx := context.Background()
+	parent := a.sessionInfo(ctx, sid)
+	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), Logf: func(message string) { t.Log(message) }})
+	if _, err := host.Load(ctx, filepath.Join("..", "..", "plugins", "dummy-plug")); err != nil {
+		t.Fatal(err)
+	}
+	args, err := json.Marshal(map[string]string{"script": `call_graph({
+   {id="missing", tool="read", args={path="workflow-missing-input.txt"}},
+   {id="join", tool="list", after={"missing"}},
+ })`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer := &session.ToolCall{CallID: "graph", Name: "dummy_plug", Args: args}
+	a.executeTool(ctx, parent, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), "")
+	children, err := a.store.ChildSessions(ctx, parent.Workdir, string(sid))
+	if err != nil || len(children) != 1 {
+		t.Fatalf("want one persisted child, got %v (%v)", children, err)
+	}
+	log, err := a.store.Read(ctx, children[0].ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range log {
+		if e.Type == event.TypeError && strings.Contains(string(e.Data), "workflow-missing-input.txt") && strings.Contains(string(e.Data), "join skipped: blocked by missing") {
+			if log[len(log)-1].Type != event.TypeTurnFinished {
+				t.Fatal("child did not record its terminal event")
+			}
+			return
+		}
+	}
+	t.Fatalf("child log lacks the failed input and blocked join: %+v", log)
 }

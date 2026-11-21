@@ -507,6 +507,8 @@ type ToolEnv struct {
 	// parent and kept out of the model's history. Only a fixed read-only set may be called, and only
 	// so many times per call. nil when the host does not offer it.
 	CallTool func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error)
+	// ParallelToolSafe reports whether an inner tool can overlap other inner calls.
+	ParallelToolSafe func(name string) bool
 	// OpenChild opens a child session of this call's session, driven by the tool itself rather than a
 	// model: what the child's CallTool runs is recorded in the CHILD's log, under the same permission
 	// gate, start fact and recovery as any call, so the parent's log keeps only this call and its

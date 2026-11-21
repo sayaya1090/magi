@@ -376,8 +376,14 @@ ${idePaletteCss}
   .stages .stage-arrow { line-height: 32px; opacity: .5; }
   .stages .stage[data-state=waiting] { opacity: .55; }
   .stages .stage[data-state=running] { color: var(--vscode-textLink-foreground); font-weight: 600; }
-  .stages .stage[data-state=done] { color: var(--vscode-foreground); }
+  .stages .stage[data-state=done] { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
   .stages .stage[data-state=failed] { color: var(--vscode-errorForeground); }
+  .stages .stage[data-state=skipped] { text-decoration: line-through; }
+  .stages .stage-graph { position: relative; isolation: isolate; display: grid; grid-auto-columns: 144px; grid-auto-rows: minmax(76px, auto); overflow: auto; max-width: 100%; }
+  .stages .stage-graph .stage { justify-self: center; min-width: 0; }
+  .stages .stage-graph .stage-label { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .stages .stage-wires { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+  .stages .stage-wires svg { fill: none; stroke: var(--vscode-descriptionForeground); stroke-width: 1.25; }
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false"><svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg></button></header>
 <aside id="info" aria-label="컴패니언 정보" hidden></aside>

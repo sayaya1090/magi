@@ -132,3 +132,48 @@ func TestRunScriptNeedsAToolCall(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRunScriptGraphAdvancesAnIndependentBranchBeforeJoining(t *testing.T) {
+	advanced := make(chan struct{})
+	env := port.ToolEnv{
+		ParallelToolSafe: func(string) bool { return true },
+		CallTool: func(ctx context.Context, name string, _ json.RawMessage) (session.ToolResult, error) {
+			switch name {
+			case "grep":
+				select {
+				case <-advanced:
+				case <-ctx.Done():
+					return session.ToolResult{}, ctx.Err()
+				}
+			case "glob":
+				close(advanced)
+			}
+			return session.ToolResult{Content: json.RawMessage(`"` + name + `"`)}, nil
+		},
+	}
+	got := runScript(t, scriptTool(t), env, map[string]any{"timeout": 3, "src": `
+local results = call_graph({
+  {id="fast", tool="read"},
+  {id="slow", tool="grep"},
+  {id="next", tool="glob", after={"fast"}},
+  {id="join", tool="list", after={"slow", "next"}},
+})
+print(results.join)`})
+	if got != "list\n|ERR:nil" {
+		t.Fatalf("the fast branch must advance while the slow branch waits: %q", got)
+	}
+}
+
+func TestRunScriptGraphSkipsAJoinAfterAFailedBranch(t *testing.T) {
+	var calls []recordedCall
+	got := runScript(t, scriptTool(t), recordingEnv(&calls), map[string]any{"src": `
+call_graph({
+  {id="bad", tool="grep"},
+  {id="good", tool="read"},
+  {id="join", tool="list", after={"bad", "good"}},
+})
+print("joined")`})
+	if !strings.Contains(got, "bad: no such pattern") || !strings.Contains(got, "join skipped: blocked by bad") || strings.Contains(got, "joined") || len(calls) != 2 {
+		t.Fatalf("failure must block the join, with the independent branch still running: got %q calls %+v", got, calls)
+	}
+}

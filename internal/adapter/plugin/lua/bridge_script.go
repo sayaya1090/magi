@@ -67,7 +67,7 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		}
 		return host(ctx, name, args)
 	}
-	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, scriptHooksOf(L, opts), src, timeout, limit)
+	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, p.env.ParallelToolSafe, scriptHooksOf(L, opts), src, timeout, limit)
 	if child != nil {
 		child.Close(out, err)
 	}
@@ -134,7 +134,18 @@ func (p *plugin) bridgeProgress(L *lua.LState) int {
 				raw, err = json.Marshal(v)
 			}
 			if err == nil {
-				err = json.Unmarshal(raw, &stages)
+				var wire []struct {
+					event.ProgressStage
+					Graph bool `json:"graph"`
+				}
+				err = json.Unmarshal(raw, &wire)
+				for _, step := range wire {
+					if step.Graph && step.After == nil {
+						step.After = new([]string)
+						*step.After = []string{}
+					}
+					stages = append(stages, step.ProgressStage)
+				}
 			}
 			if err != nil {
 				L.RaiseError("magi.progress: stages are not a list of steps: %v", err)
@@ -202,7 +213,7 @@ func scriptHooksOf(L *lua.LState, opts *lua.LTable) scriptHooks {
 	return h
 }
 
-func execScript(parent context.Context, call toolCaller, note func(string), hooks scriptHooks, src string, timeout time.Duration, limit int) (string, error) {
+func execScript(parent context.Context, call toolCaller, note func(string), parallelSafe func(string) bool, hooks scriptHooks, src string, timeout time.Duration, limit int) (string, error) {
 	if note == nil {
 		note = func(string) {}
 	}
@@ -228,6 +239,7 @@ func execScript(parent context.Context, call toolCaller, note func(string), hook
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	S.SetContext(ctx)
+	installScriptGraph(S, ctx, call, parallelSafe, fire)
 
 	var out strings.Builder
 	cut := false
@@ -314,20 +326,43 @@ func execScript(parent context.Context, call toolCaller, note func(string), hook
 		batches++
 		batch := batches
 		evs := make(chan map[string]any, 2*len(jobs))
-		slots := make(chan struct{}, scriptParallel)
+		workers := scriptParallel
+		if parallelSafe != nil {
+			for _, job := range jobs {
+				if !parallelSafe(job.name) {
+					workers = 1
+					break
+				}
+			}
+		}
+		slots := make(chan struct{}, workers)
 		var wg sync.WaitGroup
 		var done int32
 		for i, j := range jobs {
+			work := func() {
+				slots <- struct{}{}
+				defer func() { <-slots }()
+				emit := func(ev map[string]any) {
+					if workers == 1 {
+						fire(ev)
+					} else {
+						evs <- ev
+					}
+				}
+				emit(map[string]any{"phase": "start", "tool": j.name, "batch": batch, "index": i + 1, "size": len(jobs)})
+				text, ok := toolText(call(ctx, j.name, j.args))
+				emit(map[string]any{"phase": "end", "tool": j.name, "batch": batch, "index": i + 1, "size": len(jobs), "ok": ok})
+				answers[i] = answer{text, ok}
+				note(fmt.Sprintf("call_all %d/%d", atomic.AddInt32(&done, 1), len(jobs)))
+			}
+			if workers == 1 {
+				work()
+				continue
+			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				slots <- struct{}{}
-				defer func() { <-slots }()
-				evs <- map[string]any{"phase": "start", "tool": j.name, "batch": batch, "index": i + 1, "size": len(jobs)}
-				text, ok := toolText(call(ctx, j.name, j.args))
-				evs <- map[string]any{"phase": "end", "tool": j.name, "batch": batch, "index": i + 1, "size": len(jobs), "ok": ok}
-				answers[i] = answer{text, ok}
-				note(fmt.Sprintf("call_all %d/%d", atomic.AddInt32(&done, 1), len(jobs)))
+				work()
 			}()
 		}
 		// The calls' facts reach the plugin here, on the script's goroutine, never from a worker.

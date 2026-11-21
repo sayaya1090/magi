@@ -53,7 +53,7 @@ export interface Row {
   ok?: boolean;
   background?: boolean;
   /** Tool rows only: the steps the tool reported in `tool.progress`; each report replaces the last. */
-  stages?: Array<{ id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number }>;
+  stages?: Array<{ id: string; label: string; kind?: string; state: string; done?: number; total?: number; running?: number; after?: string[] }>;
   /**
    * Tool rows only: it DID the work and left something the agent must read.
    *

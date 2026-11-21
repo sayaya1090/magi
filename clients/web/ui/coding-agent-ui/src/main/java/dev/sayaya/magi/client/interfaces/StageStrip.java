@@ -9,6 +9,9 @@ import jsinterop.base.JsPropertyMap;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 
@@ -85,12 +88,20 @@ final class StageStrip {
         start.label.textContent = Labels.tr("progress.start");
         end.label.textContent = Labels.tr("progress.end");
         List<String> ids = new ArrayList<>();
+        Map<String, List<String>> dependencies = new LinkedHashMap<>();
         boolean allWaiting = true, live = false, failed = false;
         for (int i = 0; i < list.getLength(); i++) {
             JsPropertyMap<Object> s = Js.asPropertyMap(list.getAt(i));
             String id = str(s.get("id"));
             if (id.isEmpty()) continue;
             ids.add(id);
+            Object after = s.get("after");
+            if (after != null) {
+                JsArrayLike<Object> predecessors = Js.asArrayLike(after);
+                List<String> parents = new ArrayList<>();
+                for (int j = 0; j < predecessors.getLength(); j++) parents.add(str(predecessors.getAt(j)));
+                dependencies.put(id, parents);
+            }
             Node n = nodes.get(id);
             if (n == null) {
                 n = new Node("step");
@@ -107,21 +118,98 @@ final class StageStrip {
             n.mark(kind.isEmpty() ? "step" : kind, state);
             if (!"waiting".equals(state)) allWaiting = false;
             if ("running".equals(state) || "waiting".equals(state)) live = true;
-            if ("failed".equals(state)) failed = true;
+            if ("failed".equals(state) || "skipped".equals(state)) failed = true;
         }
         nodes.keySet().retainAll(ids);
         boolean none = ids.isEmpty();
         start.mark("start", none || allWaiting ? "waiting" : live ? "running" : "done");
         end.mark("end", none || live ? "waiting" : failed ? "failed" : "done");
-        String now = String.join("\u0000", ids);
+        StringBuilder topology = new StringBuilder();
+        for (String id : ids) {
+            appendKey(topology, id);
+            List<String> parents = dependencies.get(id);
+            appendKey(topology, parents == null ? "linear" : Integer.toString(parents.size()));
+            if (parents != null) for (String parent : parents) appendKey(topology, parent);
+        }
+        String now = topology.toString();
         if (!now.equals(order)) {
             order = now;
             box.textContent = "";
-            box.append(start.el);
-            for (String id : ids) box.append(arrow(), nodes.get(id).el);
-            box.append(arrow(), end.el);
+            if (dependencies.isEmpty()) {
+                start.el.removeAttribute("style");
+                end.el.removeAttribute("style");
+                box.append(start.el);
+                for (String id : ids) {
+                    HTMLElement node = nodes.get(id).el;
+                    node.removeAttribute("style");
+                    box.append(arrow(), node);
+                }
+                box.append(arrow(), end.el);
+            } else {
+                layoutGraph(ids, dependencies);
+            }
         }
         box.removeAttribute("hidden");
+    }
+
+    private static void appendKey(StringBuilder key, String value) {
+        key.append(value.length()).append(':').append(value);
+    }
+
+    private void layoutGraph(List<String> ids, Map<String, List<String>> dependencies) {
+        HTMLElement graph = el("div");
+        graph.className = "stage-graph";
+        Map<String, int[]> positions = new LinkedHashMap<>();
+        Map<Integer, Integer> rowCounts = new HashMap<>();
+        Set<String> consumed = new HashSet<>();
+        StringBuilder paths = new StringBuilder();
+        int[] origin = {0, 0};
+        place(graph, start.el, origin);
+        int lastColumn = 0, rowCount = 1;
+        for (String id : ids) {
+            List<int[]> parents = new ArrayList<>();
+            int column = 1;
+            List<String> predecessors = dependencies.get(id);
+            if (predecessors != null) for (String parent : predecessors) {
+                int[] position = positions.get(parent);
+                if (position == null) continue;
+                parents.add(position);
+                consumed.add(parent);
+                column = Math.max(column, position[0] + 1);
+            }
+            int row = rowCounts.getOrDefault(column, 0);
+            rowCounts.put(column, row + 1);
+            lastColumn = Math.max(lastColumn, column);
+            rowCount = Math.max(rowCount, row + 1);
+            int[] position = {column, row};
+            positions.put(id, position);
+            place(graph, nodes.get(id).el, position);
+            if (parents.isEmpty()) connect(paths, origin, position);
+            else for (int[] parent : parents) connect(paths, parent, position);
+        }
+        int[] terminal = {lastColumn + 1, 0};
+        place(graph, end.el, terminal);
+        for (String id : ids) if (!consumed.contains(id)) connect(paths, positions.get(id), terminal);
+        HTMLElement wires = el("div");
+        wires.className = "stage-wires";
+        wires.setAttribute("aria-hidden", "true");
+        wires.innerHTML = "<svg width='" + ((lastColumn + 2) * 144) + "' height='" + (rowCount * 76) + "'>" + paths + "</svg>";
+        graph.append(wires);
+        box.append(graph);
+    }
+
+    private static void place(HTMLElement graph, HTMLElement node, int[] position) {
+        node.setAttribute("style", "grid-column:" + (position[0] + 1) + ";grid-row:" + (position[1] + 1));
+        graph.append(node);
+    }
+
+    private static void connect(StringBuilder paths, int[] from, int[] to) {
+        int x = from[0] * 144 + 90, y = from[1] * 76 + 16;
+        int endX = to[0] * 144 + 53, endY = to[1] * 76 + 16;
+        int bend = (x + endX) / 2;
+        paths.append("<path d='M").append(x).append(' ').append(y).append(" C")
+                .append(bend).append(' ').append(y).append(' ').append(bend).append(' ').append(endY)
+                .append(' ').append(endX).append(' ').append(endY).append(" m-5 -4 l5 4 -5 4'/>");
     }
 
     private static HTMLElement arrow() {

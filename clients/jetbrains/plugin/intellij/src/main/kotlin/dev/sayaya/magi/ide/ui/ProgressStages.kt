@@ -14,6 +14,9 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
 import java.awt.image.BufferedImage
 import javax.swing.Icon
 import javax.swing.JPanel
@@ -59,6 +62,8 @@ internal class ProgressStages(
     private val arrows = HashMap<String, Node>()
     /** The step order the line is laid out in now — what a new report is compared with, not the map's insertion order. */
     private var laidOut: List<String> = emptyList()
+    private var dependencies: List<List<String>?> = emptyList()
+    private var connections: List<Pair<Node, Node>> = emptyList()
 
     init {
         isOpaque = false
@@ -75,7 +80,8 @@ internal class ProgressStages(
 
     fun update(stages: List<ProgressStage>) {
         val order = stages.map { it.id }
-        val reorder = laidOut != order
+        val after = stages.map { it.after }
+        val reorder = laidOut != order || dependencies != after
         nodes.keys.filter { it !in order }.toList().forEach { nodes.remove(it); arrows.remove(it) }
         for (s in stages) {
             val n = nodes.getOrPut(s.id) { Node("step").apply { putClientProperty(ID, s.id) } }
@@ -90,25 +96,82 @@ internal class ProgressStages(
         })
         mark(end, "end", when {
             stages.isEmpty() || live -> "waiting"
-            stages.any { it.state == "failed" } -> "failed"
+            stages.any { it.state == "failed" || it.state == "skipped" } -> "failed"
             else -> "done"
         })
         val all = listOf(start, toEnd, end) + nodes.values + arrows.values
         val row = all.maxOf { it.natural() }
         val grew = all.any { it.row != row }
         all.forEach { it.row = row }
-        if (reorder) relink(order) else if (grew) revalidate()
+        if (reorder) {
+            dependencies = after
+            if (after.any { it != null }) relinkGraph(stages) else relink(order)
+        } else if (grew) revalidate()
         repaint()
     }
 
     private fun relink(order: List<String>) {
         laidOut = order
+        connections = emptyList()
+        layout = FlowLayout(FlowLayout.LEFT, JBUI.scale(6), 0)
         removeAll()
         add(start)
         for (id in order) { add(arrows.getValue(id)); add(nodes.getValue(id)) }
         add(toEnd)
         add(end)
         revalidate()
+    }
+
+    private fun relinkGraph(stages: List<ProgressStage>) {
+        laidOut = stages.map { it.id }
+        layout = GridBagLayout()
+        removeAll()
+        val columns = HashMap<String, Int>()
+        val rows = HashMap<Int, Int>()
+        val consumed = HashSet<String>()
+        val edges = mutableListOf<Pair<Node, Node>>()
+        fun place(node: Node, column: Int, row: Int) {
+            add(node, GridBagConstraints().apply {
+                gridx = column
+                gridy = row
+                anchor = GridBagConstraints.NORTH
+                insets = Insets(0, JBUI.scale(16), JBUI.scale(8), JBUI.scale(16))
+            })
+        }
+        place(start, 0, 0)
+        for (stage in stages) {
+            val parents = stage.after.orEmpty().filter { it in columns }
+            val column = 1 + (parents.maxOfOrNull { columns.getValue(it) } ?: 0)
+            val row = rows.getOrDefault(column, 0)
+            columns[stage.id] = column
+            rows[column] = row + 1
+            val node = nodes.getValue(stage.id)
+            place(node, column, row)
+            consumed.addAll(parents)
+            if (parents.isEmpty()) edges.add(start to node)
+            else parents.forEach { edges.add(nodes.getValue(it) to node) }
+        }
+        place(end, 1 + (columns.values.maxOrNull() ?: 0), 0)
+        stages.filter { it.id !in consumed }.forEach { edges.add(nodes.getValue(it.id) to end) }
+        connections = edges
+        revalidate()
+    }
+
+    override fun paintComponent(g: Graphics) {
+        super.paintComponent(g)
+        g.color = Look.faint
+        val center = JBUI.scale(ICON) / 2
+        for ((from, to) in connections) {
+            val x = from.x + from.width / 2 + center
+            val y = from.y + center
+            val endX = to.x + to.width / 2 - center
+            val endY = to.y + center
+            val bend = (x + endX) / 2
+            g.drawPolyline(intArrayOf(x, bend, bend, endX), intArrayOf(y, y, endY, endY), 4)
+            val tip = JBUI.scale(4)
+            g.drawLine(endX - tip, endY - tip, endX, endY)
+            g.drawLine(endX - tip, endY + tip, endX, endY)
+        }
     }
 
     private fun paint(n: Node, s: ProgressStage) {
@@ -173,7 +236,7 @@ internal class ProgressStages(
         fun ink(state: String): Color = when (state) {
             "running" -> Look.primary
             "failed" -> Look.error
-            "done" -> Look.body
+            "done" -> Look.success
             else -> Look.faint
         }
 

@@ -2702,8 +2702,14 @@
   .stages .stage-label { overflow-wrap:anywhere; }
   .stages .stage-arrow { line-height:32px; color:var(--md-sys-color-outline); }
   .stages .stage[data-state=running] { color:var(--md-sys-color-primary); font-weight:600; }
-  .stages .stage[data-state=done] { color:var(--md-sys-color-on-surface); }
+  .stages .stage[data-state=done] { color:var(--magi-ref-success); }
   .stages .stage[data-state=failed] { color:var(--md-sys-color-error); }
+  .stages .stage[data-state=skipped] { text-decoration:line-through; }
+  .stages .stage-graph { position:relative; isolation:isolate; display:grid; grid-auto-columns:144px; grid-auto-rows:76px; overflow:auto; max-width:100%; }
+  .stages .stage-graph .stage { justify-self:center; min-width:0; }
+  .stages .stage-graph .stage-label { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .stages .stage-wires { position:absolute; inset:0; z-index:-1; pointer-events:none; }
+  .stages .stage-wires svg { fill:none; stroke:var(--md-sys-color-outline); stroke-width:1.25; }
   #detail .foldbar {
     display:flex; align-items:baseline; gap:var(--magi-sys-space-150); width:100%; cursor:pointer;
     background:none; border:0; padding:0; color:inherit; text-align:left; font:inherit;
