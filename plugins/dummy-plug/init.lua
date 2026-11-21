@@ -195,7 +195,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true }
+  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -781,6 +781,23 @@ magi.register_command{
 do
   local IMPROVE_P = 0.10
   local EVAL_POLICY = "holdout-v1"
+  -- Data reach: the arguments a script passes to the tools that read data. A delegation covers the
+  -- reach the person saw; explore takes free text, so its reach is not compared.
+  local REACH = { read = true, grep = true, glob = true, list = true, recall_memory = true }
+  local REACH_KEYS = { "path", "pattern", "glob", "include", "query", "file", "dir" }
+  local function reach_key(tool, args)
+    local ok, v = pcall(magi.json_decode, tostring(args or ""))
+    local parts = { tostring(tool) }
+    if ok and type(v) == "table" then
+      for _, k in ipairs(REACH_KEYS) do
+        if v[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(v[k]) end
+      end
+    else
+      parts[#parts + 1] = tostring(args)
+    end
+    return table.concat(parts, " ")
+  end
+
 
   local function rdir(name) return ".magi/routines/" .. name .. "/" end
 
@@ -859,6 +876,7 @@ do
     cost.calls = cost.calls + #calls
     for _, c in ipairs(calls) do
       if c.tool == "explore" then cost.simulated_explore_calls = cost.simulated_explore_calls + 1 end
+      if REACH[c.tool] and cost.reach then cost.reach[reach_key(c.tool, c.args)] = true end
     end
     if unv then return "unverified" end
     local exp = type(tk.expect) == "table" and type(tk.expect.evidence) == "table" and tk.expect.evidence or {}
@@ -988,7 +1006,7 @@ do
   local IMPROVE_USE = [[
 Compare a candidate version of a routine with its active version, and record the attempt. You pass the candidate's whole script, the problem it addresses and your hypothesis (read routine_history first: earlier attempts, and why they were rejected). The candidate is checked against the routine's frozen contract (fixed fixtures, run dry: control flow only), then paired with the active version on the same frozen tasks. Each task is judged on its own — newly solved, newly regressed, still failing, kept — and the verdict is applicable, held (gain too thin, unstable or regressions to review) or rejected (contract broken, a protected task lost, tools or inputs changed). It never changes the active routine, its evals or its tools; a person adopts an applicable candidate.]]
 
-  magi.register_tool{
+  local improve_spec = {
     name = "routine_improve",
     description = IMPROVE_USE,
     schema = {
@@ -1102,7 +1120,7 @@ Compare a candidate version of a routine with its active version, and record the
       local n = { solved = 0, regressed = 0, still_failing = 0, kept = 0, unstable = 0, unverified = 0 }
       local rows, diffs, plost, lost, shaky = {}, {}, {}, {}, {}
       local hold_solved, hold_regressed, hold_cheaper, hold_costlier = 0, 0, 0, 0
-      local cost = { active = { calls = 0, simulated_explore_calls = 0 }, candidate = { calls = 0, simulated_explore_calls = 0 } }
+      local cost = { active = { calls = 0, simulated_explore_calls = 0, reach = {} }, candidate = { calls = 0, simulated_explore_calls = 0, reach = {} } }
       local reps = math.max(1, math.floor(tonumber(tasks.repeats) or 3))
       if not reject then
         for _, tk in ipairs(type(tasks.tasks) == "table" and tasks.tasks or {}) do
@@ -1143,6 +1161,15 @@ Compare a candidate version of a routine with its active version, and record the
         effect = { mean = m, low = m - 1.96 * se, high = m + 1.96 * se, tasks = #diffs,
           sign_p = sign_p(hold_solved, hold_solved + hold_regressed), split = "holdout" }
       end
+
+      local reach_added, reach_counts = {}, { active = 0, candidate = 0 }
+      for k in pairs(cost.active.reach) do reach_counts.active = reach_counts.active + 1 end
+      for k in pairs(cost.candidate.reach) do
+        reach_counts.candidate = reach_counts.candidate + 1
+        if not cost.active.reach[k] then reach_added[#reach_added + 1] = k end
+      end
+      table.sort(reach_added)
+      cost.active.reach, cost.candidate.reach = nil, nil
 
       local verdict, reason
       if reject then
@@ -1192,6 +1219,8 @@ Compare a candidate version of a routine with its active version, and record the
         holdout_cost = { cheaper = hold_cheaper, costlier = hold_costlier,
           sign_p = sign_p(hold_cheaper, hold_cheaper + hold_costlier) },
         evaluation_policy = EVAL_POLICY,
+        data_reach = { added = #reach_added > 0 and reach_added or nil, active = reach_counts.active, candidate = reach_counts.candidate,
+          compared = "read, grep, glob, list and recall_memory arguments on the tasks; explore not compared" },
         decision = { verdict = verdict, reason = reason, by = "routine_improve" },
       }
       local aok, aerr = append_line(dir .. "attempts.jsonl", attempt)
@@ -1224,6 +1253,10 @@ Compare a candidate version of a routine with its active version, and record the
           cost.active.calls, cost.active.simulated_explore_calls, cost.candidate.calls, cost.candidate.simulated_explore_calls)
       end
       if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
+      if #rows > 0 then
+        lines[#lines + 1] = #reach_added > 0 and ("data reach: adds " .. table.concat(reach_added, "; "):sub(1, 200))
+          or "data reach: no new read, grep, glob, list or recall_memory arguments (explore not compared)"
+      end
       -- Delegated auto-apply: only an applicable candidate, only inside what the person allowed once.
       local applied, auto_line = false, nil
       if verdict == "applicable" then
@@ -1233,6 +1266,8 @@ Compare a candidate version of a routine with its active version, and record the
           if #writes > 0 then why = "it may write (" .. table.concat(writes, ", ") .. ")"
           elseif table.concat(tools, ",") ~= table.concat(type(del.tools) == "table" and del.tools or {}, ",") then why = "its tools differ from the delegated ones"
           elseif magi.json_encode(inputs) ~= tostring(del.inputs) then why = "its inputs differ from the delegated ones"
+          elseif #reach_added > 0 then
+            why = "its data reach differs (adds " .. table.concat(reach_added, "; "):sub(1, 200) .. ")"
           elseif type(del.evals) ~= "table" or del.evals.contract ~= csha or del.evals.tasks ~= tsha then
             why = "the evals changed since the delegation of " .. tostring(del.at)
           end
@@ -1262,6 +1297,7 @@ Compare a candidate version of a routine with its active version, and record the
       return table.concat(lines, "\n")
     end,
   }
+  magi.register_tool(improve_spec)
 
   magi.register_tool{
     name = "routine_history",
@@ -1273,6 +1309,69 @@ Compare a candidate version of a routine with its active version, and record the
     execute = function(a)
       if type(a) ~= "table" or type(a.name) ~= "string" or not a.name:match("^[%w_%-]+$") then return "name is required", true end
       return history_text(a.name, math.max(1, math.floor(tonumber(a.limit) or 10)))
+    end,
+  }
+
+  -- routine_autoimprove: the loop that proposes candidates by itself. Each round asks the sidecar
+  -- model (magi.analyze, one call) for one candidate from the active script, the problem and the
+  -- earlier attempts — holdout task ids hidden, so candidates are not written against the tasks that
+  -- judge them — compares it with routine_improve, and hands the verdict to the next round. It stops
+  -- at the first applicable candidate, which is applied only inside a /routine-auto delegation.
+  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only: keep the tools it calls and the inputs it reads. Do not repeat an attempt that was rejected or held; address why it was. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
+
+  magi.register_tool{
+    name = "routine_autoimprove",
+    description = "Improve a routine without asking: each round generates one candidate (one sidecar model call) from the active script, the problem and the earlier attempts, compares it with routine_improve and feeds the verdict to the next round. Stops at the first applicable candidate, which is applied only within a /routine-auto delegation. Rejected rounds are recorded, not announced.",
+    schema = { type = "object", properties = {
+      name = { type = "string", description = "the routine" },
+      problem = { type = "string", description = "what keeps going wrong, with the runs that showed it" },
+      rounds = { type = "number", description = "candidates to try at most, default 3, at most 5" },
+    }, required = { "name", "problem" } },
+    execute = function(a)
+      a = a or {}
+      local r, err = load_routine(a.name)
+      if not r then return err, true end
+      if type(a.problem) ~= "string" or a.problem == "" then return "problem is required: what keeps going wrong", true end
+      local rounds = math.max(1, math.min(5, math.floor(tonumber(a.rounds) or 3)))
+      local holdout = {}
+      local tasks = decode(magi.read_file(rdir(r.name) .. "tasks.json"))
+      for _, tk in ipairs(tasks and type(tasks.tasks) == "table" and tasks.tasks or {}) do
+        if tk.split == "holdout" and tk.id ~= nil then holdout[#holdout + 1] = tostring(tk.id) end
+      end
+      table.sort(holdout, function(x, y) return #x > #y end)
+      local out, previous = {}, nil
+      for i = 1, rounds do
+        local cur = load_routine(r.name) or r
+        local hist = history_text(r.name, 5)
+        for _, id in ipairs(holdout) do hist = replace_plain(hist, id, "<holdout task>") end
+        local prompt = "Routine " .. r.name .. "\ntools: " .. table.concat(cur.tools, ", ") .. "\ninputs: " .. magi.json_encode(cur.inputs) ..
+          "\n\nProblem: " .. a.problem .. "\n\nActive script:\n```lua\n" .. cur.script ..
+          "\n```\n\nEarlier attempts, newest first (holdout tasks hidden):\n" .. hist
+        local ok, raw, gerr = pcall(magi.analyze, { system = GENERATE_SYSTEM, text = prompt, label = "routine-candidate" })
+        if not ok or type(raw) ~= "string" then
+          out[#out + 1] = string.format("round %d: no candidate (%s)", i, tostring(ok and gerr or raw))
+          break
+        end
+        local hyp, script = raw:match("HYPOTHESIS:%s*([^\n]+)"), raw:match("```lua\n(.-)\n```")
+        if not hyp or not script then
+          out[#out + 1] = string.format("round %d: the generator's reply had no hypothesis or script; nothing compared", i)
+        else
+          local res = tostring((improve_spec.execute({ name = r.name, script = script, hypothesis = hyp, problem = a.problem,
+            previous = previous, source = "routine_autoimprove round " .. i })))
+          local verdict = res:match("verdict: (%a+)")
+          local reason = res:match("verdict: %a+ — ([^\n]*)") or res:match("^[^\n]*")
+          local aid = res:match("recorded as attempt (a%x+)")
+          if aid then previous = aid end
+          out[#out + 1] = string.format("round %d: %s — %s (hypothesis: %s)", i, verdict or "not compared", tostring(reason), hyp)
+          if verdict == "applicable" then
+            local auto = res:match("\n(auto%-applied [^\n]*)") or res:match("\n(not auto%-applied[^\n]*)")
+            if auto then out[#out + 1] = "  " .. auto end
+            break
+          end
+        end
+      end
+      out[#out + 1] = "checked: control flow on fixed fixtures, run dry — not the accuracy of real explore answers"
+      return table.concat(out, "\n")
     end,
   }
 

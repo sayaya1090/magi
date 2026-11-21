@@ -45,12 +45,18 @@ func newRoutineRig(t *testing.T, dataDir, routine string) *routineRig {
 
 func newRoutineRigWith(t *testing.T, dataDir, routine string, cfg Config) *routineRig {
 	t.Helper()
+	return newRoutineRigAnalyzing(t, dataDir, routine, cfg, nil)
+}
+
+// newRoutineRigAnalyzing is newRoutineRigWith with a sidecar analyzer for magi.analyze (nil: none).
+func newRoutineRigAnalyzing(t *testing.T, dataDir, routine string, cfg Config, an luaplugin.Analyzer) *routineRig {
+	t.Helper()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, cfg)
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
 	logs := &logBuf{}
 	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), DataDir: dataDir,
-		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add})
+		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add, Analyzer: an})
 	if _, err := host.Load(ctx, filepath.Join("..", "..", "plugins", "dummy-plug")); err != nil {
 		t.Fatal(err)
 	}

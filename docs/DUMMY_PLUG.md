@@ -346,5 +346,15 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   `attempts.jsonl`; nobody is told. Outside the scope (evals frozen again, tools or inputs changed) an
   applicable candidate is left for a person. Applying is not run approval: the applied version asks
   before its next run. `/routine-auto <name> off` revokes it. No Engram is needed.
+- **Data reach.** Each comparison records the arguments both versions pass to `read`, `grep`, `glob`,
+  `list` and `recall_memory` on the tasks (`path`, `pattern`, `query`, …). A candidate that adds
+  arguments the active version never used is outside a delegation and left for a person.
+  `explore` takes free text, so its reach is not compared.
+- **Generating candidates.** `routine_autoimprove{name, problem, rounds}` proposes candidates by
+  itself: each round makes one sidecar call (`magi.analyze`) with the active script, the problem and
+  the earlier attempts, with holdout task ids replaced by `<holdout task>`. It compares the reply with
+  `routine_improve`, linked to the previous round, and stops at the first applicable candidate (applied
+  only within a delegation). Rejected rounds are recorded, not announced. The dummy plug declares
+  `analyze` for this; generation costs model calls, the comparison does not.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.
