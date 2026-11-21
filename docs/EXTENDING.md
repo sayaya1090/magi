@@ -462,13 +462,16 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did
 > from the log instead of the agent's account of it. Same row shape as `magi.child_steps(sid)`.
 >
-> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=, tools=, dry=, serial=})`** — inside a tool call only. The
+> **`magi.run_script(source, {timeout=, output=, globals=, on_call=, child=, tools=, dry=, serial=, fixtures=})`** — inside a tool call only. The
 > manifest must declare the `call_tools` capability and list the tools its scripts may call in
 > `call_tools = [...]`; none is open by default. `tools = {...}` narrows one run to a subset of
 > those (a call outside it is refused). `serial = {...}` names tools that never run alongside another
 > call. `dry = true` reaches no tool: each call is recorded and answered with an empty text, the run is
 > serial, and the record comes back as a third value `{ {tool=, args=<json>}, ... }`; a dry run also
-> works outside a tool call. Runs `source` in a Lua state of its own: no `os`, `io`,
+> works outside a tool call. `fixtures = { {tool=, contains=, text=, ok=}, ... }` answers a dry call
+> instead: the first fixture of the call's tool whose `contains` is in its JSON arguments gives `text`
+> (a failed result when `ok=false`) and the record carries `fixture=<index>`; a call no fixture answers
+> is recorded `unverified=true`. Runs `source` in a Lua state of its own: no `os`, `io`,
 > modules, loaders or `magi.*`; it has `call_tool(name, args)`, `print`, `json_encode`/`json_decode`, the
 > string, table and math libraries, `call_all({ {name, args}, ... })` and `progress(text)`. `call_all`
 > runs its calls at the same time, at most 8 at once, and returns `{ok=, text=}` or `{ok=false, error=}`

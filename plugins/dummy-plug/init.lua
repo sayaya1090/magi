@@ -195,7 +195,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true }
+  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -769,6 +769,483 @@ magi.register_command{
     magi.log("[routine] " .. why)
   end,
 }
+
+-- Improving a routine. A candidate version (its script; never its tools, inputs or evals) is checked
+-- against the routine's frozen contract — fixed fixtures, run dry, so control flow is what is checked —
+-- and only then paired with the active version on the same frozen tasks. Each task's transition is
+-- judged on its own (newly solved, newly regressed, still failing, kept, unstable, unverified); a
+-- protected task lost or a broken contract rejects, a thin or unstable gain holds, and only an
+-- applicable candidate can be adopted, by a person, with the previous version kept for rollback.
+-- Every attempt is appended to .magi/routines/<name>/attempts.jsonl and read back for the next one.
+-- Nothing here needs Engram or a model.
+do
+  local IMPROVE_P = 0.10
+
+  local function rdir(name) return ".magi/routines/" .. name .. "/" end
+
+  local function decode(text)
+    if type(text) ~= "string" then return nil end
+    local ok, v = pcall(magi.json_decode, text)
+    if ok and type(v) == "table" then return v end
+    return nil
+  end
+
+  local function read_lines(path)
+    local text, out = magi.read_file(path), {}
+    if type(text) ~= "string" then return out end
+    for line in text:gmatch("[^\n]+") do
+      local v = decode(line)
+      if v then out[#out + 1] = v end
+    end
+    return out
+  end
+
+  local function append_line(path, rec)
+    local text = magi.read_file(path)
+    if type(text) ~= "string" then text = "" end
+    return magi.write_file(path, text .. magi.json_encode(rec) .. "\n")
+  end
+
+  local function version_of(script, inputs, tools)
+    local canon = script .. "\n\0inputs\0" .. magi.json_encode(inputs) .. "\0tools\0" .. table.concat(tools, ",")
+    return magi.sha256(canon):sub(1, 12)
+  end
+
+  local function noop_globals()
+    local g, out = track(), {}
+    for k in pairs(g) do out[k] = function() end end
+    return out
+  end
+
+  local function dry_run(script, input, fixtures, tools)
+    local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(input or {})) .. ")\n" .. script
+    local out, err, calls = magi.run_script(src, { dry = true, fixtures = fixtures or {}, tools = tools, timeout = 10,
+      globals = noop_globals() })
+    calls = type(calls) == "table" and calls or {}
+    local unverified = false
+    for _, c in ipairs(calls) do
+      if c.unverified then unverified = true end
+    end
+    return tostring(out or ""), err, calls, unverified
+  end
+
+  local function check_case(c, script, tools)
+    local out, err, calls, unv = dry_run(script, c.input, c.fixtures, tools)
+    local why = {}
+    if err then why[#why + 1] = "script failed: " .. tostring(err) end
+    local want_calls = type(c.calls) == "table" and c.calls or {}
+    local want_out = type(c.print_contains) == "table" and c.print_contains or {}
+    if #want_calls > 0 then
+      if #calls ~= #want_calls then why[#why + 1] = "made " .. #calls .. " calls, expected " .. #want_calls end
+      for i, e in ipairs(want_calls) do
+        local got = calls[i]
+        if got and (got.tool ~= e.tool or (e.contains and not tostring(got.args):find(e.contains, 1, true))) then
+          why[#why + 1] = "call " .. i .. " is " .. tostring(got.tool) .. (e.contains and (", expected one carrying " .. e.contains) or "")
+        end
+      end
+    end
+    for _, s in ipairs(want_out) do
+      if not out:find(s, 1, true) then why[#why + 1] = "output lacks " .. s end
+    end
+    if #why > 0 then return "fail", table.concat(why, "; ") end
+    if unv then return "unverified", "a call no fixture answers" end
+    if #want_calls == 0 and #want_out == 0 then return "unverified", "nothing checked" end
+    return "pass", ""
+  end
+
+  local function task_once(tk, script, tools, cost)
+    local out, err, calls, unv = dry_run(script, tk.input, tk.fixtures, tools)
+    cost.calls = cost.calls + #calls
+    for _, c in ipairs(calls) do
+      if c.tool == "explore" then cost.model_calls = cost.model_calls + 1 end
+    end
+    if unv then return "unverified" end
+    local exp = type(tk.expect) == "table" and type(tk.expect.evidence) == "table" and tk.expect.evidence or {}
+    local ok = err == nil
+    for _, e in ipairs(exp) do
+      if not out:find(e, 1, true) then ok = false end
+    end
+    return ok and "pass" or "fail"
+  end
+
+  local function task_result(tk, script, tools, reps, cost)
+    local first, stable = nil, true
+    for _ = 1, reps do
+      local res = task_once(tk, script, tools, cost)
+      if first == nil then first = res elseif first ~= res then stable = false end
+    end
+    if not stable then return "unstable" end
+    return first
+  end
+
+  local function transition(b, c)
+    if b == "unstable" or c == "unstable" then return "unstable" end
+    if b == "unverified" or c == "unverified" then return "unverified" end
+    if b == "fail" and c == "pass" then return "solved" end
+    if b == "pass" and c == "fail" then return "regressed" end
+    if b == "fail" then return "still_failing" end
+    return "kept"
+  end
+
+  -- sign_p: one-sided sign test over the discordant tasks, P(at least s of n solved | no effect).
+  local function sign_p(s, n)
+    if n == 0 then return 1 end
+    local p, comb = 0, 1
+    for k = 0, n do
+      if k > 0 then comb = comb * (n - k + 1) / k end
+      if k >= s then p = p + comb end
+    end
+    return p / 2 ^ n
+  end
+
+  local function diff_summary(a, b)
+    local count, added, removed = {}, 0, 0
+    for l in (a .. "\n"):gmatch("(.-)\n") do count[l] = (count[l] or 0) + 1 end
+    for l in (b .. "\n"):gmatch("(.-)\n") do
+      if (count[l] or 0) > 0 then count[l] = count[l] - 1 else added = added + 1 end
+    end
+    for _, n in pairs(count) do removed = removed + n end
+    return string.format("+%d -%d lines", added, removed)
+  end
+
+  local function history_text(name, limit)
+    local recs = read_lines(rdir(name) .. "attempts.jsonl")
+    if #recs == 0 then return "no attempts recorded for " .. name end
+    local out = {}
+    for i = #recs, math.max(1, #recs - limit + 1), -1 do
+      local a = recs[i]
+      local d = type(a.decision) == "table" and a.decision or {}
+      local cand = type(a.candidate) == "table" and a.candidate or {}
+      local lost, gained = {}, {}
+      for _, t in ipairs(type(a.tasks) == "table" and a.tasks or {}) do
+        if t.transition == "regressed" then lost[#lost + 1] = tostring(t.id) end
+        if t.transition == "solved" and t.split ~= "holdout" then gained[#gained + 1] = tostring(t.id) end
+      end
+      out[#out + 1] = string.format("%s %s candidate %s: %s — %s\n  problem: %s\n  hypothesis: %s%s%s", tostring(a.at),
+        tostring(a.id), tostring(cand.version), tostring(d.verdict), tostring(d.reason), tostring(a.problem or ""),
+        tostring(a.hypothesis or ""), #gained > 0 and ("\n  solved (dev): " .. table.concat(gained, ", ")) or "",
+        #lost > 0 and ("\n  regressed: " .. table.concat(lost, ", ")) or "")
+    end
+    for _, d in ipairs(read_lines(rdir(name) .. "decisions.jsonl")) do
+      out[#out + 1] = string.format("%s %s %s (replaced %s) by %s", tostring(d.at), tostring(d.action), tostring(d.version),
+        tostring(d.replaced), tostring(d.by))
+    end
+    return table.concat(out, "\n")
+  end
+
+  local IMPROVE_USE = [[
+Compare a candidate version of a routine with its active version, and record the attempt. You pass the candidate's whole script, the problem it addresses and your hypothesis (read routine_history first: earlier attempts, and why they were rejected). The candidate is checked against the routine's frozen contract (fixed fixtures, run dry: control flow only), then paired with the active version on the same frozen tasks. Each task is judged on its own — newly solved, newly regressed, still failing, kept — and the verdict is applicable, held (gain too thin, unstable or regressions to review) or rejected (contract broken, a protected task lost, tools or inputs changed). It never changes the active routine, its evals or its tools; a person adopts an applicable candidate.]]
+
+  magi.register_tool{
+    name = "routine_improve",
+    description = IMPROVE_USE,
+    schema = {
+      type = "object",
+      properties = {
+        name = { type = "string", description = "the routine to improve" },
+        script = { type = "string", description = "the candidate's whole Lua script" },
+        problem = { type = "string", description = "what kept going wrong, with the runs that showed it" },
+        hypothesis = { type = "string", description = "what this change should improve, and why" },
+        expected = { type = "string", description = "the effect you expect on the tasks" },
+        source = { type = "string", description = "the runs or attempts this candidate came from (ids)" },
+        tools = { type = "array", items = { type = "string" }, description = "only if it differs from the active version's (it will be rejected: tools are the person's to change)" },
+        inputs = { type = "object", description = "only if it differs from the active version's (rejected likewise)" },
+      },
+      required = { "name", "script", "hypothesis" },
+    },
+    execute = function(a)
+      a = a or {}
+      local r, err = load_routine(a.name)
+      if not r then return err, true end
+      if type(a.script) ~= "string" or a.script == "" then return "script is required", true end
+      if type(a.hypothesis) ~= "string" or a.hypothesis == "" then
+        return "hypothesis is required: what this change should improve, and why", true
+      end
+      local dir = rdir(r.name)
+      local ctext, ttext = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
+      if type(ctext) ~= "string" or type(ttext) ~= "string" then
+        return "routine " .. r.name .. " has no " .. dir .. "contract.json and tasks.json; a person writes them and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
+      end
+      local frozen = stored("routine_evals_frozen")[r.name]
+      if type(frozen) ~= "table" then
+        return "evals for " .. r.name .. " are not frozen; a person reviews " .. dir .. "contract.json and tasks.json and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
+      end
+      local csha, tsha = magi.sha256(ctext), magi.sha256(ttext)
+      if csha ~= frozen.contract or tsha ~= frozen.tasks then
+        return "evals for " .. r.name .. " changed since they were frozen at " .. tostring(frozen.at) .. "; a person reviews the change and freezes them again; nothing was compared", true
+      end
+      local contract, tasks = decode(ctext), decode(ttext)
+      if not contract or not tasks then return "contract.json or tasks.json is not a JSON object", true end
+      local tools = r.tools
+      if type(a.tools) == "table" then
+        local seen = {}
+        tools = {}
+        for _, t in ipairs(a.tools) do
+          t = tostring(t)
+          if not seen[t] then seen[t] = true; tools[#tools + 1] = t end
+        end
+        table.sort(tools)
+      end
+      local inputs = type(a.inputs) == "table" and a.inputs or r.inputs
+      local ver, base = version_of(a.script, inputs, tools), r.fingerprint:sub(1, 12)
+      if ver == base then return "the candidate is the active version " .. base .. "; nothing to compare", true end
+
+      -- Gates, not scores: what a candidate may not change.
+      local reject
+      local had, has, added, dropped = {}, {}, {}, {}
+      for _, t in ipairs(r.tools) do had[t] = true end
+      for _, t in ipairs(tools) do
+        has[t] = true
+        if not had[t] then added[#added + 1] = t end
+      end
+      for _, t in ipairs(r.tools) do
+        if not has[t] then dropped[#dropped + 1] = t end
+      end
+      if #added > 0 or #dropped > 0 then
+        reject = "tool scope changed (" .. (#added > 0 and ("adds " .. table.concat(added, ", ")) or "") ..
+          ((#added > 0 and #dropped > 0) and "; " or "") .. (#dropped > 0 and ("drops " .. table.concat(dropped, ", ")) or "") ..
+          "): a candidate changes its script only; its tools are the person's to change"
+      elseif magi.json_encode(inputs) ~= magi.json_encode(r.inputs) then
+        reject = "input schema changed: a candidate changes its script only"
+      end
+      local writes = {}
+      for _, t in ipairs(tools) do
+        if WRITES[t] then writes[#writes + 1] = t end
+      end
+
+      local contract_rows, cfail, cpass, cunv = {}, {}, 0, {}
+      if not reject then
+        for _, c in ipairs(type(contract.cases) == "table" and contract.cases or {}) do
+          local res, why = check_case(c, a.script, tools)
+          contract_rows[#contract_rows + 1] = { id = tostring(c.id), result = res, why = why ~= "" and why or nil }
+          if res == "fail" then cfail[#cfail + 1] = tostring(c.id) .. " (" .. why .. ")"
+          elseif res == "pass" then cpass = cpass + 1
+          else cunv[#cunv + 1] = tostring(c.id) end
+        end
+        if #cfail > 0 then reject = "breaks the contract: " .. table.concat(cfail, "; ") end
+      end
+
+      local n = { solved = 0, regressed = 0, still_failing = 0, kept = 0, unstable = 0, unverified = 0 }
+      local rows, diffs, plost, lost, shaky = {}, {}, {}, {}, {}
+      local hold_solved = 0
+      local cost = { active = { calls = 0, model_calls = 0 }, candidate = { calls = 0, model_calls = 0 } }
+      local reps = math.max(1, math.floor(tonumber(tasks.repeats) or 3))
+      if not reject then
+        for _, tk in ipairs(type(tasks.tasks) == "table" and tasks.tasks or {}) do
+          local b = task_result(tk, r.script, r.tools, reps, cost.active)
+          local c = task_result(tk, a.script, tools, reps, cost.candidate)
+          local tr = transition(b, c)
+          n[tr] = n[tr] + 1
+          local id = tostring(tk.id)
+          rows[#rows + 1] = { id = id, split = tostring(tk.split or "dev"), protected = tk.protected == true or nil,
+            active = b, candidate = c, transition = tr }
+          if tr == "regressed" then
+            if tk.protected == true then plost[#plost + 1] = id else lost[#lost + 1] = id end
+            diffs[#diffs + 1] = -1
+          elseif tr == "solved" then
+            diffs[#diffs + 1] = 1
+            if tk.split == "holdout" then hold_solved = hold_solved + 1 end
+          elseif tr == "kept" or tr == "still_failing" then
+            diffs[#diffs + 1] = 0
+          else
+            shaky[#shaky + 1] = id .. " (" .. tr .. ")"
+          end
+        end
+      end
+
+      local effect
+      if #diffs > 0 then
+        local m, v = 0, 0
+        for _, d in ipairs(diffs) do m = m + d end
+        m = m / #diffs
+        for _, d in ipairs(diffs) do v = v + (d - m) ^ 2 end
+        local se = (#diffs > 1 and math.sqrt(v / (#diffs - 1)) or 0) / math.sqrt(#diffs)
+        effect = { mean = m, low = m - 1.96 * se, high = m + 1.96 * se, tasks = #diffs,
+          sign_p = sign_p(n.solved, n.solved + n.regressed) }
+      end
+
+      local verdict, reason
+      if reject then
+        verdict, reason = "rejected", reject
+      elseif #plost > 0 then
+        verdict, reason = "rejected", "protected task regressed: " .. table.concat(plost, ", ") .. " — a gain elsewhere does not offset it"
+      elseif #lost > 0 then
+        verdict, reason = "held", "regressions to review: " .. table.concat(lost, ", ") .. " — not offset by what it solves"
+      elseif #shaky > 0 then
+        verdict, reason = "held", "results not settled on: " .. table.concat(shaky, ", ")
+      elseif n.solved == 0 then
+        if cost.candidate.calls < cost.active.calls then
+          verdict, reason = "applicable", "same task results with fewer calls"
+        else
+          verdict, reason = "held", "no task newly solved"
+        end
+      elseif effect.sign_p > IMPROVE_P then
+        verdict, reason = "held", string.format("evidence too thin: %d newly solved, 0 regressed over %d tasks (sign test p=%.3f > %.2f); add tasks before adopting",
+          n.solved, #diffs, effect.sign_p, IMPROVE_P)
+      elseif hold_solved == 0 then
+        verdict, reason = "held", "no gain on the holdout tasks; the gain may fit the dev tasks only"
+      else
+        verdict, reason = "applicable", string.format("solves %d tasks (%d holdout), regresses none (sign test p=%.3f)",
+          n.solved, hold_solved, effect.sign_p)
+      end
+
+      local vpath = dir .. "versions/" .. ver .. ".md"
+      local vtext = "---\nkind: routine\ndescription: " .. (tostring(r.description):gsub("\n", " ")) .. "\ntools: " ..
+        table.concat(tools, ", ") .. "\ninputs: " .. magi.json_encode(inputs) .. "\n---\nCandidate " .. ver .. " of " .. r.name ..
+        ". Hypothesis: " .. (a.hypothesis:gsub("\n", " ")) .. "\n\n```lua\n" .. a.script .. "\n```\n"
+      local wok, werr = magi.write_file(vpath, vtext)
+      if not wok then return "could not write " .. vpath .. ": " .. tostring(werr), true end
+      local change = diff_summary(r.script, a.script)
+      local attempt = {
+        id = "a" .. magi.sha256(ver .. tostring(magi.time()) .. tostring(magi.nonce())):sub(1, 8),
+        at = magi.time(), routine = r.name,
+        baseline = { version = base, path = r.path },
+        candidate = { version = ver, path = vpath, change = change, tools = tools },
+        problem = a.problem, hypothesis = a.hypothesis, expected = a.expected, source = a.source,
+        conditions = { evals = { contract = csha, tasks = tsha, frozen_at = frozen.at }, repeats = reps, tools = tools,
+          mode = "dry run on fixed fixtures: no tool reached, no model",
+          revision = "not recorded: fixtures stand in for the repository" },
+        contract = #contract_rows > 0 and contract_rows or nil,
+        tasks = #rows > 0 and rows or nil,
+        summary = n, effect = effect, cost = cost,
+        decision = { verdict = verdict, reason = reason, by = "routine_improve" },
+      }
+      local aok, aerr = append_line(dir .. "attempts.jsonl", attempt)
+      if not aok then return "could not record the attempt: " .. tostring(aerr), true end
+
+      local lines = {
+        string.format("routine %s: candidate %s vs active %s (%s)", r.name, ver, base, change),
+        "verdict: " .. verdict .. " — " .. reason,
+      }
+      if #contract_rows > 0 then
+        lines[#lines + 1] = string.format("contract: pass %d, fail %d, unverified %d%s", cpass, #cfail, #cunv,
+          #cunv > 0 and (" (" .. table.concat(cunv, ", ") .. ")") or "")
+      end
+      if #rows > 0 then
+        lines[#lines + 1] = string.format("tasks (paired, x%d): solved %d, regressed %d, still failing %d, kept %d, unstable %d, unverified %d",
+          reps, n.solved, n.regressed, n.still_failing, n.kept, n.unstable, n.unverified)
+        for _, row in ipairs(rows) do
+          lines[#lines + 1] = string.format("  %s [%s%s]: %s -> %s = %s", row.id, row.split, row.protected and ", protected" or "",
+            row.active, row.candidate, row.transition)
+        end
+        if effect then
+          lines[#lines + 1] = string.format("effect: %+.2f per task (95%% interval %+.2f..%+.2f over %d tasks), sign test p=%.3f",
+            effect.mean, effect.low, effect.high, effect.tasks, effect.sign_p)
+        end
+        lines[#lines + 1] = string.format("cost (dry, x%d): active %d calls / %d explore, candidate %d calls / %d explore", reps,
+          cost.active.calls, cost.active.model_calls, cost.candidate.calls, cost.candidate.model_calls)
+      end
+      if #writes > 0 then lines[#lines + 1] = "writes (" .. table.concat(writes, ", ") .. "): compared dry only; effects on files are not evaluated" end
+      lines[#lines + 1] = "recorded as attempt " .. attempt.id .. " in " .. dir .. "attempts.jsonl; " ..
+        (verdict == "applicable" and ("a person may adopt it with /routine-adopt " .. r.name .. " " .. ver) or "it cannot be adopted")
+      lines[#lines + 1] = "checked: control flow on fixed fixtures, run dry — not the accuracy of real explore answers, not effects on files, not new tasks"
+      return table.concat(lines, "\n")
+    end,
+  }
+
+  magi.register_tool{
+    name = "routine_history",
+    description = "Read a routine's improvement attempts, newest first: each candidate's problem, hypothesis, verdict and why, and the tasks it solved or regressed. Read it before proposing a candidate with routine_improve.",
+    schema = { type = "object", properties = {
+      name = { type = "string", description = "the routine" },
+      limit = { type = "number", description = "attempts to show, default 10" },
+    }, required = { "name" } },
+    execute = function(a)
+      if type(a) ~= "table" or type(a.name) ~= "string" or not a.name:match("^[%w_%-]+$") then return "name is required", true end
+      return history_text(a.name, math.max(1, math.floor(tonumber(a.limit) or 10)))
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-history",
+    description = "Show a routine's improvement attempts and adoptions (/routine-history <name>)",
+    execute = function(args)
+      local name = words(args)[1]
+      if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-history <name>" end
+      magi.log("[routine] history of " .. name .. ":\n" .. history_text(name, 20))
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-evals-freeze",
+    description = "Freeze a routine's contract.json and tasks.json as reviewed; routine_improve refuses evals changed since (/routine-evals-freeze <name>)",
+    execute = function(args)
+      local name = words(args)[1]
+      if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-evals-freeze <name>" end
+      local dir = rdir(name)
+      local ctext, ttext = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
+      if not decode(ctext) or not decode(ttext) then return "need " .. dir .. "contract.json and " .. dir .. "tasks.json, each a JSON object" end
+      local all = stored("routine_evals_frozen")
+      all[name] = { contract = magi.sha256(ctext), tasks = magi.sha256(ttext), at = magi.time() }
+      magi.store_set("routine_evals_frozen", all)
+      magi.log("[routine] froze the evals of " .. name .. " (contract " .. all[name].contract:sub(1, 12) .. ", tasks " .. all[name].tasks:sub(1, 12) .. ")")
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-adopt",
+    description = "Make an applicable candidate the active version, keeping the current one for rollback (/routine-adopt <name> <version>)",
+    execute = function(args)
+      local w = words(args)
+      local name, ver = w[1], w[2]
+      if not name or not ver then return "usage: /routine-adopt <name> <version>" end
+      local r, err = load_routine(name)
+      if not r then return err end
+      local dir, att = rdir(name), nil
+      for _, a in ipairs(read_lines(dir .. "attempts.jsonl")) do
+        if type(a.candidate) == "table" and a.candidate.version == ver then att = a end
+      end
+      if not att then return "no recorded attempt for candidate " .. ver .. " of " .. name .. " (see /routine-history " .. name .. ")" end
+      local d = type(att.decision) == "table" and att.decision or {}
+      if d.verdict ~= "applicable" then
+        return "candidate " .. ver .. " was " .. tostring(d.verdict) .. ": " .. tostring(d.reason) .. "; only an applicable candidate can be adopted"
+      end
+      local base = r.fingerprint:sub(1, 12)
+      if type(att.baseline) ~= "table" or att.baseline.version ~= base then
+        return "candidate " .. ver .. " was compared with " .. tostring(type(att.baseline) == "table" and att.baseline.version) ..
+          ", but the active version is now " .. base .. "; compare it again"
+      end
+      local vtext, cur = magi.read_file(dir .. "versions/" .. ver .. ".md"), magi.read_file(r.path)
+      if type(vtext) ~= "string" or type(cur) ~= "string" then return "the candidate's or the active version's file is missing" end
+      local ok1, e1 = magi.write_file(dir .. "versions/" .. base .. ".md", cur)
+      if not ok1 then return "could not keep the active version: " .. tostring(e1) end
+      local ok2, e2 = magi.write_file(r.path, vtext)
+      if not ok2 then return "could not write " .. r.path .. ": " .. tostring(e2) end
+      local stack = stored("routine_rollback")
+      local list = type(stack[name]) == "table" and stack[name] or {}
+      list[#list + 1] = { from = base, to = ver, path = r.path }
+      stack[name] = list
+      magi.store_set("routine_rollback", stack)
+      append_line(dir .. "decisions.jsonl", { at = magi.time(), action = "adopted", routine = name, version = ver, replaced = base,
+        attempt = att.id, by = "person" })
+      magi.log("[routine] adopted " .. ver .. " as " .. r.path .. " (was " .. base .. "); its next run asks for approval, and /routine-rollback " ..
+        name .. " restores " .. base)
+    end,
+  }
+
+  magi.register_command{
+    name = "routine-rollback",
+    description = "Restore the version a routine had before its last adoption (/routine-rollback <name>)",
+    execute = function(args)
+      local name = words(args)[1]
+      if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-rollback <name>" end
+      local stack = stored("routine_rollback")
+      local list = stack[name]
+      if type(list) ~= "table" or #list == 0 then return "nothing to roll back for " .. name end
+      local last = list[#list]
+      local text = magi.read_file(rdir(name) .. "versions/" .. tostring(last.from) .. ".md")
+      if type(text) ~= "string" then return "the earlier version " .. tostring(last.from) .. " is missing" end
+      local ok, e = magi.write_file(last.path, text)
+      if not ok then return "could not write " .. tostring(last.path) .. ": " .. tostring(e) end
+      list[#list] = nil
+      stack[name] = list
+      magi.store_set("routine_rollback", stack)
+      append_line(rdir(name) .. "decisions.jsonl", { at = magi.time(), action = "rolled back", routine = name,
+        version = last.from, replaced = last.to, by = "person" })
+      magi.log("[routine] rolled " .. name .. " back to " .. tostring(last.from) .. "; its next run asks for approval")
+    end,
+  }
+end
 
 magi.register_tool{
   name = "dummy_plug",

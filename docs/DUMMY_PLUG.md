@@ -315,5 +315,23 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   what repeated. A `dummy_plug` script whose tool sequence succeeds three times is still offered too.
   `/routine-register <id> <name>` saves a candidate through the same draft and dry check; nothing is
   registered otherwise, and its first run still asks.
+- **Improvement.** A routine's evals live in `.magi/routines/<name>/`: `contract.json` (cases run dry
+  on fixed fixtures — control flow: the recalled policy reaches each `explore`, an empty or failed
+  answer is reported as no answer, a branch no fixture answers stays unverified) and `tasks.json`
+  (tasks with `split: dev|holdout`, `protected`, fixtures and expected evidence). A person freezes them
+  with `/routine-evals-freeze <name>`; `routine_improve` refuses evals changed since. `routine_improve`
+  takes a candidate script with its problem and hypothesis. It rejects a candidate that changes its
+  tools or inputs, checks it against the contract, and only then pairs it with the active version on
+  the same tasks (repeated, `repeats`, default 3). Each task is judged on its own: newly solved, newly
+  regressed, still failing, kept, unstable, unverified. A broken contract or a lost protected task
+  rejects; another regression, an unsettled task, a gain too thin (one-sided sign test p > 0.10) or no
+  gain on holdout holds; otherwise the candidate is applicable. Effect size with a 95% interval and
+  dry call counts are recorded. Every attempt — baseline, candidate, problem, hypothesis, conditions,
+  per-task results, verdict and reason — is appended to `attempts.jsonl`, rejected ones included;
+  `routine_history` reads them back for the next candidate. A person adopts an applicable candidate
+  with `/routine-adopt <name> <version>` (the replaced version is kept, and `/routine-rollback <name>`
+  restores it; both go to `decisions.jsonl`), and the adopted version asks for approval on its next
+  run. The comparison checks control flow on fixtures only, not the accuracy of real `explore`
+  answers, effects on files, or new tasks. No Engram and no model are needed.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.

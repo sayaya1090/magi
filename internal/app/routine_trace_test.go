@@ -239,3 +239,21 @@ func TestARoutinesWritingCallsNeverOverlap(t *testing.T) {
 		t.Fatalf("a routine's writes overlapped: %d ran at once", p)
 	}
 }
+
+const graphPairRoutine = "---\nkind: routine\ndescription: two writes in a graph with no order between them\ntools: bash\ninputs: {\"type\":\"object\",\"properties\":{}}\n---\n```lua\nlocal r = call_graph({ {id=\"a\", tool=\"bash\", args={command=\"a\"}}, {id=\"b\", tool=\"bash\", args={command=\"b\"}} })\nprint(r.a ~= nil, r.b ~= nil)\n```\n"
+
+// The same for call_graph: two writing tasks with no edge between them are ready together, and the
+// graph would run them side by side; a routine's serial list keeps them one at a time.
+func TestARoutinesWritingGraphTasksNeverOverlap(t *testing.T) {
+	r := newRoutineRigWith(t, t.TempDir(), routineFile, Config{Permission: "allow", Interactive: true, AnswerWait: 5 * time.Second})
+	probe := &overlapTool{name: "bash"}
+	r.a.tools.Register(probe)
+	r.file(t, filepath.Join(".magi", "skills", "gpair.md"), graphPairRoutine)
+	out, asks, failed := r.call(t, "g1", "run_routine", map[string]any{"name": "gpair"}, "allow")
+	if failed || len(asks) != 1 || !strings.Contains(out, "true\ttrue") {
+		t.Fatalf("the routine must be approved once and run both graph writes: %q %+v", out, asks)
+	}
+	if p := atomic.LoadInt32(&probe.peak); p != 1 {
+		t.Fatalf("a routine's graph writes overlapped: %d ran at once", p)
+	}
+}

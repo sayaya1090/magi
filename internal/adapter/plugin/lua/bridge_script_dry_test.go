@@ -141,7 +141,68 @@ call_all(calls)`})
 // can check a script it is about to save. A real run still needs one (TestRunScriptNeedsAToolCall).
 func TestRunScriptDryRunsOutsideAToolCall(t *testing.T) {
 	got := runScript(t, optScriptTool(t), port.ToolEnv{}, map[string]any{"dry": true, "src": `call_tool("read", {path="a"}) print("ok")`})
-	if got != `ok`+"\n|ERR:nil|CALLS:"+`[{"args":"{\"path\":\"a\"}","tool":"read"}]` {
+	if got != `ok`+"\n|ERR:nil|CALLS:"+`[{"args":"{\"path\":\"a\"}","tool":"read","unverified":true}]` {
 		t.Fatalf("a dry run outside a tool call: %q", got)
+	}
+}
+
+// fixtureScriptTool is optScriptTool with fixtures taken from the call.
+func fixtureScriptTool(t *testing.T) port.Tool {
+	t.Helper()
+	sink := builtin.NewRegistry()
+	h := NewHostWithConfig(HostConfig{ToolSink: sink, Logf: func(string) {}})
+	dir := writePlugin(t, "name=\"fixscripter\"\ncapabilities=[\"tool\",\"call_tools\"]\ncall_tools=[\"read\",\"grep\",\"glob\"]\n", `
+magi.register_tool{ name = "script", description = "d",
+  schema = { type = "object", properties = {} },
+  execute = function(args)
+    local out, err, calls = magi.run_script(args.src, { timeout = 5, dry = true, fixtures = args.fixtures })
+    return tostring(out) .. "|ERR:" .. tostring(err) .. "|CALLS:" .. (calls and magi.json_encode(calls) or "nil")
+  end }
+`)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	tool, ok := sink.Get("script")
+	if !ok {
+		t.Fatal("no tool")
+	}
+	return tool
+}
+
+// A dry run answers from fixtures: the first fixture of the call's tool whose contains is in the
+// call's arguments gives its text (ok=false a failed result). A call no fixture answers gets an empty
+// text, as before, and is marked unverified in the record; an answered one carries its fixture's index.
+func TestRunScriptDryAnswersFromFixturesAndMarksTheRestUnverified(t *testing.T) {
+	got := runScript(t, fixtureScriptTool(t), port.ToolEnv{}, map[string]any{"src": `
+local a = call_tool("read", {path="policy.md"})
+local b, why = call_tool("grep", {pattern="close"})
+local c = call_tool("glob", {pattern="*"})
+local d = call_all({ {"read", {path="other.md"}}, {"read", {path="policy.md"}} })
+print(a, tostring(b), why, "[" .. c .. "]", d[1].text, d[2].text)`,
+		"fixtures": []any{
+			map[string]any{"tool": "read", "contains": "policy.md", "text": "POLICY"},
+			map[string]any{"tool": "grep", "text": "grep broke", "ok": false},
+			map[string]any{"tool": "read", "text": "ANY READ"},
+		}})
+	parts := strings.SplitN(got, "|CALLS:", 2)
+	if len(parts) != 2 || parts[0] != "POLICY\tnil\tgrep broke\t[]\tANY READ\tPOLICY\n|ERR:nil" {
+		t.Fatalf("output: %q", got)
+	}
+	var calls []struct {
+		Tool       string
+		Fixture    int
+		Unverified bool
+	}
+	if err := json.Unmarshal([]byte(parts[1]), &calls); err != nil || len(calls) != 5 {
+		t.Fatalf("calls %q: %v", parts[1], err)
+	}
+	want := []struct {
+		fixture    int
+		unverified bool
+	}{{1, false}, {2, false}, {0, true}, {3, false}, {1, false}}
+	for i, w := range want {
+		if calls[i].Fixture != w.fixture || calls[i].Unverified != w.unverified {
+			t.Fatalf("call %d (%s): fixture=%d unverified=%v, want %d %v (all %+v)", i+1, calls[i].Tool, calls[i].Fixture, calls[i].Unverified, w.fixture, w.unverified, calls)
+		}
 	}
 }

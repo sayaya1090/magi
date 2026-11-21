@@ -79,6 +79,33 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	// dry = true: no tool runs. Each call the script makes is recorded, in order, and answered with an
 	// empty text; the record comes back as a third value, {{tool=, args=<json>}, ...}. What a script
 	// WOULD do can be compared with what was meant without doing any of it.
+	//
+	// fixtures = { {tool=, contains=, text=, ok=}, ... } answers a dry call instead: the first fixture of
+	// the call's tool whose contains (if any) is in the call's JSON arguments gives its text, as a failed
+	// result when ok=false. Its record carries fixture=<index>; a call no fixture answers still gets an
+	// empty text and is recorded unverified=true, so a script that branched on it is not taken as checked.
+	type fixture struct {
+		tool, contains, text string
+		failed               bool
+	}
+	var fixtures []fixture
+	if lt, ok := opts.RawGetString("fixtures").(*lua.LTable); ok {
+		for i := 1; i <= lt.Len(); i++ {
+			ft, ok := lt.RawGetInt(i).(*lua.LTable)
+			if !ok {
+				return fail(L, fmt.Sprintf("run_script: fixture %d is not a table", i))
+			}
+			f := fixture{tool: lua.LVAsString(ft.RawGetString("tool")), contains: lua.LVAsString(ft.RawGetString("contains")),
+				text: lua.LVAsString(ft.RawGetString("text"))}
+			if v := ft.RawGetString("ok"); v != lua.LNil {
+				f.failed = !lua.LVAsBool(v)
+			}
+			if f.tool == "" {
+				return fail(L, fmt.Sprintf("run_script: fixture %d has no tool", i))
+			}
+			fixtures = append(fixtures, f)
+		}
+	}
 	var dryMu sync.Mutex
 	var dryCalls []any
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
@@ -86,10 +113,22 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 			return session.ToolResult{}, fmt.Errorf("%s is not declared in call_tools (plugin.toml)", name)
 		}
 		if dry {
+			rec := map[string]any{"tool": name, "args": string(args)}
+			res := session.ToolResult{Content: json.RawMessage(`""`)}
+			rec["unverified"] = true
+			for i, f := range fixtures {
+				if f.tool == name && strings.Contains(string(args), f.contains) {
+					text, _ := json.Marshal(f.text)
+					res = session.ToolResult{Content: text, IsError: f.failed}
+					delete(rec, "unverified")
+					rec["fixture"] = i + 1
+					break
+				}
+			}
 			dryMu.Lock()
-			dryCalls = append(dryCalls, map[string]any{"tool": name, "args": string(args)})
+			dryCalls = append(dryCalls, rec)
 			dryMu.Unlock()
-			return session.ToolResult{Content: json.RawMessage(`""`)}, nil
+			return res, nil
 		}
 		return host(ctx, name, args)
 	}

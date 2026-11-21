@@ -25,6 +25,12 @@ stage("collect")
 for i, q in ipairs(input.questions) do
   local a = answers[i]
   print("## " .. tostring(q))
-  print(a.ok and a.text or ("(no answer: " .. tostring(a.error) .. ")"))
+  if not a.ok then
+    print("(no answer: " .. tostring(a.error) .. ")")
+  elseif a.text == "" then
+    print("(no answer: empty response, not a finding)")
+  else
+    print(a.text)
+  end
 end
 ```
