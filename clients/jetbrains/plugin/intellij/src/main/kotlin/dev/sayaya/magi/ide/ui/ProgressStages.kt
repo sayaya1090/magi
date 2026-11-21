@@ -139,17 +139,27 @@ internal class ProgressStages(
             })
         }
         place(start, 0, 0)
+        var tail: Node = start
+        var tailId: String? = null
+        var tailColumn = 0
         for (stage in stages) {
             val parents = stage.after.orEmpty().filter { it in columns }
-            val column = 1 + (parents.maxOfOrNull { columns.getValue(it) } ?: 0)
+            val column = 1 + (parents.maxOfOrNull { columns.getValue(it) } ?: tailColumn)
             val row = rows.getOrDefault(column, 0)
             columns[stage.id] = column
             rows[column] = row + 1
             val node = nodes.getValue(stage.id)
             place(node, column, row)
             consumed.addAll(parents)
-            if (parents.isEmpty()) edges.add(start to node)
-            else parents.forEach { edges.add(nodes.getValue(it) to node) }
+            if (parents.isEmpty()) {
+                edges.add(tail to node)
+                tailId?.let { consumed.add(it) }
+            } else parents.forEach { edges.add(nodes.getValue(it) to node) }
+            if (stage.after == null) {
+                tail = node
+                tailId = stage.id
+                tailColumn = column
+            }
         }
         place(end, 1 + (columns.values.maxOrNull() ?: 0), 0)
         stages.filter { it.id !in consumed }.forEach { edges.add(nodes.getValue(it.id) to end) }

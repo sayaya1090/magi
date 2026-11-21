@@ -166,6 +166,8 @@ final class StageStrip {
         int[] origin = {0, 0};
         place(graph, start.el, origin);
         int lastColumn = 0, rowCount = 1;
+        int[] tail = origin;
+        String tailId = null;
         for (String id : ids) {
             List<int[]> parents = new ArrayList<>();
             int column = 1;
@@ -177,6 +179,10 @@ final class StageStrip {
                 consumed.add(parent);
                 column = Math.max(column, position[0] + 1);
             }
+            if (parents.isEmpty()) {
+                column = tail[0] + 1;
+                if (tailId != null) consumed.add(tailId);
+            }
             int row = rowCounts.getOrDefault(column, 0);
             rowCounts.put(column, row + 1);
             lastColumn = Math.max(lastColumn, column);
@@ -184,8 +190,12 @@ final class StageStrip {
             int[] position = {column, row};
             positions.put(id, position);
             place(graph, nodes.get(id).el, position);
-            if (parents.isEmpty()) connect(paths, origin, position);
+            if (parents.isEmpty()) connect(paths, tail, position);
             else for (int[] parent : parents) connect(paths, parent, position);
+            if (predecessors == null) {
+                tail = position;
+                tailId = id;
+            }
         }
         int[] terminal = {lastColumn + 1, 0};
         place(graph, end.el, terminal);

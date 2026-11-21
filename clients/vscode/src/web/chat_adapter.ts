@@ -1737,6 +1737,9 @@ function layoutStageGraph(doc: Document, strip: HTMLElement, state: StagesState,
   };
   place(state.start.el, 0, 0);
   let lastColumn = 0;
+  // Plain steps (no after) run in one line from start; a graph root branches from the last of them.
+  let tail = { column: 0, row: 0 };
+  let tailId: string | undefined;
   for (const stage of stages) {
     const parents = (stage.after ?? []).flatMap((id) => {
       const position = positions.get(id);
@@ -1744,14 +1747,22 @@ function layoutStageGraph(doc: Document, strip: HTMLElement, state: StagesState,
       consumed.add(id);
       return [position];
     });
+    if (!parents.length) {
+      parents.push(tail);
+      if (tailId !== undefined) consumed.add(tailId);
+    }
     const column = 1 + Math.max(0, ...parents.map((p) => p.column));
     const row = rows.get(column) ?? 0;
     rows.set(column, row + 1);
     positions.set(stage.id, { column, row });
     lastColumn = Math.max(lastColumn, column);
     place(state.nodes.get(stage.id)!.el, column, row);
-    for (const parent of parents.length ? parents : [{ column: 0, row: 0 }]) {
+    for (const parent of parents) {
       edges.push([parent.column, parent.row, column, row]);
+    }
+    if (stage.after === undefined) {
+      tail = { column, row };
+      tailId = stage.id;
     }
   }
   place(state.end.el, lastColumn + 1, 0);

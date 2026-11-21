@@ -390,6 +390,32 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         assertEquals("failed", role(strip, "end").single().getClientProperty(ProgressStages.STATE))
     }
 
+    fun testProgressGraphChainsPlainStepsAndBranchesFromTheLast() {
+        val strip = ProgressStages()
+        strip.update(listOf(
+            step("s1", null, "done"),
+            step("s2", null, "running"),
+            step("g1:a1", null, "done").copy(after = emptyList()),
+            step("g1:b1", null, "running").copy(after = emptyList()),
+            step("g1:a2", null, "done").copy(after = listOf("g1:a1")),
+            step("g1:b2", null, "waiting").copy(after = listOf("g1:b1")),
+            step("g1:join", null, "waiting").copy(after = listOf("g1:a2", "g1:b2")),
+        ))
+        val layout = strip.layout as java.awt.GridBagLayout
+        fun at(id: String): Pair<Int, Int> {
+            val c = layout.getConstraints(role(strip, "step").single { it.getClientProperty(ProgressStages.ID) == id })
+            return c.gridx to c.gridy
+        }
+        assertEquals(1 to 0, at("s1"))
+        assertEquals("the second plain step follows the first", 2 to 0, at("s2"))
+        assertEquals("a graph root branches from the last plain step", 3 to 0, at("g1:a1"))
+        assertEquals(3 to 1, at("g1:b1"))
+        assertEquals(5 to 0, at("g1:join"))
+        assertEquals(6, layout.getConstraints(role(strip, "end").single()).gridx)
+        val connections = ProgressStages::class.java.getDeclaredField("connections").apply { isAccessible = true }.get(strip) as List<*>
+        assertEquals("nine edges, none from a plain step to the end", 9, connections.size)
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))

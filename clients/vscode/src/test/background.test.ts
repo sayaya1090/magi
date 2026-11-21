@@ -86,3 +86,32 @@ test('the steps a tool reports ride its own row, and a strip keeps a node per st
   assert.equal(graphNode('join')?.attrs['data-state'], 'skipped');
   assert.equal(graph.children.find((child) => child.attrs['data-role'] === 'end')?.attrs['data-state'], 'failed');
 });
+
+test('plain steps before a graph run in one line and the graph branches from the last of them', () => {
+  type FakeEl = { tagName: string; attrs: Record<string, string>; children: FakeEl[]; className: string; textContent: string; innerHTML: string };
+  const doc = { createElement(tag: string) {
+    return { tagName: tag.toUpperCase(), attrs: {} as Record<string, string>, children: [] as FakeEl[], className: '', textContent: '', innerHTML: '',
+      setAttribute(k: string, v: string) { this.attrs[k] = v; }, getAttribute(k: string) { return k in this.attrs ? this.attrs[k] : null; },
+      removeAttribute(k: string) { delete this.attrs[k]; },
+      append(...c: FakeEl[]) { this.children.push(...c); }, replaceChildren(...c: FakeEl[]) { this.children = c; } };
+  } } as unknown as Document;
+  const strip = stagesStrip(doc, 'ko');
+  updateStages(doc, strip, [
+    { id: 's1', label: 'prepare', state: 'done' },
+    { id: 's2', label: 'branch', state: 'running' },
+    { id: 'g1:a1', label: 'A1', state: 'done', after: [] },
+    { id: 'g1:b1', label: 'B1', state: 'running', after: [] },
+    { id: 'g1:a2', label: 'A2', state: 'done', after: ['g1:a1'] },
+    { id: 'g1:b2', label: 'B2', state: 'waiting', after: ['g1:b1'] },
+    { id: 'g1:join', label: 'join', state: 'waiting', after: ['g1:a2', 'g1:b2'] },
+  ]);
+  const graph = (strip as unknown as FakeEl).children[0];
+  const at = (id: string) => graph.children.find((c) => c.attrs['data-stage-id'] === id)?.attrs.style;
+  assert.equal(at('s1'), 'grid-column:2;grid-row:1');
+  assert.equal(at('s2'), 'grid-column:3;grid-row:1', 'the second plain step follows the first');
+  assert.equal(at('g1:a1'), 'grid-column:4;grid-row:1', 'a graph root branches from the last plain step');
+  assert.equal(at('g1:b1'), 'grid-column:4;grid-row:2');
+  assert.equal(at('g1:join'), 'grid-column:6;grid-row:1');
+  assert.equal(graph.children.find((c) => c.attrs['data-role'] === 'end')?.attrs.style, 'grid-column:7;grid-row:1');
+  assert.equal(graph.children[0].innerHTML.match(/<path /g)?.length, 9, 'nine edges, none from a plain step to the end');
+});
