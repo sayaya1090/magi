@@ -135,11 +135,14 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	// Delegation does not inherit global grants. A person may explicitly approve
 	// routine calls for this task; scanner-forced prompts still ask.
-	asker := a.handedFrom(sid)
+	// A child a tool drives runs for the conversation above it, so the standing state a decision
+	// rests on (delegation, the task's auto-approval, "always" grants) is that conversation's.
+	home := a.permissionHome(sid)
+	asker := a.handedFrom(home)
 	handed := asker != ""
 	if handed && !forcePrompt && a.cfg.Interactive && a.Permission() != "deny" {
 		a.mu.Lock()
-		auto := a.stateLocked(sid).delegatedAutoApprove
+		auto := a.stateLocked(home).delegatedAutoApprove
 		a.mu.Unlock()
 		if auto {
 			return finish(true, "policy", "")
@@ -196,7 +199,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	// "ask" (and "auto" for non-edit tools): honor a prior "always" grant.
 	a.mu.Lock()
-	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) {
+	if st, ok := a.stateIf(home); ok && st.grants[tc.Name] && !handed && !isRepeat(ctx) {
 		a.mu.Unlock()
 		return finish(true, "policy", "")
 	}
@@ -284,10 +287,10 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		}
 		if dec == "always" || dec == "persist" {
 			a.mu.Lock()
-			if a.stateLocked(sid).grants == nil {
-				a.stateLocked(sid).grants = map[string]bool{}
+			if a.stateLocked(home).grants == nil {
+				a.stateLocked(home).grants = map[string]bool{}
 			}
-			a.stateLocked(sid).grants[tc.Name] = true
+			a.stateLocked(home).grants[tc.Name] = true
 			a.mu.Unlock()
 			// "persist" additionally records the grant as a project allow rule
 			// (`tool(**)` in .magi/config.toml), so the choice survives restarts —
@@ -534,6 +537,23 @@ type Ask struct {
 	// that two more are coming.
 	Index, Total int
 	Since        time.Time // when it was asked, so a viewer can say how long it has been waiting
+}
+
+// permissionHome is the session whose standing permission state a call in sid answers to: sid itself,
+// or for a child a tool drives (relayParent) the conversation at the top of its chain. Bounded like
+// relayAskLocked, so a malformed chain cannot loop.
+func (a *App) permissionHome(sid session.SessionID) session.SessionID {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	home := sid
+	for hops := 0; hops < 8; hops++ {
+		st, ok := a.stateIf(home)
+		if !ok || st.relayParent == "" {
+			break
+		}
+		home = st.relayParent
+	}
+	return home
 }
 
 // relayAskLocked shows an ask raised in a child a tool drives in every conversation above it (the

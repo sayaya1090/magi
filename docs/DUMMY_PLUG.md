@@ -112,13 +112,20 @@ this filter is a second guard; it was the only one before `0d483d59d`.
 ## 5. Safety rules
 
 - **Declared tools only.** The manifest lists what scripts may call: `read`, `grep`, `glob`, `list`,
-  `explore`, `recall_memory` (`plugins/dummy-plug/plugin.toml:6`). A call to anything else is
+  `explore`, `recall_memory`, `bash`, `edit`, `multiedit`, `write` (`plugins/dummy-plug/plugin.toml:6`). A call to anything else is
   refused before it reaches the host. A plugin that lists one of its own tools is refused at load
   (`internal/adapter/plugin/lua/host.go:434`).
-- **The host decides by what a tool is.** `scriptFree` (`internal/app/inner_call.go:20`) lets a
-  tool run without asking only when it just looks, has no outside effect, or is a subagent whose
-  children only look. Anything else asks the person in every permission mode, and with nobody to ask
-  it is refused. The dummy plug's declared tools all pass, so it never asks today.
+- **The conversation's permission, not a script's own.** A script runs for the conversation that
+  called it, so each inner call passes the same gate as the model's own call (`gatePermission` in
+  `internal/app/execute.go`): the permission mode (`allow`, `auto`, `ask`, `deny`), policy rules,
+  scanner-forced asks and the recovery repeat guard all apply. The standing state a decision rests on
+  ("always" grants, delegation, a task's auto-approval) is read from the conversation at the top of
+  the child's chain (`permissionHome` in `internal/app/permission.go`), so an "always" the person gave
+  in the conversation covers its scripts, and an "always" given for a script's ask is kept by the
+  conversation. A call that must be asked is shown in the conversation (§8) and the script waits;
+  with nobody to ask, it is resolved the way the model's own call would be. Until 5e43b5ed1 every
+  call that did more than look was asked in every mode, which made `allow` mean nothing inside a
+  script.
 - **Bounds.** At most 200 inner calls per outer call (`internal/app/inner_call.go:47`). A script
   runs 60 s by default, up to 300 s, and keeps 16,000 bytes of printed output by default, up to
   64,000 (`internal/adapter/plugin/lua/bridge_script.go:21-24`). `call_all` runs at most 8 at once
@@ -176,13 +183,11 @@ after; end waits until every stage is done, or shows `failed`.
 
 ## 8. What it does not do
 
-- **Write tools are closed.** `bash`, `edit`, `multiedit` and `write` are not declared, so a script
-  cannot change anything.
 - **Only permission asks reach the conversation.** A permission ask raised inside the child is shown
   in the parent conversation too, with "asked inside child <id>" before its reason, and an answer
   given there goes to the child (`relayAskLocked` in `internal/app/permission.go`, the redirect in
-  `RespondPermission`). An `ask_user` question inside a child is not relayed. Nothing asks today
-  because every declared tool runs freely.
+  `RespondPermission`). An `ask_user` question inside a child is not relayed. With the write tools open, a
+  script's write in `ask` mode is the usual way an ask arrives here.
 - **A row opens its first child only.** The outer call's result ends with
   `[child <id>, N tool call(s)]` (and why, when the script stopped short), the line a spawned
   subagent leaves too. Every client reads that line (`app.ChildrenNamed` in
@@ -219,8 +224,8 @@ after; end waits until every stage is done, or shows `failed`.
 3. **Open the child from the tool row.** Built: every screen opens it from the call's row (§8).
 4. **Questions reach the conversation.** Permission asks are relayed (§8); `ask_user` questions are
    not yet. Write tools need the permission part only.
-5. **Write tools.** `bash`, `edit`, `multiedit`, `write` behind a setting, each run of a new routine
-   approved by the person.
+5. **Write tools.** Built: `bash`, `edit`, `multiedit`, `write` are open and follow the
+   conversation's permission (§5). What is not built is approving a routine once by hash (item 1).
 6. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen
    points (classify, pick, extract, yes/no). The answer is limited to the choices or schema so the
    script can branch on it. Each judgment is a model step in the child's log, counted against a

@@ -8,39 +8,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
-	"github.com/sayaya1090/magi/internal/port"
 )
-
-// scriptFree reports whether a tool's script may run name without asking anyone. It is decided by
-// what the tool IS, never by a list of names some plugin needs: a script runs many calls the model
-// never looks at one by one, so only a tool that just looks (the read-only four), has no outside
-// effect, or spawns children that can only look runs freely. Anything else (a write, the shell, the
-// web, an MCP server) goes to the person first, whatever the permission mode. Which tools a plugin's
-// scripts may reach at all is the plugin's own declaration, checked where the plugin is hosted.
-func (a *App) scriptFree(name string) bool {
-	if readOnlyTools[name] || noOutsideEffect[name] {
-		return true
-	}
-	if a.tools == nil {
-		return false
-	}
-	t, ok := a.tools.Get(name)
-	if !ok {
-		return false
-	}
-	m := port.ToolMetaOf(t)
-	return m.Subagent && m.ReadOnlyChildren
-}
-
-type scriptedKey struct{}
-
-// asScripted marks a call a tool's script asked for that is not scriptFree: the permission gate
-// asks the person for it in every mode, and with nobody to ask it is refused.
-func asScripted(ctx context.Context) context.Context {
-	return context.WithValue(ctx, scriptedKey{}, true)
-}
-
-func isScripted(ctx context.Context) bool { v, _ := ctx.Value(scriptedKey{}).(bool); return v }
 
 // innerCallLimit bounds the calls one outer call may run, so a script with a runaway loop ends in
 // words instead of filling the log.
@@ -52,9 +20,6 @@ const innerCallLimit = 200
 // the turn's steps and the council still see it.
 func (a *App) callInner(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor,
 	outer *session.ToolCall, guard *runGuard, turnTask string, count *int32, slots chan struct{}, name string, args json.RawMessage) (session.ToolResult, error) {
-	if !a.scriptFree(name) {
-		ctx = asScripted(ctx)
-	}
 	if atomic.AddInt32(count, 1) > innerCallLimit {
 		return session.ToolResult{}, fmt.Errorf("not run: this call already ran %d tools, the limit for one call", innerCallLimit)
 	}

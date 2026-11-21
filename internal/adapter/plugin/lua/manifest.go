@@ -21,8 +21,8 @@ type Manifest struct {
 	Capabilities []string `toml:"capabilities"` // e.g. ["tool"]
 	Permissions  []string `toml:"permissions"`  // e.g. ["fs:read:./", "exec:git"]
 	// CallTools names the tools this plugin's scripts may call (magi.run_script, capability
-	// call_tools). Opening a tool is an act: none is open by default. The host still asks the person
-	// for any of them that does more than look.
+	// call_tools). Opening a tool is an act: none is open by default. A call to an open tool passes
+	// the same permission gate as the model's own call, for the conversation the script runs for.
 	CallTools []string `toml:"call_tools"`
 	// ExecTimeout bounds one magi.exec invocation, as a Go duration string ("300s", "5m").
 	// The 60s default was sized for probes and short commands; a plugin whose whole purpose is

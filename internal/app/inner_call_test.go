@@ -80,14 +80,16 @@ func TestAToolsScriptRunsReadsThatTheModelHistoryDoesNotCarry(t *testing.T) {
 	outer := &session.ToolCall{CallID: "outer", Name: "script_caller", Args: args}
 	a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, actor, outer, newRunGuard(nil), "")
 
-	if len(caller.got) != 1 || !strings.Contains(caller.got[0], "inner-secret-body-42") {
+	if len(caller.got) != 2 || !strings.Contains(caller.got[0], "inner-secret-body-42") {
 		t.Fatalf("the script did not get what read returned: got=%q errs=%q", caller.got, caller.errs)
 	}
-	if len(caller.errs) != 1 || !strings.Contains(caller.errs[0], "approve") {
-		t.Fatalf("a script's write needs a person; with none here it must be refused in words: %q", caller.errs)
+	// A script runs for the conversation it was called from, so its write follows that conversation's
+	// mode: in allow mode it runs as the model's own write would.
+	if len(caller.errs) != 0 {
+		t.Fatalf("in allow mode a script's write must run like the model's own: %q", caller.errs)
 	}
-	if _, err := os.Stat(made); !os.IsNotExist(err) {
-		t.Fatal("a refused write still wrote")
+	if _, err := os.Stat(made); err != nil {
+		t.Fatalf("an allowed write did not write: %v", err)
 	}
 
 	evs, err := a.store.Read(ctx, sid, 0)

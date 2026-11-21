@@ -473,11 +473,11 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > to the tool's progress note. `globals` lends the script functions of the plugin's own by name.
 > `on_call(e)` hears each call the script makes, on the plugin's Lua state: `e.phase` (`start` or `end`),
 > `e.tool`, `e.batch` (0 for `call_tool`, then 1, 2, ... per `call_all`), `e.index`, `e.size`, and `e.ok`
-> at the end. A call to a tool not listed in `call_tools` is refused before it reaches the host. The host
-> then decides by what the tool is, not by its name: a tool that only looks (`read`, `grep`, `glob`,
-> `list`), one with no outside effect, or a subagent whose children only look (`explore`) runs freely;
-> anything else (a write, `bash`, the web, an MCP tool) asks the person first in every permission mode,
-> and with nobody to ask is refused and not run. `call_tool` runs a tool through the host as a call of
+> at the end. A call to a tool not listed in `call_tools` is refused before it reaches the host. A call that
+> gets through passes the same permission gate as the model's own call, for the conversation the
+> running call belongs to: its permission mode, rules and scanner-forced asks, and that conversation's
+> "always" grants (for a child, the conversation at the top of its chain). An ask is shown in that
+> conversation and the script waits for the answer. `call_tool` runs a tool through the host as a call of
 > its own (permission, start fact, result), recorded under the tool's name with the running call as its
 > parent and kept out of the model's history; at most 200 calls per tool call. With `child = "task line"`
 > and a host that offers it (`ToolEnv.OpenChild`), the script runs as a child session of the

@@ -111,17 +111,8 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 		forcePrompt, reason = true, why
 		ctx = asRepeat(ctx)
 	}
-	// A call a tool's script asked for that does more than look goes to the person in every mode.
-	if isScripted(ctx) {
-		why := "a tool's script asked for " + tc.Name + ", which does more than look"
-		if !a.cfg.Interactive {
-			dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny", Origin: "script", Reason: why})
-			a.appendBestEffort(context.WithoutCancel(ctx), sid, event.TypePermissionDecided, actor, dd)
-			a.appendToolResult(context.WithoutCancel(ctx), sid, actor, toolMsgID, tc.CallID, "not run: "+why+". There is no one here to approve it", true)
-			return true
-		}
-		forcePrompt, reason = true, why
-	}
+	// A call a tool's script asked for passes this same gate: the script runs for the conversation
+	// it was called from, so its calls follow that conversation's mode and grants (permissionHome).
 	// A scanner-forced "ask" (a destructive invocation, an egress command, a pipe-to-shell, a
 	// secret-path reference) is NOT waived by an allow rule. An allow rule pre-approves a program
 	// for ordinary use — `bash(git:*)` trusts git — but "git status && rm -rf build" both matches
