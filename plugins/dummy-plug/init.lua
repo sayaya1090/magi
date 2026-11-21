@@ -76,6 +76,7 @@ local function track()
   local function open(name)
     local cur = run.stages[run.current]
     if cur and cur.state == "running" then cur.state = "done" end
+    if cur then cur.handed = nil end
     local want, at = clip(name), nil
     for i = run.current + 1, #run.stages do
       if run.stages[i].state == "waiting" and run.stages[i].name == want then at = i; break end
@@ -112,7 +113,9 @@ local function track()
       for _, task in ipairs(e.graph) do
         if #task.after == 0 and task.state == "waiting" then started = false end
       end
-      if started and owner and owner.state == "running" then owner.state = "done"; owner.running = 0 end
+      -- handed says why it is done: it is still the script's current step, and a call_all that
+      -- follows in it fills it again rather than opening a step the script never named.
+      if started and owner and owner.state == "running" then owner.state = "done"; owner.running = 0; owner.handed = true end
       report(true)
       return
     end
@@ -120,8 +123,9 @@ local function track()
     local i = batches[e.batch]
     if not i then
       local cur = run.stages[run.current]
-      if not cur or cur.total > 0 or cur.state ~= "running" then open(e.tool) end
+      if not cur or cur.total > 0 or (cur.state ~= "running" and not cur.handed) then open(e.tool) end
       cur = run.stages[run.current]
+      if cur.handed then cur.state = "running"; cur.handed = nil end
       cur.kind, cur.total = kind_of(e.tool), e.size
       i = run.current
       batches[e.batch] = i

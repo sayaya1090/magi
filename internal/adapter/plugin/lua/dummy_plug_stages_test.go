@@ -242,3 +242,24 @@ func TestDummyPlugMarksTheStepDoneOnceItsBranchesHaveStarted(t *testing.T) {
 	}
 	t.Fatal("no report had both branches started")
 }
+
+// Handing the step's work to a graph marks the step done on screen, but the step is still the
+// script's current one: a call_all that follows in it fills it again instead of opening a new step.
+func TestDummyPlugKeepsTheStepACallAllFollowsAGraphIn(t *testing.T) {
+	reports := dummyPlugRun(t, `stage("Collect")
+ call_graph({{id="a", tool="read"}, {id="b", tool="read"}})
+ call_all({{"read", {}}, {"read", {}}})`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	last := reports[len(reports)-1]
+	var plain []event.ProgressStage
+	for _, s := range last {
+		if s.After == nil {
+			plain = append(plain, s)
+		}
+	}
+	if len(plain) != 1 || plain[0].Label != "Collect" || plain[0].Total != 2 || plain[0].Done != 2 || plain[0].State != "done" {
+		t.Fatalf("want one step Collect with the call_all's 2/2, done: %s", stagesJSON(last))
+	}
+}
