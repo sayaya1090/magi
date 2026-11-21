@@ -368,10 +368,11 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   `explore` reply, and its file and line must exist. The report includes missing and invalid
   citations, protected regressions, elapsed time, and the number of `explore` calls.
   `live-explore.jsonl` records the start and result, including uses of the same holdout task hash.
-  The comparison uses the live directory and effective explore routing. Revision and model labels
-  come from `tasks.json`. Run against a stable checkout and model configuration for reproducibility.
-  Each arm runs once per task. The report checks citations and leaves adoption to the separate
-  routine commands.
+  Both arms use one temporary Git snapshot of the working tree and share the effective explore
+  model and provider. The report records the snapshot commit and tree, actual backend request
+  counts, and token usage when reported. Use `aa: true` on development tasks to run the active
+  script twice and see how its results vary. Each arm runs once per task. The report checks
+  citations and leaves adoption to the separate routine commands.
 - **Generating candidates.** `routine_autoimprove{name, problem, rounds}` makes one sidecar call
   (`magi.analyze`) per round with the active script, the problem and feedback from development
   screening in the current run. It screens each candidate against the contract and development

@@ -960,15 +960,19 @@ do
     schema = { type = "object", properties = {
       name = { type = "string" }, script = { type = "string" }, directory = { type = "string" },
       split = { type = "string", enum = { "dev", "holdout" } },
-    }, required = { "name", "script", "directory" } },
+      aa = { type = "boolean", description = "Run the active script in both arms on development cases" },
+    }, required = { "name", "directory" } },
     execute = function(a)
-      if type(magi.scoped_line_exists) ~= "function" then
+      if type(magi.with_explore_comparison) ~= "function" then
         return "live comparison requires an updated magi host", true
       end
       local r, err = load_routine(a and a.name)
       if not r then return err, true end
       local scope, split = a.directory, a.split or "dev"
-      if type(a.script) ~= "string" or a.script == "" or type(scope) ~= "string"
+      local aa = a.aa == true
+      if aa and split ~= "dev" then return "A/A uses development tasks only", true end
+      local script = aa and r.script or a.script
+      if type(script) ~= "string" or script == "" or type(scope) ~= "string"
         or not scope:match("^[%w_.%-%/]+$") or scope:sub(1, 1) == "/" or scope == "." then
         return "candidate script and workspace subdirectory required", true
       end
@@ -1005,49 +1009,56 @@ do
       end
       local id = magi.nonce()
       local report = { id = id, phase = "started", split = split, tasks_hash = frozen.tasks, contract_hash = frozen.contract,
-        baseline = r.fingerprint, candidate = version_of(a.script, r.inputs, r.tools), directory = scope,
+        baseline = r.fingerprint, candidate = version_of(script, r.inputs, r.tools), directory = scope, mode = aa and "A/A" or "A/B",
         declared_revision = tasks.revision, declared_model = tasks.model, holdout_use = split == "holdout" and use or nil }
-      local ok, why = append_line(path, report)
-      if not ok then return "could not record live comparison: " .. tostring(why), true end
+      local result, failure = magi.with_explore_comparison(function(revision, tree)
+        report.revision, report.source_tree = revision, tree
+        local ok, why = append_line(path, report)
+        if not ok then return "could not record live comparison: " .. tostring(why), true end
 
-      local function arm(task, script)
-        local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(task.input or {})) .. ")\n" .. script
-        local out, failure, metrics = magi.run_script(src, {
-          globals = noop_globals(), tools = r.tools, explore_read_scope = scope, measure_explore = true, timeout = 90,
-        })
-        metrics = metrics or { calls = 0, failures = 0 }
-        local found, invalid = live_evidence(out or "", scope)
-        local observed = live_evidence(table.concat(metrics.answers or {}, "\n"), scope)
-        local missing, expected = {}, task.expect and task.expect.evidence or {}
-        for _, ref in ipairs(expected) do if not found[ref] or not observed[ref] then missing[#missing + 1] = ref end end
-        local status = (#expected == 0 or metrics.calls == 0) and "unverified"
-          or (not failure and metrics.failures == 0 and #missing == 0 and #invalid == 0 and "pass" or "fail")
-        return { status = status, missing = missing, invalid = invalid, explore_calls = metrics.calls, explore_failures = metrics.failures,
-          elapsed_ms = metrics.elapsed_ms, script_failed = failure ~= nil }
-      end
-      report.rows, report.protected_regressions = {}, 0
-      for i, task in ipairs(selected) do
-        local base, candidate
-        if i % 2 == 1 then
-          base = arm(task, r.script)
-          candidate = arm(task, a.script)
-        else
-          candidate = arm(task, a.script)
-          base = arm(task, r.script)
+        local function arm(task, script)
+          local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(task.input or {})) .. ")\n" .. script
+          local out, failure, metrics = magi.run_script(src, {
+            globals = noop_globals(), tools = r.tools, explore_read_scope = scope, measure_explore = true, timeout = 90,
+          })
+          metrics = metrics or { calls = 0, failures = 0 }
+          local found, invalid = live_evidence(out or "", scope)
+          local observed = live_evidence(table.concat(metrics.answers or {}, "\n"), scope)
+          local missing, expected = {}, task.expect and task.expect.evidence or {}
+          for _, ref in ipairs(expected) do if not found[ref] or not observed[ref] then missing[#missing + 1] = ref end end
+          local status = (#expected == 0 or metrics.calls == 0) and "unverified"
+            or (not failure and metrics.failures == 0 and #missing == 0 and #invalid == 0 and "pass" or "fail")
+          return { status = status, missing = missing, invalid = invalid, explore_calls = metrics.calls, explore_failures = metrics.failures,
+            elapsed_ms = metrics.elapsed_ms, script_failed = failure ~= nil, model_calls = metrics.model_calls, usage_reports = metrics.usage_reports,
+            input_tokens = metrics.input_tokens, output_tokens = metrics.output_tokens, cached_tokens = metrics.cached_tokens,
+            tokens_known = metrics.tokens_known, cache_reported = metrics.cache_reported, model = metrics.model, profile = metrics.profile }
         end
-        local outcome = transition(base.status, candidate.status)
-        if task.protected and outcome == "regressed" then report.protected_regressions = report.protected_regressions + 1 end
-        report.rows[#report.rows + 1] = { id = task.id, protected = task.protected, active = base, candidate = candidate, transition = outcome }
-      end
-      local active = magi.read_file(r.path)
-      if magi.read_file(dir .. "contract.json") ~= ctext or magi.read_file(dir .. "tasks.json") ~= ttext
-        or type(active) ~= "string" or magi.sha256(active) ~= r.file_sha256 then
-        return "evaluation inputs or active routine changed during live comparison", true
-      end
-      report.phase = "completed"
-      ok, why = append_line(path, report)
-      if not ok then return "could not record live comparison results: " .. tostring(why), true end
-      return magi.json_encode(report)
+        report.rows, report.protected_regressions = {}, 0
+        for i, task in ipairs(selected) do
+          local base, candidate
+          if i % 2 == 1 then
+            base = arm(task, r.script)
+            candidate = arm(task, script)
+          else
+            candidate = arm(task, script)
+            base = arm(task, r.script)
+          end
+          local outcome = transition(base.status, candidate.status)
+          if task.protected and outcome == "regressed" then report.protected_regressions = report.protected_regressions + 1 end
+          report.rows[#report.rows + 1] = { id = task.id, protected = task.protected, active = base, candidate = candidate, transition = outcome }
+        end
+        local active = magi.read_file(r.path)
+        if magi.read_file(dir .. "contract.json") ~= ctext or magi.read_file(dir .. "tasks.json") ~= ttext
+          or type(active) ~= "string" or magi.sha256(active) ~= r.file_sha256 then
+          return "evaluation inputs or active routine changed during live comparison", true
+        end
+        report.phase = "completed"
+        ok, why = append_line(path, report)
+        if not ok then return "could not record live comparison results: " .. tostring(why), true end
+        return magi.json_encode(report)
+      end)
+      if not result then return tostring(failure), true end
+      return result, failure
     end,
   }
 

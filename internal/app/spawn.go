@@ -144,7 +144,11 @@ func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor 
 		if len(a.cfg.Hooks) > 0 || spec.Workspace != "" || spec.Trial {
 			return port.SpawnResult{}, fmt.Errorf("scoped explore: incompatible workspace or lifecycle hooks")
 		}
-		root, err := scopedExploreDirectory(parent.Workdir, scope)
+		rootDir := parent.Workdir
+		if pinned := exploreComparisonFrom(ctx); pinned != nil {
+			rootDir = pinned.source.Root
+		}
+		root, err := scopedExploreDirectory(rootDir, scope)
 		if err != nil {
 			return port.SpawnResult{}, err
 		}
@@ -279,6 +283,9 @@ func (a *App) spawnChildFrom(ctx context.Context, parent session.Session, actor 
 
 	agent := AgentSpec{Name: spawnAgentName, Trial: spec.Trial, preserveContext: checkpoint != nil, trialMemory: trialMemory, lean: spec.Lean, System: spec.System, Tools: spec.Tools, Model: model,
 		Provider: spec.Provider, Groups: spec.Groups}
+	if pinned := exploreComparisonFrom(ctx); pinned != nil && spec.ToolName == "explore" {
+		agent.pinnedProvider = pinned.provider
+	}
 
 	// Round-trip with the caller's review, if it set one. Each round runs the SAME session, so the
 	// child keeps what it has already read — that is the whole reason this is a loop here rather
@@ -566,7 +573,9 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 				spec.Workspace = "clone"
 			}
 		}
-		if m, pv := a.subagentOverride(toolName); m != "" || pv != "" {
+		if pinned := exploreComparisonFrom(sctx); pinned != nil && toolName == "explore" {
+			spec.Model, spec.Provider = pinned.route(a, s.Model, spec)
+		} else if m, pv := a.subagentOverride(toolName); m != "" || pv != "" {
 			if m != "" {
 				spec.Model = m
 			}
@@ -646,6 +655,9 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		res, err := a.spawnChildFrom(sctx, s, actor, spec, func(line string) {
 			a.emitToolProgress(s.ID, actor, callID, toolName, line)
 		}, source, capturedMemory, checkpoint)
+		if toolName == "explore" && port.ExploreReadScope(sctx) != "" {
+			port.ReportExploreMetrics(sctx, res.Metrics, spec.Model, spec.Provider)
+		}
 		res.Trial, res.Snapshot = spec.Trial, snapshot
 		<-slots
 		// Charge what the child actually spent, including when it failed — a child that burned

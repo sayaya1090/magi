@@ -15,6 +15,7 @@ import (
 // AgentSpec defines a named agent: its system prompt, optional tool allowlist
 // (empty = all tools), and optional model override. (F-AGENT-MULTI)
 type AgentSpec struct {
+	pinnedProvider  port.LLMProvider
 	preserveContext bool // checkpoint histories cannot be independently summarized
 
 	Trial       bool    // local experiment: no live retrieval or companion introductions

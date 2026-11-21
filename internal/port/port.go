@@ -502,6 +502,9 @@ type FileExperimentRunner interface {
 
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
+	// ExploreComparison pins the source for the duration of the callback.
+	ExploreComparison func(context.Context, func(context.Context, ExploreComparison)) error
+
 	// FileExperiment creates a fresh fixture and returns the final file hashes.
 	FileExperiment func(context.Context, map[string]string, func(FileExperimentCall)) (map[string]string, error)
 

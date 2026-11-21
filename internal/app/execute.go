@@ -604,6 +604,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	}
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		FileExperiment: fileExperiment,
+		ExploreComparison: func(ctx context.Context, run func(context.Context, port.ExploreComparison)) error {
+			return a.exploreComparison(ctx, workdir, run)
+		},
 		CallTool: func(cctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 			return a.callInner(cctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, name, args)
 		},

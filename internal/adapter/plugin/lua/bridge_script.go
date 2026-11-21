@@ -123,6 +123,9 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	var exploreMu sync.Mutex
 	exploreCalls, exploreFailures := 0, 0
 	var exploreAnswers []string
+	var modelCalls, usageReports, inputTokens, outputTokens, cachedTokens int
+	var cacheReported bool
+	var exploreModel, exploreProfile string
 	var dryMu sync.Mutex
 	var dryCalls []any
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
@@ -161,6 +164,17 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		}
 		exploreCalls++
 		exploreMu.Unlock()
+		ctx = port.WithExploreMetrics(ctx, func(m port.RunMetrics, model, profile string) {
+			exploreMu.Lock()
+			defer exploreMu.Unlock()
+			exploreModel, exploreProfile = model, profile
+			modelCalls += m.Calls
+			usageReports += m.UsageReports
+			inputTokens += m.Input
+			outputTokens += m.Output
+			cachedTokens += m.Cached
+			cacheReported = cacheReported || m.CacheReported
+		})
 		result, err := host(ctx, name, args)
 		exploreMu.Lock()
 		if err != nil || result.IsError {
@@ -254,7 +268,9 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		}
 		L.Push(goToLua(L, map[string]any{
 			"calls": exploreCalls, "failures": exploreFailures, "elapsed_ms": time.Since(started).Milliseconds(),
-			"answers": exploreAnswers,
+			"answers": exploreAnswers, "model": exploreModel, "profile": exploreProfile, "model_calls": modelCalls, "usage_reports": usageReports,
+			"input_tokens": inputTokens, "output_tokens": outputTokens, "cached_tokens": cachedTokens,
+			"tokens_known": modelCalls > 0 && modelCalls == usageReports, "cache_reported": cacheReported,
 		}))
 		return 3
 	}

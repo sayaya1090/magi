@@ -78,6 +78,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "log", L.NewFunction(p.bridgeLog))
 	L.SetField(t, "read_file", L.NewFunction(p.bridgeReadFile))
 	L.SetField(t, "scoped_line_exists", L.NewFunction(p.bridgeScopedLineExists))
+	L.SetField(t, "with_explore_comparison", L.NewFunction(p.bridgeExploreComparison))
 	L.SetField(t, "write_file", L.NewFunction(p.bridgeWriteFile))
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
 	L.SetField(t, "list_files", L.NewFunction(p.bridgeListFiles))
@@ -1210,6 +1211,31 @@ func (p *plugin) bridgeReadFile(L *lua.LState) int {
 	return 1
 }
 
+type exploreCitationRootKey struct{}
+
+func (p *plugin) bridgeExploreComparison(L *lua.LState) int {
+	p.requireCap(L, "call_tools")
+	fn := L.CheckFunction(1)
+	if p.env.ExploreComparison == nil {
+		return fail(L, "explore comparison requires an active tool call")
+	}
+	var callbackErr error
+	err := p.env.ExploreComparison(p.spawnCtx(), func(ctx context.Context, source port.ExploreComparison) {
+		previous := p.callCtx
+		p.callCtx = context.WithValue(ctx, exploreCitationRootKey{}, source.Root)
+		defer func() { p.callCtx = previous }()
+		callbackErr = L.CallByParam(lua.P{Fn: fn, NRet: 2, Protect: true},
+			lua.LString(source.Revision), lua.LString(source.Tree))
+	})
+	if err != nil {
+		return fail(L, err.Error())
+	}
+	if callbackErr != nil {
+		return fail(L, callbackErr.Error())
+	}
+	return 2
+}
+
 // magi.scoped_line_exists(directory, path, number) validates a citation without returning file content.
 func (p *plugin) bridgeScopedLineExists(L *lua.LState) int {
 	dir, path, line := L.CheckString(1), L.CheckString(2), L.CheckInt(3)
@@ -1218,7 +1244,11 @@ func (p *plugin) bridgeScopedLineExists(L *lua.LState) int {
 			!filepath.IsLocal(path) || !p.perms.allowFSRead(filepath.ToSlash(filepath.Join(dir, path))) {
 			return false
 		}
-		workspace, err := os.OpenRoot(p.env.Workdir)
+		workdir := p.env.Workdir
+		if root, ok := p.spawnCtx().Value(exploreCitationRootKey{}).(string); ok {
+			workdir = root
+		}
+		workspace, err := os.OpenRoot(workdir)
 		if err != nil {
 			return false
 		}
