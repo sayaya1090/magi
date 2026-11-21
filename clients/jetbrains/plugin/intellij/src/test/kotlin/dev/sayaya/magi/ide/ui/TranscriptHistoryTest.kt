@@ -416,6 +416,38 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
         assertEquals("nine edges, none from a plain step to the end", 9, connections.size)
     }
 
+    fun testProgressGraphHangsTheNextPlainStepFromItsEndAndStaysLeft() {
+        val strip = ProgressStages()
+        strip.update(listOf(
+            step("s1", null, "done"),
+            step("s2", null, "running"),
+            step("g1:a1", null, "done").copy(after = emptyList()),
+            step("g1:b1", null, "running").copy(after = emptyList()),
+            step("g1:a2", null, "done").copy(after = listOf("g1:a1")),
+            step("g1:b2", null, "waiting").copy(after = listOf("g1:b1")),
+            step("g1:join", null, "waiting").copy(after = listOf("g1:a2", "g1:b2")),
+            step("s3", null, "waiting"),
+        ))
+        val layout = strip.layout as java.awt.GridBagLayout
+        fun node(id: String) = role(strip, "step").single { it.getClientProperty(ProgressStages.ID) == id }
+        fun at(id: String): Pair<Int, Int> = layout.getConstraints(node(id)).let { it.gridx to it.gridy }
+        assertEquals("a graph root branches from the step that ran it", 3 to 0, at("g1:a1"))
+        assertEquals(5 to 0, at("g1:join"))
+        assertEquals("the step after the graph follows its join", 6 to 0, at("s3"))
+        assertEquals(7, layout.getConstraints(role(strip, "end").single()).gridx)
+        @Suppress("UNCHECKED_CAST")
+        val connections = ProgressStages::class.java.getDeclaredField("connections").apply { isAccessible = true }.get(strip) as List<Pair<java.awt.Component, java.awt.Component>>
+        assertEquals("ten edges, the graph feeding the next step", 10, connections.size)
+        assertTrue("join leads to the next step", connections.any { it.first === node("g1:join") && it.second === node("s3") })
+        assertFalse("the step before the graph does not skip it", connections.any { it.first === node("s2") && it.second === node("s3") })
+        val start = role(strip, "start").single()
+        val pref = strip.preferredSize
+        strip.setSize(pref.width + 800, pref.height + 200)
+        strip.doLayout()
+        assertTrue("the graph sits at the left like the line does, start at x=${start.x}", start.x < com.intellij.util.ui.JBUI.scale(40))
+        assertTrue("the graph sits at the top, start at y=${start.y}", start.y < com.intellij.util.ui.JBUI.scale(20))
+    }
+
     fun testRichRecencyKeepsWhatWasSeenLastAndPrefersTheScreen() {
         val recent = RichRecency(2)
         assertEquals(setOf("a"), recent.see(listOf("a"), emptyList()))

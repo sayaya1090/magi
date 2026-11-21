@@ -168,11 +168,18 @@ final class StageStrip {
         int lastColumn = 0, rowCount = 1;
         int[] tail = origin;
         String tailId = null;
+        // The graph tasks since the last plain step: the next plain step follows their ends, not the step before them.
+        List<String> branch = new ArrayList<>();
         for (String id : ids) {
             List<int[]> parents = new ArrayList<>();
             int column = 1;
             List<String> predecessors = dependencies.get(id);
-            if (predecessors != null) for (String parent : predecessors) {
+            List<String> from = predecessors;
+            if (predecessors == null) {
+                from = new ArrayList<>();
+                for (String task : branch) if (!consumed.contains(task)) from.add(task);
+            }
+            for (String parent : from) {
                 int[] position = positions.get(parent);
                 if (position == null) continue;
                 parents.add(position);
@@ -195,7 +202,8 @@ final class StageStrip {
             if (predecessors == null) {
                 tail = position;
                 tailId = id;
-            }
+                branch.clear();
+            } else branch.add(id);
         }
         int[] terminal = {lastColumn + 1, 0};
         place(graph, end.el, terminal);

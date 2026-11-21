@@ -18,6 +18,7 @@ import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.image.BufferedImage
+import javax.swing.Box
 import javax.swing.Icon
 import javax.swing.JPanel
 import javax.swing.SwingConstants
@@ -142,8 +143,11 @@ internal class ProgressStages(
         var tail: Node = start
         var tailId: String? = null
         var tailColumn = 0
+        // The graph tasks since the last plain step: the next plain step follows their ends, not the step before them.
+        val branch = mutableListOf<String>()
         for (stage in stages) {
-            val parents = stage.after.orEmpty().filter { it in columns }
+            val plain = stage.after == null
+            val parents = (if (plain) branch.filter { it !in consumed } else stage.after.orEmpty()).filter { it in columns }
             val column = 1 + (parents.maxOfOrNull { columns.getValue(it) } ?: tailColumn)
             val row = rows.getOrDefault(column, 0)
             columns[stage.id] = column
@@ -155,13 +159,23 @@ internal class ProgressStages(
                 edges.add(tail to node)
                 tailId?.let { consumed.add(it) }
             } else parents.forEach { edges.add(nodes.getValue(it) to node) }
-            if (stage.after == null) {
+            if (plain) {
                 tail = node
                 tailId = stage.id
                 tailColumn = column
-            }
+                branch.clear()
+            } else branch.add(stage.id)
         }
-        place(end, 1 + (columns.values.maxOrNull() ?: 0), 0)
+        val endColumn = 1 + (columns.values.maxOrNull() ?: 0)
+        place(end, endColumn, 0)
+        // GridBagLayout centres the grid in spare room; an empty cell past the last column and row takes it all,
+        // so the graph keeps to the top left like the one-line strip (FlowLayout.LEFT).
+        add(Box.Filler(Dimension(0, 0), Dimension(0, 0), Dimension(0, 0)), GridBagConstraints().apply {
+            gridx = endColumn + 1
+            gridy = maxOf(1, rows.values.maxOrNull() ?: 1)
+            weightx = 1.0
+            weighty = 1.0
+        })
         stages.filter { it.id !in consumed }.forEach { edges.add(nodes.getValue(it.id) to end) }
         connections = edges
         revalidate()

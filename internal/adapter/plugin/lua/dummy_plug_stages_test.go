@@ -182,3 +182,37 @@ func TestDummyPlugKeepsSeparateGraphsWithReusedTaskIDs(t *testing.T) {
 		}
 	}
 }
+
+// A graph is reported right after the step that ran it, not after every planned step, so a step
+// planned after it (Tidy) is drawn after the graph; one run before any step is reported first.
+func TestDummyPlugReportsAGraphRightAfterTheStepThatRanIt(t *testing.T) {
+	labels := func(st []event.ProgressStage) string {
+		var out []string
+		for _, s := range st {
+			out = append(out, s.Label)
+		}
+		return strings.Join(out, ",")
+	}
+	reports := dummyPlugRun(t, `plan({"Prepare", "Branch", "Tidy"})
+ stage("Prepare")
+ stage("Branch")
+ call_graph({{id="a", tool="read"}, {id="join", tool="read", after={"a"}}})
+ stage("Tidy")`, 0)
+	if len(reports) == 0 {
+		t.Fatal("no progress reports")
+	}
+	for _, r := range reports {
+		if got := labels(r); strings.Contains(got, "join") && got != "Prepare,Branch,a,join,Tidy" {
+			t.Fatalf("graph not right after the step that ran it: %s", stagesJSON(r))
+		}
+	}
+	if got := labels(reports[len(reports)-1]); got != "Prepare,Branch,a,join,Tidy" {
+		t.Fatalf("final report order %q", got)
+	}
+
+	reports = dummyPlugRun(t, `call_graph({{id="a", tool="read"}})
+ stage("After")`, 0)
+	if got := labels(reports[len(reports)-1]); got != "a,After" {
+		t.Fatalf("a graph run before any step goes first, got %q", got)
+	}
+}

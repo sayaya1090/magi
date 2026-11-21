@@ -50,12 +50,20 @@ local function track()
   local graphs = {}
   local function report(force)
     local out = {}
+    -- A graph goes right after the step that ran it, so a step planned after it is drawn after it;
+    -- one run before any step goes first.
+    local function graphs_of(owner)
+      for _, graph in ipairs(graphs) do
+        if graph.owner == owner then
+          for _, task in ipairs(graph.tasks) do out[#out + 1] = task end
+        end
+      end
+    end
+    graphs_of(nil)
     for _, st in ipairs(run.stages) do
       out[#out + 1] = { id = st.id, label = st.name, kind = st.kind, state = st.state,
         done = st.done, total = st.total, running = st.running }
-    end
-    for _, graph in ipairs(graphs) do
-      for _, task in ipairs(graph) do out[#out + 1] = task end
+      graphs_of(st)
     end
     local cur = run.stages[run.current]
     magi.progress(cur and cur.name or "", { stages = out, force = force })
@@ -96,7 +104,8 @@ local function track()
         graph[#graph + 1] = { id = prefix .. task.id, label = clip(task.label), kind = kind_of(task.tool), state = task.state,
           after = #deps > 0 and deps or nil, graph = true }
       end
-      graphs[e.graph_id] = graph
+      local owner = graphs[e.graph_id] and graphs[e.graph_id].owner or run.stages[run.current]
+      graphs[e.graph_id] = { owner = owner, tasks = graph }
       report(true)
       return
     end

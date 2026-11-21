@@ -463,6 +463,24 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_fleet('working', 's_now')")
             }
         }
+        When("그래프 뒤에 일반 단계가 오면") {
+            page.evaluate("window.__magi_test_fleet('working', 's_now', true, undefined, undefined, [{id:'s1',label:'Prepare',state:'done'},{id:'s2',label:'Branch',state:'running'},{id:'g1:a1',label:'A1',state:'done',after:[]},{id:'g1:b1',label:'B1',state:'running',after:[]},{id:'g1:a2',label:'A2',state:'done',after:['g1:a1']},{id:'g1:b2',label:'B2',state:'waiting',after:['g1:b1']},{id:'g1:join',label:'Join',state:'waiting',after:['g1:a2','g1:b2']},{id:'s3',label:'Tidy',state:'waiting'}])")
+            Then("그 단계는 그래프를 실행한 단계를 건너뛰지 않고 그래프의 합류에서 이어진다") {
+                val graph = page.locator("#dock .stage-graph")
+                graph.waitFor()
+                fun at(id: String) = graph.locator("[data-stage-id='" + id + "']").evaluate("e => getComputedStyle(e).gridColumnStart + ',' + getComputedStyle(e).gridRowStart")
+                at("g1:a1") shouldBe "4,1"
+                at("g1:join") shouldBe "6,1"
+                at("s3") shouldBe "7,1"
+                graph.locator("[data-role=end]").evaluate("e => getComputedStyle(e).gridColumnStart") shouldBe "8"
+                val paths = graph.locator(".stage-wires path")
+                paths.count() shouldBe 10
+                val ds = (0 until paths.count()).map { paths.nth(it).getAttribute("d").orEmpty() }
+                ds.any { it.startsWith("M810 16 ") && it.contains(" 917 16 m") } shouldBe true
+                ds.any { it.startsWith("M378 16 ") && it.contains(" 917 16 m") } shouldBe false
+                page.evaluate("window.__magi_test_fleet('working', 's_now')")
+            }
+        }
         When("압축이 요약 조각 셋 중 하나를 끝냈으면") {
             page.evaluate("window.__magi_test_fleet('working', 's_now', true, {done: 1, total: 3, chars: 840, elapsedMs: 12500})")
             Then("컴포저 위 막대가 보이고 끝난 조각의 비율로 찬다") {

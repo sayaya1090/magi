@@ -1737,11 +1737,15 @@ function layoutStageGraph(doc: Document, strip: HTMLElement, state: StagesState,
   };
   place(state.start.el, 0, 0);
   let lastColumn = 0;
-  // Plain steps (no after) run in one line from start; a graph root branches from the last of them.
+  // Plain steps (no after) run in one line from start; a graph root branches from the last of them,
+  // and the next plain step follows the graph's ends rather than the step before the graph.
   let tail = { column: 0, row: 0 };
   let tailId: string | undefined;
+  let branch: string[] = [];
   for (const stage of stages) {
-    const parents = (stage.after ?? []).flatMap((id) => {
+    const plain = stage.after === undefined;
+    const from = plain ? branch.filter((id) => !consumed.has(id)) : (stage.after ?? []);
+    const parents = from.flatMap((id) => {
       const position = positions.get(id);
       if (!position) return [];
       consumed.add(id);
@@ -1760,10 +1764,11 @@ function layoutStageGraph(doc: Document, strip: HTMLElement, state: StagesState,
     for (const parent of parents) {
       edges.push([parent.column, parent.row, column, row]);
     }
-    if (stage.after === undefined) {
+    if (plain) {
       tail = { column, row };
       tailId = stage.id;
-    }
+      branch = [];
+    } else branch.push(stage.id);
   }
   place(state.end.el, lastColumn + 1, 0);
   for (const [id, p] of positions) {

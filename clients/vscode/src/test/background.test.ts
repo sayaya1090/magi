@@ -115,3 +115,34 @@ test('plain steps before a graph run in one line and the graph branches from the
   assert.equal(graph.children.find((c) => c.attrs['data-role'] === 'end')?.attrs.style, 'grid-column:7;grid-row:1');
   assert.equal(graph.children[0].innerHTML.match(/<path /g)?.length, 9, 'nine edges, none from a plain step to the end');
 });
+
+test('a plain step after a graph follows the graph end, not the step before it', () => {
+  type FakeEl = { tagName: string; attrs: Record<string, string>; children: FakeEl[]; className: string; textContent: string; innerHTML: string };
+  const doc = { createElement(tag: string) {
+    return { tagName: tag.toUpperCase(), attrs: {} as Record<string, string>, children: [] as FakeEl[], className: '', textContent: '', innerHTML: '',
+      setAttribute(k: string, v: string) { this.attrs[k] = v; }, getAttribute(k: string) { return k in this.attrs ? this.attrs[k] : null; },
+      removeAttribute(k: string) { delete this.attrs[k]; },
+      append(...c: FakeEl[]) { this.children.push(...c); }, replaceChildren(...c: FakeEl[]) { this.children = c; } };
+  } } as unknown as Document;
+  const strip = stagesStrip(doc, 'ko');
+  updateStages(doc, strip, [
+    { id: 's1', label: 'prepare', state: 'done' },
+    { id: 's2', label: 'branch', state: 'running' },
+    { id: 'g1:a1', label: 'A1', state: 'done', after: [] },
+    { id: 'g1:b1', label: 'B1', state: 'running', after: [] },
+    { id: 'g1:a2', label: 'A2', state: 'done', after: ['g1:a1'] },
+    { id: 'g1:b2', label: 'B2', state: 'waiting', after: ['g1:b1'] },
+    { id: 'g1:join', label: 'join', state: 'waiting', after: ['g1:a2', 'g1:b2'] },
+    { id: 's3', label: 'tidy', state: 'waiting' },
+  ]);
+  const graph = (strip as unknown as FakeEl).children[0];
+  const at = (id: string) => graph.children.find((c) => c.attrs['data-stage-id'] === id)?.attrs.style;
+  assert.equal(at('g1:a1'), 'grid-column:4;grid-row:1', 'a graph root branches from the step that ran it');
+  assert.equal(at('g1:join'), 'grid-column:6;grid-row:1');
+  assert.equal(at('s3'), 'grid-column:7;grid-row:1', 'the step after the graph follows its join');
+  assert.equal(graph.children.find((c) => c.attrs['data-role'] === 'end')?.attrs.style, 'grid-column:8;grid-row:1');
+  const paths = graph.children[0].innerHTML.match(/<path d="[^"]*"/g) ?? [];
+  assert.equal(paths.length, 10, 'ten edges, the graph feeding the next step');
+  assert.ok(paths.some((d) => d.startsWith('<path d="M810 16 ') && d.includes(' 917 16 m')), 'join leads to the next step');
+  assert.ok(!paths.some((d) => d.startsWith('<path d="M378 16 ') && d.includes(' 917 16 m')), 'the step before the graph does not skip it');
+});
