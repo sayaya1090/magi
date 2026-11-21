@@ -328,7 +328,9 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   gain on holdout holds; otherwise the candidate is applicable. Effect size with a 95% interval and
   dry call counts are recorded. Every attempt — baseline, candidate, problem, hypothesis, conditions,
   per-task results, verdict and reason — is appended to `attempts.jsonl`, rejected ones included;
-  `routine_history` reads them back for the next candidate. A person adopts an applicable candidate
+  `routine_history` reads them back for the next candidate. `from_run` (a run from `/routine-trace`)
+  and `previous` (an earlier attempt) link an attempt to the run it started from and the attempt it
+  follows; both must exist. A person adopts an applicable candidate
   with `/routine-adopt <name> <version>` (the replaced version is kept, and `/routine-rollback <name>`
   restores it; both go to `decisions.jsonl`), and the adopted version asks for approval on its next
   run. The comparison checks control flow on fixtures only, not the accuracy of real `explore`

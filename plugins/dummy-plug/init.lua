@@ -948,6 +948,8 @@ Compare a candidate version of a routine with its active version, and record the
         hypothesis = { type = "string", description = "what this change should improve, and why" },
         expected = { type = "string", description = "the effect you expect on the tasks" },
         source = { type = "string", description = "the runs or attempts this candidate came from (ids)" },
+        from_run = { type = "string", description = "the run this started from (an id from /routine-trace); it must exist" },
+        previous = { type = "string", description = "the attempt this one follows (an id from routine_history); it must exist" },
         tools = { type = "array", items = { type = "string" }, description = "only if it differs from the active version's (it will be rejected: tools are the person's to change)" },
         inputs = { type = "object", description = "only if it differs from the active version's (rejected likewise)" },
       },
@@ -962,6 +964,26 @@ Compare a candidate version of a routine with its active version, and record the
         return "hypothesis is required: what this change should improve, and why", true
       end
       local dir = rdir(r.name)
+      -- Links: the run the person picked to start from, and the attempt this one follows. Both must
+      -- exist, so an attempt never points at something that was not there.
+      local source_run, follows
+      if a.from_run ~= nil and a.from_run ~= "" then
+        local fr = tostring(a.from_run)
+        local runs = stored("routine_runs")
+        for _, x in ipairs(type(runs.list) == "table" and runs.list or {}) do
+          if x.id == fr then source_run = { run = fr, goal = x.goal, code_hash = magi.sha256(tostring(x.script)):sub(1, 12) } end
+        end
+        if not source_run then return "no run " .. fr .. " (see /routine-trace); nothing was compared", true end
+      end
+      if a.previous ~= nil and a.previous ~= "" then
+        for _, p in ipairs(read_lines(dir .. "attempts.jsonl")) do
+          if p.id == a.previous then
+            local d = type(p.decision) == "table" and p.decision or {}
+            follows = { attempt = p.id, verdict = d.verdict, reason = d.reason }
+          end
+        end
+        if not follows then return "no attempt " .. tostring(a.previous) .. " of " .. r.name .. " (see routine_history); nothing was compared", true end
+      end
       local ctext, ttext = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
       if type(ctext) ~= "string" or type(ttext) ~= "string" then
         return "routine " .. r.name .. " has no " .. dir .. "contract.json and tasks.json; a person writes them and freezes them with /routine-evals-freeze " .. r.name .. "; nothing was compared", true
@@ -1102,9 +1124,11 @@ Compare a candidate version of a routine with its active version, and record the
         baseline = { version = base, path = r.path },
         candidate = { version = ver, path = vpath, change = change, tools = tools },
         problem = a.problem, hypothesis = a.hypothesis, expected = a.expected, source = a.source,
+        source_run = source_run, follows = follows,
         conditions = { evals = { contract = csha, tasks = tsha, frozen_at = frozen.at }, repeats = reps, tools = tools,
           mode = "dry run on fixed fixtures: no tool reached, no model",
-          revision = "not recorded: fixtures stand in for the repository" },
+          revision = tasks.revision and tostring(tasks.revision) or "not declared in tasks.json: fixtures stand in for the repository",
+          model = "none: explore answers come from fixtures (session model " .. tostring(magi.model and magi.model() or "?") .. ")" },
         contract = #contract_rows > 0 and contract_rows or nil,
         tasks = #rows > 0 and rows or nil,
         summary = n, effect = effect, cost = cost,
@@ -1117,6 +1141,10 @@ Compare a candidate version of a routine with its active version, and record the
         string.format("routine %s: candidate %s vs active %s (%s)", r.name, ver, base, change),
         "verdict: " .. verdict .. " — " .. reason,
       }
+      if source_run then lines[#lines + 1] = "from run " .. source_run.run .. " (" .. tostring(source_run.goal) .. ")" end
+      if follows then
+        lines[#lines + 1] = "follows attempt " .. follows.attempt .. " (" .. tostring(follows.verdict) .. ": " .. tostring(follows.reason) .. ")"
+      end
       if #contract_rows > 0 then
         lines[#lines + 1] = string.format("contract: pass %d, fail %d, unverified %d%s", cpass, #cfail, #cunv,
           #cunv > 0 and (" (" .. table.concat(cunv, ", ") .. ")") or "")
