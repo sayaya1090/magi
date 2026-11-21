@@ -287,9 +287,6 @@ func (p *Policy) Decide(toolName string, args json.RawMessage) (verdict, reason 
 	return "", ""
 }
 
-// fileTouch asks what this call does to a file, through whatever the policy was given. A Policy
-// with no answer behind it falls back to the builtin names, which is what it did before a tool
-// could say so itself.
 // decideFixturePath checks the supplied path and its workspace spellings.
 // The caller passes the original arguments to the disposable file tools.
 func (p *Policy) decideFixturePath(workdir, tool string, args json.RawMessage) (string, string) {
@@ -316,6 +313,9 @@ func (p *Policy) decideFixturePath(workdir, tool string, args json.RawMessage) (
 	return "", ""
 }
 
+// fileTouch asks what this call does to a file, through whatever the policy was given. A Policy
+// with no answer behind it falls back to the builtin names, which is what it did before a tool
+// could say so itself.
 func (p *Policy) fileTouch(tool string, args json.RawMessage) (fileTouch, bool) {
 	if p.touches != nil {
 		return p.touches(tool, args)

@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -75,6 +77,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
 	L.SetField(t, "log", L.NewFunction(p.bridgeLog))
 	L.SetField(t, "read_file", L.NewFunction(p.bridgeReadFile))
+	L.SetField(t, "scoped_line_exists", L.NewFunction(p.bridgeScopedLineExists))
 	L.SetField(t, "write_file", L.NewFunction(p.bridgeWriteFile))
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
 	L.SetField(t, "list_files", L.NewFunction(p.bridgeListFiles))
@@ -1204,6 +1207,48 @@ func (p *plugin) bridgeReadFile(L *lua.LState) int {
 		return fail(L, err.Error())
 	}
 	L.Push(lua.LString(string(b)))
+	return 1
+}
+
+// magi.scoped_line_exists(directory, path, number) validates a citation without returning file content.
+func (p *plugin) bridgeScopedLineExists(L *lua.LState) int {
+	dir, path, line := L.CheckString(1), L.CheckString(2), L.CheckInt(3)
+	valid := func() bool {
+		if line < 1 || p.env.Workdir == "" || !filepath.IsLocal(dir) || filepath.Clean(dir) == "." ||
+			!filepath.IsLocal(path) || !p.perms.allowFSRead(filepath.ToSlash(filepath.Join(dir, path))) {
+			return false
+		}
+		workspace, err := os.OpenRoot(p.env.Workdir)
+		if err != nil {
+			return false
+		}
+		defer workspace.Close()
+		root, err := workspace.OpenRoot(dir)
+		if err != nil {
+			return false
+		}
+		defer root.Close()
+		info, err := root.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return false
+		}
+		file, err := root.Open(path)
+		if err != nil {
+			return false
+		}
+		defer file.Close()
+		const maxCitationBytes = 1 << 20
+		body, err := io.ReadAll(io.LimitReader(file, maxCitationBytes+1))
+		if err != nil || len(body) == 0 || len(body) > maxCitationBytes {
+			return false
+		}
+		lines := bytes.Count(body, []byte{'\n'})
+		if body[len(body)-1] != '\n' {
+			lines++
+		}
+		return line <= lines
+	}
+	L.Push(lua.LBool(valid()))
 	return 1
 }
 

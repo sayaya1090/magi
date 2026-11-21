@@ -195,7 +195,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true }
+  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -930,6 +930,126 @@ do
     if b == "fail" then return "still_failing" end
     return "kept"
   end
+
+  local function live_evidence(out, scope)
+    local found, invalid, checked = {}, {}, {}
+    for line in out:gmatch("[^\r\n]+") do
+      if not line:match("^%s*#") and not line:match("^%s*%(no answer:") then
+        for path, number in line:gmatch("([%w_./%-]+):(%d+)") do
+          local ref = path .. ":" .. number
+          if not checked[ref] then
+            checked[ref] = true
+            local local_path = path:sub(1, 1) ~= "/"
+            for part in path:gmatch("[^/]+") do
+              if part == ".." or part == "." then local_path = false end
+            end
+            local n = tonumber(number)
+            if local_path and n and n <= 1048576 and magi.scoped_line_exists(scope, path, n) then found[ref] = true end
+            if not found[ref] then invalid[#invalid + 1] = ref end
+          end
+        end
+      end
+    end
+    table.sort(invalid)
+    return found, invalid
+  end
+
+  magi.register_tool{
+    name = "routine_compare_explore",
+    description = "Run a read-only routine and a candidate on the same frozen tasks using real scoped explore calls. Records paired citation checks and timings without adopting either version.",
+    schema = { type = "object", properties = {
+      name = { type = "string" }, script = { type = "string" }, directory = { type = "string" },
+      split = { type = "string", enum = { "dev", "holdout" } },
+    }, required = { "name", "script", "directory" } },
+    execute = function(a)
+      if type(magi.scoped_line_exists) ~= "function" then
+        return "live comparison requires an updated magi host", true
+      end
+      local r, err = load_routine(a and a.name)
+      if not r then return err, true end
+      local scope, split = a.directory, a.split or "dev"
+      if type(a.script) ~= "string" or a.script == "" or type(scope) ~= "string"
+        or not scope:match("^[%w_.%-%/]+$") or scope:sub(1, 1) == "/" or scope == "." then
+        return "candidate script and workspace subdirectory required", true
+      end
+      for part in scope:gmatch("[^/]+") do
+        if part == ".." or part == "." then return "use a workspace subdirectory", true end
+      end
+      if split ~= "dev" and split ~= "holdout" then return "split must be dev or holdout", true end
+      local explore = false
+      for _, tool in ipairs(r.tools) do
+        if tool == "explore" then explore = true
+        elseif tool ~= "recall_memory" then return "live comparison does not support " .. tool, true end
+      end
+      if not explore then return "routine does not declare explore", true end
+
+      local dir = rdir(r.name)
+      local ctext, ttext = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
+      local frozen = stored("routine_evals_frozen")[r.name]
+      if type(frozen) ~= "table" or type(ctext) ~= "string" or type(ttext) ~= "string"
+        or frozen.contract ~= magi.sha256(ctext) or frozen.tasks ~= magi.sha256(ttext) then
+        return "freeze the current contract and tasks before live comparison", true
+      end
+      local tasks = decode(ttext)
+      local selected = {}
+      for _, task in ipairs(tasks and tasks.tasks or {}) do
+        if (task.split or "dev") == split then selected[#selected + 1] = task end
+      end
+      if #selected == 0 or #selected > 12 then return "live comparison requires 1 to 12 tasks in the selected split", true end
+      local path = dir .. "live-explore.jsonl"
+      local use = 1
+      if split == "holdout" then
+        for _, prior in ipairs(read_lines(path)) do
+          if prior.phase == "started" and prior.split == "holdout" and prior.tasks_hash == frozen.tasks then use = use + 1 end
+        end
+      end
+      local id = magi.nonce()
+      local report = { id = id, phase = "started", split = split, tasks_hash = frozen.tasks, contract_hash = frozen.contract,
+        baseline = r.fingerprint, candidate = version_of(a.script, r.inputs, r.tools), directory = scope,
+        declared_revision = tasks.revision, declared_model = tasks.model, holdout_use = split == "holdout" and use or nil }
+      local ok, why = append_line(path, report)
+      if not ok then return "could not record live comparison: " .. tostring(why), true end
+
+      local function arm(task, script)
+        local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(task.input or {})) .. ")\n" .. script
+        local out, failure, metrics = magi.run_script(src, {
+          globals = noop_globals(), tools = r.tools, explore_read_scope = scope, measure_explore = true, timeout = 90,
+        })
+        metrics = metrics or { calls = 0, failures = 0 }
+        local found, invalid = live_evidence(out or "", scope)
+        local observed = live_evidence(table.concat(metrics.answers or {}, "\n"), scope)
+        local missing, expected = {}, task.expect and task.expect.evidence or {}
+        for _, ref in ipairs(expected) do if not found[ref] or not observed[ref] then missing[#missing + 1] = ref end end
+        local status = (#expected == 0 or metrics.calls == 0) and "unverified"
+          or (not failure and metrics.failures == 0 and #missing == 0 and #invalid == 0 and "pass" or "fail")
+        return { status = status, missing = missing, invalid = invalid, explore_calls = metrics.calls, explore_failures = metrics.failures,
+          elapsed_ms = metrics.elapsed_ms, script_failed = failure ~= nil }
+      end
+      report.rows, report.protected_regressions = {}, 0
+      for i, task in ipairs(selected) do
+        local base, candidate
+        if i % 2 == 1 then
+          base = arm(task, r.script)
+          candidate = arm(task, a.script)
+        else
+          candidate = arm(task, a.script)
+          base = arm(task, r.script)
+        end
+        local outcome = transition(base.status, candidate.status)
+        if task.protected and outcome == "regressed" then report.protected_regressions = report.protected_regressions + 1 end
+        report.rows[#report.rows + 1] = { id = task.id, protected = task.protected, active = base, candidate = candidate, transition = outcome }
+      end
+      local active = magi.read_file(r.path)
+      if magi.read_file(dir .. "contract.json") ~= ctext or magi.read_file(dir .. "tasks.json") ~= ttext
+        or type(active) ~= "string" or magi.sha256(active) ~= r.file_sha256 then
+        return "evaluation inputs or active routine changed during live comparison", true
+      end
+      report.phase = "completed"
+      ok, why = append_line(path, report)
+      if not ok then return "could not record live comparison results: " .. tostring(why), true end
+      return magi.json_encode(report)
+    end,
+  }
 
   -- sign_p: one-sided sign test over the discordant tasks, P(at least s of n solved | no effect).
   local function sign_p(s, n)

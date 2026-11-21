@@ -361,6 +361,17 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   That directory becomes the `explore` child's file-tool root on future runs of the auto-applied
   version. It remains in effect if the delegation is revoked. The decision record includes
   `explore_scope`. Earlier delegations with no directory need to be renewed.
+- **Live explore comparison.** `routine_compare_explore{name, script, directory, split}` runs the
+  active script and the candidate against the same frozen tasks. It defaults to `dev`. Set
+  `split: holdout` to evaluate a selected candidate. Use paths relative to `directory` in
+  `expect.evidence`. A required citation must appear in the routine output and a successful
+  `explore` reply, and its file and line must exist. The report includes missing and invalid
+  citations, protected regressions, elapsed time, and the number of `explore` calls.
+  `live-explore.jsonl` records the start and result, including uses of the same holdout task hash.
+  The comparison uses the live directory and effective explore routing. Revision and model labels
+  come from `tasks.json`. Run against a stable checkout and model configuration for reproducibility.
+  Each arm runs once per task. The report checks citations and leaves adoption to the separate
+  routine commands.
 - **Generating candidates.** `routine_autoimprove{name, problem, rounds}` makes one sidecar call
   (`magi.analyze`) per round with the active script, the problem and feedback from development
   screening in the current run. It screens each candidate against the contract and development

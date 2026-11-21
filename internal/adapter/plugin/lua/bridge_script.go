@@ -119,6 +119,10 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 			fixtures = append(fixtures, f)
 		}
 	}
+	measureExplore := scoped && !dry && lua.LVAsBool(opts.RawGetString("measure_explore"))
+	var exploreMu sync.Mutex
+	exploreCalls, exploreFailures := 0, 0
+	var exploreAnswers []string
 	var dryMu sync.Mutex
 	var dryCalls []any
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
@@ -146,7 +150,27 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		if name == "explore" && exploreScope != "" {
 			ctx = port.WithExploreReadScope(ctx, string(exploreScope))
 		}
-		return host(ctx, name, args)
+		if !measureExplore || name != "explore" {
+			return host(ctx, name, args)
+		}
+		exploreMu.Lock()
+		if exploreCalls >= 8 {
+			exploreFailures++
+			exploreMu.Unlock()
+			return session.ToolResult{}, fmt.Errorf("explore comparison call budget exceeded")
+		}
+		exploreCalls++
+		exploreMu.Unlock()
+		result, err := host(ctx, name, args)
+		exploreMu.Lock()
+		if err != nil || result.IsError {
+			exploreFailures++
+		} else {
+			answer, _ := toolText(result, nil)
+			exploreAnswers = append(exploreAnswers, answer[:min(len(answer), 16000)])
+		}
+		exploreMu.Unlock()
+		return result, err
 	}
 	// serial = {...} names tools that never run alongside another call in this run, whatever the host
 	// would allow. A dry run is wholly serial, so its record is in the order the script asked.
@@ -207,6 +231,7 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		L.Push(lua.LNumber(failedCalls))
 		return 4
 	}
+	started := time.Now()
 	out, err := execScript(p.spawnCtx(), call, p.env.EmitProgress, safe, scriptHooksOf(L, opts), src, timeout, limit)
 	if child != nil {
 		child.Close(out, err)
@@ -219,6 +244,18 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 			L.Push(lua.LNil)
 		}
 		L.Push(goToLua(L, dryCalls))
+		return 3
+	}
+	if measureExplore {
+		if err != nil {
+			L.Push(lua.LString(err.Error()))
+		} else {
+			L.Push(lua.LNil)
+		}
+		L.Push(goToLua(L, map[string]any{
+			"calls": exploreCalls, "failures": exploreFailures, "elapsed_ms": time.Since(started).Milliseconds(),
+			"answers": exploreAnswers,
+		}))
 		return 3
 	}
 	if err != nil {
