@@ -295,26 +295,20 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   routine run, not write: each write still passes its own permission gate (in `ask` mode it asks), and
   the writing tools run one at a time (`run_script`'s `serial`). A tool outside `call_tools`
   (`coding_task`, `wait_for`, …) cannot be in a routine.
-- **Traces and drafts.** The dummy plug keeps this conversation's tool calls (`tool_finished`) by turn
-  (`user_message`), the last 300. `/routine-trace` lists them, numbered, with the recent `dummy_plug`
-  runs. `/routine-draft <name> <from>-<to>` saves calls `<from>`–`<to>` as a routine: one `call_tool`
-  line each, and each word that names one run's thing (a hash, a session or task id, a timestamp)
-  becomes an input (`input.p1`, …; the traced values go in `example:`). A word that first shows up
-  after the first step and is not in the request probably came from an earlier result, which a trace
-  does not hold: it is marked `-- TODO` and the routine is saved with `status: draft`.
-  `/routine-draft <name> run:<id>` saves a `dummy_plug` run's script as it ran. `run_routine` refuses
-  a draft until the person has reviewed it and deleted the status line.
-- **Dry check.** Before it is saved, a drafted routine runs with `run_script{dry=true}` on its traced
-  values: no tool is reached, and the calls it would make are compared with the trace, call by call
-  (`dry_check:` in the file). A mismatch saves it as a draft. A `dummy_plug` run's script is only run
-  dry and its reach reported, since its later calls may read results a dry run leaves empty.
-- **Candidates.** When a turn ends, each stretch of it between judgement calls (`ask_user`, `council`,
-  `todowrite`, …) and failures is fingerprinted with those run-specific words blanked; a stretch seen
-  in a second turn is offered as a candidate (logged, and listed by `/routine-candidates`). A turn's
-  opening reads (`read`, `list`, `glob` only) are left out: in the sessions measured they were most of
-  what repeated. A `dummy_plug` script whose tool sequence succeeds three times is still offered too.
-  `/routine-register <id> <name>` saves a candidate through the same draft and dry check; nothing is
-  registered otherwise, and its first run still asks.
+- **Traces and drafts.** `/routine-trace` lists up to 300 recent calls with their number, turn,
+  tool and success status. The trace stores no arguments or message text.
+  `/routine-draft <name> <from>-<to>` saves a draft with one argument object per step
+  (`input.step1`, `input.step2`, …). Supply those objects and check the order and dependencies
+  before removing `status: draft`. `run_routine` refuses drafts.
+  `/routine-draft <name> run:<id>` still saves the selected `dummy_plug` script as it ran.
+- **Dry check.** A trace draft runs with synthetic arguments. `dry_check:` reports whether it
+  produced the expected tool calls in observed completion order. No tools execute during the check.
+  A saved `dummy_plug` script reports how far it got in a dry run.
+- **Candidates.** At turn end, repeated stretches are matched by tool names in observed completion
+  order. Judgement calls and failures end a stretch. Opening stretches of only `read`, `list` or
+  `glob` are skipped. `/routine-candidates` lists the suggestions and `/routine-register <id> <name>`
+  saves the selected candidate. The separate suggestion for a `dummy_plug` script whose tool
+  sequence succeeds three times still uses that script.
 - **Improvement.** A routine's evals live in `.magi/routines/<name>/`: `contract.json` (cases run dry
   on fixed fixtures — control flow: the recalled policy reaches each `explore`, an empty or failed
   answer is reported as no answer, a branch no fixture answers stays unverified) and `tasks.json`

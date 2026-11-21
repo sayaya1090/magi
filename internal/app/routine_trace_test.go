@@ -66,12 +66,9 @@ func (r *routineRig) skill(t *testing.T, name string) string {
 	return string(b)
 }
 
-// A stretch of the conversation's tool calls the person picks becomes a routine draft: each call a
-// call_tool line, the values that vary its inputs, checked dry against the trace. A value that first
-// shows up mid-stretch and is not in the request probably came from an earlier result: it is marked
-// TODO and the routine stays a draft, which run_routine refuses until the person resolves it.
 func TestAStretchOfTheTraceBecomesARoutineDraftCheckedDry(t *testing.T) {
-	r := newRoutineRig(t, t.TempDir(), routineFile)
+	dataDir := t.TempDir()
+	r := newRoutineRig(t, dataDir, routineFile)
 	r.file(t, "abc1234.txt", "a\n")
 	r.file(t, "deadbeef9.txt", "d\n")
 	r.fire("user_message", "text", "read abc1234.txt for me")
@@ -85,16 +82,25 @@ func TestAStretchOfTheTraceBecomesARoutineDraftCheckedDry(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := r.skill(t, "finder")
-	for _, want := range []string{"kind: routine", "status: draft", "tools: read", `example: {"p1":"abc1234","p2":"deadbeef9"}`,
-		"dry_check: passed 3/3", "-- TODO: input.p2 (deadbeef9)", "{{p1}}.txt", "source: trace "} {
+	for _, want := range []string{"kind: routine", "status: draft", "tools: read", "dry_check: passed 3/3",
+		"synthetic arguments", "-- TODO: supply arguments for step 2", "input.step1", "input.step3", "source: trace "} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("draft lacks %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "TODO: input.p1") {
-		t.Fatalf("a value from the request is an input, not a TODO:\n%s", body)
+	store, err := os.ReadFile(filepath.Join(dataDir, "plugin-data", "dummy-plug.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	args := map[string]any{"p1": "abc1234", "p2": "deadbeef9"}
+	for _, secret := range []string{"notes.txt", "abc1234", "deadbeef9", "for me"} {
+		for _, output := range []string{body, r.logs.text(), string(store)} {
+			if strings.Contains(output, secret) {
+				t.Fatalf("trace copied %q into %s", secret, output)
+			}
+		}
+	}
+	args := map[string]any{"step1": map[string]string{"path": "notes.txt"},
+		"step2": map[string]string{"path": "abc1234.txt"}, "step3": map[string]string{"path": "deadbeef9.txt"}}
 	out, asks, failed := r.call(t, "f1", "run_routine", map[string]any{"name": "finder", "args": args}, "allow")
 	if !failed || len(asks) != 0 || !strings.Contains(out, "is a draft") {
 		t.Fatalf("a draft must not run or ask: %q %+v", out, asks)
@@ -106,11 +112,9 @@ func TestAStretchOfTheTraceBecomesARoutineDraftCheckedDry(t *testing.T) {
 	}
 }
 
-// A stretch that runs again in another turn, with only its varying values changed, is offered as a
-// candidate on the same path: the person registers it, it is drafted and checked dry like a picked
-// stretch, and its first run asks. A stretch seen once is not offered.
 func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T) {
-	r := newRoutineRig(t, t.TempDir(), routineFile)
+	dataDir := t.TempDir()
+	r := newRoutineRig(t, dataDir, routineFile)
 	r.file(t, "a1b2c3d4.txt", "a\n")
 	r.file(t, "f9e8d7c6.txt", "f\n")
 	turn := func(file string) {
@@ -128,21 +132,58 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 	if m == nil {
 		t.Fatalf("a stretch seen in two turns was not offered: %q", r.logs.text())
 	}
+	if err := r.command(t, "routine-candidates"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := os.ReadFile(filepath.Join(dataDir, "plugin-data", "dummy-plug.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := r.command(t, "routine-register", m[1], "opener"); err != nil {
 		t.Fatal(err)
 	}
 	body := r.skill(t, "opener")
-	for _, want := range []string{"kind: routine", "tools: grep, read", "dry_check: passed 2/2", "{{p1}}.txt"} {
+	for _, want := range []string{"kind: routine", "tools: grep, read", "dry_check: passed 2/2", "input.step1", "status: draft"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("registered candidate lacks %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "status: draft") {
-		t.Fatalf("a stretch whose values all come from the request is not a draft:\n%s", body)
+	for _, value := range []string{"notes.txt", "hello", "a1b2c3d4", "f9e8d7c6", "example:"} {
+		if strings.Contains(body, value) || strings.Contains(r.logs.text(), value) || strings.Contains(string(store), value) {
+			t.Fatalf("repeated candidate copied %q", value)
+		}
 	}
-	out, asks, failed := r.call(t, "o1", "run_routine", map[string]any{"name": "opener", "args": map[string]any{"p1": "a1b2c3d4"}}, "allow")
-	if failed || len(asks) != 1 || !strings.Contains(out, "done: 2 steps") {
-		t.Fatalf("the registered routine asks once and runs: %q %+v", out, asks)
+}
+
+func TestRoutineTraceCleansLegacyArgumentsAndCandidatePreviews(t *testing.T) {
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, "plugin-data", "dummy-plug.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"routine_last_session":"legacy","routine_trace:legacy":{"prompts":{"1":"old-prompt"},"calls":[{"n":1,"turn":1,"tool":"read","args":"old-argument","ok":true}]},"routine_candidates":{"t123":{"kind":"trace","sequence":"read","prompt":"old-prompt","script":"old-preview","calls":[{"tool":"read","args":"old-argument","ok":true}]}}}`
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := newRoutineRig(t, dataDir, routineFile)
+	for _, command := range []string{"routine-trace", "routine-candidates"} {
+		if err := r.command(t, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.command(t, "routine-register", "t123", "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"old-prompt", "old-argument", "old-preview"} {
+		for _, output := range []string{string(store), r.logs.text(), r.skill(t, "legacy")} {
+			if strings.Contains(output, value) {
+				t.Fatalf("legacy trace exposed %q in %s", value, output)
+			}
+		}
 	}
 }
 
