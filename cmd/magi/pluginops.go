@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -269,13 +270,16 @@ func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
 }
 
 // ToolFinished forwards a finished tool call to plugins as the tool_finished observation event.
-func (o *pluginObserver) ToolFinished(sid, tool, args string, ok bool) {
+func (o *pluginObserver) ToolFinishedWithDispatch(sid, tool, args string, ok bool, dispatch app.ToolObservation) {
 	if h := o.host.Load(); h != nil {
 		done := "false"
 		if ok {
 			done = "true"
 		}
-		h.FireEventWith("tool_finished", map[string]string{"session": sid, "tool": tool, "args": args, "ok": done})
+		h.FireEventWith("tool_finished", map[string]string{
+			"session": sid, "tool": tool, "args": args, "ok": done,
+			"call_id": dispatch.CallID, "parallel_batch": dispatch.ParallelBatch, "order_known": strconv.FormatBool(dispatch.OrderKnown),
+		})
 	}
 }
 

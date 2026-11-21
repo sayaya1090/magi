@@ -346,6 +346,13 @@ load_candidates()
 
 local function draft_from_calls(calls)
   if #calls == 0 then return nil, "no calls in that stretch" end
+  if #calls > 1 then
+    for _, c in ipairs(calls) do
+      if not c.order_known then
+        return nil, "call #" .. tostring(c.n) .. " has no verified sequential order; draft it separately and review dependencies"
+      end
+    end
+  end
   local tools, seen, lines, props, req, fixtures = {}, {}, {}, {}, {}, {}
   for i, c in ipairs(calls) do
     if not CALLABLE[c.tool] then
@@ -466,7 +473,7 @@ local function note_repeats(sid)
   for _, c in ipairs(t.calls) do
     if c.turn == turn then
       first_n = first_n or c.n
-      if JUDGE[c.tool] then
+      if JUDGE[c.tool] or not c.order_known then
         if #seg > 0 then segs[#segs + 1] = seg end
         seg = {}
       else
@@ -528,7 +535,9 @@ end)
 magi.on("tool_finished", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" or type(ev.tool) ~= "string" then return end
   local t = load_trace(ev.session)
-  t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true" }
+  t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
+    call_id = ev.call_id, parallel_batch = ev.parallel_batch,
+    order_known = ev.order_known == "true" and (ev.parallel_batch or "") == "" }
   t.next = t.next + 1
   while #t.calls > TRACE_KEEP do table.remove(t.calls, 1) end
   magi.store_set(trace_key(ev.session), t)
@@ -653,8 +662,10 @@ magi.register_command{
       local t = load_trace(sid)
       for i = math.max(1, #t.calls - n + 1), #t.calls do
         local c = t.calls[i]
-        lines[#lines + 1] = string.format("#%d turn %s %s%s", c.n, tostring(c.turn), tostring(c.tool),
-          c.ok == false and " (failed)" or "")
+        lines[#lines + 1] = string.format("#%d turn %s %s%s%s", c.n, tostring(c.turn), tostring(c.tool),
+          c.ok == false and " (failed)" or "",
+          c.parallel_batch and c.parallel_batch ~= "" and (" (parallel batch " .. c.parallel_batch .. ")")
+            or (not c.order_known and " (order unknown)" or ""))
       end
     end
     local runs = stored("routine_runs")

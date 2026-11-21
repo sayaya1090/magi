@@ -299,13 +299,15 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   tool and success status. The trace stores no arguments or message text.
   `/routine-draft <name> <from>-<to>` saves a draft with one argument object per step
   (`input.step1`, `input.step2`, …). Supply those objects and check the order and dependencies
-  before removing `status: draft`. `run_routine` refuses drafts.
+  before removing `status: draft`. `run_routine` refuses drafts. The trace labels parallel batches
+  and calls of unknown order. You can draft those calls one at a time. A draft spanning multiple
+  calls requires known sequential dispatch for every call.
   `/routine-draft <name> run:<id>` still saves the selected `dummy_plug` script as it ran.
 - **Dry check.** A trace draft runs with synthetic arguments. `dry_check:` reports whether it
   produced the expected tool calls in observed completion order. No tools execute during the check.
   A saved `dummy_plug` script reports how far it got in a dry run.
-- **Candidates.** At turn end, repeated stretches are matched by tool names in observed completion
-  order. Judgement calls and failures end a stretch. Opening stretches of only `read`, `list` or
+- **Candidates.** At turn end, repeated sequential stretches are matched by tool name. Parallel
+  calls, unknown order, judgement calls and failures break a stretch. Opening stretches of only `read`, `list` or
   `glob` are skipped. `/routine-candidates` lists the suggestions and `/routine-register <id> <name>`
   saves the selected candidate. The separate suggestion for a `dummy_plug` script whose tool
   sequence succeeds three times still uses that script.

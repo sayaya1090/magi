@@ -65,3 +65,53 @@ func TestObserverHearsAFinishedTool(t *testing.T) {
 		t.Errorf("ToolFinished = %q", got[0])
 	}
 }
+
+type dispatchObserver struct {
+	recordingObserver
+	completed chan ToolObservation
+}
+
+func (o *dispatchObserver) ToolFinishedWithDispatch(_, _, _ string, _ bool, dispatch ToolObservation) {
+	o.completed <- dispatch
+}
+
+func TestToolObserverDistinguishesParallelAndSequentialDispatch(t *testing.T) {
+	obs := &dispatchObserver{completed: make(chan ToolObservation, 3)}
+	first := asideCall("read", `{"path":"a.txt"}`)[0]
+	second := asideCall("read", `{"path":"a.txt"}`)[0]
+	second.ToolCall.CallID = "second"
+	solo := asideCall("read", `{"path":"a.txt"}`)
+	solo[0].ToolCall.CallID = "solo"
+	llm := &scriptLLM{steps: [][]port.ProviderEvent{{first, second, {Type: port.ProviderFinish}}, solo, asideText("done")}}
+	a, wd := newApp(t, llm, Config{Observer: obs, Permission: "allow"})
+	if err := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid,
+		Parts: []session.Part{{Kind: session.PartText, Text: "read a.txt"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]ToolObservation)
+	for range 3 {
+		select {
+		case dispatch := <-obs.completed:
+			got[dispatch.CallID] = dispatch
+		case <-ctx.Done():
+			t.Fatalf("waiting for completions: %v", got)
+		}
+	}
+	batch := got["c_read"].ParallelBatch
+	if batch == "" || got["second"].ParallelBatch != batch || got["c_read"].OrderKnown || got["second"].OrderKnown {
+		t.Fatalf("parallel dispatch: %v", got)
+	}
+	if !got["solo"].OrderKnown || got["solo"].ParallelBatch != "" {
+		t.Fatalf("sequential dispatch: %v", got)
+	}
+}

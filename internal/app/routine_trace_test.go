@@ -72,9 +72,9 @@ func TestAStretchOfTheTraceBecomesARoutineDraftCheckedDry(t *testing.T) {
 	r.file(t, "abc1234.txt", "a\n")
 	r.file(t, "deadbeef9.txt", "d\n")
 	r.fire("user_message", "text", "read abc1234.txt for me")
-	r.fire("tool_finished", "tool", "read", "args", `{"path":"notes.txt"}`, "ok", "true")
-	r.fire("tool_finished", "tool", "read", "args", `{"path":"abc1234.txt"}`, "ok", "true")
-	r.fire("tool_finished", "tool", "read", "args", `{"path":"deadbeef9.txt"}`, "ok", "true")
+	r.fire("tool_finished", "order_known", "true", "tool", "read", "args", `{"path":"notes.txt"}`, "ok", "true")
+	r.fire("tool_finished", "order_known", "true", "tool", "read", "args", `{"path":"abc1234.txt"}`, "ok", "true")
+	r.fire("tool_finished", "order_known", "true", "tool", "read", "args", `{"path":"deadbeef9.txt"}`, "ok", "true")
 	if err := r.command(t, "routine-trace"); err != nil || !strings.Contains(r.logs.text(), "#3 turn 1 read") {
 		t.Fatalf("/routine-trace: %v %q", err, r.logs.text())
 	}
@@ -119,8 +119,8 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 	r.file(t, "f9e8d7c6.txt", "f\n")
 	turn := func(file string) {
 		r.fire("user_message", "text", "open "+file)
-		r.fire("tool_finished", "tool", "grep", "args", `{"path":"notes.txt","pattern":"hello"}`, "ok", "true")
-		r.fire("tool_finished", "tool", "read", "args", `{"path":"`+file+`"}`, "ok", "true")
+		r.fire("tool_finished", "order_known", "true", "tool", "grep", "args", `{"path":"notes.txt","pattern":"hello"}`, "ok", "true")
+		r.fire("tool_finished", "order_known", "true", "tool", "read", "args", `{"path":"`+file+`"}`, "ok", "true")
 		r.fire("turn_finished")
 	}
 	turn("a1b2c3d4.txt")
@@ -152,6 +152,39 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 		if strings.Contains(body, value) || strings.Contains(r.logs.text(), value) || strings.Contains(string(store), value) {
 			t.Fatalf("repeated candidate copied %q", value)
 		}
+	}
+}
+
+func TestRoutineTraceRefusesToDraftUnknownCompletionOrder(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	for range 2 {
+		r.fire("user_message")
+		r.fire("tool_finished", "tool", "grep", "call_id", "b", "parallel_batch", "batch-1", "ok", "true")
+		r.fire("tool_finished", "tool", "read", "call_id", "a", "parallel_batch", "batch-1", "ok", "true")
+		r.fire("turn_finished")
+	}
+	r.fire("user_message")
+	r.fire("tool_finished", "tool", "read", "ok", "true")
+	r.fire("tool_finished", "tool", "grep", "ok", "true")
+	if err := r.command(t, "routine-trace"); err != nil {
+		t.Fatal(err)
+	}
+	for _, shown := range []string{"grep (parallel batch batch-1)", "read (order unknown)"} {
+		if !strings.Contains(r.logs.text(), shown) {
+			t.Fatalf("trace did not show %q: %s", shown, r.logs.text())
+		}
+	}
+	if strings.Contains(r.logs.text(), "[routine] candidate") {
+		t.Fatal("a parallel stretch was offered as a routine candidate")
+	}
+	for _, stretch := range []string{"1-2", "5-6"} {
+		err := r.command(t, "routine-draft", "unordered", stretch)
+		if err == nil || !strings.Contains(err.Error(), "no verified sequential order") {
+			t.Fatalf("draft %s: %v", stretch, err)
+		}
+	}
+	if err := r.command(t, "routine-draft", "single", "1"); err != nil {
+		t.Fatal(err)
 	}
 }
 

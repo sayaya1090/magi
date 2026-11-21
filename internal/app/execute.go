@@ -229,6 +229,20 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 	return true
 }
 
+// ToolObservation associates a completion with the dispatch that scheduled it.
+type ToolObservation struct {
+	CallID        string
+	ParallelBatch string
+	OrderKnown    bool
+}
+
+type toolDispatchKey struct{}
+
+type toolDispatch struct {
+	call          *session.ToolCall
+	parallelBatch string
+}
+
 // executeTool runs one tool call (with permission gating) and persists the result.
 // turnTask is the user instruction this turn answers. It reaches here for one reason: what an agent
 // learns is worth little without what it was doing when it learned it, and the experience store had
@@ -814,7 +828,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// An observer that asks hears which tool finished, with what arguments, and whether it
 	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
 	// tool no meaning here; an extension decides what matters to it.
+	observation := ToolObservation{CallID: tc.CallID}
+	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
+		observation.ParallelBatch = dispatch.parallelBatch
+		observation.OrderKnown = dispatch.parallelBatch == ""
+	}
 	if to, ok := a.cfg.Observer.(interface {
+		ToolFinishedWithDispatch(sid, tool, args string, ok bool, dispatch ToolObservation)
+	}); ok {
+		to.ToolFinishedWithDispatch(string(sid), tc.Name, string(tc.Args), !res.IsError || res.Advisory, observation)
+	} else if to, ok := a.cfg.Observer.(interface {
 		ToolFinished(sid, tool, args string, ok bool)
 	}); ok {
 		to.ToolFinished(string(sid), tc.Name, string(tc.Args), !res.IsError || res.Advisory)
