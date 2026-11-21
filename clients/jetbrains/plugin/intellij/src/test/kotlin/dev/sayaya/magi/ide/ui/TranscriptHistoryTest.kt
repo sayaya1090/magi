@@ -308,12 +308,14 @@ class TranscriptHistoryTest : BasePlatformTestCase() {
     }
 
     fun testProgressStagesStartAndEndFollowTheRun() {
-        // Start and end take the same states as steps: start runs while the run does and is done after it;
+        // Start is done once the first step has started, like any step the run has moved past;
         // end waits until every step is done, and shows a failure.
         val strip = stageStrip()
         fun state(r: String) = role(strip, r).single().getClientProperty(ProgressStages.STATE)
+        strip.update(listOf(step("a", null, "waiting"), step("b", null, "waiting")))
+        assertEquals("waiting", state("start"))
         strip.update(listOf(step("a", null, "running"), step("b", null, "waiting")))
-        assertEquals("running", state("start")); assertEquals("waiting", state("end"))
+        assertEquals("start is done once the first step runs", "done", state("start")); assertEquals("waiting", state("end"))
         strip.update(listOf(step("a", null, "done"), step("b", null, "done")))
         assertEquals("done", state("start")); assertEquals("done", state("end"))
         assertEquals("the completed run uses the success color", Look.success, role(strip, "end").single().foreground)

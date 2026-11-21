@@ -52,7 +52,7 @@ test('the steps a tool reports ride its own row, and a strip keeps a node per st
     assert.match(n.children[0].innerHTML, /<svg/, 'the mark is drawn, not a character');
   }
   assert.equal(role('start')[0].children[1].textContent, '\uC2DC\uC791');
-  assert.equal(role('start')[0].attrs['data-state'], 'running', 'start runs while the run does');
+  assert.equal(role('start')[0].attrs['data-state'], 'done', 'start is done once the first step runs');
   assert.equal(role('end')[0].attrs['data-state'], 'waiting');
   updateStages(doc, strip, [{ id: 's1', label: 'list', kind: 'tool', state: 'done' }, { id: 's2', label: 'check', kind: 'subagent', state: 'running', done: 1, total: 3, running: 2 }]);
   const second = role('step');

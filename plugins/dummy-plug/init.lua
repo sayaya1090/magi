@@ -106,6 +106,13 @@ local function track()
       end
       local owner = graphs[e.graph_id] and graphs[e.graph_id].owner or run.stages[run.current]
       graphs[e.graph_id] = { owner = owner, tasks = graph }
+      -- Once every branch of the graph has started, the step that ran it has done its part: the
+      -- graph's own nodes show the rest, so the step does not stay running until the next one opens.
+      local started = true
+      for _, task in ipairs(e.graph) do
+        if #task.after == 0 and task.state == "waiting" then started = false end
+      end
+      if started and owner and owner.state == "running" then owner.state = "done"; owner.running = 0 end
       report(true)
       return
     end

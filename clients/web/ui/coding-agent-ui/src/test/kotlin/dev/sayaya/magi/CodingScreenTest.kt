@@ -415,7 +415,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.evaluate("document.querySelector('#dock .stages [data-stage-id=s2]').textContent.includes('1/3')") shouldBe true
                 page.evaluate("[...document.querySelectorAll('#dock .stages > [data-role]')].map(e => e.getAttribute('data-role')).join(',')") shouldBe "start,arrow,step,arrow,step,arrow,end"
                 page.evaluate("[...document.querySelectorAll('#dock .stages .stage')].every(e => { const s = e.querySelector('svg'); return !!s && Math.round(s.getBoundingClientRect().height) === 32 && !!e.querySelector('.stage-label'); })") shouldBe true
-                page.evaluate("document.querySelector('#dock .stages [data-role=start]').getAttribute('data-state')") shouldBe "running"
+                page.evaluate("document.querySelector('#dock .stages [data-role=start]').getAttribute('data-state')") shouldBe "done"
                 page.evaluate("document.querySelector('#dock .stages [data-role=end]').getAttribute('data-state')") shouldBe "waiting"
                 page.evaluate("window.__magi_test_fleet('working', 's_now', true, undefined, undefined, [{id:'s1',label:'list',kind:'tool',state:'done'},{id:'s2',label:'check',state:'done',done:3,total:3}])")
                 page.waitForCondition { page.evaluate("document.querySelector('#dock .stages [data-role=end]').getAttribute('data-state') === 'done'") == true }

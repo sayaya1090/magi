@@ -216,3 +216,29 @@ func TestDummyPlugReportsAGraphRightAfterTheStepThatRanIt(t *testing.T) {
 		t.Fatalf("a graph run before any step goes first, got %q", got)
 	}
 }
+
+// A step that ran a graph has done its part once every branch of the graph has started: the graph's
+// nodes show the rest, so the step is not left running (orange) until the next step opens.
+func TestDummyPlugMarksTheStepDoneOnceItsBranchesHaveStarted(t *testing.T) {
+	reports := dummyPlugRun(t, `plan({"Prepare", "Branch", "Tidy"})
+ stage("Prepare")
+ stage("Branch")
+ call_graph({{id="a1", tool="read"}, {id="b1", tool="read"}, {id="join", tool="read", after={"a1","b1"}}})
+ stage("Tidy")`, 0)
+	for _, r := range reports {
+		states := map[string]string{}
+		for _, s := range r {
+			states[s.Label] = s.State
+		}
+		a1, okA := states["a1"]
+		b1, okB := states["b1"]
+		if !okA || !okB || a1 == "waiting" || b1 == "waiting" {
+			continue
+		}
+		if states["Branch"] != "done" {
+			t.Fatalf("both branches started but the step that ran them is %q: %s", states["Branch"], stagesJSON(r))
+		}
+		return
+	}
+	t.Fatal("no report had both branches started")
+}

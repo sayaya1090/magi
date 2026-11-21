@@ -90,11 +90,8 @@ internal class ProgressStages(
             paint(n, s)
         }
         val live = stages.any { it.state == "running" || it.state == "waiting" }
-        mark(start, "start", when {
-            stages.isEmpty() || stages.all { it.state == "waiting" } -> "waiting"
-            live -> "running"
-            else -> "done"
-        })
+        // 시작은 첫 단계가 시작되면 끝난 것이다 — 실행이 지나간 다른 단계와 같다.
+        mark(start, "start", if (stages.isEmpty() || stages.all { it.state == "waiting" }) "waiting" else "done")
         mark(end, "end", when {
             stages.isEmpty() || live -> "waiting"
             stages.any { it.state == "failed" || it.state == "skipped" } -> "failed"

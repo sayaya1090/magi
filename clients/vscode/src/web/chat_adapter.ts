@@ -1807,7 +1807,8 @@ export function updateStages(doc: Document, strip: HTMLElement, stages: Progress
     markStage(n, st.kind || 'step', st.state);
   }
   const live = stages.some((x) => x.state === 'running' || x.state === 'waiting');
-  const startState = stages.length === 0 || stages.every((x) => x.state === 'waiting') ? 'waiting' : live ? 'running' : 'done';
+  // Start is done once the first step has started: the run has moved past it, as past any step.
+  const startState = stages.length === 0 || stages.every((x) => x.state === 'waiting') ? 'waiting' : 'done';
   const endState = stages.length === 0 || live ? 'waiting' : stages.some((x) => x.state === 'failed' || x.state === 'skipped') ? 'failed' : 'done';
   markStage(s.start, 'start', startState);
   markStage(s.end, 'end', endState);

@@ -122,7 +122,8 @@ final class StageStrip {
         }
         nodes.keySet().retainAll(ids);
         boolean none = ids.isEmpty();
-        start.mark("start", none || allWaiting ? "waiting" : live ? "running" : "done");
+        // Start is done once the first step has started: the run has moved past it, as past any step.
+        start.mark("start", none || allWaiting ? "waiting" : "done");
         end.mark("end", none || live ? "waiting" : failed ? "failed" : "done");
         StringBuilder topology = new StringBuilder();
         for (String id : ids) {
