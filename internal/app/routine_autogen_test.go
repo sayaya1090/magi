@@ -182,3 +182,45 @@ func TestAnExploreOnlyChangeIsLeftForAPersonUnlessDelegated(t *testing.T) {
 		t.Fatalf("the delegation must record that explore questions may change:\n%s", dec)
 	}
 }
+
+func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
+	an := &scriptedAnalyzer{}
+	r, script := setupRPEWith(t, an)
+	_, better := rpeVariants(script)
+	an.replies = []string{candidateReply("trace the click path", better)}
+	r.a.tools.Register(&fakeTool{name: "recall_memory", answer: func(map[string]any) string { return "POLICY-R1" }})
+	r.a.tools.Register(&fakeTool{name: "explore", answer: func(map[string]any) string { return "chat_view.ts:746 click" }})
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients"); err != nil {
+		t.Fatal(err)
+	}
+	run := func(id, question string) {
+		t.Helper()
+		out, _, failed := r.call(t, id, "run_routine", map[string]any{
+			"name": rpe, "args": map[string]any{"questions": []string{question}},
+		}, "allow")
+		if failed || !strings.Contains(out, "chat_view.ts:746") {
+			t.Fatalf("%s: %s", id, out)
+		}
+	}
+	holdout := "VSC-3: what does clicking Stop send to the daemon?"
+	dev := "VSC-1: what does clicking Stop send to the daemon?"
+	run("holdout-1", holdout)
+	run("holdout-2", holdout)
+	run("dev-1", dev)
+	if len(an.prompts) != 0 {
+		t.Fatalf("started before the second development failure: %d calls", len(an.prompts))
+	}
+	run("dev-2", dev)
+	if len(an.prompts) != 1 || !strings.Contains(an.prompts[0], "main.go:1470") ||
+		strings.Contains(an.prompts[0], "VSC-3") || !strings.Contains(r.skill(t, rpe), better) {
+		t.Fatalf("expected one delegated improvement based on development evidence: %q", an.prompts)
+	}
+	if err := r.command(t, "routine-rollback", rpe); err != nil {
+		t.Fatal(err)
+	}
+	run("dev-3", dev)
+	run("dev-4", dev)
+	if len(an.prompts) != 1 {
+		t.Fatalf("the restored version started another improvement: %d calls", len(an.prompts))
+	}
+}

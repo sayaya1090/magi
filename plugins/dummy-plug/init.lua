@@ -579,6 +579,7 @@ end)
 local ROUTINE_USE = [[
 Run a routine by name: a code-mode script saved as a skill (frontmatter kind: routine) with the tools it may call and its inputs. You pass name and args; the script runs in a child session like dummy_plug and only what it prints comes back. The first run, and any run after the routine's script, inputs or tools changed, asks the person to approve it; a refusal comes back as an error and nothing runs.]]
 
+local observe_routine_result
 magi.register_tool{
   name = "run_routine",
   description = ROUTINE_USE,
@@ -632,6 +633,10 @@ magi.register_tool{
       explore_read_scope = explore_scope,
     })
     finish(rerr == nil)
+    if observe_routine_result and not rerr then
+      local observed, why = pcall(observe_routine_result, r, a.args or {}, out or "")
+      if not observed then magi.log("routine failure observation failed: " .. tostring(why)) end
+    end
     if rerr then return (out or "") .. "[" .. rerr .. "]", true end
     return out
   end,
@@ -2043,7 +2048,7 @@ Compare a candidate version of a routine with its active version, and record the
   -- The final verdict is returned to the caller and never fed back to this generator.
   local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only and preserve its tool allowlist and input schema. Inputs are already available in the local Lua table input. Read an optional field with input.field, for example local query = input.query or "default". Use call_tool(name, args) for tool calls. It returns text on success or nil and an error on failure. Use print to return findings. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
 
-  magi.register_tool{
+  local autoimprove_tool = {
     name = "routine_autoimprove",
     description = "Generate routine candidates and screen them on development cases. Compare the first passing candidate on the full frozen evaluation, including holdout, and apply it only within a /routine-auto delegation.",
     schema = { type = "object", properties = {
@@ -2095,6 +2100,55 @@ Compare a candidate version of a routine with its active version, and record the
       return table.concat(out, "\n")
     end,
   }
+  magi.register_tool(autoimprove_tool)
+
+  observe_routine_result = function(r, args, output)
+    local delegation = stored("routine_auto")[r.name]
+    local frozen = stored("routine_evals_frozen")[r.name]
+    if not delegation or not frozen or not delegation.evals or
+      delegation.evals.tasks ~= frozen.tasks or delegation.evals.contract ~= frozen.contract or
+      delegation.inputs ~= magi.json_encode(r.inputs) or magi.json_encode(delegation.tools) ~= magi.json_encode(r.tools) then return end
+    local dir = rdir(r.name)
+    local text = magi.read_file(dir .. "tasks.json")
+    local contract = magi.read_file(dir .. "contract.json")
+    if not text or not contract or magi.sha256(text) ~= frozen.tasks or magi.sha256(contract) ~= frozen.contract then return end
+    local tasks = decode(text)
+    if not tasks or type(tasks.tasks) ~= "table" then return end
+    local input = magi.json_encode(args)
+    local input_hash = magi.sha256(input)
+    local matched
+    for _, task in ipairs(tasks.tasks) do
+      if type(task) == "table" and magi.json_encode(task.input or {}) == input then
+        if task.split == "holdout" or matched then return end
+        if task.split == "dev" then matched = task end
+      end
+    end
+    local evidence = matched and type(matched.expect) == "table" and matched.expect.evidence
+    if type(evidence) ~= "table" or #evidence == 0 then return end
+    local missing = {}
+    for _, ref in ipairs(evidence) do
+      if type(ref) ~= "string" or ref == "" then return end
+      if not output:find(ref, 1, true) then missing[#missing + 1] = ref:sub(1, 240) end
+    end
+    local key = magi.sha256(magi.workdir() .. "\0" .. r.name .. "\0" .. r.fingerprint)
+    local state_key = "routine_failure:" .. key
+    local state = stored(state_key)
+    if state.started then return end
+    if #missing == 0 then
+      if state.input == input_hash then magi.store_set(state_key, {}) end
+      return
+    end
+    if state.input ~= input_hash or state.tasks ~= frozen.tasks or state.contract ~= frozen.contract then
+      magi.store_set(state_key, { input = input_hash, tasks = frozen.tasks, contract = frozen.contract })
+      return
+    end
+    local saved = magi.store_set(state_key, { started = true })
+    if not saved then return end
+    local problem = "Two runs of frozen development case " .. tostring(matched.id):sub(1, 120) ..
+      " omitted expected evidence: " .. table.concat(missing, ", "):sub(1, 1200) ..
+      ". Development input: " .. input:sub(1, 1200)
+    autoimprove_tool.execute{ name = r.name, problem = problem, rounds = 1 }
+  end
 
   magi.register_command{
     name = "routine-history",
