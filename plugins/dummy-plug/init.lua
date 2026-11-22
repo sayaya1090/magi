@@ -2041,7 +2041,7 @@ Compare a candidate version of a routine with its active version, and record the
 
   -- Select on development cases and the contract, then evaluate the selected candidate once.
   -- The final verdict is returned to the caller and never fed back to this generator.
-  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only: keep the tools it calls and the inputs it reads. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
+  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only and preserve its tool allowlist and input schema. Inputs are already available in the local Lua table input. Read an optional field with input.field, for example local query = input.query or "default". Use call_tool(name, args) for tool calls. It returns text on success or nil and an error on failure. Use print to return findings. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
 
   magi.register_tool{
     name = "routine_autoimprove",
@@ -2058,10 +2058,15 @@ Compare a candidate version of a routine with its active version, and record the
       if type(a.problem) ~= "string" or a.problem == "" then return "problem is required: what keeps going wrong", true end
       local rounds = math.max(1, math.min(5, math.floor(tonumber(a.rounds) or 3)))
       local out, feedback = {}, {}
+      local last_failed_script
       for i = 1, rounds do
         local prompt = "Routine " .. r.name .. "\ntools: " .. table.concat(r.tools, ", ") .. "\ninputs: " .. magi.json_encode(r.inputs) ..
           "\n\nProblem: " .. a.problem .. "\n\nActive script:\n```lua\n" .. r.script ..
           "\n```\n\nDevelopment feedback from this run:\n" .. table.concat(feedback, "\n")
+        if last_failed_script then
+          prompt = prompt .. "\n\nMost recent candidate that failed development screening. Use the feedback above to repair it:\n```lua\n" ..
+            last_failed_script:sub(1, 12000) .. "\n```"
+        end
         local ok, raw, gerr = pcall(magi.analyze, { system = GENERATE_SYSTEM, text = prompt, label = "routine-candidate" })
         if not ok or type(raw) ~= "string" then
           out[#out + 1] = string.format("round %d: no candidate (%s)", i, tostring(ok and gerr or raw))
@@ -2075,6 +2080,7 @@ Compare a candidate version of a routine with its active version, and record the
             source = "routine_autoimprove round " .. i }
           local result, failed = improve(candidate, true)
           if failed then
+            last_failed_script = script
             local line = string.format("round %d: development screening failed — %s (hypothesis: %s)", i, result, hyp)
             feedback[#feedback + 1] = line
             out[#out + 1] = line

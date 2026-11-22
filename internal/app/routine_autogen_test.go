@@ -87,7 +87,8 @@ func TestARoutineGeneratesComparesAndAppliesItsOwnCandidates(t *testing.T) {
 		t.Fatalf("the rounds stop at the first applicable candidate: %d generations", len(an.prompts))
 	}
 	p2 := an.prompts[1]
-	if !strings.Contains(p2, "DEV-close: regressed") || strings.Contains(p2, "holdout") || strings.Contains(p2, "sign test") {
+	if !strings.Contains(p2, "DEV-close: regressed") || !strings.Contains(p2, worse) ||
+		strings.Contains(p2, "holdout") || strings.Contains(p2, "sign test") {
 		t.Fatalf("the next round receives development feedback only:\n%s", p2)
 	}
 	if !strings.Contains(r.skill(t, rpe), "Trace from the click handler") {
