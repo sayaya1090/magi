@@ -308,7 +308,7 @@ export function rows(events: Event[]): Row[] {
         if (kind === 'agent') break;
         if (kind === 'system') {
           const who = String(e.actor?.id ?? 'system');
-          out.push({ seq: e.seq, who: 'system', text: `⟳ ${who} note: ${text.split('\n')[0]}` });
+          out.push({ seq: e.seq, who: 'system', text: who === 'plugin-command' ? text : `⟳ ${who} note: ${text.split('\n')[0]}` });
           break;
         }
         const id = String(d.messageId ?? '');

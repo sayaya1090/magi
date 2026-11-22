@@ -1023,7 +1023,7 @@ export function createWebviewInputAdapter(
     updateInFlightStatus();
   }
 
-  const slashPrefix = () => /^\/([\w-]*)$/.exec(say.value)?.[1];
+  const slashPrefix = () => /^\/([^/\s]*)$/.exec(say.value)?.[1];
   function closeSlash(): void {
     slashRequest++;
     slashPopup?.remove();
@@ -1033,8 +1033,10 @@ export function createWebviewInputAdapter(
 
   function handleSlashCommands(request: number, commands: {name: string; description?: string}[]): void {
     const prefix = slashPrefix();
-    if (disposed || request !== slashRequest || prefix === undefined || !hintEl) return;
-    const matches = commands.filter(c => c.name.startsWith(prefix));
+    if (disposed || request !== slashRequest || prefix === undefined || !say.parentElement) return;
+    const query = prefix.toLowerCase();
+    const matches = commands.filter(c => (c.name + ' ' + (c.description ?? '')).toLowerCase().includes(query)
+      && (query !== '' || !c.name.startsWith('routine-') || /^routine-(history|lifecycle|rollback)$/.test(c.name)));
     if (!matches.length) return;
     slashPopup = say.ownerDocument.createElement('div');
     slashPopup.className = 'slash-commands';
@@ -1061,7 +1063,7 @@ export function createWebviewInputAdapter(
       slashPopup!.append(option);
       return option;
     });
-    hintEl.before(slashPopup);
+    say.parentElement.append(slashPopup);
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {

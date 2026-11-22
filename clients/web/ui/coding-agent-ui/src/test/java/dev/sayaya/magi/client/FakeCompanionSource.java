@@ -44,7 +44,7 @@ public class FakeCompanionSource implements CompanionSource {
 
     @Override
     public void pluginCommands(CompanionContext ctx, Consumer<Object> done) {
-        done.accept(Global.JSON.parse("[{\"name\":\"routine-draft\",\"description\":\"Draft a routine\"},{\"name\":\"routine-trace\"}]"));
+        done.accept(Global.JSON.parse("[{\"name\":\"routine-draft\",\"description\":\"Draft a routine\"},{\"name\":\"routine-history\",\"description\":\"Show past runs\"}]"));
     }
 
     @Override

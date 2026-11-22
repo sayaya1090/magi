@@ -440,7 +440,8 @@ class Rows(private val words: Words) {
             // 플래너·카운슬 노트. 안 그리면 이 화면이 헤드리스보다 덜 보여 준다(터미널의 실측).
             // 첫 줄만 — 전문은 로그에 있고, 노트가 대화를 밀어내면 안 된다.
             val who = e.actor.id ?: "system"
-            rows += Row(Who.System, "⟳ $who note: ${text.lineSequence().firstOrNull().orEmpty()}", at = e.ts)
+            val note = if (who == "plugin-command") text else "⟳ $who note: ${text.lineSequence().firstOrNull().orEmpty()}"
+            rows += Row(Who.System, note, at = e.ts)
             return true
         }
         val id = d["messageId"]?.jsonPrimitive?.content.orEmpty()

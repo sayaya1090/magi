@@ -285,7 +285,9 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         }
         /** 마지막으로 수신된 입력 자동완성 제안. Tab 키 입력 시 적용됩니다. */
         private var slashPopup: com.intellij.openapi.ui.popup.JBPopup? = null
-        private val slashPrefix = Regex("/[A-Za-z0-9_-]*")
+        private var slashList: javax.swing.JList<*>? = null
+        private var chooseSlash: ((Int) -> Unit)? = null
+        private val slashPrefix = Regex("/[^/\\s]*")
         private var suggestion: String? = null
         // 압축 막대와 그 갱신 타이머. 하단을 짓는 init 블록이 쓰므로 그보다 먼저 선언한다
         // (그리는 일은 아래 [paintFold]).
@@ -951,7 +953,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 }
             })
             // 탭으로 받아들인다. 제안이 없으면 탭은 원래 하던 일을 한다.
-            input.registerKeyboardAction({ acceptSuggestion() },
+            input.registerKeyboardAction({ if (!chooseActiveSlash()) acceptSuggestion() },
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
             input.addInputMethodListener(object : java.awt.event.InputMethodListener {
                 override fun inputMethodTextChanged(e: java.awt.event.InputMethodEvent) {
@@ -977,6 +979,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 .put(javax.swing.KeyStroke.getKeyStroke("ESCAPE"), "magi.cancelAnswer")
             input.actionMap.put("magi.cancelAnswer", object : javax.swing.AbstractAction() {
                 override fun actionPerformed(e: java.awt.event.ActionEvent) {
+                    if (slashPopup?.isVisible == true) { slashPopup?.cancel(); return }
                     if (inputGate.canCancel()) cancelAnswer()
                 }
             })
@@ -989,7 +992,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 .put(javax.swing.KeyStroke.getKeyStroke("shift ENTER"), "insert-break")
             input.actionMap.put("magi.send", object : javax.swing.AbstractAction() {
                 override fun actionPerformed(e: java.awt.event.ActionEvent) {
-                    if (!inputGate.canSendOnEnter()) return
+                    if (!inputGate.canSendOnEnter() || chooseActiveSlash()) return
                     say()
                 }
             })
@@ -1002,6 +1005,13 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 im.put(key, name)
                 input.actionMap.put(name, object : javax.swing.AbstractAction() {
                     override fun actionPerformed(e: java.awt.event.ActionEvent) {
+                        val list = slashList
+                        if (slashPopup?.isVisible == true && list != null && list.model.size > 0) {
+                            val size = list.model.size
+                            list.selectedIndex = Math.floorMod(list.selectedIndex + if (older) -1 else 1, size)
+                            list.ensureIndexIsVisible(list.selectedIndex)
+                            return
+                        }
                         val line = runCatching { input.getLineOfOffset(input.caretPosition) }.getOrDefault(0)
                         val edge = recall.isRecalled(input.text) || if (older) line == 0 else line == input.lineCount - 1
                         val got = when {
@@ -2219,6 +2229,13 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             }
         }
 
+        private fun chooseActiveSlash(): Boolean {
+            if (slashPopup?.isVisible != true) return false
+            val index = slashList?.selectedIndex?.takeIf { it >= 0 } ?: 0
+            chooseSlash?.invoke(index)
+            return true
+        }
+
         private fun askSlashCommands(typed: String) {
             val sid = currentSendSession()?.takeIf { it.isNotBlank() } ?: return
             val epoch = inputEpoch
@@ -2226,7 +2243,12 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 workspace.onDaemon(target, trouble, work)
             }
             connect(sid, {}) { comp ->
-                val commands = comp.pluginCommands().filter { it.name.startsWith(typed.drop(1)) }
+                val query = typed.drop(1)
+                val commands = comp.pluginCommands().filter {
+                    (it.name.contains(query, ignoreCase = true) || it.description.orEmpty().contains(query, ignoreCase = true)) &&
+                        (query.isNotEmpty() || !it.name.startsWith("routine-") ||
+                            it.name in listOf("routine-history", "routine-lifecycle", "routine-rollback"))
+                }
                 SwingUtilities.invokeLater {
                     if (closing.get() || !input.isShowing || !input.hasFocus() || inputEpoch != epoch ||
                         currentSendSession() != sid || input.text != typed || answers.active != null || commands.isEmpty()
@@ -2234,16 +2256,34 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     val labels = commands.associateBy {
                         "/" + it.name + if (it.description.isNullOrBlank()) "" else "  ·  " + it.description
                     }
-                    val popup = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
-                        .createPopupChooserBuilder(labels.keys.toList())
-                        .setTitle(MagiBundle.msg("chat.command.palette"))
-                        .setItemChosenCallback { label ->
-                            if (currentSendSession() == sid && inputEpoch == epoch) {
+                    val choices = labels.keys.toList()
+                    slashList = null
+                    chooseSlash = { index ->
+                        if (currentSendSession() == sid && inputEpoch == epoch && input.text == typed) {
+                            choices.getOrNull(index)?.let { label ->
+                                slashPopup?.cancel()
                                 labels[label]?.let { input.text = "/" + it.name + " " }
                                 input.caretPosition = input.document.length
                                 input.requestFocusInWindow()
                             }
                         }
+                    }
+                    val popup = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                        .createPopupChooserBuilder(choices)
+                        .setRequestFocus(false)
+                        .setRenderer(object : javax.swing.DefaultListCellRenderer() {
+                            override fun getListCellRendererComponent(
+                                list: javax.swing.JList<*>?, value: Any?, index: Int, selected: Boolean, focused: Boolean,
+                            ): java.awt.Component {
+                                slashList = list
+                                list?.accessibleContext?.accessibleName = MagiBundle.msg("chat.command.palette")
+                                super.getListCellRendererComponent(list, value, index, selected, focused)
+                                border = JBUI.Borders.empty(0, 12)
+                                preferredSize = java.awt.Dimension(super.getPreferredSize().width, JBUI.scale(48))
+                                return this
+                            }
+                        })
+                        .setItemChosenCallback { label -> chooseSlash?.invoke(choices.indexOf(label)) }
                         .createPopup()
                     slashPopup = popup
                     popup.showUnderneathOf(input)
@@ -2597,7 +2637,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     val r = comp.runCommand(name, rest)
                     val line = if (r.ok) r.out?.takeIf { it.isNotBlank() } ?: MagiBundle.msg("chat.command.done", name)
                         else MagiBundle.msg("chat.command.failed", name, r.error ?: MagiBundle.msg("common.noreason"))
-                    finishSend(attempt, null) { tell(line, failed = !r.ok) }
+                    finishSend(attempt, null) { if (!r.commandNoted) tell(line, failed = !r.ok) }
                     return@send
                 }
                 // 고정 탭의 게이트(계약의 절반): 한 워크스페이스의 동시 턴은 아무것도 조정하지

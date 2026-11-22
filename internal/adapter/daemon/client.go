@@ -1161,6 +1161,12 @@ func (c *Client) PluginCommands() ([]port.PluginCommandInfo, error) {
 // RunPluginCommand runs one ("command-run"): rest is the line after the name. out is what the command
 // logged; its own refusal comes back as Refused, with whatever it logged before refusing.
 func (c *Client) RunPluginCommand(sid, name, rest string) (string, error) {
+	out, _, err := c.RunPluginCommandWithNote(sid, name, rest)
+	return out, err
+}
+
+// RunPluginCommandWithNote also reports whether the daemon wrote the result into the transcript.
+func (c *Client) RunPluginCommandWithNote(sid, name, rest string) (string, bool, error) {
 	resp, err := c.exchange(Request{Method: "command-run", Session: sid, Name: name, Text: rest})
-	return resp.Out, err
+	return resp.Out, resp.CommandNoted, err
 }

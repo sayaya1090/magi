@@ -53,5 +53,13 @@ func answerCommandRun(ctx context.Context, eng Engine, req Request) Response {
 	if err != nil {
 		return Response{Err: err.Error(), Out: out}
 	}
-	return Response{OK: true, Out: out}
+	response := Response{OK: true, Out: out}
+	if notes, ok := eng.(interface{ PluginCommandNote(string, string) bool }); ok {
+		note := strings.TrimSpace(out)
+		if note == "" {
+			note = "/" + name + ": done"
+		}
+		response.CommandNoted = notes.PluginCommandNote(sid, note)
+	}
+	return response
 }

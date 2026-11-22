@@ -179,6 +179,7 @@ data class Response(
     /** 지금 도는 호출이 알린 진행 단계. 도구창은 이벤트 흐름의 `tool.progress` 로 받으므로 여기선 읽지 않는다. */
     val stages: List<ProgressStage>? = null,
     val out: String? = null,
+    val commandNoted: Boolean = false,
     val exit: Int? = null,
     val permission: String? = null,
     /**

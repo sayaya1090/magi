@@ -1061,6 +1061,14 @@ test('a plugin command\'s log is posted as a note', async () => {
   assert.ok(posted.some((m) => m.kind === 'note' && m.text.includes('[routine] adopted v2')));
 });
 
+test('a command recorded in the transcript does not show a duplicate composer note', async () => {
+  const companion = commandCompanion({ ok: true, out: '[routine] adopted v2', commandNoted: true });
+  const { chat, posted } = commandChat(companion);
+  await chat.fromView({ kind: 'say', text: '/routine-draft x', session: 's1' } as any);
+  assert.ok(companion.calls.some(c => c.door === 'command-run'));
+  assert.ok(!posted.some(m => m.kind === 'note'));
+});
+
 test('a slash word that is no command is still sent to the model', async () => {
   const companion = commandCompanion({ ok: true });
   const { chat } = commandChat(companion);

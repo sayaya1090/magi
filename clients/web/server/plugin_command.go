@@ -55,13 +55,15 @@ func runIfCommand(cl *daemon.Client, sid session.SessionID, text string) (*comma
 	if st, err := cl.Status(string(sid)); err == nil && st.Doing != "" {
 		return &commandAnswer{http.StatusConflict, "/" + name + " cannot run while a turn is working"}, nil
 	}
-	out, err := cl.RunPluginCommand(string(sid), name, rest)
+	out, noted, err := cl.RunPluginCommandWithNote(string(sid), name, rest)
 	var refused daemon.Refused
 	switch {
 	case errors.As(err, &refused):
 		return &commandAnswer{http.StatusUnprocessableEntity, "/" + name + ": " + refused.Why}, nil
 	case err != nil:
 		return nil, err
+	case noted:
+		return &commandAnswer{http.StatusOK, ""}, nil
 	case strings.TrimSpace(out) == "":
 		return &commandAnswer{http.StatusOK, "/" + name + ": done"}, nil
 	}

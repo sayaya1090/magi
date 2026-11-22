@@ -39,12 +39,25 @@ func (a *App) PluginNote(sessionID, text string) {
 	if sessionID == "" || text == "" {
 		return
 	}
+	a.appendBestEffort(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "plugin"}, pluginNoteData(text))
+}
+
+// PluginCommandNote records command output as a harness row in the issuing conversation.
+func (a *App) PluginCommandNote(sessionID, text string) bool {
+	if sessionID == "" || strings.TrimSpace(text) == "" {
+		return false
+	}
+	return a.appendFact(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "plugin-command"}, pluginNoteData(strings.TrimSpace(text))) == nil
+}
+
+func pluginNoteData(text string) json.RawMessage {
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
 	})
-	a.appendBestEffort(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
-		event.Actor{Kind: event.ActorSystem, ID: "plugin"}, pd)
+	return pd
 }
 
 // RegisterContextProvider adds a context provider for RAG-like context injection.

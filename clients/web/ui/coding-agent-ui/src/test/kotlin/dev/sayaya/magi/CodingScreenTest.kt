@@ -19,9 +19,15 @@ internal class CodingScreenTest : GwtTestSpec({
     Given("플러그인 슬래시 명령 목록") {
         When("입력창에서 /를 입력하고 이름을 좁히면") {
             val input = page.locator("#dock .composer #t textarea")
+            val composer = page.locator("#dock .composer")
+            val closedHeight = requireNotNull(composer.boundingBox()).height
             input.fill("/")
-            page.waitForCondition { page.locator(".slash-commands button").count() == 2 }
-            input.fill("/routine-d")
+            page.waitForCondition { page.locator(".slash-commands button").count() == 1 }
+            val option = page.locator(".slash-commands button").first()
+            option.innerText().substringBefore("\n") shouldBe "/routine-history"
+            (requireNotNull(option.boundingBox()).height >= 48.0) shouldBe true
+            requireNotNull(composer.boundingBox()).height shouldBe closedHeight
+            input.fill("/DRAFT")
             page.waitForCondition { page.locator(".slash-commands button").count() == 1 }
             input.press("Enter")
             Then("명령이 입력창에 채워지고 전송되지는 않는다") {

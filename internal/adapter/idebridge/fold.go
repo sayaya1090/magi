@@ -291,8 +291,11 @@ func fold(events []event.Event) ([]Row, foldStats) {
 				if who == "" {
 					who = "system"
 				}
-				out = append(out, &Row{Seq: e.Seq, Who: WhoSystem,
-					Text: "⟳ " + who + " note: " + firstLine(text)})
+				if who == "plugin-command" {
+					out = append(out, &Row{Seq: e.Seq, Who: WhoSystem, Text: text})
+				} else {
+					out = append(out, &Row{Seq: e.Seq, Who: WhoSystem, Text: "⟳ " + who + " note: " + firstLine(text)})
+				}
 			default:
 				id := str(d, "messageId")
 				// ⚠ A resurfaced interjection is the SAME question, not a second one. Something

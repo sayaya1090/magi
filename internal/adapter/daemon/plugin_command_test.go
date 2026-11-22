@@ -15,7 +15,13 @@ import (
 // of commands a composer may route, and running one, with what the command logged as its answer.
 type commandEngine struct {
 	*fakeEngine
-	ran []string
+	ran   []string
+	notes []string
+}
+
+func (e *commandEngine) PluginCommandNote(session, text string) bool {
+	e.notes = append(e.notes, session+" "+text)
+	return true
 }
 
 func (e *commandEngine) PluginCommandList() []port.PluginCommandInfo {
@@ -40,14 +46,15 @@ func TestPluginCommandDoorsListAndRunWithTheCommandsOwnAnswer(t *testing.T) {
 		t.Fatalf("list: %+v", list)
 	}
 	ok := answers["command-run"].run(context.Background(), e, Request{Session: "s1", Name: "/routine-adopt", Text: "rpe v2"})
-	if !ok.OK || ok.Out != "[dummy-plug] [routine] adopted v2" {
+	if !ok.OK || !ok.CommandNoted || ok.Out != "[dummy-plug] [routine] adopted v2" ||
+		!slices.Equal(e.notes, []string{"s1 [dummy-plug] [routine] adopted v2"}) {
 		t.Fatalf("a command's log is its answer: %+v", ok)
 	}
 	if e.ran[0] != "s1 routine-adopt rpe,v2" {
 		t.Fatalf("leading slash dropped and the rest split into arguments: %v", e.ran)
 	}
 	failed := answers["command-run"].run(context.Background(), e, Request{Session: "s1", Name: "routine-draft", Text: "probe 8-9"})
-	if failed.OK || failed.Err != "call #8 has no verified sequential order" {
+	if failed.OK || failed.CommandNoted || len(e.notes) != 1 || failed.Err != "call #8 has no verified sequential order" {
 		t.Fatalf("the command's own refusal is the answer: %+v", failed)
 	}
 	unknown := answers["command-run"].run(context.Background(), e, Request{Session: "s1", Name: "nope", Text: "x"})

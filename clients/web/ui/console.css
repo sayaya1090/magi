@@ -4794,7 +4794,7 @@
   .nodechips { display:flex; flex-wrap:wrap; gap:8px; padding:0 0 8px; }
   .nodechips[hidden] { display:none; }
   .composer {
-    display:flex; gap:var(--magi-sys-space-200); align-items:center;
+    position:relative; display:flex; gap:var(--magi-sys-space-200); align-items:center;
     /* outline-variant, which is the divider role. Drawn in the on-surface role this line was the
        page's TEXT colour used as a rule — 14.6:1, louder than the words it separates. */
     border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-150);
@@ -4863,20 +4863,27 @@
   /* The composer's suggestion, dimmed under the box: how the model thinks the instruction ends,
      with the key that takes it. One line — a suggestion that fills the screen is one nobody reads. */
   .slash-commands {
-    max-block-size: min(15rem, 35vh); overflow-y: auto; padding: 4px;
-    border-radius: var(--magi-sys-shape-m);
-    background: var(--md-sys-color-surface-container-high);
+    position: absolute; inset-inline: 0; inset-block-end: 100%; z-index: 1; margin-block-end: 4px;
+    max-block-size: min(16rem, 35vh); overflow-y: auto; padding-block: 8px;
+    border-radius: var(--magi-sys-shape-s);
+    background: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
-    border: 1px solid var(--md-sys-color-outline-variant);
+    box-shadow: 0 3px 6px rgb(0 0 0 / 20%);
   }
   .slash-commands button {
     display: block; width: 100%; min-height: 48px; padding: 6px 12px; text-align: start;
-    border: 0; border-radius: var(--magi-sys-shape-s); background: transparent; color: inherit; font: inherit;
+    border: 0; background: transparent; color: inherit; font: inherit;
+    font-size: 14px; line-height: 20px; cursor: pointer;
   }
-  .slash-commands button small { display: block; color: var(--md-sys-color-on-surface-variant); }
-  .slash-commands button:hover, .slash-commands button[data-active="true"] {
-    background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+  .slash-commands button small {
+    display: block; color: var(--md-sys-color-on-surface-variant); font-size: 12px; line-height: 16px;
   }
+  .slash-commands button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+  .slash-commands button[data-active="true"] {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
+  }
+  .slash-commands button:active { background: color-mix(in srgb, currentColor 10%, transparent); }
   .slash-commands button:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
 
   .sughint {

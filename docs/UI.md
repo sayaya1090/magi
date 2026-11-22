@@ -14,6 +14,8 @@ How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Inter
 
 On the web coding screen, a wide viewport places the file tree on the left, the open file in the center, and chat on the right. Use the gear to swap the right pane between chat and the MAGI board. Phone widths use tabs. The JetBrains MAGI tool window and the VS Code secondary sidebar also show chat first and use a gear to switch to the board.
 
+Type `/` in the message field to open command suggestions. Keep typing a term from the command name or description to filter the list. Routine history, lifecycle and rollback appear in the default list. Search for other routine commands by name. Use the arrow keys to move, Enter or Tab to insert a command, and Escape to close the list. Successful commands appear as harness messages in the conversation.
+
 > **Look at it:** <https://sayaya1090.github.io/magi/demo/> — the real page, answered by a mock in the
 > browser. Every action there reports what it would have sent rather than pretending it happened,
 > and every reading is a fixture: it shows the screens, not a working server. Published by

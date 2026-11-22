@@ -670,7 +670,8 @@ public class ConversationElement {
         slashMenu.className = "slash-commands";
         slashMenu.setAttribute("role", "group");
         slashMenu.setAttribute("hidden", "");
-        form.append(progressStages.element(), foldBar, nodeChips, slashMenu, box, hint, note);
+        box.append(slashMenu);
+        form.append(progressStages.element(), foldBar, nodeChips, box, hint, note);
         Js.asPropertyMap(DomGlobal.window).set("magiDiagramComposer", true);
         DomGlobal.window.addEventListener("magi-diagram-select", evt -> {
             Object detail = Js.asPropertyMap(evt).get("detail");
@@ -1039,7 +1040,7 @@ public class ConversationElement {
     private void showSlash() {
         clearSlash();
         String typed = value();
-        if (!May.can("prompt") || !typed.matches("/[A-Za-z0-9_-]*") || store.answering()) return;
+        if (!May.can("prompt") || !typed.matches("/[^/\\s]*") || store.answering()) return;
         final int request = slashEpoch;
         final String target = slashTarget();
         store.pluginCommands(data -> {
@@ -1048,11 +1049,13 @@ public class ConversationElement {
             for (int i = 0; i < commands.getLength(); i++) {
                 JsPropertyMap<Object> command = Js.uncheckedCast(commands.getAt(i));
                 String name = str2(command, "name");
-                if (name.isEmpty() || !name.startsWith(typed.substring(1))) continue;
+                String query = typed.substring(1).toLowerCase(java.util.Locale.ROOT);
+                String description = str2(command, "description");
+                if (name.isEmpty() || !(name + " " + description).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
+                if (query.isEmpty() && name.startsWith("routine-") && !name.matches("routine-(history|lifecycle|rollback)")) continue;
                 HTMLElement option = el("button");
                 option.setAttribute("type", "button");
                 option.textContent = "/" + name;
-                String description = str2(command, "description");
                 if (!description.isEmpty()) {
                     HTMLElement detail = el("small");
                     detail.textContent = description;

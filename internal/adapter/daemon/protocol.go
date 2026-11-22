@@ -789,8 +789,9 @@ type Response struct {
 	// Out and Exit answer the shell method. Exit is a pointer so that a zero — which is the answer
 	// a caller most wants to be able to trust — is distinguishable from a reply that carried no
 	// exit code at all.
-	Out  string `json:"out,omitempty"`
-	Exit *int   `json:"exit,omitempty"`
+	Out          string `json:"out,omitempty"`
+	CommandNoted bool   `json:"commandNoted,omitempty"`
+	Exit         *int   `json:"exit,omitempty"`
 	// Permission is the approval mode the engine is on RIGHT NOW, not the one it started in — it
 	// changes at runtime and a viewer that offers to change it has to show what it is changing
 	// from. Only on the status answer, where every other "what is it doing" fact lives.

@@ -139,6 +139,7 @@ export interface Response {
   ok: boolean;
   error?: string;
   out?: string;
+  commandNoted?: boolean;
   /**
    * The tool names a roster carries — `tools`, and also `mcp-attach`, which answers with what the
    * server it just attached offers (`answerMCPAttach` returns `Response{OK: true, Tools: names}`).
