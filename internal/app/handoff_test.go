@@ -775,7 +775,15 @@ func TestAnAnswerIsNamedByItsReceipt(t *testing.T) {
 		return false
 	})
 	// And it is waiting to be judged under that name, so the question at the finish can say which.
-	got := f.a.takeAnsweredHandoffs("mine")
+	// Waited for, not read at once: the answer is written into the log first and recorded for a
+	// verdict only after that write succeeded (deliverHandoff), so a reader that saw the message can
+	// still be between the two. CI under -race landed there and read an empty list. Taking empties
+	// the list, so what each look takes is kept.
+	var got []answeredHandoff
+	waitFor(t, "the answer to wait for a verdict", func() bool {
+		got = append(got, f.a.takeAnsweredHandoffs("mine")...)
+		return len(got) > 0
+	})
 	if len(got) != 1 || got[0].Receipt != "rcpt-2f9c" {
 		t.Fatalf("the piece waiting for a verdict cannot be named: %+v", got)
 	}
