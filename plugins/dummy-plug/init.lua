@@ -188,6 +188,7 @@ Use it for loops, filtering and many reads whose contents you do not need to see
 -- run_script refuses any tool outside the approved list. This version runs read-only routines only.
 local READ_ONLY = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true }
 local AUTO_READERS = { read = true, grep = true, glob = true, list = true }
+local AUTO_ROUTINE_LIMIT = 20
 -- The tools a routine may call: this plugin's call_tools. Those that may write run one at a time
 -- (run_script serial), and each still passes its own permission gate.
 local CALLABLE = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true,
@@ -460,6 +461,11 @@ local function save_routine(name, description, d, source, dry, draft, automatic)
 end
 
 local function save_repeated_readers(id, calls, sequence, sid)
+  local count = 0
+  for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
+    if file:match("^auto%-t%x+%.md$") then count = count + 1 end
+  end
+  if count >= AUTO_ROUTINE_LIMIT then return end
   local d = draft_from_calls(calls, true)
   if not d then return end
   local dry, passed = dry_check(d.script, magi.json_encode(d.fixtures), d.tools, calls, d.fixtures)
@@ -470,7 +476,7 @@ local function save_repeated_readers(id, calls, sequence, sid)
   if path then
     local message = "[routine] saved " .. path .. "; review at its first run"
     magi.log(message)
-    magi.notify(sid, message)
+    if sid and sid ~= "" then pcall(magi.notify, sid, message) end
   end
 end
 
@@ -627,6 +633,35 @@ magi.register_tool{
 }
 
 local observe_routine_result
+local function plan_reader_scopes(r, src)
+  if type(magi.reader_scope) ~= "function" then return nil, "automatic routines require an updated host" end
+  local _, err, calls = magi.run_script(src, { dry = true, tools = r.tools, timeout = 10 })
+  if err or type(calls) ~= "table" or #calls == 0 then return nil, "automatic routine could not plan its file reads" end
+  local result, seen = {}, {}
+  for _, call in ipairs(calls) do
+    local scope, why = magi.reader_scope(call.tool, call.args)
+    if not scope then return nil, why end
+    if not seen[scope] then result[#result + 1], seen[scope] = scope, true end
+  end
+  table.sort(result)
+  return result
+end
+
+local function covers_reader_scopes(approved, planned)
+  if type(approved) ~= "table" then return false end
+  for _, scope in ipairs(planned) do
+    local covered = false
+    for _, limit in ipairs(approved) do
+      if scope == limit or (limit:sub(1, 4) == "dir:" and scope:sub(1, #limit + 1) == limit .. "/") then
+        covered = true
+        break
+      end
+    end
+    if not covered then return false end
+  end
+  return true
+end
+
 magi.register_tool{
   name = "run_routine",
   description = ROUTINE_USE,
@@ -654,32 +689,43 @@ magi.register_tool{
     end
     local bad = check_inputs(r.inputs, a.args)
     if bad then return "routine " .. r.name .. ": " .. bad, true end
+    local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(a.args or {})) .. ")\n" .. r.script
+    local reader_scopes
+    if r.status == "auto-review" then
+      reader_scopes, bad = plan_reader_scopes(r, src)
+      if not reader_scopes then return bad, true end
+    end
     local explore_scope = stored("routine_explore_scopes")[r.name .. ":" .. r.fingerprint:sub(1, 12)]
     if explore_scope and not (magi.script_features and magi.script_features.explore_read_scope) then
       return "scoped explore requires an updated magi host; nothing ran", true
     end
     local all = stored("routine_approvals")
     local prev = type(all[r.name]) == "table" and all[r.name] or nil
-    if not prev or prev.fingerprint ~= r.fingerprint then
+    local scope_changed = reader_scopes and (not prev or prev.workspace ~= magi.workdir() or not covers_reader_scopes(prev.reader_scopes, reader_scopes))
+    if not prev or prev.fingerprint ~= r.fingerprint or scope_changed then
       local why = prev and ("routine " .. r.name .. " changed since it was approved") or ("run routine " .. r.name .. " for the first time")
+      if prev and prev.fingerprint == r.fingerprint and scope_changed then why = "approve new read scope for routine " .. r.name end
+      if reader_scopes then why = why .. " within " .. table.concat(reader_scopes, ", ") end
       local ok, aerr = magi.approve{
         reason = why .. " — it may call: " .. table.concat(r.tools, ", ") .. (#writes > 0 and (" — it may WRITE with " ..
           table.concat(writes, ", ") .. "; each write still asks as usual, one at a time") or ""),
         detail = { routine = r.name, path = r.path, tools = r.tools, writes = writes, inputs = r.inputs, script = r.script,
           proposed_args = r.status == "auto-review" and a.args or nil,
+          reader_scopes = reader_scopes,
           fingerprint = r.fingerprint, previous = prev and prev.fingerprint or nil, explore_read_scope = explore_scope },
       }
       if ok == nil then return "routine " .. r.name .. " could not be approved: " .. tostring(aerr), true end
       if not ok then return "routine " .. r.name .. " was not approved; nothing ran", true end
-      all[r.name] = { fingerprint = r.fingerprint, tools = r.tools, path = r.path, at = magi.time() }
+      all[r.name] = { fingerprint = r.fingerprint, tools = r.tools, path = r.path, at = magi.time(),
+        workspace = reader_scopes and magi.workdir() or nil, reader_scopes = reader_scopes }
       magi.store_set("routine_approvals", all)
     end
     local globals, on_call, finish = track()
-    local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(a.args or {})) .. ")\n" .. r.script
     local out, rerr = magi.run_script(src, {
       timeout = a.timeout, output = a.output, globals = globals, on_call = on_call,
       child = "routine " .. r.name, tools = r.tools, serial = writes,
       explore_read_scope = explore_scope,
+      reader_scopes = reader_scopes,
     })
     finish(rerr == nil)
     if observe_routine_result and not rerr then
@@ -1957,7 +2003,8 @@ Compare a candidate version of a routine with its active version, and record the
     end
 
     local vpath = dir .. "versions/" .. ver .. ".md"
-    local vtext = "---\nkind: routine\ndescription: " .. (tostring(r.description):gsub("\n", " ")) .. "\ntools: " ..
+    local status = r.status == "auto-review" and "status: auto-review\n" or ""
+    local vtext = "---\nkind: routine\n" .. status .. "description: " .. (tostring(r.description):gsub("\n", " ")) .. "\ntools: " ..
       table.concat(tools, ", ") .. "\ninputs: " .. magi.json_encode(inputs) .. "\n---\nCandidate " .. ver .. " of " .. r.name ..
       ". Hypothesis: " .. (a.hypothesis:gsub("\n", " ")) .. "\n\n```lua\n" .. a.script .. "\n```\n"
     local wok, werr = magi.write_file(vpath, vtext)

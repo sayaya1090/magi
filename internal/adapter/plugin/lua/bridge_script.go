@@ -65,6 +65,18 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 		declared = only
 	}
 	dry := lua.LVAsBool(opts.RawGetString("dry"))
+	var readerScopes map[string]bool
+	readerWorkdir := p.env.Workdir
+	if option := opts.RawGetString("reader_scopes"); option != lua.LNil {
+		scopes, ok := option.(*lua.LTable)
+		if !ok || scopes.Len() == 0 {
+			return fail(L, "run_script: reader_scopes must be a nonempty list")
+		}
+		readerScopes = map[string]bool{}
+		for i := 1; i <= scopes.Len(); i++ {
+			readerScopes[scopes.RawGetInt(i).String()] = true
+		}
+	}
 	host := p.env.CallTool
 	// child = "task line": run the script in a child session the host opens for it, so its calls are
 	// recorded there and not in this conversation's log. A host without children runs it on the call.
@@ -131,6 +143,13 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 		if !declared[name] {
 			return session.ToolResult{}, fmt.Errorf("%s is not declared in call_tools (plugin.toml)", name)
+		}
+		if readerScopes != nil {
+			scope, err := readerScope(readerWorkdir, name, args)
+			if err != nil || !readerScopes[scope] {
+				return session.ToolResult{}, fmt.Errorf("reader call is outside the approved scope")
+			}
+			ctx = port.WithBoundedFileSearch(ctx)
 		}
 		if dry {
 			rec := map[string]any{"tool": name, "args": string(args)}

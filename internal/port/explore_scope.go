@@ -7,6 +7,19 @@ import (
 
 type exploreReadScopeKey struct{}
 
+type boundedFileSearchKey struct{}
+
+// WithBoundedFileSearch prevents file searches from following links to other trees.
+func WithBoundedFileSearch(ctx context.Context) context.Context {
+	return context.WithValue(ctx, boundedFileSearchKey{}, true)
+}
+
+// BoundedFileSearch reports whether the caller authorized only the search tree.
+func BoundedFileSearch(ctx context.Context) bool {
+	bounded, _ := ctx.Value(boundedFileSearchKey{}).(bool)
+	return bounded
+}
+
 // WithExploreReadScope limits a nested explore call to a workspace-relative directory.
 func WithExploreReadScope(ctx context.Context, directory string) context.Context {
 	return context.WithValue(ctx, exploreReadScopeKey{}, directory)

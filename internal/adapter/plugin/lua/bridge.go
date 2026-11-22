@@ -43,6 +43,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "analyze_async", L.NewFunction(p.bridgeAnalyzeAsync))
+	L.SetField(t, "reader_scope", L.NewFunction(p.bridgeReaderScope))
 	L.SetField(t, "in_child_session", L.NewFunction(func(L *lua.LState) int {
 		L.Push(lua.LBool(p.env.ChildSession))
 		return 1

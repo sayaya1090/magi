@@ -131,7 +131,7 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		if a.Glob != "" && !grepGlobMatch(a.Glob, env.Workdir, p, d.Name()) {
 			return nil
 		}
-		if symlinkEscapesJail(env.Workdir, p, d) {
+		if (port.BoundedFileSearch(ctx) && d.Type()&os.ModeSymlink != 0) || symlinkEscapesJail(env.Workdir, p, d) {
 			return nil // an in-workdir symlink pointing outside would leak that file
 		}
 		data, err := os.ReadFile(p)

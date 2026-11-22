@@ -142,19 +142,29 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 	if failed || !strings.Contains(catalog, automatic) || !strings.Contains(catalog, "step2") {
 		t.Fatalf("routine is missing from model discovery: %s", catalog)
 	}
+	r.put(t, "docs/first.txt", []byte("hello first"))
+	r.put(t, "docs/nested/second.txt", []byte("hello second"))
+	r.put(t, "other/third.txt", []byte("hello third"))
+	_ = os.Symlink("../other/third.txt", filepath.Join(r.s.Workdir, "docs", "linked.txt"))
 	input := map[string]any{"name": automatic, "args": map[string]any{
-		"step1": map[string]any{"path": "notes.txt", "pattern": "hello"},
-		"step2": map[string]any{"path": "a1b2c3d4.txt"},
+		"step1": map[string]any{"path": "docs", "pattern": "hello"},
+		"step2": map[string]any{"path": "docs/first.txt"},
 	}}
 	if out, asks, failed := r.call(t, "deny-auto", "run_routine", input, "deny"); !failed || len(asks) != 1 || strings.Contains(out, "Step 1:") {
 		t.Fatalf("routine ran without approval: %s", out)
 	}
-	if out, asks, failed := r.call(t, "allow-auto", "run_routine", input, "allow"); failed || len(asks) != 1 || !strings.Contains(out, "Step 2: read") {
+	if out, asks, failed := r.call(t, "allow-auto", "run_routine", input, "allow"); failed || len(asks) != 1 ||
+		!strings.Contains(out, "Step 2: read") || strings.Contains(out, "hello third") {
 		t.Fatalf("routine did not execute current inputs: %s", out)
 	}
-	input["args"].(map[string]any)["step2"] = map[string]any{"path": "f9e8d7c6.txt"}
+	input["args"].(map[string]any)["step2"] = map[string]any{"path": "docs/nested/second.txt"}
 	if out, asks, failed := r.call(t, "reuse-auto", "run_routine", input, "allow"); failed || len(asks) != 0 || !strings.Contains(out, "Step 2: read") {
 		t.Fatalf("approved routine did not reuse its approval with new inputs: %s", out)
+	}
+	input["args"].(map[string]any)["step2"] = map[string]any{"path": "other/third.txt"}
+	if out, asks, failed := r.call(t, "expand-auto", "run_routine", input, "deny"); !failed || len(asks) != 1 ||
+		!strings.Contains(asks[0].Reason, "new read scope") || strings.Contains(out, "hello third") {
+		t.Fatalf("new directory did not require approval: %s %+v", out, asks)
 	}
 	if err := r.command(t, "routine-candidates"); err != nil {
 		t.Fatal(err)
