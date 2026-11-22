@@ -1883,164 +1883,165 @@ local function run_reflection(trigger_reason, explicit, compaction_summary)
     magi.log("engram: reflection 서킷 브레이커 half-open 시험 실행 중 (연속 실패 " .. fails .. "회 후 백오프 경과)")
   end
 
+  if compaction_summary and compaction_summary ~= "" then
+    push_reflection_observation("", "compaction_summary", compaction_summary)
+  end
   local rraw = magi.store_get(rkey) or ""
   local items = magi.json_decode(rraw == "" and "[]" or rraw)
-  if type(items) ~= "table" then items = {} end
-  if #items == 0 and (not compaction_summary or compaction_summary == "") then
-    return "engram: 성찰할 새 관찰 항목이 없습니다."
-  end
-  if #items == 0 and (not compaction_summary or compaction_summary == "") then
+  if type(items) ~= "table" or #items == 0 then
     return "engram: 성찰할 새 관찰 항목이 없습니다."
   end
 
-  local obs_lines = {}
-  local query_parts = {}
-  local processed_sigs = {}
-  for i, it in ipairs(items) do
-    if type(it) == "table" and it.text then
+  local completed, applied_total = 0, 0
+  local deadline = now_epoch + 120
+  for _, it in ipairs(items) do
+    if completed >= 4 or (completed > 0 and (epoch_of(magi.time()) or 0) >= deadline) then break end
+    if type(it) == "table" and type(it.text) == "string" then
       local sig = reflection_item_sig(it)
-      processed_sigs[sig] = true
-      obs_lines[#obs_lines + 1] = "(" .. i .. ") [session=" .. tostring(it.session or "") .. " outcome=" .. tostring(it.outcome or "") .. "] " .. tostring(it.text)
-      query_parts[#query_parts + 1] = tostring(it.text)
-    end
-  end
-  if compaction_summary and compaction_summary ~= "" then
-    obs_lines[#obs_lines + 1] = "(compaction_summary) " .. tostring(compaction_summary)
-    query_parts[#query_parts + 1] = tostring(compaction_summary)
-  end
-  if #obs_lines == 0 then
-    magi.store_compare_exchange(rkey, rraw, "[]")
-    return "engram: 성찰할 새 관찰 항목이 없습니다."
-  end
-
-  local existing_by_id = {}
-  local mem_lines = {}
-  if type(magi.search_experience) == "function" then
-    local hits = magi.search_experience{
-      query = table.concat(query_parts, " "),
-      kind = "memory",
-      state = "active",
-      limit = 10,
-      min_similarity = 0.20,
-    }
-    if type(hits) == "table" then
-      for _, h in ipairs(hits) do
-        if type(h) == "table" and h.object_id then
-          existing_by_id[h.object_id] = h
-          mem_lines[#mem_lines + 1] = "- id=" .. tostring(h.object_id)
-            .. " rev=" .. tostring(h.revision or "")
-            .. " tier=" .. tostring(h.tier or "reference")
-            .. " status=" .. tostring(h.status or "observed")
-            .. " desc=" .. tostring(h.description or "")
-            .. " :: " .. tostring(h.text or "")
-        end
-      end
-    end
-  end
-
-  local prompt_text = "[성찰 트리거] " .. tostring(trigger_reason or "manual")
-    .. "\n\n[최근 관찰 inbox]\n" .. table.concat(obs_lines, "\n")
-  if #mem_lines > 0 then
-    prompt_text = prompt_text .. "\n\n[관련 기존 관리 기억]\n" .. table.concat(mem_lines, "\n")
-  end
-
-  local model = magi.store_get("sidecar_model")
-  local raw, err = magi.analyze{ system = REFLECT_PROMPT, text = prompt_text, model = model, label = "reflection" }
-  if not raw then
-    fails = fails + 1
-    magi.store_set(fail_key, tostring(fails))
-    magi.store_set(fail_ts_key, tostring(now_epoch))
-    if is_payload_error(err) then
-      isolate_poison_pills(rkey, processed_sigs)
-    else
-      magi.log("engram: 일시적 모델 통신/용량 오류 — inbox 관찰 항목을 보존하고 서킷 브레이커만 갱신합니다: " .. tostring(err))
-    end
-    magi.log("engram: reflection 분석 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. "): " .. tostring(err))
-    return "engram: reflection 실패 — " .. tostring(err)
-  end
-  local parsed = parse_cortex_json(raw)
-  if type(parsed) ~= "table" or type(parsed.actions) ~= "table" then
-    fails = fails + 1
-    magi.store_set(fail_key, tostring(fails))
-    magi.store_set(fail_ts_key, tostring(now_epoch))
-    isolate_poison_pills(rkey, processed_sigs)
-    magi.log("engram: reflection 응답 파싱 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. ")")
-    return "engram: reflection 응답 형식 오류"
-  end
-
-  magi.store_set(fail_key, "0")
-  magi.store_set(fail_ts_key, "0")
-
-  -- Set-Difference CAS Drain: 처리 완료된 관찰 항목만 인박스에서 차집합 제거
-  for attempt = 1, 3 do
-    local cur_raw = magi.store_get(rkey) or ""
-    local cur_items = magi.json_decode(cur_raw == "" and "[]" or cur_raw)
-    local remaining = {}
-    if type(cur_items) == "table" then
-      for _, it in ipairs(cur_items) do
-        if type(it) == "table" then
-          local sig = reflection_item_sig(it)
-          if not processed_sigs[sig] then
-            remaining[#remaining + 1] = it
+      local processed_sigs = { [sig] = true }
+      local obs_lines = { "[session=" .. tostring(it.session or "") .. " outcome=" .. tostring(it.outcome or "") .. "] " .. it.text }
+      local query_parts = { it.text }
+      local existing_by_id = {}
+      local mem_lines = {}
+      if type(magi.search_experience) == "function" then
+        local hits = magi.search_experience{
+          query = table.concat(query_parts, " "),
+          kind = "memory",
+          state = "active",
+          limit = 10,
+          min_similarity = 0.20,
+        }
+        if type(hits) == "table" then
+          for _, h in ipairs(hits) do
+            if type(h) == "table" and h.object_id then
+              existing_by_id[h.object_id] = h
+              mem_lines[#mem_lines + 1] = "- id=" .. tostring(h.object_id)
+                .. " rev=" .. tostring(h.revision or "")
+                .. " tier=" .. tostring(h.tier or "reference")
+                .. " status=" .. tostring(h.status or "observed")
+                .. " desc=" .. tostring(h.description or "")
+                .. " :: " .. tostring(h.text or "")
+            end
           end
         end
       end
-    end
-    local next_raw = magi.json_encode(remaining)
-    if magi.store_compare_exchange(rkey, cur_raw, next_raw) then
-      break
-    end
-  end
-  local applied = 0
-  for _, act in ipairs(parsed.actions) do
-    if type(act) == "table" then
-      local op = tostring(act.op or "")
-      local oid = tostring(act.object_id or "")
-      local prev = existing_by_id[oid]
-      if (op == "update" or op == "conflict") and prev then
-        local st = tostring(act.status or (op == "conflict" and "conflicted" or prev.status or "observed"))
-        local payload = {
-          kind = "memory",
-          state = st == "disconfirmed" and "archived" or "active",
-          host_outcome = prev.host_outcome or "verified",
-          text = tostring(act.text and act.text ~= "" and act.text or prev.text),
-          description = tostring(act.description and act.description ~= "" and act.description or prev.description or ""),
-          memory_kind = tostring(act.kind and act.kind ~= "" and act.kind or prev.memory_kind or "lesson"),
-          tier = tostring(act.tier and act.tier ~= "" and act.tier or prev.tier or "reference"),
-          status = st,
-          valid_until = tostring(act.valid_until or prev.valid_until or ""),
-          evidence = prev.evidence,
-          links = prev.links,
-        }
-        if type(act.areas) == "table" and #act.areas > 0 then
-          payload.areas = act.areas
-        elseif type(prev.areas) == "table" and #prev.areas > 0 then
-          payload.areas = prev.areas
+
+      local prompt_text = "[성찰 트리거] " .. tostring(trigger_reason or "manual")
+        .. "\n\n[최근 관찰 inbox]\n" .. table.concat(obs_lines, "\n")
+      if #mem_lines > 0 then
+        prompt_text = prompt_text .. "\n\n[관련 기존 관리 기억]\n" .. table.concat(mem_lines, "\n")
+      end
+
+      local model = magi.store_get("sidecar_model")
+      local raw, err = magi.analyze{ system = REFLECT_PROMPT, text = prompt_text, model = model, label = "reflection" }
+      if not raw then
+        fails = fails + 1
+        magi.store_set(fail_key, tostring(fails))
+        magi.store_set(fail_ts_key, tostring(epoch_of(magi.time()) or now_epoch))
+        if is_payload_error(err) then
+          isolate_poison_pills(rkey, processed_sigs)
+        else
+          magi.log("engram: 일시적 모델 통신/용량 오류 — inbox 관찰 항목을 보존하고 서킷 브레이커만 갱신합니다: " .. tostring(err))
         end
-        if enqueue_managed_object(oid, prev.revision, payload) then
-          applied = applied + 1
-        end
-      elseif op == "create" and act.text and tostring(act.text) ~= "" then
-        local payload = {
-          kind = "memory",
-          state = "active",
-          host_outcome = "ungated",
-          text = tostring(act.text),
-          description = tostring(act.description or ""),
-          memory_kind = tostring(act.kind or "lesson"),
-          tier = "reference",
-          status = "hypothesis",
-          valid_until = tostring(act.valid_until or ""),
-        }
-        if type(act.areas) == "table" and #act.areas > 0 then payload.areas = act.areas end
-        if enqueue_managed("reflect:" .. magi.nonce(), payload) then
-          applied = applied + 1
+        magi.log("engram: reflection 분석 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. "): " .. tostring(err))
+        return "engram: reflection 미완료 — 관찰 " .. completed .. "건 완료, " .. applied_total .. "건 반영: " .. tostring(err)
+      end
+      local parsed = parse_cortex_json(raw)
+      if type(parsed) ~= "table" or type(parsed.actions) ~= "table" then
+        fails = fails + 1
+        magi.store_set(fail_key, tostring(fails))
+        magi.store_set(fail_ts_key, tostring(now_epoch))
+        isolate_poison_pills(rkey, processed_sigs)
+        magi.log("engram: reflection 응답 파싱 실패 (" .. fails .. "/" .. REFLECT_FAILURE_LIMIT .. ")")
+        return "engram: reflection 응답 형식 오류 — 관찰 " .. completed .. "건 완료, " .. applied_total .. "건 반영"
+      end
+
+      magi.store_set(fail_key, "0")
+      magi.store_set(fail_ts_key, "0")
+
+      local applied, save_failed = 0, false
+      for index, act in ipairs(parsed.actions) do
+        if type(act) == "table" then
+          local op = tostring(act.op or "")
+          local oid = tostring(act.object_id or "")
+          local prev = existing_by_id[oid]
+          if (op == "update" or op == "conflict") and prev then
+            local st = tostring(act.status or (op == "conflict" and "conflicted" or prev.status or "observed"))
+            local payload = {
+              kind = "memory",
+              state = st == "disconfirmed" and "archived" or "active",
+              host_outcome = prev.host_outcome or "verified",
+              text = tostring(act.text and act.text ~= "" and act.text or prev.text),
+              description = tostring(act.description and act.description ~= "" and act.description or prev.description or ""),
+              memory_kind = tostring(act.kind and act.kind ~= "" and act.kind or prev.memory_kind or "lesson"),
+              tier = tostring(act.tier and act.tier ~= "" and act.tier or prev.tier or "reference"),
+              status = st,
+              valid_until = tostring(act.valid_until or prev.valid_until or ""),
+              evidence = prev.evidence,
+              links = prev.links,
+            }
+            if type(act.areas) == "table" and #act.areas > 0 then
+              payload.areas = act.areas
+            elseif type(prev.areas) == "table" and #prev.areas > 0 then
+              payload.areas = prev.areas
+            end
+            if enqueue_managed_object(oid, prev.revision, payload) then
+              applied = applied + 1
+            else
+              save_failed = true
+            end
+          elseif op == "create" and act.text and tostring(act.text) ~= "" then
+            local payload = {
+              kind = "memory",
+              state = "active",
+              host_outcome = "ungated",
+              text = tostring(act.text),
+              description = tostring(act.description or ""),
+              memory_kind = tostring(act.kind or "lesson"),
+              tier = "reference",
+              status = "hypothesis",
+              valid_until = tostring(act.valid_until or ""),
+            }
+            if type(act.areas) == "table" and #act.areas > 0 then payload.areas = act.areas end
+            if enqueue_managed("reflect:" .. magi.sha256(sig) .. ":" .. index, payload) then
+              applied = applied + 1
+            else
+              save_failed = true
+            end
+          end
         end
       end
+      if save_failed then return "engram: reflection 반영 미완료 — 관찰을 보존합니다." end
+      -- Set-Difference CAS Drain: 처리 완료된 관찰 항목만 인박스에서 차집합 제거
+      local drained = false
+      for attempt = 1, 3 do
+        local cur_raw = magi.store_get(rkey) or ""
+        local cur_items = magi.json_decode(cur_raw == "" and "[]" or cur_raw)
+        local remaining, seen = {}, {}
+        if type(cur_items) == "table" then
+          for _, it in ipairs(cur_items) do
+            if type(it) == "table" then
+              local sig = reflection_item_sig(it)
+              if not processed_sigs[sig] and not seen[sig] then
+                seen[sig] = true
+                remaining[#remaining + 1] = it
+              end
+            end
+          end
+        end
+        local next_raw = magi.json_encode(remaining)
+        if magi.store_compare_exchange(rkey, cur_raw, next_raw) then
+          drained = true
+          break
+        end
+      end
+      if not drained then return "engram: reflection 인박스 갱신 미완료 — 관찰을 보존합니다." end
+      completed, applied_total = completed + 1, applied_total + applied
+      notify_knowledge_change()
     end
   end
+  local applied = applied_total
   magi.log("engram: reflection 완료 (" .. applied .. "건 반영, 사유=" .. tostring(trigger_reason or "manual") .. ")")
-  notify_knowledge_change()
   return "engram: reflection 완료 — " .. applied .. "건 반영"
 end
 
@@ -2221,7 +2222,13 @@ local function run_dream(origin, reason)
   -- pressure: 여전히 1,920자 초과 시 코어 항목들을 대상으로 초고밀도 합성(Split & Link) 호출
   local by_id = {}
   for _, rec in ipairs(active_records) do by_id[rec.object_id] = rec end
+  local progress_key = "dream_completed_records_v1:" .. (origin == "pressure" and "pressure:" or "regular:") .. magi.workdir()
+  local completed_records = magi.store_get(progress_key)
+  if type(completed_records) ~= "table" then completed_records = {} end
   local visited = {}
+  for id, revision in pairs(completed_records) do
+    if by_id[id] and tostring(by_id[id].revision or "") == revision then visited[id] = true end
+  end
   local clusters = {}
 
   local function have_compatible_areas(a, b)
@@ -2301,51 +2308,34 @@ local function run_dream(origin, reason)
   end
 
   local model_calls, deferred, analysis_failed = 0, 0, false
-  if #clusters > 0 then
-    local cblocks, allowed, bytes = {}, {}, 0
-    local cursor_key = "dream_cluster_cursor_v1:" .. magi.workdir()
-    local cursor = tonumber(magi.store_get(cursor_key)) or 0
-    if cursor >= #clusters then cursor = 0 end
-    local next_cursor = cursor
-    for ci = cursor + 1, #clusters do
-      local grp = clusters[ci]
-      local lines = { "[클러스터 " .. ci .. "]" }
-      for _, m in ipairs(grp) do
-        lines[#lines + 1] = "- id=" .. tostring(m.object_id)
-          .. " status=" .. tostring(m.status or "observed")
-          .. " tier=" .. tostring(m.tier or "reference")
-          .. " desc=" .. tostring(m.description or "")
-          .. " :: " .. tostring(m.text or "")
-      end
-      local block = table.concat(lines, "\n")
-      if #block <= 11998 and (#cblocks >= 4 or bytes + #block + 2 > 12000) then
-        deferred = #clusters - ci + 1
+  local deadline = now_epoch + 120
+  for ci, grp in ipairs(clusters) do
+    if model_calls >= 4 or (model_calls > 0 and (epoch_of(magi.time()) or 0) >= deadline) then
+      deferred = #clusters - ci + 1
+      break
+    end
+    local lines, allowed = { "[클러스터 " .. ci .. "]" }, {}
+    for _, m in ipairs(grp) do
+      allowed[m.object_id] = ci
+      lines[#lines + 1] = "- id=" .. tostring(m.object_id)
+        .. " status=" .. tostring(m.status or "observed")
+        .. " tier=" .. tostring(m.tier or "reference")
+        .. " desc=" .. tostring(m.description or "")
+        .. " :: " .. tostring(m.text or "")
+    end
+    local prompt = table.concat(lines, "\n")
+    if #prompt <= 12000 then
+      model_calls = model_calls + 1
+      local system = origin == "pressure" and DREAM_PRESSURE_PROMPT or DREAM_PROMPT
+      local raw, err = magi.analyze{ system = system, text = prompt, model = magi.store_get("sidecar_model"), label = "dream" }
+      local parsed = parse_cortex_json(raw)
+      if type(parsed) ~= "table" or type(parsed.merges) ~= "table" then
+        analysis_failed, deferred = true, #clusters - ci + 1
+        magi.store_set("dream_failed_epoch_v1:" .. magi.workdir(), tostring(epoch_of(magi.time()) or now_epoch))
+        magi.log("engram: dream 분석 실패: " .. tostring(err or "invalid merge response"))
         break
       end
-      next_cursor = ci
-      if #block <= 11998 then
-        cblocks[#cblocks + 1] = block
-        bytes = bytes + #block + 2
-        for _, m in ipairs(grp) do allowed[m.object_id] = ci end
-      end
-    end
-    local model = magi.store_get("sidecar_model")
-    local sys_prompt = (origin == "pressure") and DREAM_PRESSURE_PROMPT or DREAM_PROMPT
-    local parsed
-    if #cblocks > 0 then
-      model_calls = 1
-      local raw, err = magi.analyze{ system = sys_prompt, text = table.concat(cblocks, "\n\n"), model = model, label = "dream" }
-      parsed = parse_cortex_json(raw)
-      analysis_failed = type(parsed) ~= "table" or type(parsed.merges) ~= "table"
-      if analysis_failed then
-        magi.store_set("dream_failed_epoch_v1:" .. magi.workdir(), tostring(now_epoch))
-        magi.log("engram: dream 분석 실패: " .. tostring(err or "invalid merge response"))
-      else
-        magi.store_set(cursor_key, tostring(deferred > 0 and next_cursor or 0))
-        magi.store_set("dream_failed_epoch_v1:" .. magi.workdir(), "0")
-      end
-    end
-    if type(parsed) == "table" and type(parsed.merges) == "table" then
+      local save_failed = false
       for _, mg in ipairs(parsed.merges) do
         if type(mg) == "table" and mg.keep_id and allowed[mg.keep_id] and by_id[mg.keep_id] and mg.text and tostring(mg.text) ~= "" then
           local keep = by_id[mg.keep_id]
@@ -2376,6 +2366,7 @@ local function run_dream(origin, reason)
                   evidence = target.evidence,
                   links = { keep.object_id },
                 })
+                if not ok then save_failed = true end
                 if ok and new_rev and new_rev ~= "" then target.revision = new_rev end
               end
             end
@@ -2398,11 +2389,24 @@ local function run_dream(origin, reason)
           if ok then
             merged_n = merged_n + 1
             if new_rev and new_rev ~= "" then keep.revision = new_rev end
+          else
+            save_failed = true
           end
         end
       end
+      if save_failed then
+        analysis_failed, deferred = true, #clusters - ci + 1
+        break
+      end
+      for _, m in ipairs(grp) do completed_records[m.object_id] = tostring(m.revision or "") end
+      if not magi.store_set(progress_key, completed_records) then
+        analysis_failed, deferred = true, #clusters - ci + 1
+        break
+      end
+      magi.store_set("dream_failed_epoch_v1:" .. magi.workdir(), "0")
     end
   end
+  if not analysis_failed and deferred == 0 then magi.store_set(progress_key, {}) end
 
   -- 최종 수축 계약 검증 (Contract Guarantee: 1,920자 이하 필수 보장)
   if origin == "pressure" and core_chars > CORE_DREAM_TARGET then

@@ -861,3 +861,56 @@ func TestEngramDeadLetterRestoreDoesNotDouble(t *testing.T) {
 		t.Fatalf("dead-letter list after restore: %+v", left)
 	}
 }
+
+func TestEngramReflectionAndDreamResumeAfterARecordTimesOut(t *testing.T) {
+	for _, kind := range []string{"reflect", "dream"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			wd, data := t.TempDir(), t.TempDir()
+			store := expgit.New(t.TempDir())
+			inbox := "reflection_inbox_v1:" + wd
+			response := `{"actions":[]}`
+			if kind == "dream" {
+				response = `{"merges":[]}`
+				for _, id := range []string{"alpha", "bravo"} {
+					_, err := store.ApplyExperience(ctx, port.ExperienceChange{
+						ObjectID: id, OperationID: "op-" + id, ObservationID: "obs-" + id,
+						Owner: "plugin:engram", Kind: "memory", State: "active", HostOutcome: "verified",
+						Memory: &port.Memory{Text: id, Description: id, Areas: []string{id}, Tier: "reference", Status: "conflicted"},
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			} else {
+				writeEngramStore(t, data, map[string]any{inbox: `[{"session":"first","text":"First observation"},{"session":"second","text":"Second observation"}]`})
+			}
+			analyzer := &errorableAnalyzer{
+				replies: []string{response, "", response},
+				errors:  []error{nil, fmt.Errorf("network timeout")},
+			}
+			host := NewHostWithConfig(HostConfig{
+				ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, Analyzer: analyzer, Experience: store,
+				DataDir: data, Runtime: RuntimeInfo{Workdir: wd},
+			})
+			if _, err := host.Load(ctx, filepath.Join("..", "..", "..", "..", "plugins", "engram")); err != nil {
+				t.Fatal(err)
+			}
+			name := "/engram-" + kind
+			_, output := host.DispatchCommand(name, nil)
+			if output == nil || analyzer.calls.Load() != 2 {
+				t.Fatalf("two records did not reach independent calls: %v (%d calls)", output, analyzer.calls.Load())
+			}
+			if kind == "reflect" {
+				pending, _ := readEngramStore(t, data)[inbox].(string)
+				if strings.Contains(pending, "First observation") || !strings.Contains(pending, "Second observation") {
+					t.Fatalf("wrong observations after timeout: %s", pending)
+				}
+			}
+			_, output = host.DispatchCommand(name, nil)
+			if output == nil || !strings.Contains(output.Error(), "완료") || analyzer.calls.Load() != 3 {
+				t.Fatalf("the completed record was not skipped on resume: %v (%d calls)", output, analyzer.calls.Load())
+			}
+		})
+	}
+}
