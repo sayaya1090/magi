@@ -551,6 +551,7 @@ flowchart LR
 | `cron` · `cron-set` · `cron-remove` | Read the schedule; add or change one job; remove one | `cron` · `cron-set` · `cron-remove` |
 | `job-kill` | Stop one background command; `removed` says whether it existed | `job-kill` |
 | `config-get` · `config-set` · `profiles` | Read the settings the engine declares; change one; list what a profile-shaped setting may point at | `settings` |
+| `providers` | List the backends serving on this machine right now (plugin shims and the config's own `default`), from the same discovery as `/providers` and the web console — a recorded address that does not answer is left out. An engine without it refuses with a reason | `providers` |
 | `mcp-attach` · `mcp-detach` | Attach an MCP tool server by URL (optionally owned by one chat); remove one the door attached | `tool-servers` |
 | `mcp-detach-if` | Remove a door-attached tool server only if its URL and credentials still match — a late cleanup cannot remove a successor | `tool-servers-detach-if` |
 | `hand` · `hand-state` | Hand this companion a piece of work under a label and get a receipt; ask what became of a receipt | on press |

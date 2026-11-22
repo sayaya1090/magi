@@ -258,6 +258,7 @@ flowchart LR
 | `cron` · `cron-set` · `cron-remove` | 예약 읽기, 하나 추가·변경, 하나 삭제 | `cron` · `cron-set` · `cron-remove` |
 | `job-kill` | 백그라운드 명령 하나를 멈춥니다. `removed` 가 그 명령이 있었는지 말합니다 | `job-kill` |
 | `config-get` · `config-set` · `profiles` | 엔진이 선언한 설정 읽기, 하나 바꾸기, 프로필 모양 설정이 가리킬 수 있는 것 나열 | `settings` |
+| `providers` | 지금 이 기계에서 서빙 중인 백엔드(플러그인 셰임과 config 의 `default`) 나열. `/providers`·웹 콘솔과 같은 탐색을 쓰고, 기록만 있고 응답하지 않는 주소는 뺍니다. 이 문이 없는 엔진은 사유와 함께 거절합니다 | `providers` |
 | `mcp-attach` · `mcp-detach` | URL 로 MCP 도구 서버 붙이기(한 대화 소유로도 가능), 문이 붙인 것 떼기 | `tool-servers` |
 | `mcp-detach-if` | URL·자격 증명이 아직 같을 때만 문이 붙인 도구 서버를 뗍니다 — 늦은 정리가 후속 등록을 못 뗍니다 | `tool-servers-detach-if` |
 | `hand` · `hand-state` | 이 컴패니언에 라벨을 달아 일을 맡기고 영수증을 받기, 영수증의 일이 어떻게 됐는지 묻기 | 누를 때 |
