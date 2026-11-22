@@ -81,6 +81,9 @@ func TestGlobPathAnchorsAndRejects(t *testing.T) {
 	if !strings.Contains(msg, "outside the searched directory") {
 		t.Errorf("message = %q, want it to name the searched directory", msg)
 	}
+	if out, isErr, msg := globPathIn(t, dir, "runtime", "../otherlib/*.c"); isErr || len(out) != 0 {
+		t.Fatalf("relative pattern escaped the search directory: %v (error=%v, %s)", out, isErr, msg)
+	}
 }
 
 // A path that is not a readable directory must SAY so. WalkDir hands the error to the walk

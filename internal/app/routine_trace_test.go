@@ -158,6 +158,18 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 		t.Fatalf("routine did not execute current inputs: %s", out)
 	}
 	input["args"].(map[string]any)["step2"] = map[string]any{"path": "docs/nested/second.txt"}
+	if out, asks, failed := r.call(t, "new-file-auto", "run_routine", input, "deny"); !failed || len(asks) != 1 ||
+		!strings.Contains(asks[0].Reason, "file:docs/nested/second.txt") || strings.Contains(out, "Step 2:") {
+		t.Fatalf("an approved search or a different file granted a direct read: %s %+v", out, asks)
+	}
+	input["args"].(map[string]any)["step2"] = map[string]any{"path": "docs/first.txt"}
+	input["reuse_read_directory"] = true
+	if out, asks, failed := r.call(t, "folder-auto", "run_routine", input, "allow"); failed || len(asks) != 1 ||
+		!strings.Contains(asks[0].Reason, "dir:docs") {
+		t.Fatalf("folder reuse did not request separate approval: %s %+v", out, asks)
+	}
+	delete(input, "reuse_read_directory")
+	input["args"].(map[string]any)["step2"] = map[string]any{"path": "docs/nested/second.txt"}
 	if out, asks, failed := r.call(t, "reuse-auto", "run_routine", input, "allow"); failed || len(asks) != 0 || !strings.Contains(out, "Step 2: read") {
 		t.Fatalf("approved routine did not reuse its approval with new inputs: %s", out)
 	}

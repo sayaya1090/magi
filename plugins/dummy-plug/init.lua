@@ -693,7 +693,11 @@ local function covers_reader_scopes(approved, planned)
   for _, scope in ipairs(planned) do
     local covered = false
     for _, limit in ipairs(approved) do
-      if scope == limit or (limit:sub(1, 4) == "dir:" and scope:sub(1, #limit + 1) == limit .. "/") then
+      local kind, path = scope:match("^([^:]+):(.+)$")
+      local allowed_kind, allowed_path = limit:match("^([^:]+):(.+)$")
+      if scope == limit or (path and allowed_path and allowed_kind ~= "file"
+        and (kind == allowed_kind or (allowed_kind == "dir" and kind == "file"))
+        and path:sub(1, #allowed_path + 1) == allowed_path .. "/") then
         covered = true
         break
       end
@@ -712,6 +716,7 @@ magi.register_tool{
       name = { type = "string", description = "the routine's name (its skill file name)" },
       args = { type = "object", description = "the routine's inputs, as its inputs schema says" },
       timeout = { type = "number", description = "seconds, default 60, at most 300" },
+      reuse_read_directory = { type = "boolean", description = "Only when the user explicitly requests reusable folder permission for an automatic routine, ask them to approve the folder instead of each file. Omit for file-specific approval." },
       output = { type = "number", description = "bytes of printed output kept, default 16000, at most 64000" },
     },
     required = { "name" },
@@ -736,29 +741,44 @@ magi.register_tool{
       reader_scopes, bad = plan_reader_scopes(r, src)
       if not reader_scopes then return bad, true end
     end
+    local approval_scopes = reader_scopes
+    if reader_scopes and a.reuse_read_directory == true then
+      local seen = {}
+      approval_scopes = {}
+      for _, scope in ipairs(reader_scopes) do
+        local parent = scope:match("^file:(.+)/[^/]+$")
+        local grant = parent and "dir:" .. parent or scope
+        if not seen[grant] then
+          approval_scopes[#approval_scopes + 1], seen[grant] = grant, true
+        end
+      end
+      table.sort(approval_scopes)
+    end
     local explore_scope = stored("routine_explore_scopes")[r.name .. ":" .. r.fingerprint:sub(1, 12)]
     if explore_scope and not (magi.script_features and magi.script_features.explore_read_scope) then
       return "scoped explore requires an updated magi host; nothing ran", true
     end
     local all = stored("routine_approvals")
     local prev = type(all[r.name]) == "table" and all[r.name] or nil
-    local scope_changed = reader_scopes and (not prev or prev.workspace ~= magi.workdir() or not covers_reader_scopes(prev.reader_scopes, reader_scopes))
+    local scope_changed = approval_scopes and (not prev or prev.reader_scope_version ~= 2 or prev.workspace ~= magi.workdir()
+      or not covers_reader_scopes(prev.reader_scopes, approval_scopes))
     if not prev or prev.fingerprint ~= r.fingerprint or scope_changed then
       local why = prev and ("routine " .. r.name .. " changed since it was approved") or ("run routine " .. r.name .. " for the first time")
       if prev and prev.fingerprint == r.fingerprint and scope_changed then why = "approve new read scope for routine " .. r.name end
-      if reader_scopes then why = why .. " within " .. table.concat(reader_scopes, ", ") end
+      if approval_scopes then why = why .. " within " .. table.concat(approval_scopes, ", ") end
       local ok, aerr = magi.approve{
         reason = why .. " — it may call: " .. table.concat(r.tools, ", ") .. (#writes > 0 and (" — it may WRITE with " ..
           table.concat(writes, ", ") .. "; each write still asks as usual, one at a time") or ""),
         detail = { routine = r.name, path = r.path, tools = r.tools, writes = writes, inputs = r.inputs, script = r.script,
           proposed_args = r.status == "auto-review" and a.args or nil,
-          reader_scopes = reader_scopes,
+          reader_scopes = approval_scopes,
           fingerprint = r.fingerprint, previous = prev and prev.fingerprint or nil, explore_read_scope = explore_scope },
       }
       if ok == nil then return "routine " .. r.name .. " could not be approved: " .. tostring(aerr), true end
       if not ok then return "routine " .. r.name .. " was not approved; nothing ran", true end
       all[r.name] = { fingerprint = r.fingerprint, tools = r.tools, path = r.path, at = magi.time(),
-        workspace = reader_scopes and magi.workdir() or nil, reader_scopes = reader_scopes }
+        workspace = approval_scopes and magi.workdir() or nil, reader_scopes = approval_scopes,
+        reader_scope_version = approval_scopes and 2 or nil }
       magi.store_set("routine_approvals", all)
     end
     local globals, on_call, finish = track()

@@ -9,8 +9,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// readerScope determines the scope that a file tool will access. Reads of files
-// directly under the workspace root receive a file-specific scope.
+// readerScope identifies the file or the directory searched by this call.
 func readerScope(workdir, tool string, args json.RawMessage) (string, error) {
 	var input struct{ Path string }
 	if err := json.Unmarshal(args, &input); err != nil {
@@ -48,17 +47,14 @@ func readerScope(workdir, tool string, args json.RawMessage) (string, error) {
 		if !info.Mode().IsRegular() {
 			return "", fmt.Errorf("reader path is not a regular file")
 		}
-		if rel == "." || filepath.Dir(rel) == "." {
-			return "file:" + filepath.ToSlash(rel), nil
-		}
-		rel = filepath.Dir(rel)
+		return "file:" + filepath.ToSlash(rel), nil
 	} else if !info.IsDir() {
 		return "", fmt.Errorf("search path is not a directory")
 	}
 	if rel == "." {
 		return "", fmt.Errorf("automatic directory readers require a workspace subdirectory")
 	}
-	return "dir:" + filepath.ToSlash(rel), nil
+	return tool + ":" + filepath.ToSlash(rel), nil
 }
 
 func (p *plugin) bridgeReaderScope(L *lua.LState) int {
