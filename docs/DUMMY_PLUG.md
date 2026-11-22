@@ -277,6 +277,8 @@ A routine is a dummy plug script run by name with `run_routine{name, args}`. Its
 
 Workspace settings remain in `.magi/config.toml`. Reusable skill instructions belong in `.magi/skills/`, and workspace memory belongs in `.magi/experience/`. Routine files are grouped by routine name under `.magi/routines/`.
 
+Automatic discovery saves a reusable routine after a dry check. A/B improvement uses separately prepared and frozen evaluation cases. Automatic candidate generation also needs the routine’s `start-on-failure` delegation.
+
 - **Format.** The definition is `.magi/routines/<name>/routine.md`. Existing definitions in `.magi/skills/<name>.md` or `.claude/skills/<name>/SKILL.md` keep working in place. The
   frontmatter has `kind: routine`, `tools:` (the tools the script may call, comma-separated) and
   `inputs:` (one-line JSON Schema). The script is the body's first `lua` block and reads its

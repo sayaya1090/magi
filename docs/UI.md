@@ -12,6 +12,8 @@ Both surfaces: what is on them, the design rules, and why. §1–5 are the **web
 How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
 
+On the web coding screen, a wide viewport places the file tree on the left, the open file in the center, and chat on the right. Use the gear to swap the right pane between chat and the MAGI board. Phone widths use tabs. The JetBrains MAGI tool window and the VS Code secondary sidebar also show chat first and use a gear to switch to the board.
+
 > **Look at it:** <https://sayaya1090.github.io/magi/demo/> — the real page, answered by a mock in the
 > browser. Every action there reports what it would have sent rather than pretending it happened,
 > and every reading is a fixture: it shows the screens, not a working server. Published by

@@ -10,6 +10,8 @@
 컴파일됩니다)을 다루고, §6은 **터미널 UI**(`internal/adapter/tui`)를 다룹니다. 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
 (§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11을 참고하십시오.
 
+웹 코딩 화면이 넓으면 왼쪽에 파일 트리, 가운데에 열린 파일, 오른쪽에 대화가 표시됩니다. 설정 아이콘으로 오른쪽 패널을 대화와 MAGI 보드 사이에서 전환합니다. 모바일 폭에서는 탭을 사용합니다. JetBrains의 MAGI 도구창과 VS Code의 보조 사이드바도 처음에는 대화를 표시하고 설정 아이콘으로 보드를 엽니다.
+
 > **직접 보기:** <https://sayaya1090.github.io/magi/demo/> — 실제 페이지에 브라우저 내부 목업을 연동한 라이브 데모입니다.
 > 액션은 "무엇을 전송했을지"만 안내하고 실제로 동작한 척 가장하지 않으며, 표시되는 값은 전부 픽스처입니다 — 화면 구성을
 > 보여줄 뿐 백엔드 서버가 직접 구동되는 것은 아닙니다. `clients/web/server/` 하위가 변경되면 `.github/workflows/pages.yml`이,

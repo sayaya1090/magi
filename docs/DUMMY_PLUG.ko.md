@@ -172,6 +172,8 @@ sequenceDiagram
 
 작업공간 설정은 `.magi/config.toml`에 둡니다. 스킬 지침은 `.magi/skills/`, 작업공간 기억은 `.magi/experience/`에 둡니다. 루틴은 `.magi/routines/` 아래에서 이름별로 관리합니다.
 
+자동 탐지가 건조 검사를 통과한 루틴을 저장합니다. A/B 개선에는 따로 준비하고 동결한 평가 사례가 필요합니다. 후보도 자동으로 생성하려면 해당 루틴에 `start-on-failure`를 위임해야 합니다.
+
 - **형식.** 새 루틴 정의는 `.magi/routines/<name>/routine.md`에 저장합니다. 같은 디렉터리에 평가 계약(`contract.json`), 과제(`tasks.json`), 개선·결정 이력(`attempts.jsonl`, `decisions.jsonl`), 보존 버전(`versions/`)을 필요할 때 만듭니다. 기존 `.magi/skills/<name>.md`와 `.claude/skills/<name>/SKILL.md` 루틴은 기존 위치에서 계속 사용할 수 있습니다. 정의의 frontmatter에 `kind: routine`, `tools:`(스크립트가 부를 도구, 쉼표로 구분), `inputs:`(한 줄 JSON Schema)를 둡니다. 스크립트는 본문의 첫 `lua` 블록이고 인자는 `input`에서 읽습니다. `kind: routine`이 없는 스킬은 실행하지 않습니다.
 - **실행.** `dummy_plug`처럼 `magi.run_script`로 실행합니다. 각 호출은 자식 세션에 기록되고, 스크립트가 출력한 것만 돌아옵니다. `run_script`의 `tools` 선택지가 실행을 목록의 도구로 제한합니다. 인자는 먼저 `inputs`로 검사합니다(필수 키, 형식, 모르는 키).
 - **승인.** 첫 실행과, 스크립트·`inputs`·`tools` 중 하나가 바뀐 뒤의 실행에서 셋을 대화의 권한 창(`magi.approve`)에 보여 줍니다. 승인한 지문(셋의 sha256)은 플러그인 저장소에 남아 재시작 뒤에도 유지됩니다. 이 승인은 사람만 할 수 있습니다. `run_routine`에 대한 「항상」 허가도, 권한 모드도 이 승인을 대신하지 않습니다. 물을 사람이 없거나(헤드리스) 제때 답이 없으면 `allow` 모드에서도 승인되지 않고 아무것도 저장하지 않습니다. 「항상」이나 「영구」로 답해도 그 루틴 판만 승인하며, 세션 허가나 프로젝트 허용 규칙은 추가하지 않습니다. 승인은 다른 것을 허가하지 않습니다. 각 호출은 여전히 권한 게이트를 지나고, `tools` 밖의 호출은 거부됩니다.

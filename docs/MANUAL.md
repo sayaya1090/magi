@@ -1636,6 +1636,8 @@ down.
 `<config>/skills/*.md` or `<workdir>/.magi/skills/*.md` (first line = description, rest = body), plus the **skill-creator layout** `<workdir>/.claude/skills/<slug>/SKILL.md` (frontmatter `description` = trigger) — the standard skill-creator format that common agent tooling and the bundled engram plugin produce, readable without conversion.
 The list is exposed in the system prompt, and the model loads a body with the `skill` tool to follow it. The skill list refreshes when the source dirs change (mtime), so a skill engram saves mid-session is available on the next turn without a restart.
 
+Learned workspace skills appear in the same catalog. It reads `.magi/skills/learned/` and the older `.magi/experience/skills/` location, with authored skills taking precedence on a name collision. Group-restricted experience skills remain available through recall for their assigned groups. Routines live under `.magi/routines/<name>/routine.md`. [Routine guide](DUMMY_PLUG.md#12-routines)
+
 ## 9. Plugins (Lua)
 
 `plugin.toml` + `init.lua` in `<config>/plugins/<name>/`.
@@ -2720,6 +2722,8 @@ team) falls to the next one down rather than failing.
 <config>/skills/*.md                  flat files
 <workspace>/.magi/skills/*.md         flat files
 <workspace>/.claude/skills/<slug>/SKILL.md   the skill-creator layout, read as-is
+<workspace>/.magi/skills/learned/*.md       learned workspace skills
+<workspace>/.magi/experience/skills/*.md    legacy learned-skill location
 ```
 
 Read in that order, and **the first one to claim a name keeps it** — so a machine-level skill shades
