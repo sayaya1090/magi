@@ -2132,7 +2132,11 @@ Compare a candidate version of a routine with its active version, and record the
     if not job.retry then
       if stored(job.key).started or not magi.store_set(job.key, { started = true }) then return end
     end
-    local _, _, transient = autoimprove_tool.execute{ name = job.name, problem = job.problem, rounds = 1 }
+    local result, _, transient = autoimprove_tool.execute{ name = job.name, problem = job.problem, rounds = 1 }
+    local summary = tostring(result):match("verdict: [^\r\n]+") or tostring(result):match("^[^\r\n]+")
+    if summary then
+      magi.log("[routine] automatic generation for " .. job.name .. ": " .. summary:sub(1, 400))
+    end
     if transient and not job.retry then
       job.retry = true
       pending[session] = job
@@ -2177,7 +2181,9 @@ Compare a candidate version of a routine with its active version, and record the
     end
     local problem = "Two runs of frozen development case " .. tostring(matched.id):sub(1, 120) ..
       " omitted expected evidence: " .. table.concat(missing, ", "):sub(1, 1200) ..
-      ". Development input: " .. input:sub(1, 1200)
+      ". Development input: " .. input:sub(1, 1200) ..
+      ". Use this case to identify which input the active script ignores or handles incorrectly. " ..
+      "Fix how the script uses that input for all valid values. Preserve the existing defaults and avoid hard-coding the example or its expected evidence."
     pending[session] = { name = r.name, fingerprint = r.fingerprint, key = state_key,
       delegation = delegation.id, problem = problem }
   end

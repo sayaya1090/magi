@@ -244,7 +244,8 @@ func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
 		t.Fatal("generation started before the routine result returned")
 	}
 	finish()
-	if len(an.prompts) != 1 || strings.Contains(r.skill(t, rpe), better) {
+	if len(an.prompts) != 1 || strings.Contains(r.skill(t, rpe), better) ||
+		!strings.Contains(r.logs.text(), "automatic generation for "+rpe+": round 1: no candidate") {
 		t.Fatal("expected one failed generation")
 	}
 	finish()
