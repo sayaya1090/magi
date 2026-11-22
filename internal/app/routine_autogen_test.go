@@ -16,15 +16,19 @@ import (
 // scriptedAnalyzer stands in for the sidecar model: it hands out prepared replies in order and keeps
 // what it was asked.
 type scriptedAnalyzer struct {
-	mu      sync.Mutex
-	replies []string
-	prompts []string
+	mu         sync.Mutex
+	replies    []string
+	prompts    []string
+	firstError error
 }
 
 func (s *scriptedAnalyzer) Analyze(_ context.Context, _, text, _ string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.prompts = append(s.prompts, text)
+	if len(s.prompts) == 1 && s.firstError != nil {
+		return "", s.firstError
+	}
 	if len(s.replies) == 0 {
 		return "", errors.New("no more replies")
 	}
@@ -184,7 +188,7 @@ func TestAnExploreOnlyChangeIsLeftForAPersonUnlessDelegated(t *testing.T) {
 }
 
 func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
-	an := &scriptedAnalyzer{}
+	an := &scriptedAnalyzer{firstError: errors.New("dial tcp: connection refused")}
 	r, script := setupRPEWith(t, an)
 	_, better := rpeVariants(script)
 	an.replies = []string{candidateReply("trace the click path", better)}
@@ -204,6 +208,31 @@ func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
 	}
 	holdout := "VSC-3: what does clicking Stop send to the daemon?"
 	dev := "VSC-1: what does clicking Stop send to the daemon?"
+	finish := func() {
+		r.host.FireEventWith("turn_finished", map[string]string{"session": string(r.sid)})
+		r.host.DrainEvents(5 * time.Second)
+	}
+	run("without-opt-in-1", dev)
+	run("without-opt-in-2", dev)
+	finish()
+	if len(an.prompts) != 0 {
+		t.Fatal("auto-apply alone started generation")
+	}
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients", "start-on-failure"); err != nil {
+		t.Fatal(err)
+	}
+	run("before-revoke-1", dev)
+	run("before-revoke-2", dev)
+	if err := r.command(t, "routine-auto", rpe, "off"); err != nil {
+		t.Fatal(err)
+	}
+	finish()
+	if len(an.prompts) != 0 {
+		t.Fatal("a revoked delegation started generation")
+	}
+	if err := r.command(t, "routine-auto", rpe, "explore-text", "clients", "start-on-failure"); err != nil {
+		t.Fatal(err)
+	}
 	run("holdout-1", holdout)
 	run("holdout-2", holdout)
 	run("dev-1", dev)
@@ -211,7 +240,15 @@ func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
 		t.Fatalf("started before the second development failure: %d calls", len(an.prompts))
 	}
 	run("dev-2", dev)
-	if len(an.prompts) != 1 || !strings.Contains(an.prompts[0], "main.go:1470") ||
+	if len(an.prompts) != 0 {
+		t.Fatal("generation started before the routine result returned")
+	}
+	finish()
+	if len(an.prompts) != 1 || strings.Contains(r.skill(t, rpe), better) {
+		t.Fatal("expected one failed generation")
+	}
+	finish()
+	if len(an.prompts) != 2 || !strings.Contains(an.prompts[0], "main.go:1470") ||
 		strings.Contains(an.prompts[0], "VSC-3") || !strings.Contains(r.skill(t, rpe), better) {
 		t.Fatalf("expected one delegated improvement based on development evidence: %q", an.prompts)
 	}
@@ -220,7 +257,8 @@ func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
 	}
 	run("dev-3", dev)
 	run("dev-4", dev)
-	if len(an.prompts) != 1 {
+	finish()
+	if len(an.prompts) != 2 {
 		t.Fatalf("the restored version started another improvement: %d calls", len(an.prompts))
 	}
 }

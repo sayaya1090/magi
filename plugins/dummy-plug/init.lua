@@ -2075,7 +2075,11 @@ Compare a candidate version of a routine with its active version, and record the
         local ok, raw, gerr = pcall(magi.analyze, { system = GENERATE_SYSTEM, text = prompt, label = "routine-candidate" })
         if not ok or type(raw) ~= "string" then
           out[#out + 1] = string.format("round %d: no candidate (%s)", i, tostring(ok and gerr or raw))
-          break
+          local message = ok and tostring(gerr):lower() or ""
+          local transient = message:find("connection refused", 1, true) or message:find("connection reset", 1, true)
+            or message:find("context deadline exceeded", 1, true) or message:find("timeout", 1, true)
+            or message:match("http [45]%d%d") == "http 429" or message:match("http 5%d%d")
+          return table.concat(out, "\n"), false, transient ~= nil and transient ~= false
         end
         local hyp, script = raw:match("HYPOTHESIS:%s*([^\n]+)"), raw:match("```lua\n(.-)\n```")
         if not hyp or not script then
@@ -2102,16 +2106,44 @@ Compare a candidate version of a routine with its active version, and record the
   }
   magi.register_tool(autoimprove_tool)
 
-  observe_routine_result = function(r, args, output)
+  local pending = {}
+  local function delegated_development(r)
     local delegation = stored("routine_auto")[r.name]
     local frozen = stored("routine_evals_frozen")[r.name]
-    if not delegation or not frozen or not delegation.evals or
+    if not delegation or not delegation.start_on_failure or not frozen or not delegation.evals or
       delegation.evals.tasks ~= frozen.tasks or delegation.evals.contract ~= frozen.contract or
       delegation.inputs ~= magi.json_encode(r.inputs) or magi.json_encode(delegation.tools) ~= magi.json_encode(r.tools) then return end
     local dir = rdir(r.name)
     local text = magi.read_file(dir .. "tasks.json")
     local contract = magi.read_file(dir .. "contract.json")
     if not text or not contract or magi.sha256(text) ~= frozen.tasks or magi.sha256(contract) ~= frozen.contract then return end
+    return delegation, frozen, text
+  end
+
+  magi.on("turn_finished", function(ev)
+    local session = ev.session
+    local job = pending[session]
+    if not job then return end
+    pending[session] = nil
+    local r = load_routine(job.name)
+    if not r or r.fingerprint ~= job.fingerprint then return end
+    local delegation = delegated_development(r)
+    if not delegation or delegation.id ~= job.delegation then return end
+    if not job.retry then
+      if stored(job.key).started or not magi.store_set(job.key, { started = true }) then return end
+    end
+    local _, _, transient = autoimprove_tool.execute{ name = job.name, problem = job.problem, rounds = 1 }
+    if transient and not job.retry then
+      job.retry = true
+      pending[session] = job
+    end
+  end)
+
+  observe_routine_result = function(r, args, output)
+    local session = magi.session_id()
+    if session == "" or pending[session] then return end
+    local delegation, frozen, text = delegated_development(r)
+    if not delegation then return end
     local tasks = decode(text)
     if not tasks or type(tasks.tasks) ~= "table" then return end
     local input = magi.json_encode(args)
@@ -2138,16 +2170,16 @@ Compare a candidate version of a routine with its active version, and record the
       if state.input == input_hash then magi.store_set(state_key, {}) end
       return
     end
-    if state.input ~= input_hash or state.tasks ~= frozen.tasks or state.contract ~= frozen.contract then
-      magi.store_set(state_key, { input = input_hash, tasks = frozen.tasks, contract = frozen.contract })
+    if state.input ~= input_hash or state.tasks ~= frozen.tasks or state.contract ~= frozen.contract
+      or state.delegation ~= delegation.id then
+      magi.store_set(state_key, { input = input_hash, tasks = frozen.tasks, contract = frozen.contract, delegation = delegation.id })
       return
     end
-    local saved = magi.store_set(state_key, { started = true })
-    if not saved then return end
     local problem = "Two runs of frozen development case " .. tostring(matched.id):sub(1, 120) ..
       " omitted expected evidence: " .. table.concat(missing, ", "):sub(1, 1200) ..
       ". Development input: " .. input:sub(1, 1200)
-    autoimprove_tool.execute{ name = r.name, problem = problem, rounds = 1 }
+    pending[session] = { name = r.name, fingerprint = r.fingerprint, key = state_key,
+      delegation = delegation.id, problem = problem }
   end
 
   magi.register_command{
@@ -2196,13 +2228,16 @@ Compare a candidate version of a routine with its active version, and record the
   -- approval: an applied version still asks before its next run.
   magi.register_command{
     name = "routine-auto",
-    description = "Let routine_improve apply applicable candidates of a read-only routine by itself, within its current tools, inputs and frozen evals (/routine-auto <name> [explore-text <directory>] | /routine-auto <name> off)",
+    description = "Delegate automatic application of read-only candidates. Add start-on-failure to also allow model generation after repeated development failures (/routine-auto <name> [explore-text <directory>] [start-on-failure] | /routine-auto <name> off)",
     execute = function(args)
       local w = words(args)
+      local start_on_failure = w[#w] == "start-on-failure" and #w > 1
+      if start_on_failure then table.remove(w) end
       local name, off, directory = w[1], w[2], w[3]
       if not name or not name:match("^[%w_%-]+$") then return "usage: /routine-auto <name> | /routine-auto <name> off" end
       local all = stored("routine_auto")
       if off == "off" then
+        if start_on_failure or directory then return "usage: /routine-auto <name> off" end
         all[name] = nil
         magi.store_set("routine_auto", all)
         append_line(rdir(name) .. "decisions.jsonl", { at = magi.time(), action = "auto-apply revoked", routine = name, by = "person" })
@@ -2216,7 +2251,7 @@ Compare a candidate version of a routine with its active version, and record the
       end
       local frozen = stored("routine_evals_frozen")[name]
       if type(frozen) ~= "table" then return "freeze the evals of " .. name .. " first (/routine-evals-freeze " .. name .. ")" end
-      if off ~= nil and off ~= "explore-text" then return "usage: /routine-auto <name> [explore-text <directory>] | /routine-auto <name> off" end
+      if off ~= nil and off ~= "explore-text" then return "usage: /routine-auto <name> [explore-text <directory>] [start-on-failure] | /routine-auto <name> off" end
       if off == "explore-text" then
         if not (magi.script_features and magi.script_features.explore_read_scope) then
           return "scoped explore requires an updated magi host"
@@ -2232,13 +2267,15 @@ Compare a candidate version of a routine with its active version, and record the
         return "usage: /routine-auto <name> [explore-text <directory>]"
       end
       local scope = { tools = r.tools, inputs = magi.json_encode(r.inputs), evals = { contract = frozen.contract, tasks = frozen.tasks },
-        explore_text = off == "explore-text" or nil, explore_scope = directory, at = magi.time(), by = "person" }
+        explore_text = off == "explore-text" or nil, explore_scope = directory, at = magi.time(), by = "person",
+        start_on_failure = start_on_failure or nil, id = magi.nonce() }
       all[name] = scope
       local saved, save_err = magi.store_set("routine_auto", all)
       if not saved then return "could not save the delegation: " .. tostring(save_err) end
       append_line(rdir(name) .. "decisions.jsonl", { at = scope.at, action = "auto-apply delegated", routine = name, by = "person", scope = scope })
       magi.log("[routine] auto-apply delegated for " .. name .. " (tools " .. table.concat(r.tools, ", ") .. ", evals " ..
         frozen.tasks:sub(1, 12) .. (scope.explore_text and ", explore limited to " .. scope.explore_scope or ", explore questions fixed") ..
+        (start_on_failure and ", model generation on repeated development failure enabled" or "") ..
         "); /routine-auto " .. name .. " off revokes it")
     end,
   }

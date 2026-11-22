@@ -353,6 +353,7 @@ A routine is a dummy plug script kept as a skill and run again by name with `run
   `attempts.jsonl`; nobody is told. Outside the scope (evals frozen again, tools or inputs changed) an
   applicable candidate is left for a person. Applying is not run approval: the applied version asks
   before its next run. `/routine-auto <name> off` revokes it. No Engram is needed.
+- **Start on repeated failure.** Add `start-on-failure` as the final argument to `/routine-auto <name>` or `/routine-auto <name> explore-text <directory>` to authorize model calls. Two runs of the same version must omit expected evidence on the same frozen development input. The routine returns its result, and generation starts after that conversation’s turn ends if the delegation is still current. A transient connection or service error gets one retry after a later turn in that conversation. The option is recorded in `decisions.jsonl`.
 - **Data reach.** Each comparison records the arguments both versions pass to `read`, `grep`, `glob`,
   `list` and `recall_memory` on the tasks (`path`, `pattern`, `query`, …). A candidate that adds
   arguments the active version never used is outside a delegation and left for a person. `explore`
