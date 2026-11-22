@@ -10,12 +10,13 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// loadSkills reads markdown skills for a workdir from three sources: the global
+// loadSkills reads markdown skills for a workdir from the global
 // config dir and the project's .magi/skills (flat .md — first line = description,
 // full body follows), plus the project's .claude/skills in the skill-creator
 // directory format (<slug>/SKILL.md with a frontmatter description) — the standard
 // skill-creator layout that common agent tooling and the bundled engram plugin
-// produce, so skills learned there are usable here without conversion.
+// produce. Unrestricted workspace experience skills join the same catalog with
+// lower precedence than authored skills.
 //
 // Results are cached per workdir, keyed by the source dirs' mtime signature: a
 // skill saved mid-session (engram writes one after a verified turn) appears at
@@ -27,8 +28,9 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 	}
 	dirs = append(dirs, filepath.Join(workdir, ".magi", "skills"))
 	claudeDir := filepath.Join(workdir, ".claude", "skills")
+	experienceDir := filepath.Join(workdir, ".magi", "experience", "skills")
 
-	sig := dirSignature(append(dirs, claudeDir))
+	sig := dirSignature(append(dirs, claudeDir, experienceDir))
 	a.memMu.Lock()
 	if a.skillCache == nil {
 		a.skillCache = map[string][]port.Skill{}
@@ -120,6 +122,21 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 			})
 		}
 	}
+	if entries, err := os.ReadDir(experienceDir); err == nil {
+		for _, e := range entries {
+			name, ok := strings.CutSuffix(e.Name(), ".md")
+			if !ok || e.IsDir() || seen[name] || strings.HasPrefix(name, ".") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(experienceDir, e.Name()))
+			if err != nil {
+				continue
+			}
+			if skill, ok := discoveredExperienceSkill(name, string(data)); ok {
+				skills = append(skills, skill)
+			}
+		}
+	}
 	sort.Slice(skills, func(i, j int) bool { return skills[i].Name < skills[j].Name })
 	a.memMu.Lock()
 	if a.skillCacheSig == nil {
@@ -129,6 +146,36 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 	a.skillCacheSig[workdir] = sig
 	a.memMu.Unlock()
 	return skills
+}
+
+func discoveredExperienceSkill(name, text string) (port.Skill, bool) {
+	text = strings.TrimSpace(text)
+	observed := ""
+	if rest, ok := strings.CutPrefix(text, "---\n"); ok {
+		header, _, closed := strings.Cut(rest, "\n---")
+		if !closed {
+			return port.Skill{}, false
+		}
+		for _, line := range strings.Split(header, "\n") {
+			key, value, _ := strings.Cut(line, ":")
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "agent-groups":
+				if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "[]" {
+					return port.Skill{}, false
+				}
+			case "observed":
+				value = strings.TrimSpace(value)
+				if value != "" && strings.Trim(value, "0123456789") == "" {
+					observed = ", observations: " + value
+				}
+			}
+		}
+	}
+	description := frontmatterDescription(text)
+	if description == "" || isAutomaticRoutine(text) {
+		return port.Skill{}, false
+	}
+	return port.Skill{Name: name, Description: "[workspace experience" + observed + "] " + description, Body: text}, true
 }
 
 // dirSignature fingerprints the skill source dirs by mtime + entry count, so the
