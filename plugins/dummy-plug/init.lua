@@ -272,6 +272,40 @@ local function stored(key)
   return type(v) == "table" and v or {}
 end
 
+local function lifecycle_key()
+  return "routine_lifecycle:" .. magi.sha256(magi.workdir())
+end
+
+local function lifecycle_now()
+  return tonumber(magi.time("unix"))
+end
+
+local function lifecycle_entry(state, r, now)
+  local entry = state[r.name]
+  if type(entry) ~= "table" or entry.version ~= r.fingerprint then
+    entry = { version = r.fingerprint, since = now }
+    state[r.name] = entry
+  end
+  return entry
+end
+
+local function lifecycle_state(entry, r)
+  if type(entry) == "table" and entry.version == r.fingerprint then return entry.status end
+end
+
+local function record_routine_use(r, succeeded)
+  if r.status ~= "auto-review" then return end
+  local now = lifecycle_now()
+  if not now then return end
+  local key = lifecycle_key()
+  local state = stored(key)
+  local entry = lifecycle_entry(state, r, now)
+  entry.last_used = now
+  entry.runs = (entry.runs or 0) + 1
+  entry.failures = succeeded and 0 or (entry.failures or 0) + 1
+  magi.store_set(key, state)
+end
+
 -- note_sequence counts a successful dummy plug run's calls by their sequence of tools (repeats of one
 -- tool folded). A read-only sequence seen CANDIDATE_AFTER times becomes a routine candidate the
 -- person can review and register; nothing is registered on the model's say-so.
@@ -461,11 +495,17 @@ local function save_routine(name, description, d, source, dry, draft, automatic)
 end
 
 local function save_repeated_readers(id, calls, sequence, sid)
-  local count = 0
+  local active, total = 0, 0
+  local state = stored(lifecycle_key())
   for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
-    if file:match("^auto%-t%x+%.md$") then count = count + 1 end
+    local name = file:match("^(auto%-t%x+)%.md$")
+    if name then
+      total = total + 1
+      local ok, r = pcall(load_routine, name)
+      if not ok or not r or not lifecycle_state(state[name], r) then active = active + 1 end
+    end
   end
-  if count >= AUTO_ROUTINE_LIMIT then return end
+  if active >= AUTO_ROUTINE_LIMIT or total >= 100 then return end
   local d = draft_from_calls(calls, true)
   if not d then return end
   local dry, passed = dry_check(d.script, magi.json_encode(d.fixtures), d.tools, calls, d.fixtures)
@@ -620,10 +660,11 @@ magi.register_tool{
   schema = { type = "object", properties = {} },
   execute = function()
     local routines = {}
+    local lifecycle = stored(lifecycle_key())
     for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
       local name = file:match("^([%w_%-]+)%.md$")
       local ok, r = pcall(load_routine, name)
-      if ok and r and r.status ~= "draft" then
+      if ok and r and r.status ~= "draft" and not lifecycle_state(lifecycle[name], r) then
         routines[#routines + 1] = { name = name, description = r.description, tools = r.tools, inputs = r.inputs, status = r.status }
         if #routines == 30 then break end
       end
@@ -728,8 +769,9 @@ magi.register_tool{
       reader_scopes = reader_scopes,
     })
     finish(rerr == nil)
-    if observe_routine_result and not rerr then
-      local observed, why = pcall(observe_routine_result, r, a.args or {}, out or "")
+    record_routine_use(r, rerr == nil)
+    if observe_routine_result then
+      local observed, why = pcall(observe_routine_result, r, a.args or {}, rerr and "" or (out or ""))
       if not observed then magi.log("routine failure observation failed: " .. tostring(why)) end
     end
     if rerr then return (out or "") .. "[" .. rerr .. "]", true end
@@ -965,9 +1007,9 @@ do
     return out
   end
 
-  local function dry_run(script, input, fixtures, tools)
+  local function dry_run(script, input, fixtures, tools, timeout)
     local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(input or {})) .. ")\n" .. script
-    local out, err, calls = magi.run_script(src, { dry = true, fixtures = fixtures or {}, tools = tools, timeout = 10,
+    local out, err, calls = magi.run_script(src, { dry = true, fixtures = fixtures or {}, tools = tools, timeout = timeout or 10,
       globals = noop_globals() })
     calls = type(calls) == "table" and calls or {}
     local unverified = false
@@ -977,8 +1019,8 @@ do
     return tostring(out or ""), err, calls, unverified
   end
 
-  local function check_case(c, script, tools)
-    local out, err, calls, unv = dry_run(script, c.input, c.fixtures, tools)
+  local function check_case(c, script, tools, timeout)
+    local out, err, calls, unv = dry_run(script, c.input, c.fixtures, tools, timeout)
     local why = {}
     if err then why[#why + 1] = "script failed: " .. tostring(err) end
     local want_calls = type(c.calls) == "table" and c.calls or {}
@@ -1019,6 +1061,157 @@ do
     end
     return ok and "pass" or "fail"
   end
+
+  local function lifecycle_log(r, action, reason, canonical)
+    return append_line(rdir(r.name) .. "decisions.jsonl", { at = magi.time(), action = action,
+      reason = reason, routine = r.name, version = r.fingerprint:sub(1, 12), canonical = canonical, by = "lifecycle" })
+  end
+
+  local function comparable_fixtures(r)
+    local frozen = stored("routine_evals_frozen")[r.name]
+    local dir = rdir(r.name)
+    local contract, tasks = magi.read_file(dir .. "contract.json"), magi.read_file(dir .. "tasks.json")
+    if not frozen or not contract or not tasks or magi.sha256(contract) ~= frozen.contract
+      or magi.sha256(tasks) ~= frozen.tasks then return end
+    contract, tasks = decode(contract), decode(tasks)
+    if not contract or type(contract.cases) ~= "table" or #contract.cases == 0 or #contract.cases > 4
+      or not tasks or type(tasks.tasks) ~= "table" or #tasks.tasks < 2 or #tasks.tasks > 4 then return end
+    local dev, holdout = false, false
+    for _, task in ipairs(tasks.tasks) do
+      if type(task) ~= "table" then return end
+      dev = dev or task.split == "dev"
+      holdout = holdout or task.split == "holdout"
+    end
+    if dev and holdout then return contract.cases, tasks.tasks, frozen.contract .. ":" .. frozen.tasks end
+  end
+
+  local function equivalent_on_fixtures(a, b, contracts, tasks)
+    for _, c in ipairs(contracts) do
+      if type(c) ~= "table" or check_case(c, a.script, a.tools, 0.05) ~= "pass"
+        or check_case(c, b.script, b.tools, 0.05) ~= "pass" then return false end
+    end
+    for _, task in ipairs(tasks) do
+      local expected = type(task.expect) == "table" and task.expect.evidence
+      if type(expected) ~= "table" or #expected == 0 then return false end
+      local first, err, calls, unverified = dry_run(a.script, task.input, task.fixtures, a.tools, 0.05)
+      local second, other_err, other_calls, other_unverified = dry_run(b.script, task.input, task.fixtures, b.tools, 0.05)
+      if err or other_err or unverified or other_unverified or #calls == 0 or first ~= second
+        or magi.json_encode(calls) ~= magi.json_encode(other_calls) then return false end
+      for _, evidence in ipairs(expected) do
+        if type(evidence) ~= "string" or evidence == "" or not first:find(evidence, 1, true) then return false end
+      end
+    end
+    return true
+  end
+
+  magi.on("idle", function()
+    local now = lifecycle_now()
+    if not now or magi.workdir() == "" then return end
+    local key = lifecycle_key()
+    local state = stored(key)
+    if state.last_review and now - state.last_review < 3600 then return end
+    state.last_review = now
+    local approvals = stored("routine_approvals")
+    local groups, compared, seen = {}, false, {}
+    for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
+      local name = file:match("^(auto%-t%x+)%.md$")
+      local ok, r = pcall(load_routine, name)
+      if ok and r and r.status == "auto-review" then
+        seen[name] = true
+        local entry = lifecycle_entry(state, r, now)
+        if (entry.status == "paused" or entry.status == "archived") and entry.last_used
+          and entry.last_used >= (entry.hidden_at or 0) and entry.failures == 0
+          and lifecycle_log(r, "catalog restored", "explicit execution succeeded") then
+          entry.status, entry.hidden_at = nil, nil
+        end
+        local status, reason
+        if not entry.keep then
+          if (entry.failures or 0) >= 3 then status, reason = "paused", "three consecutive execution failures"
+          elseif now - (entry.last_used or entry.since) >= 30 * 86400 then status, reason = "archived", "no execution for 30 days" end
+        end
+        if status and entry.status == nil and lifecycle_log(r, "catalog " .. status, reason) then
+          entry.status, entry.canonical, entry.hidden_at = status, nil, now
+        end
+        local scope = approvals[name]
+        if not scope or scope.fingerprint ~= r.fingerprint then scope = {} end
+        local group = magi.sha256(magi.json_encode({ tools = r.tools, inputs = r.inputs, workspace = scope.workspace,
+          scopes = scope.reader_scopes }))
+        entry.group = group
+        if not entry.status then
+          local peers = groups[group] or {}
+          groups[group] = peers
+          for _, peer in ipairs(peers) do
+            local canonical = peer.r
+            local identical = canonical.fingerprint == r.fingerprint
+            local equivalent
+            if not identical and not compared and not entry.keep then
+              local ac, at, ah = comparable_fixtures(canonical)
+              local bc, bt, bh = comparable_fixtures(r)
+              local comparison = ah and bh and magi.sha256(canonical.fingerprint .. r.fingerprint .. ah .. bh)
+              entry.comparisons = entry.comparisons or {}
+              if comparison and entry.comparisons[canonical.name] ~= comparison then
+                compared = true
+                equivalent = equivalent_on_fixtures(canonical, r, ac, at) and equivalent_on_fixtures(canonical, r, bc, bt)
+                if lifecycle_log(r, "catalog compared", equivalent and "same calls and results on both frozen suites" or "equivalence not established", canonical.name) then
+                  entry.comparisons[canonical.name] = comparison
+                end
+              end
+            end
+            if not entry.keep and (identical or equivalent) and lifecycle_log(r, "catalog alias",
+              identical and "same script, inputs, tools and approval scope" or "same calls and results on both frozen suites", canonical.name) then
+              entry.status, entry.canonical, entry.canonical_version = "alias", canonical.name, canonical.fingerprint
+              break
+            end
+          end
+          if not entry.status then peers[#peers + 1] = { r = r } end
+        end
+      end
+    end
+    for name, entry in pairs(state) do
+      if name ~= "last_review" then
+        if not seen[name] then state[name] = nil
+        elseif entry.status == "alias" then
+          local canonical = state[entry.canonical]
+          if not canonical or canonical.status or canonical.version ~= entry.canonical_version or canonical.group ~= entry.group then
+            entry.status, entry.canonical, entry.canonical_version, entry.comparisons = nil, nil, nil, nil
+          end
+        end
+      end
+    end
+    magi.store_set(key, state)
+  end)
+
+  magi.register_command{
+    name = "routine-lifecycle",
+    description = "Show automatic routine catalog state, or restore a hidden entry (/routine-lifecycle [restore <name>])",
+    execute = function(args)
+      local w = words(args)
+      local key = lifecycle_key()
+      local state = stored(key)
+      if w[1] == "restore" and w[2] and not w[3] then
+        local r, err = load_routine(w[2])
+        if not r then return err end
+        local entry = state[r.name]
+        if not lifecycle_state(entry, r) then return "routine is already visible" end
+        if not lifecycle_log(r, "catalog restored", "requested by user") then return "could not record restoration" end
+        entry.status, entry.canonical, entry.canonical_version, entry.hidden_at, entry.keep = nil, nil, nil, nil, true
+        if not magi.store_set(key, state) then return "could not save restoration" end
+        magi.log("[routine] restored " .. r.name .. " to the catalog")
+        return
+      end
+      if w[1] then return "usage: /routine-lifecycle [restore <name>]" end
+      local lines = {}
+      for name, entry in pairs(state) do
+        if type(entry) == "table" then
+          lines[#lines + 1] = name .. "  " .. (entry.status or "active") ..
+            (entry.canonical and (" → " .. entry.canonical) or "") .. "  runs=" .. tostring(entry.runs or 0) ..
+            "  consecutive failures=" .. tostring(entry.failures or 0)
+        end
+      end
+      table.sort(lines)
+      magi.log(#lines > 0 and table.concat(lines, "\n") or "no automatic routine lifecycle records")
+    end,
+  }
 
   local function task_result(tk, script, tools, reps, cost)
     local first, stable = nil, true
@@ -1734,6 +1927,9 @@ end
     for _, d in ipairs(read_lines(rdir(name) .. "decisions.jsonl")) do
       if d.action == "generation interrupted" then
         out[#out + 1] = string.format("%s %s %s (attempt %s)", tostring(d.at), d.action, tostring(d.version), tostring(d.attempt))
+      elseif d.by == "lifecycle" then
+        out[#out + 1] = tostring(d.at) .. " " .. tostring(d.action) .. " " .. tostring(d.version) ..
+          (d.canonical and (" → " .. d.canonical) or "") .. ": " .. tostring(d.reason)
       else
         out[#out + 1] = string.format("%s %s %s (replaced %s) by %s", tostring(d.at), tostring(d.action), tostring(d.version),
           tostring(d.replaced), tostring(d.by))

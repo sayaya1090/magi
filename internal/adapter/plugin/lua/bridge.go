@@ -1185,7 +1185,12 @@ func (p *plugin) bridgePlatform(L *lua.LState) int {
 
 // magi.time() -> string (ISO8601)
 func (p *plugin) bridgeTime(L *lua.LState) int {
-	L.Push(lua.LString(time.Now().UTC().Format(time.RFC3339)))
+	now := time.Now().UTC()
+	if L.OptString(1, "") == "unix" {
+		L.Push(lua.LNumber(now.Unix()))
+	} else {
+		L.Push(lua.LString(now.Format(time.RFC3339)))
+	}
 	return 1
 }
 

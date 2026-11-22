@@ -62,6 +62,9 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 			if text == "" {
 				continue
 			}
+			if isAutomaticRoutine(text) {
+				continue // The routine catalog owns discovery and lifecycle visibility.
+			}
 			// Frontmatter if it has any, first line otherwise.
 			//
 			// Both shapes are written by people and the same function already parses frontmatter
@@ -229,6 +232,28 @@ func frontmatterDescription(text string) string {
 		}
 	}
 	return ""
+}
+
+func isAutomaticRoutine(text string) bool {
+	body, ok := strings.CutPrefix(text, "---\n")
+	if !ok {
+		return false
+	}
+	header, _, ok := strings.Cut(body, "\n---\n")
+	if !ok {
+		return false
+	}
+	routine, automatic := false, false
+	for _, line := range strings.Split(header, "\n") {
+		key, value, _ := strings.Cut(line, ":")
+		switch strings.TrimSpace(key) {
+		case "kind":
+			routine = strings.TrimSpace(value) == "routine"
+		case "status":
+			automatic = strings.TrimSpace(value) == "auto-review"
+		}
+	}
+	return routine && automatic
 }
 
 // skillBody returns a named skill's full instructions.

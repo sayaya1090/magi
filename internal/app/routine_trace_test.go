@@ -440,3 +440,92 @@ func TestRoutineWriteComparisonHonorsWorkspaceAbsolutePolicy(t *testing.T) {
 		t.Fatalf("protected write ran in a fixture copy: %q", out)
 	}
 }
+
+func TestAutomaticRoutineLifecycleHidesEquivalentEntriesAndKeepsTheirFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	r := newRoutineRig(t, dataDir, routineFile)
+	base := strings.Replace(routineFile, "kind: routine\n", "kind: routine\nstatus: auto-review\n", 1)
+	r.put(t, ".magi/skills/auto-t00000001.md", []byte(base))
+	r.put(t, ".magi/skills/auto-t00000002.md", []byte(base))
+	different := strings.Replace(base, "```lua\n", "```lua\n-- a different version\n", 1)
+	r.put(t, ".magi/skills/auto-t00000003.md", []byte(different))
+	equivalent := strings.Replace(base, "```lua\n", "```lua\n-- checked against the frozen evaluation\n", 1)
+	r.put(t, ".magi/skills/auto-t00000004.md", []byte(equivalent))
+	for _, name := range []string{"auto-t00000001", "auto-t00000004"} {
+		dir := ".magi/routines/" + name + "/"
+		r.put(t, dir+"contract.json", []byte(`{"cases":[{"id":"read","input":{"file":"notes.txt"},
+		  "fixtures":[{"tool":"read","text":"hello"}],"print_contains":["read notes.txt true"]}]}`))
+		r.put(t, dir+"tasks.json", []byte(`{"tasks":[
+		  {"id":"dev","split":"dev","input":{"file":"notes.txt"},"fixtures":[{"tool":"read","text":"hello"}],
+		   "expect":{"evidence":["read notes.txt true"]}},
+		  {"id":"holdout","split":"holdout","input":{"file":"other.txt"},"fixtures":[{"tool":"read","text":"other"}],
+		   "expect":{"evidence":["read other.txt true"]}}]}`))
+		if err := r.command(t, "routine-evals-freeze", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	broken := strings.Replace(base, "print(\"read ", "if text ~= \"\" then error(\"lookup failed\") end\nprint(\"read ", 1)
+	r.put(t, ".magi/skills/auto-t00000005.md", []byte(broken))
+	for _, id := range []string{"first", "second", "third"} {
+		out, _, failed := r.call(t, id, "run_routine", map[string]any{"name": "auto-t00000005", "args": map[string]any{"file": "notes.txt"}}, "allow")
+		if !failed || !strings.Contains(out, "lookup failed") {
+			t.Fatalf("expected an execution failure: %s", out)
+		}
+	}
+
+	r.fire("idle")
+	for _, skill := range r.a.Skills(r.s.Workdir) {
+		if strings.HasPrefix(skill.Name, "auto-t") {
+			t.Fatalf("automatic routine bypassed its catalog through the skill index: %s", skill.Name)
+		}
+	}
+	catalog, _, failed := r.call(t, "catalog", "routine_catalog", nil, "allow")
+	if failed || !strings.Contains(catalog, "auto-t00000001") || strings.Contains(catalog, "auto-t00000002") ||
+		!strings.Contains(catalog, "auto-t00000003") || strings.Contains(catalog, "auto-t00000004") ||
+		strings.Contains(catalog, "auto-t00000005") {
+		t.Fatalf("catalog did not deduplicate only equivalent entries: %s", catalog)
+	}
+	if got := r.skill(t, "auto-t00000002"); got != base {
+		t.Fatal("the hidden routine file changed")
+	}
+	if err := r.command(t, "routine-lifecycle", "restore", "auto-t00000002"); err != nil {
+		t.Fatal(err)
+	}
+	catalog, _, failed = r.call(t, "restored", "routine_catalog", nil, "allow")
+	if failed || !strings.Contains(catalog, "auto-t00000002") {
+		t.Fatalf("restored entry is missing: %s", catalog)
+	}
+	path := filepath.Join(r.s.Workdir, ".magi/routines/auto-t00000002/decisions.jsonl")
+	history, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(history), "catalog alias") || !strings.Contains(string(history), "catalog restored") {
+		t.Fatalf("lifecycle decisions missing: %s (%v)", history, err)
+	}
+	storePath := filepath.Join(dataDir, "plugin-data", "dummy-plug.json")
+	raw, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var store map[string]any
+	if err := json.Unmarshal(raw, &store); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range store {
+		if strings.HasPrefix(key, "routine_lifecycle:") {
+			state := value.(map[string]any)
+			state["last_review"] = 0
+			state["auto-t00000003"].(map[string]any)["since"] = time.Now().Add(-31 * 24 * time.Hour).Unix()
+		}
+	}
+	raw, err = json.Marshal(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(storePath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.fire("idle")
+	catalog, _, failed = r.call(t, "archived", "routine_catalog", nil, "allow")
+	if failed || strings.Contains(catalog, "auto-t00000003") || r.skill(t, "auto-t00000003") != different {
+		t.Fatalf("unused routine was not archived intact: %s", catalog)
+	}
+}
