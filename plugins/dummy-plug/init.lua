@@ -1637,8 +1637,12 @@ end
         #lost > 0 and ("\n  regressed: " .. table.concat(lost, ", ")) or "")
     end
     for _, d in ipairs(read_lines(rdir(name) .. "decisions.jsonl")) do
-      out[#out + 1] = string.format("%s %s %s (replaced %s) by %s", tostring(d.at), tostring(d.action), tostring(d.version),
-        tostring(d.replaced), tostring(d.by))
+      if d.action == "generation interrupted" then
+        out[#out + 1] = string.format("%s %s %s (attempt %s)", tostring(d.at), d.action, tostring(d.version), tostring(d.attempt))
+      else
+        out[#out + 1] = string.format("%s %s %s (replaced %s) by %s", tostring(d.at), tostring(d.action), tostring(d.version),
+          tostring(d.replaced), tostring(d.by))
+      end
     end
     return table.concat(out, "\n")
   end
@@ -2129,12 +2133,31 @@ Compare a candidate version of a routine with its active version, and record the
     return delegation, frozen, text
   end
 
+  local active_generation
   magi.on("turn_finished", function(ev)
     local session = ev.session
     if not session or session == "" or type(magi.analyze_async) ~= "function" then return end
     local queue = pending_key(session)
     local job = stored(queue)
     if not job.name then return end
+    if job.dispatched then
+      if active_generation == job.dispatched then return end
+      local attempt = job.retry and 2 or 1
+      local state = stored(job.key)
+      if (state.attempt or 0) < attempt and
+        not magi.store_set(job.key, { started = true, attempt = attempt }) then return end
+      local path = rdir(job.name) .. "decisions.jsonl"
+      local recorded
+      for _, decision in ipairs(read_lines(path)) do
+        if decision.dispatch == job.dispatched then recorded = true; break end
+      end
+      if recorded or append_line(path, { at = magi.time(), action = "generation interrupted",
+        routine = job.name, version = job.fingerprint:sub(1, 12), dispatch = job.dispatched,
+        attempt = attempt, by = "auto" }) then
+        magi.store_set(queue, {})
+      end
+      return
+    end
     local r = load_routine(job.name)
     if not r then magi.store_set(queue, {}); return end
     local delegation, _, task_text = delegated_development(r)
@@ -2156,23 +2179,38 @@ Compare a candidate version of a routine with its active version, and record the
       ". Development input: " .. magi.json_encode(task.input or {}):sub(1, 1200) ..
       ". Use this case to identify which input the active script ignores or handles incorrectly. " ..
       "Fix how the script uses that input for all valid values. Preserve the existing defaults and avoid hard-coding the example or its expected evidence."
-    if not magi.store_set(job.key, { started = true, attempt = attempt }) then return end
+    job.dispatched = magi.nonce()
+    if not magi.store_set(queue, job) then return end
+    if not magi.store_set(job.key, { started = true, attempt = attempt }) then
+      job.dispatched = nil
+      magi.store_set(queue, job)
+      return
+    end
     local started = magi.analyze_async(generation_request(r, problem, {}), function(answer, err)
+      active_generation = nil
       local current = load_routine(job.name)
       local allowed = current and delegated_development(current)
-      if not allowed or allowed.id ~= job.delegation or current.fingerprint ~= job.fingerprint then return end
+      if not allowed or allowed.id ~= job.delegation or current.fingerprint ~= job.fingerprint then
+        magi.store_set(queue, {})
+        return
+      end
       local result, _, transient = autoimprove_tool.execute(
         { name = job.name, problem = problem, rounds = 1 }, { text = answer, error = err })
       local summary = tostring(result):match("verdict: [^\r\n]+") or tostring(result):match("^[^\r\n]+")
       if summary then magi.log("[routine] automatic generation for " .. job.name .. ": " .. summary:sub(1, 400)) end
-      if transient and not job.retry and not stored(queue).name then
+      if transient and not job.retry then
         job.retry = true
+        job.dispatched = nil
         magi.store_set(queue, job)
+      else
+        magi.store_set(queue, {})
       end
     end)
     if started then
-      magi.store_set(queue, {})
+      active_generation = job.dispatched
     else
+      job.dispatched = nil
+      magi.store_set(queue, job)
       magi.store_set(job.key, state)
     end
   end)
