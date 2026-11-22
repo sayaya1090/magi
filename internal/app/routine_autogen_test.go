@@ -20,6 +20,8 @@ type scriptedAnalyzer struct {
 	replies    []string
 	prompts    []string
 	firstError error
+	started    chan struct{}
+	release    chan struct{}
 }
 
 func (s *scriptedAnalyzer) Analyze(_ context.Context, _, text, _ string) (string, error) {
@@ -27,6 +29,14 @@ func (s *scriptedAnalyzer) Analyze(_ context.Context, _, text, _ string) (string
 	defer s.mu.Unlock()
 	s.prompts = append(s.prompts, text)
 	if len(s.prompts) == 1 && s.firstError != nil {
+		if s.started != nil {
+			close(s.started)
+			select {
+			case <-s.release:
+			case <-time.After(3 * time.Second):
+				return "", errors.New("test: another tool did not complete while generation was active")
+			}
+		}
 		return "", s.firstError
 	}
 	if len(s.replies) == 0 {
@@ -188,7 +198,8 @@ func TestAnExploreOnlyChangeIsLeftForAPersonUnlessDelegated(t *testing.T) {
 }
 
 func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
-	an := &scriptedAnalyzer{firstError: errors.New("dial tcp: connection refused")}
+	an := &scriptedAnalyzer{firstError: errors.New("dial tcp: connection refused"),
+		started: make(chan struct{}), release: make(chan struct{})}
 	r, script := setupRPEWith(t, an)
 	_, better := rpeVariants(script)
 	an.replies = []string{candidateReply("trace the click path", better)}
@@ -243,7 +254,18 @@ func TestRepeatedDevelopmentFailureStartsOneDelegatedImprovement(t *testing.T) {
 	if len(an.prompts) != 0 {
 		t.Fatal("generation started before the routine result returned")
 	}
-	finish()
+	if err := r.host.Reload("dummy-plug"); err != nil {
+		t.Fatal(err)
+	}
+	r.host.FireEventWith("turn_finished", map[string]string{"session": string(r.sid)})
+	select {
+	case <-an.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("generation did not resume after plugin reload")
+	}
+	run("another-tool-while-generating", holdout)
+	close(an.release)
+	r.host.DrainEvents(5 * time.Second)
 	if len(an.prompts) != 1 || strings.Contains(r.skill(t, rpe), better) ||
 		!strings.Contains(r.logs.text(), "automatic generation for "+rpe+": round 1: no candidate") {
 		t.Fatal("expected one failed generation")

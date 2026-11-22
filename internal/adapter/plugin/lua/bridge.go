@@ -42,6 +42,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
+	L.SetField(t, "analyze_async", L.NewFunction(p.bridgeAnalyzeAsync))
 	L.SetField(t, "checkpoint", L.NewFunction(p.bridgeCheckpoint))
 	L.SetField(t, "checkpoint_available", L.NewFunction(func(L *lua.LState) int { L.Push(lua.LBool(p.env.Checkpoint != nil)); return 1 }))
 	L.SetField(t, "analyze_measured", L.NewFunction(p.bridgeAnalyzeMeasured))
@@ -1422,34 +1423,13 @@ func (p *plugin) analyze(L *lua.LState, measured bool) int {
 	if p.host == nil || p.host.analyzer == nil {
 		return fail(L, "analyze: no analyzer available")
 	}
-	spec := L.CheckTable(1)
-	// An absent field is LNil, whose String() is the literal "nil" — read each
-	// through a nil guard so a missing system/text can't silently become "nil".
-	str := func(key string) string {
-		if v := spec.RawGetString(key); v != lua.LNil {
-			return v.String()
-		}
-		return ""
-	}
-	system, text, model, label := str("system"), str("text"), str("model"), str("label")
-	if strings.TrimSpace(text) == "" {
+	request := readAnalyzeRequest(L.CheckTable(1))
+	if strings.TrimSpace(request.text) == "" {
 		return fail(L, "analyze: text is required")
 	}
 	ctx, cancel := context.WithTimeout(p.spawnCtx(), analyzeTimeout)
 	defer cancel()
-	var out string
-	var err error
-	metrics := port.RunMetrics{Calls: 1}
-	started := time.Now()
-	if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); ok {
-		out, metrics, err = analyzer.AnalyzeMeasured(ctx, system, text, model)
-	} else {
-		out, err = p.host.analyzer.Analyze(ctx, system, text, model)
-		metrics.ElapsedMS = time.Since(started).Milliseconds()
-	}
-	if p.host.onAnalyze != nil {
-		p.host.onAnalyze(AnalyzeUsage{Plugin: p.name, Label: label, Metrics: metrics, Err: err})
-	}
+	out, metrics, err := p.runAnalysis(ctx, request)
 	if measured {
 		result := L.NewTable()
 		L.SetField(result, "text", lua.LString(out))
@@ -1464,6 +1444,72 @@ func (p *plugin) analyze(L *lua.LState, measured bool) int {
 		return fail(L, "analyze: "+err.Error())
 	}
 	L.Push(lua.LString(out))
+	return 1
+}
+
+type analyzeRequest struct {
+	system, text, model, label string
+}
+
+func readAnalyzeRequest(spec *lua.LTable) analyzeRequest {
+	str := func(key string) string {
+		if value := spec.RawGetString(key); value != lua.LNil {
+			return value.String()
+		}
+		return ""
+	}
+	return analyzeRequest{system: str("system"), text: str("text"), model: str("model"), label: str("label")}
+}
+
+func (p *plugin) runAnalysis(ctx context.Context, request analyzeRequest) (out string, metrics port.RunMetrics, err error) {
+	started := time.Now()
+	if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); ok {
+		out, metrics, err = analyzer.AnalyzeMeasured(ctx, request.system, request.text, request.model)
+	} else {
+		out, err = p.host.analyzer.Analyze(ctx, request.system, request.text, request.model)
+		metrics = port.RunMetrics{Calls: 1, ElapsedMS: time.Since(started).Milliseconds()}
+	}
+	if p.host.onAnalyze != nil {
+		p.host.onAnalyze(AnalyzeUsage{Plugin: p.name, Label: request.label, Metrics: metrics, Err: err})
+	}
+	return
+}
+
+// analyze_async runs one sidecar request per plugin outside the Lua lock.
+func (p *plugin) bridgeAnalyzeAsync(L *lua.LState) int {
+	p.requireCap(L, "analyze")
+	request, callback := readAnalyzeRequest(L.CheckTable(1)), L.CheckFunction(2)
+	if p.host == nil || p.host.analyzer == nil {
+		return fail(L, "analyze: no analyzer available")
+	}
+	if strings.TrimSpace(request.text) == "" {
+		return fail(L, "analyze: text is required")
+	}
+	if p.cancelAnalysis != nil {
+		return fail(L, "analyze: another asynchronous request is active")
+	}
+	ctx, cancel := context.WithTimeout(p.spawnCtx(), analyzeTimeout)
+	p.cancelAnalysis = cancel
+	p.host.evBusy.Add(1)
+	go func() {
+		defer p.host.evBusy.Done()
+		defer cancel()
+		out, _, err := p.runAnalysis(ctx, request)
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.cancelAnalysis = nil
+		if p.L == nil {
+			return
+		}
+		result, problem := lua.LValue(lua.LString(out)), lua.LValue(lua.LNil)
+		if err != nil {
+			result, problem = lua.LNil, lua.LString("analyze: "+err.Error())
+		}
+		if err := p.L.CallByParam(lua.P{Fn: callback, NRet: 0, Protect: true}, result, problem); err != nil {
+			p.logf(fmt.Sprintf("[%s] analyze_async: %v", p.name, err))
+		}
+	}()
+	L.Push(lua.LTrue)
 	return 1
 }
 

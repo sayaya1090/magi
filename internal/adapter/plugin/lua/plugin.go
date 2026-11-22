@@ -42,14 +42,15 @@ type plugin struct {
 	// callCtx is the ctx of the tool call in flight, swapped in beside env. Without it a bridge
 	// call had nothing to pass down and used context.Background(), which severed the child from
 	// the parent turn — Ctrl-C then did nothing until the child's own deadline expired.
-	callCtx  context.Context
-	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
-	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
-	children []*child                    // live subprocesses opened via magi.pipe; killed on unload
-	baseSet  bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
-	baseTok  uint64                      // ownership token of that override; released (only if still current) on unload
-	execTO   time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
-	logf     func(string)
+	cancelAnalysis context.CancelFunc
+	callCtx        context.Context
+	hooks          map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
+	servers        []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
+	children       []*child                    // live subprocesses opened via magi.pipe; killed on unload
+	baseSet        bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
+	baseTok        uint64                      // ownership token of that override; released (only if still current) on unload
+	execTO         time.Duration               // manifest exec_timeout, clamped; 0 = the bridge default
+	logf           func(string)
 	// progSent and progAt are the last picture magi.progress sent for the current call and when;
 	// reset when a tool call begins.
 	progSent string
@@ -103,6 +104,9 @@ func loadPlugin(dir string, logf func(string), host *Host) (*plugin, error) {
 func (p *plugin) close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.cancelAnalysis != nil {
+		p.cancelAnalysis()
+	}
 	// Close loopback servers first so no handler goroutine calls back into the
 	// Lua state while/after we tear it down.
 	for _, s := range p.servers {

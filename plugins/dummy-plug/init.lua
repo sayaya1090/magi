@@ -2048,6 +2048,13 @@ Compare a candidate version of a routine with its active version, and record the
   -- The final verdict is returned to the caller and never fed back to this generator.
   local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only and preserve its tool allowlist and input schema. Inputs are already available in the local Lua table input. Read an optional field with input.field, for example local query = input.query or "default". Use call_tool(name, args) for tool calls. It returns text on success or nil and an error on failure. Use print to return findings. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
 
+  local function generation_request(r, problem, feedback)
+    return { system = GENERATE_SYSTEM, label = "routine-candidate", text =
+      "Routine " .. r.name .. "\ntools: " .. table.concat(r.tools, ", ") .. "\ninputs: " .. magi.json_encode(r.inputs) ..
+      "\n\nProblem: " .. problem .. "\n\nActive script:\n```lua\n" .. r.script ..
+      "\n```\n\nDevelopment feedback from this run:\n" .. table.concat(feedback, "\n") }
+  end
+
   local autoimprove_tool = {
     name = "routine_autoimprove",
     description = "Generate routine candidates and screen them on development cases. Compare the first passing candidate on the full frozen evaluation, including holdout, and apply it only within a /routine-auto delegation.",
@@ -2056,7 +2063,7 @@ Compare a candidate version of a routine with its active version, and record the
       problem = { type = "string", description = "what keeps going wrong, with the runs that showed it" },
       rounds = { type = "number", description = "candidates to try at most, default 3, at most 5" },
     }, required = { "name", "problem" } },
-    execute = function(a)
+    execute = function(a, reply)
       a = a or {}
       local r, err = load_routine(a.name)
       if not r then return err, true end
@@ -2065,14 +2072,14 @@ Compare a candidate version of a routine with its active version, and record the
       local out, feedback = {}, {}
       local last_failed_script
       for i = 1, rounds do
-        local prompt = "Routine " .. r.name .. "\ntools: " .. table.concat(r.tools, ", ") .. "\ninputs: " .. magi.json_encode(r.inputs) ..
-          "\n\nProblem: " .. a.problem .. "\n\nActive script:\n```lua\n" .. r.script ..
-          "\n```\n\nDevelopment feedback from this run:\n" .. table.concat(feedback, "\n")
+        local request = generation_request(r, a.problem, feedback)
         if last_failed_script then
-          prompt = prompt .. "\n\nMost recent candidate that failed development screening. Use the feedback above to repair it:\n```lua\n" ..
+          request.text = request.text .. "\n\nMost recent candidate that failed development screening. Use the feedback above to repair it:\n```lua\n" ..
             last_failed_script:sub(1, 12000) .. "\n```"
         end
-        local ok, raw, gerr = pcall(magi.analyze, { system = GENERATE_SYSTEM, text = prompt, label = "routine-candidate" })
+        local ok, raw, gerr
+        if reply then ok, raw, gerr = true, reply.text, reply.error
+        else ok, raw, gerr = pcall(magi.analyze, request) end
         if not ok or type(raw) ~= "string" then
           out[#out + 1] = string.format("round %d: no candidate (%s)", i, tostring(ok and gerr or raw))
           local message = ok and tostring(gerr):lower() or ""
@@ -2106,7 +2113,9 @@ Compare a candidate version of a routine with its active version, and record the
   }
   magi.register_tool(autoimprove_tool)
 
-  local pending = {}
+  local function pending_key(session)
+    return "routine_pending:" .. magi.sha256(magi.workdir() .. "\0" .. session)
+  end
   local function delegated_development(r)
     local delegation = stored("routine_auto")[r.name]
     local frozen = stored("routine_evals_frozen")[r.name]
@@ -2122,41 +2131,68 @@ Compare a candidate version of a routine with its active version, and record the
 
   magi.on("turn_finished", function(ev)
     local session = ev.session
-    local job = pending[session]
-    if not job then return end
-    pending[session] = nil
+    if not session or session == "" or type(magi.analyze_async) ~= "function" then return end
+    local queue = pending_key(session)
+    local job = stored(queue)
+    if not job.name then return end
     local r = load_routine(job.name)
-    if not r or r.fingerprint ~= job.fingerprint then return end
-    local delegation = delegated_development(r)
-    if not delegation or delegation.id ~= job.delegation then return end
-    if not job.retry then
-      if stored(job.key).started or not magi.store_set(job.key, { started = true }) then return end
+    if not r then magi.store_set(queue, {}); return end
+    local delegation, _, task_text = delegated_development(r)
+    if not delegation or delegation.id ~= job.delegation or r.fingerprint ~= job.fingerprint then
+      magi.store_set(queue, {})
+      return
     end
-    local result, _, transient = autoimprove_tool.execute{ name = job.name, problem = job.problem, rounds = 1 }
-    local summary = tostring(result):match("verdict: [^\r\n]+") or tostring(result):match("^[^\r\n]+")
-    if summary then
-      magi.log("[routine] automatic generation for " .. job.name .. ": " .. summary:sub(1, 400))
+    local state = stored(job.key)
+    local attempt = job.retry and 2 or 1
+    if (state.attempt or (state.started and 1) or 0) >= attempt then
+      magi.store_set(queue, {})
+      return
     end
-    if transient and not job.retry then
-      job.retry = true
-      pending[session] = job
+    local tasks = decode(task_text)
+    local task = tasks and type(tasks.tasks) == "table" and tasks.tasks[job.case_index]
+    if type(task) ~= "table" or task.split ~= "dev" then magi.store_set(queue, {}); return end
+    local problem = "Two runs of frozen development case " .. tostring(task.id):sub(1, 120) ..
+      " omitted expected evidence: " .. job.missing ..
+      ". Development input: " .. magi.json_encode(task.input or {}):sub(1, 1200) ..
+      ". Use this case to identify which input the active script ignores or handles incorrectly. " ..
+      "Fix how the script uses that input for all valid values. Preserve the existing defaults and avoid hard-coding the example or its expected evidence."
+    if not magi.store_set(job.key, { started = true, attempt = attempt }) then return end
+    local started = magi.analyze_async(generation_request(r, problem, {}), function(answer, err)
+      local current = load_routine(job.name)
+      local allowed = current and delegated_development(current)
+      if not allowed or allowed.id ~= job.delegation or current.fingerprint ~= job.fingerprint then return end
+      local result, _, transient = autoimprove_tool.execute(
+        { name = job.name, problem = problem, rounds = 1 }, { text = answer, error = err })
+      local summary = tostring(result):match("verdict: [^\r\n]+") or tostring(result):match("^[^\r\n]+")
+      if summary then magi.log("[routine] automatic generation for " .. job.name .. ": " .. summary:sub(1, 400)) end
+      if transient and not job.retry and not stored(queue).name then
+        job.retry = true
+        magi.store_set(queue, job)
+      end
+    end)
+    if started then
+      magi.store_set(queue, {})
+    else
+      magi.store_set(job.key, state)
     end
   end)
 
   observe_routine_result = function(r, args, output)
     local session = magi.session_id()
-    if session == "" or pending[session] then return end
+    if session == "" or type(magi.analyze_async) ~= "function" then return end
+    local queue = pending_key(session)
+    if stored(queue).name then return end
     local delegation, frozen, text = delegated_development(r)
     if not delegation then return end
     local tasks = decode(text)
     if not tasks or type(tasks.tasks) ~= "table" then return end
     local input = magi.json_encode(args)
     local input_hash = magi.sha256(input)
-    local matched
-    for _, task in ipairs(tasks.tasks) do
+    local matched, case_index
+    for index, task in ipairs(tasks.tasks) do
       if type(task) == "table" and magi.json_encode(task.input or {}) == input then
         if task.split == "holdout" or matched then return end
-        if task.split == "dev" then matched = task end
+        if task.split == "dev" then matched, case_index = task, index end
       end
     end
     local evidence = matched and type(matched.expect) == "table" and matched.expect.evidence
@@ -2179,13 +2215,8 @@ Compare a candidate version of a routine with its active version, and record the
       magi.store_set(state_key, { input = input_hash, tasks = frozen.tasks, contract = frozen.contract, delegation = delegation.id })
       return
     end
-    local problem = "Two runs of frozen development case " .. tostring(matched.id):sub(1, 120) ..
-      " omitted expected evidence: " .. table.concat(missing, ", "):sub(1, 1200) ..
-      ". Development input: " .. input:sub(1, 1200) ..
-      ". Use this case to identify which input the active script ignores or handles incorrectly. " ..
-      "Fix how the script uses that input for all valid values. Preserve the existing defaults and avoid hard-coding the example or its expected evidence."
-    pending[session] = { name = r.name, fingerprint = r.fingerprint, key = state_key,
-      delegation = delegation.id, problem = problem }
+    magi.store_set(queue, { name = r.name, fingerprint = r.fingerprint, key = state_key,
+      delegation = delegation.id, case_index = case_index, missing = table.concat(missing, ", "):sub(1, 1200) })
   end
 
   magi.register_command{
