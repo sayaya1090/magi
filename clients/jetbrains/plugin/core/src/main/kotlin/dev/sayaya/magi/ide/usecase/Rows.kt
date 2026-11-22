@@ -264,6 +264,11 @@ class Rows(private val words: Words) {
 
     fun list(): List<Row> = synchronized(rows) { rows.toList() }
 
+    /** Compatibility display for a command result that an older daemon did not journal. */
+    fun appendCommandNote(text: String) = synchronized(rows) {
+        rows.add(Row(Who.System, text))
+    }
+
     /** 스트림이 다시 시작했다(재접속 전량 재생, 세션 이동). 처음부터 다시 짓는다. */
     fun clear(): Unit = synchronized(rows) {
         rows.clear()

@@ -2279,7 +2279,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                                 list?.accessibleContext?.accessibleName = MagiBundle.msg("chat.command.palette")
                                 super.getListCellRendererComponent(list, value, index, selected, focused)
                                 border = JBUI.Borders.empty(0, 12)
-                                preferredSize = java.awt.Dimension(super.getPreferredSize().width, JBUI.scale(48))
+                                preferredSize = java.awt.Dimension(super.getPreferredSize().width, JBUI.scale(36))
                                 return this
                             }
                         })
@@ -2637,7 +2637,16 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     val r = comp.runCommand(name, rest)
                     val line = if (r.ok) r.out?.takeIf { it.isNotBlank() } ?: MagiBundle.msg("chat.command.done", name)
                         else MagiBundle.msg("chat.command.failed", name, r.error ?: MagiBundle.msg("common.noreason"))
-                    finishSend(attempt, null) { if (!r.commandNoted) tell(line, failed = !r.ok) }
+                    finishSend(attempt, null) {
+                        if (currentSendSession() == target && !r.commandNoted) {
+                            if (r.ok) {
+                                shaper.appendCommandNote(line)
+                                redrawLog()
+                            } else {
+                                tell(line, failed = true)
+                            }
+                        }
+                    }
                     return@send
                 }
                 // 고정 탭의 게이트(계약의 절반): 한 워크스페이스의 동시 턴은 아무것도 조정하지
