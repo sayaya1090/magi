@@ -309,14 +309,23 @@ func TestStage6DreamDeterministicZeroTokenAndClusterMerge(t *testing.T) {
 		t.Fatal(err)
 	}
 	ca.replies = []string{
+		`{"incomplete":true}`,
 		`{"merges":[{"keep_id":"dup_a","archive_ids":["dup_b"],"description":"포트 충돌 lsof 점검 및 종료","text":"포트 충돌 시 lsof 명령으로 점유 프로세스를 확인해 종료한다","kind":"lesson","areas":["디버깅"],"tier":"core","status":"observed"}]}`,
+	}
+	handled, out = h.DispatchCommand("/engram-dream", nil)
+	if !handled || out == nil || !strings.Contains(out.Error(), "분석 미완료") {
+		t.Fatalf("an invalid analysis must be reported as incomplete: handled=%v out=%v", handled, out)
+	}
+	p := h.plugins["engram"]
+	if got := p.readStore()["dream_dirty_v1:"+wd]; got != "1" {
+		t.Fatalf("failed analysis cleared pending work: %v", got)
 	}
 	handled, out = h.DispatchCommand("/engram-dream", nil)
 	if !handled || out == nil || !strings.Contains(out.Error(), "클러스터병합=1, LLM호출=1") {
 		t.Fatalf("expected 1 cluster merge and 1 LLM call, got: handled=%v out=%v", handled, out)
 	}
-	if got := ca.calls.Load(); got != 1 {
-		t.Fatalf("expected exactly 1 LLM call for cluster merge, got %d", got)
+	if got := ca.calls.Load(); got != 2 {
+		t.Fatalf("expected one LLM call per attempt, got %d", got)
 	}
 	dups, err := store.SearchManagedExperience(ctx, "포트 충돌", "memory", 0, 10)
 	if err != nil || len(dups) != 1 || dups[0].ObjectID != "dup_a" {

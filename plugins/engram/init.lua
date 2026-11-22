@@ -2072,6 +2072,9 @@ local function run_dream(origin, reason)
     min_similarity = 0,
   }
   if type(all) ~= "table" or #all == 0 then
+    if type(all) == "table" then
+      magi.store_set("dream_dirty_v1:" .. magi.workdir(), "0")
+    end
     return "engram: dream 완료 (활성 기억 0건, LLM 0회 호출)"
   end
 
@@ -2297,9 +2300,15 @@ local function run_dream(origin, reason)
     end
   end
 
+  local model_calls, deferred, analysis_failed = 0, 0, false
   if #clusters > 0 then
-    local cblocks = {}
-    for ci, grp in ipairs(clusters) do
+    local cblocks, allowed, bytes = {}, {}, 0
+    local cursor_key = "dream_cluster_cursor_v1:" .. magi.workdir()
+    local cursor = tonumber(magi.store_get(cursor_key)) or 0
+    if cursor >= #clusters then cursor = 0 end
+    local next_cursor = cursor
+    for ci = cursor + 1, #clusters do
+      local grp = clusters[ci]
       local lines = { "[클러스터 " .. ci .. "]" }
       for _, m in ipairs(grp) do
         lines[#lines + 1] = "- id=" .. tostring(m.object_id)
@@ -2308,15 +2317,37 @@ local function run_dream(origin, reason)
           .. " desc=" .. tostring(m.description or "")
           .. " :: " .. tostring(m.text or "")
       end
-      cblocks[#cblocks + 1] = table.concat(lines, "\n")
+      local block = table.concat(lines, "\n")
+      if #block <= 11998 and (#cblocks >= 4 or bytes + #block + 2 > 12000) then
+        deferred = #clusters - ci + 1
+        break
+      end
+      next_cursor = ci
+      if #block <= 11998 then
+        cblocks[#cblocks + 1] = block
+        bytes = bytes + #block + 2
+        for _, m in ipairs(grp) do allowed[m.object_id] = ci end
+      end
     end
     local model = magi.store_get("sidecar_model")
     local sys_prompt = (origin == "pressure") and DREAM_PRESSURE_PROMPT or DREAM_PROMPT
-    local raw = magi.analyze{ system = sys_prompt, text = table.concat(cblocks, "\n\n"), model = model, label = "dream" }
-    local parsed = parse_cortex_json(raw)
+    local parsed
+    if #cblocks > 0 then
+      model_calls = 1
+      local raw, err = magi.analyze{ system = sys_prompt, text = table.concat(cblocks, "\n\n"), model = model, label = "dream" }
+      parsed = parse_cortex_json(raw)
+      analysis_failed = type(parsed) ~= "table" or type(parsed.merges) ~= "table"
+      if analysis_failed then
+        magi.store_set("dream_failed_epoch_v1:" .. magi.workdir(), tostring(now_epoch))
+        magi.log("engram: dream 분석 실패: " .. tostring(err or "invalid merge response"))
+      else
+        magi.store_set(cursor_key, tostring(deferred > 0 and next_cursor or 0))
+        magi.store_set("dream_failed_epoch_v1:" .. magi.workdir(), "0")
+      end
+    end
     if type(parsed) == "table" and type(parsed.merges) == "table" then
       for _, mg in ipairs(parsed.merges) do
-        if type(mg) == "table" and mg.keep_id and by_id[mg.keep_id] and mg.text and tostring(mg.text) ~= "" then
+        if type(mg) == "table" and mg.keep_id and allowed[mg.keep_id] and by_id[mg.keep_id] and mg.text and tostring(mg.text) ~= "" then
           local keep = by_id[mg.keep_id]
           local links = {}
           if type(keep.links) == "table" then
@@ -2325,7 +2356,7 @@ local function run_dream(origin, reason)
           if type(mg.archive_ids) == "table" then
             for _, aid in ipairs(mg.archive_ids) do
               aid = tostring(aid or "")
-              if aid ~= "" and aid ~= keep.object_id and by_id[aid] then
+              if aid ~= "" and aid ~= keep.object_id and allowed[aid] == allowed[keep.object_id] and by_id[aid] then
                 links[#links + 1] = aid
                 local target = by_id[aid]
                 -- Pressure 모드에서는 원본 디테일이 손실되지 않도록 state="active", tier="reference"로 보존(Split & Link)
@@ -2404,11 +2435,12 @@ local function run_dream(origin, reason)
   end
 
   local summary = string.format(
-    "engram: dream 완료 (오리진=%s, 사유=%s, 만료=%d, 승격=%d, 코어강등=%d, 클러스터병합=%d, LLM호출=%d, 최종코어=%d자)",
-    tostring(origin), tostring(reason), expired_n, promoted_n, demoted_n, merged_n, #clusters > 0 and 1 or 0, core_chars
+    "engram: dream %s (오리진=%s, 사유=%s, 만료=%d, 승격=%d, 코어강등=%d, 클러스터병합=%d, LLM호출=%d, 보류=%d, 최종코어=%d자)",
+    analysis_failed and "분석 미완료" or "완료", tostring(origin), tostring(reason),
+    expired_n, promoted_n, demoted_n, merged_n, model_calls, deferred, core_chars
   )
-  magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10))
-  magi.store_set("dream_dirty_v1:" .. magi.workdir(), "0")
+  if not analysis_failed then magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10)) end
+  magi.store_set("dream_dirty_v1:" .. magi.workdir(), (analysis_failed or deferred > 0) and "1" or "0")
   magi.store_set("pressure_last_chars_v1:" .. magi.workdir(), tostring(core_chars))
   magi.log(summary)
   notify_knowledge_change()
@@ -2454,9 +2486,7 @@ local function maybe_idle_dream()
     return
   end
 
-  magi.store_set(dkey, "0")
   magi.store_set(ekey, tostring(now_epoch))
-  magi.store_set("dream_last_date_v1:" .. magi.workdir(), string.sub(magi.time(), 1, 10))
   run_dream("idle", "interval")
 end
 
@@ -2501,6 +2531,8 @@ local function maybe_pressure_dream(reason, core_chars)
   if not flag("auto_dream", true) or not recordLessons() then return false end
 
   local now_epoch = epoch_of(magi.time()) or 0
+  local failed_epoch = tonumber(magi.store_get("dream_failed_epoch_v1:" .. magi.workdir())) or 0
+  if failed_epoch > 0 and now_epoch - failed_epoch < 3600 then return false end
   local ekey = "pressure_last_epoch_v1:" .. magi.workdir()
   local last_epoch = tonumber(magi.store_get(ekey) or "0") or 0
 
