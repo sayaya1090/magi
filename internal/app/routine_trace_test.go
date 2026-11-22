@@ -148,6 +148,20 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 	if failed || !strings.Contains(catalog, automatic) || !strings.Contains(catalog, "step2") {
 		t.Fatalf("routine is missing from model discovery: %s", catalog)
 	}
+	if len(r.a.contextProviders) != 1 {
+		t.Fatalf("routine context providers: %d", len(r.a.contextProviders))
+	}
+	provider := r.a.contextProviders[0]
+	hints, err := provider.Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir,
+		Prompt: "Search the docs for the policy and read the README."})
+	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, automatic) {
+		t.Fatalf("no routine hint for a matching request: %+v (%v)", hints, err)
+	}
+	hints, err = provider.Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir,
+		Prompt: "Write a summary."})
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("unexpected routine hint for an unrelated request: %+v (%v)", hints, err)
+	}
 	r.put(t, "docs/first.txt", []byte("hello first"))
 	r.put(t, "docs/nested/second.txt", []byte("hello second"))
 	r.put(t, "other/third.txt", []byte("hello third"))

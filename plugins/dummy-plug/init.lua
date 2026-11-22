@@ -703,6 +703,48 @@ magi.register_tool{
   end,
 }
 
+local function reader_intents(prompt)
+  prompt = prompt:lower()
+  local words = " " .. prompt:gsub("[^a-z]+", " ") .. " "
+  return {
+    read = words:find(" read ", 1, true) or prompt:find("읽", 1, true),
+    grep = words:find(" grep ", 1, true) or words:find(" search ", 1, true) or prompt:find("검색", 1, true),
+    glob = words:find(" glob ", 1, true) or words:find(" matching files ", 1, true) or prompt:find("파일 찾아", 1, true),
+    list = words:find(" list ", 1, true) or prompt:find("목록", 1, true),
+  }
+end
+
+-- Older hosts and stripped-down rigs may omit context providers. The catalog tool remains available.
+pcall(magi.register_context_provider, {
+  name = "automatic-routine-catalog",
+  provide = function(query)
+    if not query or query.workdir ~= magi.workdir() or type(query.prompt) ~= "string" then return {} end
+    local intents = reader_intents(query.prompt)
+    local count = 0
+    for _, matched in pairs(intents) do if matched then count = count + 1 end end
+    if count < 2 then return {} end
+    local state = stored(lifecycle_key())
+    local candidates = {}
+    for _, name in ipairs(routine_names()) do
+      if name:match("^auto%-t%x+$") then
+        local ok, r = pcall(load_routine, name)
+        if ok and r and r.status == "auto-review" and not lifecycle_state(state[name], r) then
+          local matches = true
+          for _, tool in ipairs(r.tools) do if not intents[tool] then matches = false; break end end
+          if matches and #r.tools >= 2 then
+            candidates[#candidates + 1] = name .. ": " .. r.description
+            if #candidates == 3 then break end
+          end
+        end
+      end
+    end
+    if #candidates == 0 then return {} end
+    return { { source = "automatic-routine-catalog", text =
+      "Consider these saved routines for this request. Use run_routine directly only if all steps match and their arguments are known. " ..
+      "Pass the current arguments as step1, step2 and so on, in the listed tool order.\n" .. table.concat(candidates, "\n") } }
+  end,
+})
+
 local observe_routine_result
 local function plan_reader_scopes(r, src)
   if type(magi.reader_scope) ~= "function" then return nil, "automatic routines require an updated host" end

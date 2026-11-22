@@ -2,6 +2,6 @@ name = "dummy-plug"
 version = "0.1.0"
 description = "Dummy plug: runs a Lua script that calls harness tools through the host in a child session no model drives; only what the script prints reaches the model"
 entry = "init.lua"
-capabilities = ["tool", "call_tools", "command", "notify", "analyze"]
+capabilities = ["tool", "call_tools", "command", "notify", "analyze", "context-provider"]
 permissions = ["fs:read", "fs:write"]
 call_tools = ["read", "grep", "glob", "list", "explore", "recall_memory", "bash", "edit", "multiedit", "write"]
