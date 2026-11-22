@@ -35,7 +35,6 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 | [APPLICATION_CLIENTS_DESIGN](APPLICATION_CLIENTS_DESIGN.md) · [한국어](APPLICATION_CLIENTS_DESIGN.ko.md) | **Application client contracts**: Figma, IMAP/SMTP mail, Slack and GitHub surfaces, roles, bindings, authentication and acceptance. |
 | [CODING_WORKTREE_DESIGN](CODING_WORKTREE_DESIGN.md) · [한국어](CODING_WORKTREE_DESIGN.ko.md) | **Coding workspace isolation and recovery**: Git worktrees, independent copies, CLI usage and validation; remaining companion/PR design. |
 | [MAIL_CLIENT](MAIL_CLIENT.md) · [한국어](MAIL_CLIENT.ko.md) | **Mail implementation reference**: IMAP/SMTP contracts, MIME limits and account acceptance. |
-| [PROJECT_REVIEW_2026-09-11](PROJECT_REVIEW_2026-09-11.md) · [한국어](PROJECT_REVIEW_2026-09-11.ko.md) | **Project Assessment (2026-09-11)**: Evaluation of council thought propagation, client integrations, and stabilization priorities. |
 
 ## Design History & Archived Records
 

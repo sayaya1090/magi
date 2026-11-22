@@ -2,7 +2,7 @@
 
 [English](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) · [↑ Docs](README.md)
 
-Status: **implementation contracts and acceptance criteria, 2026-09-12.** This develops the first recommendation in the [project review](PROJECT_REVIEW_2026-09-11.md). Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. [`docs/DESIGN.md`](DESIGN.md) records the initial design; this document governs the lifecycle stabilization work.
+Status: **implementation contracts and acceptance criteria, 2026-09-12.** Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. [`docs/DESIGN.md`](DESIGN.md) records the initial design; this document governs the lifecycle stabilization work.
 
 ## 1. Scope and completion
 

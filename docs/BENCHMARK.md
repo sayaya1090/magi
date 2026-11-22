@@ -427,3 +427,5 @@ not otherwise.
 
 For comparison, the same loop on a local `qwen3.8:27b-mlx` over a 14-task subset scored 9/14 at
 every reasoning effort that was tried.
+
+When comparing council configurations, use comparable task conditions and report incorrect completions caught, unnecessary rework, latency and token cost together. Keep code checks, headless UI tests and actual client acceptance distinct in the results.

@@ -602,6 +602,8 @@ marked UNVERIFIED, naming the backstop — the work stands as it was left, and n
 session as still working. A workflow PHASE is different in kind: it declares its own budget as
 part of the pipeline's shape, and spending it is ordinary.
 
+Each model request uses one tool-catalog snapshot to decide which skill, recall and completion guidance to include. Context assembly records which fragments were included or excluded. The internal `contextDiagnostics` accessor returns their metadata. Retrieval clipping preserves UTF-8.
+
 ### What the guard does now (`guard.go`)
 
 The guard **reports**; it does not decide. It used to force-stop a run on its own reading of a
