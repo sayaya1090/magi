@@ -42,7 +42,10 @@ public class CompanionElement {
     private final Arrangement arrange;
     private final HTMLElement stage = el("div");      // #agentview — 세 기둥의 격자
     private final HTMLElement filecol = el("div");    // 왼쪽 기둥(자식의 것)
-    private final HTMLElement stream = el("div");     // 가운데 기둥 — 사실판 + 자식의 대화
+    // 본문 기둥 — 열린 파일·카드. 넓은 화면에서 가장 넓은 칸이고, 대화는 우측 자리로 갔다
+    // (사용자 결정, 2026-11-22: 워크스페이스가 본문, 채팅이 우측, 톱니가 채팅 ↔ 현황판).
+    private final HTMLElement workcol = el("div");
+    private final HTMLElement stream = el("div");     // 우측 자리의 대화(현황판과 나눠 쓴다)
     private final HTMLElement sidecol = el("div");    // 오른쪽 기둥(부모의 판)
     private final HTMLElement leftFill = el("div");   // 자식이 채우는 껍데기(display:contents)
     private final HTMLElement centreFill = el("div");
@@ -71,6 +74,7 @@ public class CompanionElement {
         stage.id = "agentview";
         filecol.id = "filecol";
         stream.id = "stream";
+        workcol.id = "workcol";
         sidecol.id = "sidecol";
         // display:contents 껍데기 — 자식이 제 마크업을 그대로 넣어도 격자에서는 기둥의 직계로
         // 배치된다. 자식이 부모의 구조를 알 필요도, 부모가 자식의 마크업을 알 필요도 없다.
@@ -83,7 +87,8 @@ public class CompanionElement {
         cardTabs.setAttribute("hidden", "");
         cardArea.id = "fileview";
         cardArea.setAttribute("hidden", "");
-        stream.append(cardTabs, cardArea, centreFill);
+        workcol.append(cardTabs, cardArea);
+        stream.append(centreFill);
         // 사실판은 우측 기둥에 산다 — 이 컴패니언이 <b>무엇인가</b>는 곁눈질하는 것이고, M3 가
         // 그 자리라고 부르는 side sheet 가 이 콘솔에서는 이 기둥이다. 가운데에 있던 동안 그 판은
         // auto-fit 격자라 남는 폭을 전부 열로 썼고, 카드가 하나도 없는 화면(대부분의 화면)에서는
@@ -92,7 +97,7 @@ public class CompanionElement {
         // 그리고 이 컴패니언이 무엇인가(상태·호스트·작업공간)는 맨 아래의 접히는 사실판이다.
         side.place(detail.usage(), detail.controls());
         sidecol.append(side.element(), detail.element());
-        stage.append(filecol, stream, sidecol);
+        stage.append(filecol, workcol, stream, sidecol);
         tabs.id = "ptabs";
         tabs.setAttribute("hidden", "");
     }

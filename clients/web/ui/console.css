@@ -5503,3 +5503,36 @@ md-linear-progress.foldbar[hidden] { display: none; }
 .planhead { display: block; width: 100%; text-align: left; padding: 4px 8px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .planlist { margin: 0 0 6px; padding: 0 8px 0 28px; opacity: .85; }
 .planlist li.done { opacity: .6; }
+
+
+/* 우측 한 자리: 채팅 ↔ 현황판 (사용자 결정, 2026-11-22).
+   워크스페이스(열린 파일·카드, #workcol)가 넓은 본문이고, 대화(#stream)와 현황판(#sidecol)은 우측
+   한 칸을 나눠 쓴다. 우측 손잡이(톱니)가 body[side] 를 뒤집는다: shut 이 채팅(기본), open 이
+   현황판. JetBrains·VS Code 와 같은 규칙이다. 이 블록은 위의 세 기둥 규칙보다 뒤에 서서 그것을
+   덮는다 — 폰 폭(탭)은 그대로다. */
+#workcol { min-width:0; display:flex; flex-direction:column; gap:var(--magi-sys-space-300); }
+@media (min-width:52.5em) {
+  body[files][side] #agentview {
+    grid-template-columns:
+      minmax(min(11rem, var(--magi-comp-files-w)), var(--magi-comp-files-w))
+      minmax(0, 1fr)
+      minmax(min(16rem, 100%), var(--magi-comp-side-w));
+  }
+  body[files="shut"][side] #agentview {
+    grid-template-columns:0 minmax(0, 1fr) minmax(min(16rem, 100%), var(--magi-comp-side-w));
+  }
+  #agentview > #filecol { grid-column:1; grid-row:1; }
+  #agentview > #workcol { grid-column:2; grid-row:1; }
+  #agentview > #stream, #agentview > #sidecol { grid-column:3; grid-row:1; }
+  body[side="shut"] #agentview > #sidecol { display:none; }
+  body[side="open"] #agentview > #stream { display:none; }
+  body[side] #stream, body[side] #agentdetail { padding-inline:var(--magi-sys-space-300) 0; }
+  body[at="agent"] #workcol { height:100%; min-height:0; overflow:hidden auto; padding-inline:var(--magi-sys-space-300); }
+  /* 컴포저는 대화의 것이다: 우측 칸 폭으로 오른쪽에 붙고, 현황판이 선 동안은 접힌다. */
+  body[at="agent"][side] #dock .bay {
+    padding-left:0; padding-right:0; display:flex; flex-direction:column; align-items:flex-end;
+  }
+  body[at="agent"][side] #dock .bay > * { width:var(--magi-comp-side-w); max-width:100%; box-sizing:border-box; }
+  /* 상자는 남긴다 — bay 의 폭은 main 과 같아야 한다는 계약이 있다(모자와 발). 속만 감춘다. */
+  body[at="agent"][side="open"] #dock .bay { visibility:hidden; }
+}

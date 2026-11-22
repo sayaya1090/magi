@@ -28,9 +28,10 @@ public class TestApplication implements EntryPoint {
         bay.className = "bay";
         dock.append(bay);
         DomGlobal.document.body.appendChild(dock);
-        // 기둥은 둘 다 열어 둔다 — 이 페이지엔 손잡이(부모의 것)가 없다.
+        // 왼쪽 기둥은 열고, 우측 자리는 채팅으로 둔다 — 이 페이지엔 손잡이(부모의 것)가 없다.
+        // side 는 이제 「우측 자리가 현황판인가」다(2026-11-22): open 이면 채팅과 컴포저가 물러난다.
         DomGlobal.document.body.setAttribute("files", "open");
-        DomGlobal.document.body.setAttribute("side", "open");
+        DomGlobal.document.body.setAttribute("side", "shut");
         DomGlobal.document.body.setAttribute("at", "agent");
         // 부모가 알리는 그 사실 하나를 하네스가 대신 연다 — 스펙이 사람 대신 부모 노릇을 한다.
         jsinterop.base.Js.asPropertyMap(DomGlobal.window).set("__magi_ask_publish",

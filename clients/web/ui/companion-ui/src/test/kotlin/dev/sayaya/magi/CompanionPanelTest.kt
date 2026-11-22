@@ -18,7 +18,10 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 이름이 계약인 이유: 창 높이 앵커·기둥 접기·도크 여백이 전부 console.css에
                 // 이 이름들로 적혀 있다. 새 이름을 쓰면 그 규칙이 통째로 비켜간다(실측: 1024px
                 // 창에서 대화가 224px, 전사는 4천 픽셀로 자라 잘림).
-                page.waitForSelector("#agentview #sidecol #detail")
+                // 사실판은 현황판 안에 있고, 우측 자리는 채팅으로 온다 — 붙어 있는지만 기다린다.
+                page.waitForSelector("#agentview #sidecol #detail",
+                    com.microsoft.playwright.Page.WaitForSelectorOptions()
+                        .setState(com.microsoft.playwright.options.WaitForSelectorState.ATTACHED))
                 page.locator("#agentview #filecol").count() shouldBe 1
                 page.locator("#agentview #sidecol #side").count() shouldBe 1
                 // 사실판은 <b>우측 기둥</b>에 선다. 가운데에 있던 동안 그 판은 auto-fit 격자라
@@ -35,11 +38,13 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 여는 것은 상단의 그 토글이다 — 기둥은 닫힌 채로 오고, 전사가 창을 다 갖는다.
                 page.locator("#sideToggle").count() shouldBe 1
             }
-            Then("왼쪽은 닫힌 채로, 오른쪽은 열린 채로 온다") {
+            Then("왼쪽은 닫힌 채로, 우측 자리는 채팅으로 온다") {
                 // 왼쪽은 파일 트리 — 처음 온 사람에게 이 화면은 대화이고 트리는 찾아가는 것이다.
                 // 오른쪽은 사실판이 옮겨 온 뒤로 "이 컴패니언이 무엇인가"를 답하는 자리가 됐고,
                 // 그것은 열자마자 있어야 하는 답이다.
-                page.waitForSelector("body[files=shut][side=open]")
+                // 우측 자리는 채팅과 현황판이 나눠 쓴다(사용자 결정, 2026-11-22). side=shut 이 채팅,
+                // side=open 이 현황판이고, 처음엔 채팅이다.
+                page.waitForSelector("body[files=shut][side=shut]")
                 // 닫힘은 폭 0이다: 대화가 창을 다 갖는다(운영 규칙 그대로).
                 (page.evaluate("getComputedStyle(document.getElementById('agentview'))" +
                     ".gridTemplateColumns.split(' ')[0]")) shouldBe "0px"
@@ -57,6 +62,38 @@ internal class CompanionPanelTest : GwtTestSpec({
                     "(() => Array.from(document.querySelectorAll('#filecol > *'))" +
                         ".every(e => e.getBoundingClientRect().width <= 1))()"
                 ) as Boolean) shouldBe true
+            }
+            Then("채팅은 우측 열에 서고, 톱니가 그 자리를 현황판과 맞바꾼다 — 본문은 파일 보기다") {
+                // 사용자 결정(2026-11-22): 워크스페이스가 넓은 본문, 채팅이 우측 열, 설정(톱니) 단추가
+                // 그 우측 자리를 채팅 ↔ 현황판으로 바꾼다. 기본은 채팅.
+                page.waitForSelector("body[side=shut]")
+                page.locator("#agentview #workcol #fileview").count() shouldBe 1
+                page.locator("#agentview #workcol #cardtabs").count() shouldBe 1
+                page.locator("#sideToggle .gearic").count() shouldBe 1
+                val edge = "(() => { const a = document.getElementById('agentview').getBoundingClientRect();" +
+                    " const r = id => document.getElementById(id).getBoundingClientRect();" +
+                    " return JSON.stringify({ right: Math.round(a.right)," +
+                    " stream: [Math.round(r('stream').left), Math.round(r('stream').right), Math.round(r('stream').width)]," +
+                    " side: Math.round(r('sidecol').width), work: [Math.round(r('workcol').left), Math.round(r('workcol').width)] }); })()"
+                page.waitForCondition {
+                    val m = page.evaluate(edge) as String
+                    val j = Regex("-?\\d+").findAll(m).map { it.value.toInt() }.toList()
+                    // right, stream.left, stream.right, stream.width, side.width, work.left, work.width
+                    j[2] >= j[0] - 2 && j[3] > 200 && j[4] <= 1 && j[5] < j[1] && j[6] > j[3]
+                }
+                page.locator("#sideToggle").click()
+                page.waitForSelector("body[side=open]")
+                page.waitForCondition {
+                    (page.evaluate("(() => { const a = document.getElementById('agentview').getBoundingClientRect();" +
+                        " const s = document.getElementById('sidecol').getBoundingClientRect();" +
+                        " const t = document.getElementById('stream').getBoundingClientRect();" +
+                        " return s.width > 200 && s.right >= a.right - 2 && t.width <= 1; })()") as Boolean)
+                }
+                page.locator("#sideToggle").click()
+                page.waitForSelector("body[side=shut]")
+                page.waitForCondition {
+                    (page.evaluate("document.getElementById('stream').getBoundingClientRect().width") as Number).toInt() > 200
+                }
             }
             Then("도크가 서고, 비어 있는 동안은 바닥을 한 뼘도 먹지 않는다") {
                 val where = page.locator("#dock").count().toString() + "/" +
@@ -164,8 +201,9 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 손잡이 자체는 이 창을 어떻게 배치할지에 대한 것이라서.
                 page.locator("#masthead #chrome #sideToggle").count() shouldBe 1
                 page.locator("#masthead #chrome #filesToggle").count() shouldBe 1
-                // 이 기둥은 이제 열려서 온다 — 그러니 닫아 보고 나서 다시 연다. 재는 것은
+                // 우측 자리는 채팅으로 온다 — 그러니 판을 열었다가 닫아 본다. 재는 것은
                 // 「닫힌 기둥의 속은 화면에 없다」이고, 그 사실은 기본값이 무엇이든 참이어야 한다.
+                openSide(page)
                 page.locator("#sideToggle").click()
                 page.waitForSelector("body[side=shut]")
                 // 닫힘은 <b>기다려야</b> 참이 된다: visibility 는 움직임이 끝난 뒤에 걷히도록
@@ -225,6 +263,8 @@ internal class CompanionPanelTest : GwtTestSpec({
         }
         When("이 기계 데몬이 플릿의 최신보다 뒤처져 있으면") {
             Then("빌드 칸이 갱신 버튼을 인다 — 뒤처졌다는 사실은 명단이 안다") {
+                // 빌드 칸은 현황판(사실판) 안에 있다 — 우측 자리를 현황판으로 돌려 둔다.
+                openSide(page)
                 page.waitForSelector("#detail .f[data-k=\"field.version\"] md-text-button:not([hidden])")
                 page.locator("#detail .f[data-k=\"field.version\"] .vnum").textContent() shouldBe "v0.28.0"
                 // 버튼의 말은 팩 없는 테스트 페이지에서 키 그대로다(tr 폴백).
@@ -257,6 +297,8 @@ internal class CompanionPanelTest : GwtTestSpec({
             }
         }
         When("이 컴패니언이 퍼미션을 기다리면") {
+            // 질문에 답하는 곳은 컴포저다 — 우측 자리를 채팅으로 돌려 둔다(현황판이 서 있으면 도크가 물러난다).
+            closeSide(page)
             page.evaluate("window.__magi_test_ask('permission', null)")
             Then("도크에 질문이 서고, 컴포저 위다 — 답하러 목록으로 되돌아가지 않는다") {
                 page.waitForSelector("#dock #prompt:not([hidden])")
@@ -803,6 +845,14 @@ internal class CompanionPanelTest : GwtTestSpec({
  * 누르지 않고 상태를 본다: `#sideToggle` 은 토글이라 두 블록이 각자 누르면 뒤엣것이 닫는다 —
  * 실제로 그랬다(도구 넷이 한꺼번에 빨개졌다). 시험이 원하는 것은 "눌렀다"가 아니라 "열려 있다"다.
  */
+/** 우측 자리를 채팅으로 — side=shut. 현황판이 서 있으면 톱니를 한 번 누른다. */
+private fun closeSide(page: com.microsoft.playwright.Page) {
+    if (page.locator("body[side=open]").count() > 0) {
+        page.locator("#sideToggle").click()
+        page.waitForSelector("body[side=shut]")
+    }
+}
+
 private fun openSide(page: com.microsoft.playwright.Page) {
     if (page.locator("body[side=open]").count() == 0) {
         page.locator("#sideToggle").click()
