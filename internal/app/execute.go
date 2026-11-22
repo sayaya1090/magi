@@ -233,6 +233,7 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 type ToolObservation struct {
 	CallID        string
 	ParallelBatch string
+	ParallelSize  int
 	OrderKnown    bool
 }
 
@@ -241,6 +242,7 @@ type toolDispatchKey struct{}
 type toolDispatch struct {
 	call          *session.ToolCall
 	parallelBatch string
+	parallelSize  int
 }
 
 // executeTool runs one tool call (with permission gating) and persists the result.
@@ -844,6 +846,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	observation := ToolObservation{CallID: tc.CallID}
 	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
 		observation.ParallelBatch = dispatch.parallelBatch
+		observation.ParallelSize = dispatch.parallelSize
 		observation.OrderKnown = dispatch.parallelBatch == ""
 	}
 	if to, ok := a.cfg.Observer.(interface {

@@ -428,7 +428,7 @@ magi.register_command{
         local text = magi.read_file(path)
         local header = type(text) == "string" and text:match("^%-%-%-\n(.-)\n%-%-%-\n")
         if header and (header:find("\nsource: trace ", 1, true) or header:find("\nsource: repeated stretch ", 1, true))
-          and not header:find("(synthetic arguments; observed completion order)", 1, true) then
+          and not header:find("(synthetic arguments;", 1, true) then
           magi.log("[routine] saved draft may contain legacy arguments: " .. path)
         end
       end
@@ -436,9 +436,9 @@ magi.register_command{
   end,
 }
 
-local function draft_from_calls(calls, automatic)
+local function draft_from_calls(calls, automatic, parallel)
   if #calls == 0 then return nil, "no calls in that stretch" end
-  if #calls > 1 then
+  if #calls > 1 and not parallel then
     for _, c in ipairs(calls) do
       if not c.order_known then
         return nil, "call #" .. tostring(c.n) .. " has no verified sequential order; draft it separately and review dependencies"
@@ -446,6 +446,7 @@ local function draft_from_calls(calls, automatic)
     end
   end
   local tools, seen, lines, props, req, fixtures = {}, {}, {}, {}, {}, {}
+  if parallel then lines[1] = "local results = call_all({" end
   for i, c in ipairs(calls) do
     if not CALLABLE[c.tool] then
       return nil, "step " .. i .. ": " .. tostring(c.tool) .. " cannot be called from a routine (not in this plugin's call_tools)"
@@ -460,11 +461,22 @@ local function draft_from_calls(calls, automatic)
     else
       lines[#lines + 1] = "-- TODO: supply arguments for step " .. i .. " and review its order and dependencies."
     end
-    lines[#lines + 1] = string.format("local r%d, e%d = call_tool(%q, input.%s)", i, i, c.tool, key)
-    if c.ok ~= false then
-      lines[#lines + 1] = string.format("if r%d == nil then error(%q .. tostring(e%d)) end", i, "step " .. i .. " (" .. c.tool .. ") failed: ", i)
+    if parallel then
+      lines[#lines + 1] = string.format("  {name=%q, args=input.%s},", c.tool, key)
+    else
+      lines[#lines + 1] = string.format("local r%d, e%d = call_tool(%q, input.%s)", i, i, c.tool, key)
+      if c.ok ~= false then
+        lines[#lines + 1] = string.format("if r%d == nil then error(%q .. tostring(e%d)) end", i, "step " .. i .. " (" .. c.tool .. ") failed: ", i)
+      end
+      if automatic then lines[#lines + 1] = string.format("print(%q, r%d)", "Step " .. i .. ": " .. c.tool, i) end
     end
-    if automatic then lines[#lines + 1] = string.format("print(%q, r%d)", "Step " .. i .. ": " .. c.tool, i) end
+  end
+  if parallel then
+    lines[#lines + 1] = "})"
+    for i, c in ipairs(calls) do
+      lines[#lines + 1] = string.format("if not results[%d].ok then error(%q .. tostring(results[%d].error)) end", i, "step " .. i .. " (" .. c.tool .. ") failed: ", i)
+      lines[#lines + 1] = string.format("print(%q, results[%d].text)", "Step " .. i .. ": " .. c.tool, i)
+    end
   end
   table.sort(tools)
   lines[#lines + 1] = string.format("print(%q)", "done: " .. #calls .. " steps")
@@ -524,7 +536,7 @@ local function save_routine(name, description, d, source, dry, draft, automatic)
   return path
 end
 
-local function save_repeated_readers(id, calls, sequence, sid)
+local function save_repeated_readers(id, calls, sequence, sid, parallel)
   local active, total = 0, 0
   local state = stored(lifecycle_key())
   for _, name in ipairs(routine_names()) do
@@ -537,13 +549,14 @@ local function save_repeated_readers(id, calls, sequence, sid)
     end
   end
   if active >= AUTO_ROUTINE_LIMIT or total >= 100 then return end
-  local d = draft_from_calls(calls, true)
+  local d = draft_from_calls(calls, true, parallel)
   if not d then return end
   local dry, passed = dry_check(d.script, magi.json_encode(d.fixtures), d.tools, calls, d.fixtures)
   if not passed then return end
   local name = "auto-" .. id
-  local path = save_routine(name, "Read-only sequence: " .. sequence, d,
-    "repeated stretch " .. id, dry .. " (synthetic arguments; observed completion order)", false, true)
+  local description = (parallel and "Parallel readers: " or "Read-only sequence: ") .. sequence
+  local check = parallel and " (synthetic arguments; unordered dispatch group)" or " (synthetic arguments; observed completion order)"
+  local path = save_routine(name, description, d, "repeated stretch " .. id, dry .. check, false, true)
   if path then
     local message = "[routine] saved " .. path .. "; review at its first run"
     magi.log(message)
@@ -592,17 +605,26 @@ local function note_run(goal, script, seq)
   return id
 end
 
--- note_repeats looks at the turn that just ended: each stretch between judgements and failures is
--- fingerprinted by tool name in observed completion order, and one seen in a second turn becomes a candidate.
+-- Manual candidates require separate turns. Automatic readers count distinct stretches
+-- and complete parallel dispatches, including those observed within the same turn.
 -- A turn's opening reads (read, list, glob only) are left out: in the sessions measured they were
 -- most of what repeated, and a model choosing what to read is not a procedure.
 local function note_repeats(sid)
   local t = load_trace(sid)
   local turn, first_n = t.turn, nil
-  local segs, seg = {}, {}
+  local segs, seg, batches, batch_order = {}, {}, {}, {}
   for _, c in ipairs(t.calls) do
     if c.turn == turn then
       first_n = first_n or c.n
+      if c.parallel_batch and c.parallel_batch ~= "" then
+        local batch = batches[c.parallel_batch]
+        if not batch then
+          batch = {}
+          batches[c.parallel_batch] = batch
+          batch_order[#batch_order + 1] = c.parallel_batch
+        end
+        batch[#batch + 1] = c
+      end
       if JUDGE[c.tool] or not c.order_known then
         if #seg > 0 then segs[#segs + 1] = seg end
         seg = {}
@@ -614,6 +636,32 @@ local function note_repeats(sid)
   end
   if #seg > 0 then segs[#segs + 1] = seg end
   local shapes, changed = stored("routine_shapes"), false
+  local function observe_reader(key, calls, tools, occurrence, parallel)
+    local seen = type(shapes[key]) == "table" and shapes[key] or {}
+    if (tonumber(seen.read_successes) or 0) >= 2 or seen.reader_occurrence == occurrence then return end
+    seen.reader_occurrence = occurrence
+    seen.read_successes = (tonumber(seen.read_successes) or 0) + 1
+    shapes[key], changed = seen, true
+    if seen.read_successes == 2 then
+      save_repeated_readers("t" .. key:sub(1, 8), calls, table.concat(tools, parallel and ", " or ">"), sid, parallel)
+    end
+  end
+  for _, batch_id in ipairs(batch_order) do
+    local calls = batches[batch_id]
+    local total = #calls
+    local eligible, ids, tools = total >= 2 and total <= 8, {}, {}
+    for _, c in ipairs(calls) do
+      if c.parallel_size ~= total or not c.ok or not AUTO_READERS[c.tool]
+        or not c.call_id or c.call_id == "" or ids[c.call_id] then eligible = false end
+      if c.call_id then ids[c.call_id] = true end
+    end
+    if eligible then
+      table.sort(calls, function(a, b) return a.tool == b.tool and a.call_id < b.call_id or a.tool < b.tool end)
+      for i, c in ipairs(calls) do tools[i] = c.tool end
+      local key = magi.sha256("parallel\n" .. table.concat(tools, "\n")):sub(1, 12)
+      observe_reader(key, calls, tools, sid .. ":batch:" .. batch_id, true)
+    end
+  end
   for _, s in ipairs(segs) do
     local fits, opening = #s >= 2 and #s <= 12, s[1].n == first_n
     local tl, readers = {}, true
@@ -625,6 +673,9 @@ local function note_repeats(sid)
     end
     if fits and not opening then
       local key = magi.sha256(table.concat(tl, "\n")):sub(1, 12)
+      if readers then
+        observe_reader(key, s, tl, sid .. ":stretch:" .. turn .. ":" .. s[1].n, false)
+      end
       local seen = type(shapes[key]) == "table" and shapes[key] or {}
       seen.turns = type(seen.turns) == "table" and seen.turns or {}
       local tk = sid .. ":" .. turn
@@ -633,10 +684,6 @@ local function note_repeats(sid)
         seen.count = (tonumber(seen.count) or 0) + 1
         shapes[key], changed = seen, true
         local id = "t" .. key:sub(1, 8)
-        if readers then
-          seen.read_successes = (tonumber(seen.read_successes) or 0) + 1
-          if seen.read_successes == 2 then save_repeated_readers(id, s, table.concat(tl, ">"), sid) end
-        end
         if seen.count == 2 then
           local tools, set = {}, {}
           for _, x in ipairs(tl) do if not set[x] then set[x] = true; tools[#tools + 1] = x end end
@@ -671,7 +718,7 @@ magi.on("tool_finished", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" or type(ev.tool) ~= "string" then return end
   local t = load_trace(ev.session)
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
-    call_id = ev.call_id, parallel_batch = ev.parallel_batch,
+    call_id = ev.call_id, parallel_batch = ev.parallel_batch, parallel_size = tonumber(ev.parallel_size),
     order_known = ev.order_known == "true" and (ev.parallel_batch or "") == "" }
   t.next = t.next + 1
   while #t.calls > TRACE_KEEP do table.remove(t.calls, 1) end

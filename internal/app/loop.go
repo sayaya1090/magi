@@ -756,7 +756,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						case <-ctx.Done():
 						}
 					}
-					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, parallelBatch: batch})
+					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, parallelBatch: batch, parallelSize: len(toolCalls)})
 					a.executeTool(callCtx, s, agent, depth, agentActor, tc, guard, turnTask)
 				}(tc)
 			}

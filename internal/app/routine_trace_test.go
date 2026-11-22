@@ -561,3 +561,42 @@ func TestAutomaticRoutineLifecycleHidesEquivalentEntriesAndKeepsTheirFiles(t *te
 		t.Fatalf("unused routine was not archived intact: %s", catalog)
 	}
 }
+
+func TestAParallelReaderRoutineIsSavedWithinOneTurn(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, "docs/guide.txt", []byte("hello guide\n"))
+	routines := filepath.Join(r.s.Workdir, ".magi", "routines")
+	finished := func(batch, call, tool, size, ok string) {
+		t.Helper()
+		r.fire("tool_finished", "parallel_batch", batch, "parallel_size", size, "call_id", call, "tool", tool, "ok", ok)
+	}
+	r.fire("user_message", "text", "Read the guide and search the docs")
+	finished("incomplete", "missing-1", "read", "2", "true")
+	finished("failed", "failed-1", "grep", "2", "true")
+	finished("failed", "failed-2", "read", "2", "false")
+	finished("first", "first-1", "read", "2", "true")
+	finished("first", "first-2", "grep", "2", "true")
+	r.fire("turn_finished")
+	if files, _ := filepath.Glob(filepath.Join(routines, "auto-*", "routine.md")); len(files) != 0 {
+		t.Fatalf("an incomplete or failed group counted as an observation: %v", files)
+	}
+	finished("second", "second-1", "grep", "2", "true")
+	finished("second", "second-2", "read", "2", "true")
+	r.fire("turn_finished")
+	files, err := filepath.Glob(filepath.Join(routines, "auto-*", "routine.md"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("expected one routine for two complete groups: %v (%v)", files, err)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil || !strings.Contains(string(data), "call_all({") || !strings.Contains(string(data), "dry_check: passed 2/2") {
+		t.Fatalf("parallel routine did not pass dry replay: %s (%v)", data, err)
+	}
+	name := filepath.Base(filepath.Dir(files[0]))
+	out, asks, failed := r.call(t, "parallel-run", "run_routine", map[string]any{"name": name, "args": map[string]any{
+		"step1": map[string]string{"path": "docs", "pattern": "hello"},
+		"step2": map[string]string{"path": "docs/guide.txt"},
+	}}, "allow")
+	if failed || len(asks) != 1 || !strings.Contains(out, "Step 1: grep") || !strings.Contains(out, "Step 2: read") {
+		t.Fatalf("parallel reader routine failed: %s (%d approvals)", out, len(asks))
+	}
+}

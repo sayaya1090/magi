@@ -703,7 +703,7 @@ var knownEvents = map[string]bool{
 	"user_message":      true, // {session=, text=} — a genuine user prompt was submitted
 	"turn_finished":     true, // {session=, text=} — a top-level turn ended (text = final assistant answer)
 	"context_compacted": true, // {session=, summary=} — conversation context was compacted into a summary
-	"tool_finished":     true, // {session, tool, args, ok, call_id, parallel_batch, order_known} — tool completion
+	"tool_finished":     true, // {session, tool, args, ok, call_id, parallel_batch, parallel_size, order_known}
 	"idle":              true, // {idle_seconds=} — no user prompt and no turn in flight for the idle period (default 30m), once per quiet period
 }
 

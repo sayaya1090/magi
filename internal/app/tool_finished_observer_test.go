@@ -108,7 +108,8 @@ func TestToolObserverDistinguishesParallelAndSequentialDispatch(t *testing.T) {
 		}
 	}
 	batch := got["c_read"].ParallelBatch
-	if batch == "" || got["second"].ParallelBatch != batch || got["c_read"].OrderKnown || got["second"].OrderKnown {
+	if batch == "" || got["second"].ParallelBatch != batch || got["c_read"].OrderKnown || got["second"].OrderKnown ||
+		got["c_read"].ParallelSize != 2 || got["second"].ParallelSize != 2 {
 		t.Fatalf("parallel dispatch: %v", got)
 	}
 	if !got["solo"].OrderKnown || got["solo"].ParallelBatch != "" {
