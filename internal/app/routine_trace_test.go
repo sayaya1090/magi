@@ -133,6 +133,29 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 	if m == nil {
 		t.Fatalf("a stretch seen in two turns was not offered: %q", r.logs.text())
 	}
+	automatic := "auto-" + m[1]
+	autoBody := r.skill(t, automatic)
+	if !strings.Contains(autoBody, "status: auto-review") || !strings.Contains(autoBody, "dry_check: passed 2/2") {
+		t.Fatalf("automatic routine lacks a dry check: %s", autoBody)
+	}
+	catalog, _, failed := r.call(t, "catalog", "routine_catalog", nil, "allow")
+	if failed || !strings.Contains(catalog, automatic) || !strings.Contains(catalog, "step2") {
+		t.Fatalf("routine is missing from model discovery: %s", catalog)
+	}
+	input := map[string]any{"name": automatic, "args": map[string]any{
+		"step1": map[string]any{"path": "notes.txt", "pattern": "hello"},
+		"step2": map[string]any{"path": "a1b2c3d4.txt"},
+	}}
+	if out, asks, failed := r.call(t, "deny-auto", "run_routine", input, "deny"); !failed || len(asks) != 1 || strings.Contains(out, "Step 1:") {
+		t.Fatalf("routine ran without approval: %s", out)
+	}
+	if out, asks, failed := r.call(t, "allow-auto", "run_routine", input, "allow"); failed || len(asks) != 1 || !strings.Contains(out, "Step 2: read") {
+		t.Fatalf("routine did not execute current inputs: %s", out)
+	}
+	input["args"].(map[string]any)["step2"] = map[string]any{"path": "f9e8d7c6.txt"}
+	if out, asks, failed := r.call(t, "reuse-auto", "run_routine", input, "allow"); failed || len(asks) != 0 || !strings.Contains(out, "Step 2: read") {
+		t.Fatalf("approved routine did not reuse its approval with new inputs: %s", out)
+	}
 	if err := r.command(t, "routine-candidates"); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +173,7 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 		}
 	}
 	for _, value := range []string{"notes.txt", "hello", "a1b2c3d4", "f9e8d7c6", "example:"} {
-		if strings.Contains(body, value) || strings.Contains(r.logs.text(), value) || strings.Contains(string(store), value) {
+		if strings.Contains(body, value) || strings.Contains(autoBody, value) || strings.Contains(r.logs.text(), value) || strings.Contains(string(store), value) {
 			t.Fatalf("repeated candidate copied %q", value)
 		}
 	}

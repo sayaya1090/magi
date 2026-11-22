@@ -187,6 +187,7 @@ Use it for loops, filtering and many reads whose contents you do not need to see
 -- routine grants nothing else — each call the script makes passes the permission gate as before, and
 -- run_script refuses any tool outside the approved list. This version runs read-only routines only.
 local READ_ONLY = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true }
+local AUTO_READERS = { read = true, grep = true, glob = true, list = true }
 -- The tools a routine may call: this plugin's call_tools. Those that may write run one at a time
 -- (run_script serial), and each still passes its own permission gate.
 local CALLABLE = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true,
@@ -195,7 +196,7 @@ local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
 local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
-  run_routine = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true, routine_trace_path = true, routine_task_families = true, routine_compare_trace_policy = true }
+  run_routine = true, routine_catalog = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true, routine_trace_path = true, routine_task_families = true, routine_compare_trace_policy = true }
 local CANDIDATE_AFTER = 3
 
 local function frontmatter(text)
@@ -373,7 +374,7 @@ magi.register_command{
   end,
 }
 
-local function draft_from_calls(calls)
+local function draft_from_calls(calls, automatic)
   if #calls == 0 then return nil, "no calls in that stretch" end
   if #calls > 1 then
     for _, c in ipairs(calls) do
@@ -392,11 +393,16 @@ local function draft_from_calls(calls)
     props[key] = { type = "object" }
     req[i] = key
     fixtures[key] = { fixture_step = i }
-    lines[#lines + 1] = "-- TODO: supply arguments for step " .. i .. " and review its order and dependencies."
+    if automatic then
+      props[key].description = "Arguments for " .. c.tool .. " from the current request at step " .. i
+    else
+      lines[#lines + 1] = "-- TODO: supply arguments for step " .. i .. " and review its order and dependencies."
+    end
     lines[#lines + 1] = string.format("local r%d, e%d = call_tool(%q, input.%s)", i, i, c.tool, key)
     if c.ok ~= false then
       lines[#lines + 1] = string.format("if r%d == nil then error(%q .. tostring(e%d)) end", i, "step " .. i .. " (" .. c.tool .. ") failed: ", i)
     end
+    if automatic then lines[#lines + 1] = string.format("print(%q, r%d)", "Step " .. i .. ": " .. c.tool, i) end
   end
   table.sort(tools)
   lines[#lines + 1] = string.format("print(%q)", "done: " .. #calls .. " steps")
@@ -425,29 +431,47 @@ local function dry_check(script, example, tools, expect, fixtures)
     end
   end
   if #calls > #expect then return "failed: made " .. #calls .. " calls, the trace has " .. #expect, false end
+  if err then return "failed: " .. tostring(err), false end
   return "passed " .. #expect .. "/" .. #expect, true
 end
 
 -- save_routine writes the routine file. Saving is choosing what to keep; running it is approved
 -- separately, by its first run_routine. A draft (status: draft) is refused by run_routine until the
 -- person has reviewed it and deleted that line.
-local function save_routine(name, description, d, source, dry, draft)
+local function save_routine(name, description, d, source, dry, draft, automatic)
   if type(name) ~= "string" or not name:match("^[%w_%-]+$") then return nil, "name: letters, digits, - or _" end
   local path = ".magi/skills/" .. name .. ".md"
   if type(magi.read_file(path)) == "string" then return nil, path .. " already exists; pick another name" end
   local fm = { "---", "kind: routine" }
   if draft then fm[#fm + 1] = "status: draft" end
+  if automatic then fm[#fm + 1] = "status: auto-review" end
   fm[#fm + 1] = "description: " .. (tostring(description or name):gsub("\n", " "))
   fm[#fm + 1] = "tools: " .. table.concat(d.tools, ", ")
   fm[#fm + 1] = "inputs: " .. d.inputs
   fm[#fm + 1] = "source: " .. source
   fm[#fm + 1] = "dry_check: " .. dry
   fm[#fm + 1] = "---"
-  local note = draft and "A draft: review it, resolve each TODO, then delete the status line; run_routine refuses a draft.\n"
+  local note = automatic and "Supply arguments from the current request and use only when each step can run with those arguments. The first run asks for approval.\n"
+    or draft and "A draft: review it, resolve each TODO, then delete the status line; run_routine refuses a draft.\n"
     or "Review it before its first run; that run asks for approval.\n"
   local ok, err = magi.write_file(path, table.concat(fm, "\n") .. "\n" .. note .. "\n```lua\n" .. d.script .. "\n```\n")
   if not ok then return nil, "could not write " .. path .. ": " .. tostring(err) end
   return path
+end
+
+local function save_repeated_readers(id, calls, sequence, sid)
+  local d = draft_from_calls(calls, true)
+  if not d then return end
+  local dry, passed = dry_check(d.script, magi.json_encode(d.fixtures), d.tools, calls, d.fixtures)
+  if not passed then return end
+  local name = "auto-" .. id
+  local path = save_routine(name, "Read-only sequence: " .. sequence, d,
+    "repeated stretch " .. id, dry .. " (synthetic arguments; observed completion order)", false, true)
+  if path then
+    local message = "[routine] saved " .. path .. "; review at its first run"
+    magi.log(message)
+    magi.notify(sid, message)
+  end
 end
 
 local function draft_trace(name, calls, source, description)
@@ -515,9 +539,10 @@ local function note_repeats(sid)
   local shapes, changed = stored("routine_shapes"), false
   for _, s in ipairs(segs) do
     local fits, opening = #s >= 2 and #s <= 12, s[1].n == first_n
-    local tl = {}
+    local tl, readers = {}, true
     for _, c in ipairs(s) do
       if not CALLABLE[c.tool] then fits = false end
+      if not c.ok or not AUTO_READERS[c.tool] then readers = false end
       if c.tool ~= "read" and c.tool ~= "list" and c.tool ~= "glob" then opening = false end
       tl[#tl + 1] = c.tool
     end
@@ -530,8 +555,12 @@ local function note_repeats(sid)
         seen.turns[tk] = true
         seen.count = (tonumber(seen.count) or 0) + 1
         shapes[key], changed = seen, true
+        local id = "t" .. key:sub(1, 8)
+        if readers then
+          seen.read_successes = (tonumber(seen.read_successes) or 0) + 1
+          if seen.read_successes == 2 then save_repeated_readers(id, s, table.concat(tl, ">"), sid) end
+        end
         if seen.count == 2 then
-          local id = "t" .. key:sub(1, 8)
           local tools, set = {}, {}
           for _, x in ipairs(tl) do if not set[x] then set[x] = true; tools[#tools + 1] = x end end
           table.sort(tools)
@@ -577,7 +606,25 @@ magi.on("turn_finished", function(ev)
 end)
 
 local ROUTINE_USE = [[
-Run a routine by name: a code-mode script saved as a skill (frontmatter kind: routine) with the tools it may call and its inputs. You pass name and args; the script runs in a child session like dummy_plug and only what it prints comes back. The first run, and any run after the routine's script, inputs or tools changed, asks the person to approve it; a refusal comes back as an error and nothing runs.]]
+Run a saved code-mode routine by name. Use routine_catalog to find a routine for the current request. For a routine discovered from a tool sequence, use it only if you can supply every step's arguments from the current request and known context. If a later step needs an earlier result to determine its arguments, use ordinary tools instead. The first run and any changed version ask for approval.]]
+
+magi.register_tool{
+  name = "routine_catalog",
+  description = "List saved code-mode routines and their input schemas. Check this when a request may reuse a read-only tool sequence.",
+  schema = { type = "object", properties = {} },
+  execute = function()
+    local routines = {}
+    for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
+      local name = file:match("^([%w_%-]+)%.md$")
+      local ok, r = pcall(load_routine, name)
+      if ok and r and r.status ~= "draft" then
+        routines[#routines + 1] = { name = name, description = r.description, tools = r.tools, inputs = r.inputs, status = r.status }
+        if #routines == 30 then break end
+      end
+    end
+    return magi.json_encode(routines)
+  end,
+}
 
 local observe_routine_result
 magi.register_tool{
@@ -602,6 +649,7 @@ magi.register_tool{
     end
     local writes = {}
     for _, t in ipairs(r.tools) do
+      if r.status == "auto-review" and not AUTO_READERS[t] then return "automatic routines only support file readers", true end
       if WRITES[t] then writes[#writes + 1] = t end
     end
     local bad = check_inputs(r.inputs, a.args)
@@ -618,6 +666,7 @@ magi.register_tool{
         reason = why .. " — it may call: " .. table.concat(r.tools, ", ") .. (#writes > 0 and (" — it may WRITE with " ..
           table.concat(writes, ", ") .. "; each write still asks as usual, one at a time") or ""),
         detail = { routine = r.name, path = r.path, tools = r.tools, writes = writes, inputs = r.inputs, script = r.script,
+          proposed_args = r.status == "auto-review" and a.args or nil,
           fingerprint = r.fingerprint, previous = prev and prev.fingerprint or nil, explore_read_scope = explore_scope },
       }
       if ok == nil then return "routine " .. r.name .. " could not be approved: " .. tostring(aerr), true end
