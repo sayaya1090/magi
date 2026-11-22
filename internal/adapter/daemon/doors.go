@@ -191,6 +191,7 @@ func init() {
 		"command-run":         {run: answerCommandRun, needs: (*PluginCommandHost)(nil), why: noPluginCommands, cap: "plugin-commands"},
 		"knowledge":           {run: answerKnowledge, needs: (*KnowledgeManager)(nil), why: "this companion does not offer knowledge management", cap: "knowledge"},
 		"profiles":            {run: answerProfiles, needs: (*ConfigKeeper)(nil), why: "this daemon cannot list its backends", cap: "settings"},
+		"providers":           {run: answerProviders, needs: (*ProviderLister)(nil), why: "this daemon cannot list the providers serving here", cap: "providers"},
 		"mcp-attach":          {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
 		"mcp-detach":          {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
 		"mcp-detach-if":       {run: answerMCPDetachIf, needs: (*ConditionalToolServerHost)(nil), why: "this daemon cannot conditionally detach tool servers", cap: "tool-servers-detach-if"},
@@ -498,6 +499,23 @@ func answerProfiles(ctx context.Context, eng Engine, _ Request) Response {
 		return Response{Err: err.Error()}
 	}
 	return Response{OK: true, Profiles: list}
+}
+
+// answerProviders lists the backends serving on this machine right now, for a client that has
+// only the socket (the IDE plugins) to offer the same picker the web console offers.
+func answerProviders(ctx context.Context, eng Engine, _ Request) Response {
+	l, ok := eng.(ProviderLister)
+	if !ok {
+		return Response{Err: "this daemon cannot list the providers serving here"}
+	}
+	list, err := l.ProvidersHere(ctx)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	if list == nil {
+		list = []ProviderChoice{}
+	}
+	return Response{OK: true, Providers: list}
 }
 
 // answerMCPAttach opens the runtime door: attach an HTTP MCP server to this companion.

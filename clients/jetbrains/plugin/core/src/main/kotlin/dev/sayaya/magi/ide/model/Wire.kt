@@ -312,6 +312,8 @@ data class Response(
     val config: List<ConfigItem>? = null,
     /** 프로파일 후보들 — `profiles` 문의 답. 프로파일 모양 키의 콤보를 채운다. */
     val profiles: List<ProfileChoice>? = null,
+    /** 지금 이 기계에서 서빙 중인 백엔드들 — `providers` 문의 답(`protocol.go` 의 `ProviderChoice`). */
+    val providers: List<ProviderChoice>? = null,
     /** `job-kill`·`mcp-detach` 의 「있었는지」 — 두 번 누른 ✕ 는 거짓이 아니라 이미-없음이다. */
     val removed: Boolean = false,
 )
@@ -827,6 +829,17 @@ data class ConfigItem(
 data class ProfileChoice(
     val name: String = "",
     val tier: String? = null,
+)
+
+/**
+ * 지금 응답하는 백엔드 하나 — 플러그인 셰임(codex·claudecode·antigravity)이나 설정의 base_url.
+ * 웹 콘솔과 TUI 의 `/providers` 가 보이는 바로 그 목록이다(데몬의 `providers` 문).
+ */
+@Serializable
+data class ProviderChoice(
+    val name: String = "",
+    val base: String = "",
+    val models: List<String>? = null,
 )
 
 

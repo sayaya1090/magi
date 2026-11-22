@@ -574,6 +574,15 @@ func (c *Client) Profiles() ([]ProfileChoice, error) {
 	return resp.Profiles, nil
 }
 
+// Providers lists the backends serving on this machine right now — the IDE's provider picker.
+func (c *Client) Providers() ([]ProviderChoice, error) {
+	resp, err := c.exchange(Request{Method: "providers"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Providers, nil
+}
+
 // Sessions lists the companion's conversations, newest activity first — the bottom dock's
 // session picker reads this.
 func (c *Client) Sessions() ([]SessionRow, error) {

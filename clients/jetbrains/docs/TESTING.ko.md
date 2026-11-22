@@ -2156,3 +2156,7 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 ## 우측 한 자리: 채팅과 MAGI 현황 전환 (2026-11-22)
 
 채팅 창(`magi`)은 우측 독에 서고, 「MAGI 현황」 판은 따로 창을 갖지 않고 같은 자리를 나눠 씁니다. 기본은 채팅이고, 제목 표시줄 맨 앞의 설정 단추가 둘을 맞바꿉니다. 「지적 사항」 탭은 없앴습니다. `ChatBoardSwapTest`가 잽니다: 채팅이 먼저 보이고 `flip`할 때마다 판과 채팅이 같은 자리에서 맞바뀌는지, 그리고 `plugin.xml`의 `magi` 창이 `anchor="right"`이고 `magi.plan` 창이 없는지, `MagiToolWindow`가 `ChatBoardSwap`과 `PlanToolWindow().build`를 쓰고 `problemsView`를 만들지 않는지(소스 읽기). 실제 IDE 화면에서 단추를 눌러 본 것은 아닙니다. 이미 IDE를 쓰던 사람은 창 위치가 저장된 배치로 남을 수 있습니다.
+
+## 백엔드 콤보의 프로바이더 (2026-11-22)
+
+정보 창의 「백엔드」 콤보는 `[llm.profiles.*]` 이름 뒤에 지금 서빙 중인 프로바이더(codex·claudecode·antigravity 셰임)를 싣습니다. 목록은 데몬의 `providers` 문이 주고, 그 문은 웹 콘솔·TUI 의 `/providers` 와 같은 `provider.Discover` 를 씁니다. `BackendPickTest`가 잽니다: 프로필 뒤에 프로바이더 주소가 서고 같은 것은 한 번만 서는지, 프로바이더 항목이 주소가 아니라 이름으로 그려지는지, 프로필이 없을 때 지금 백엔드 주소와 같은 프로바이더가 골라져 있는지(끝의 `/` 차이 무시), 주소 항목만 `use-backend` 로 가는지. 데몬 쪽은 Go 의 `TestTheProvidersDoorCrossesTheSocket`·`TestProvidersListsTheShimsThatAnswer` 가 잽니다. 실제 IDE 화면에서 콤보를 열어 본 것은 아닙니다.

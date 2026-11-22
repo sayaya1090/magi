@@ -502,6 +502,22 @@ type ProfileChoice struct {
 	Tier string `json:"tier"`
 }
 
+// ProviderChoice is one backend serving on this machine right now: a plugin shim (codex,
+// claudecode, antigravity) or the config file's own base_url as "default". The IDE clients only
+// talk to the socket, so this is how their picker sees what the web console's picker sees.
+type ProviderChoice struct {
+	Name   string   `json:"name"`
+	Base   string   `json:"base"`
+	Models []string `json:"models,omitempty"`
+}
+
+// ProviderLister is the engine half of the `providers` door.
+type ProviderLister interface {
+	// ProvidersHere lists the backends that answer now; a recorded address that does not answer
+	// is left out, because a picker entry pointing at nothing would strand the companion.
+	ProvidersHere(ctx context.Context) ([]ProviderChoice, error)
+}
+
 // ConfigKeeper is the settings door: read what is editable, change one key, and list what the
 // profile-shaped keys may point at.
 //
@@ -932,6 +948,8 @@ type Response struct {
 	Config []ConfigItem `json:"config,omitempty"`
 	// Profiles answers the method of that name: the backends a settings field may point at.
 	Profiles []ProfileChoice `json:"profiles,omitempty"`
+	// Providers answers the method of that name: the backends serving on this machine now.
+	Providers []ProviderChoice `json:"providers,omitempty"`
 	// Cron answers the `cron` method: the standing schedule, broken first, then soonest first.
 	Cron []CronRow `json:"cron,omitempty"`
 	// Children answers the `children` method: the subagent conversations a session spawned, as

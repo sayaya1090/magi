@@ -2393,7 +2393,9 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                             if (it.ok) it.profiles.orEmpty().mapNotNull { p -> p.name } to null
                             else emptyList<String>() to it.error
                         }
-                        SwingUtilities.invokeLater { showInfo(seat, f, ver, models, backs) }
+                        // 지금 서빙 중인 프로바이더 — 웹·TUI 의 `/providers` 와 같은 목록. 못 받으면 프로필만 선다.
+                        val provs = comp.providers().let { if (it.ok) it.providers.orEmpty() else emptyList() }
+                        SwingUtilities.invokeLater { showInfo(seat, f, ver, models, backs, provs) }
                     }
                 }
             }
@@ -2405,6 +2407,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             version: String?,
             models: Pair<List<String>, String?>,
             backends: Pair<List<String>, String?>,
+            providers: List<dev.sayaya.magi.ide.model.ProviderChoice> = emptyList(),
         ) {
             val m = mood
             val card = JBPanel<JBPanel<*>>(java.awt.GridBagLayout()).apply { border = Look.quiet }
@@ -2460,11 +2463,21 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 return box
             }
             row(MagiBundle.msg("chat.info.model"), picker(f.model, models) { comp, v -> comp.setModel(v) })
+            // 프로필 뒤에 서빙 중인 프로바이더(codex·claudecode·antigravity)가 선다 — 주소 항목은 use-backend,
+            // 이름 항목은 use-profile 로 간다([BackendPick]).
+            val pickBack = dev.sayaya.magi.ide.usecase.BackendPick
+            val listedBacks = pickBack.entries(backends.first, providers)
             row(MagiBundle.msg("chat.info.backend"), picker(
-                f.profile.orEmpty(),
-                (if (backends.second == null) listOf("") + backends.first else backends.first) to backends.second,
-                { name -> name.orEmpty().ifBlank { f.backend ?: MagiBundle.msg("plan.model.default") } },
-            ) { comp, name -> if (name.isBlank()) comp.useBackend("") else comp.useProfile(name) })
+                pickBack.current(f.profile, f.backend, providers),
+                (if (backends.second == null) listOf("") + listedBacks else listedBacks) to backends.second,
+                { name -> pickBack.label(name, providers, f.backend ?: MagiBundle.msg("plan.model.default")) },
+            ) { comp, name ->
+                when {
+                    name.isBlank() -> comp.useBackend("")
+                    pickBack.isProvider(name) -> comp.useBackend(name)
+                    else -> comp.useProfile(name)
+                }
+            })
             row(MagiBundle.msg("chat.info.permission"),
                 // 승인 모드 목록은 프로토콜 상수이므로 데몬 질의 없이 정적 정의를 사용합니다.
                 picker(f.permission, Perms.TOKENS to null, Perms::label) { comp, v -> comp.setPermission(v) })

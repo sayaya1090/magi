@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/adapter/provider"
 	"os"
 	"path/filepath"
 	"sort"
@@ -236,6 +237,23 @@ func (d daemonEngine) ConfigSet(ctx context.Context, key, value, tier string) (d
 		item.Doc = "written, but " + k.env + " in this daemon's environment is what it will use — " + item.Doc
 	}
 	return item, nil
+}
+
+// ProvidersHere lists the backends serving on this machine now — the same discovery the web
+// console's /providers and the TUI's /providers run (provider.Discover), so the IDE pickers cannot
+// disagree with them about what exists. The default entry is the global config's base_url, as the
+// console reads it.
+func (d daemonEngine) ProvidersHere(ctx context.Context) ([]daemon.ProviderChoice, error) {
+	base := ""
+	if cfg, err := config.Load(d.configDir); err == nil {
+		base = cfg.BaseURL
+	}
+	found := provider.Discover(ctx, d.configDir, base)
+	out := make([]daemon.ProviderChoice, 0, len(found))
+	for _, p := range found {
+		out = append(out, daemon.ProviderChoice{Name: p.Name, Base: p.Base, Models: p.Models})
+	}
+	return out, nil
 }
 
 // ProfilesHere lists the [llm.profiles.*] a profile-shaped key may name, with the layer that

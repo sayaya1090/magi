@@ -152,6 +152,9 @@ class Companion(
     /** 프로파일 모양 키가 가리킬 수 있는 것들 — 콤보를 채운다. */
     fun profiles(): Response = send(Request(method = "profiles"))
 
+    /** 지금 서빙 중인 프로바이더들 — 백엔드 콤보가 프로필 뒤에 싣는다. */
+    fun providers(): Response = send(Request(method = "providers"))
+
     /**
      * 설정 키 하나를 쓴다. [tier] 는 어느 층에 쓸지 — 비우면 데몬이 정한다.
      *
