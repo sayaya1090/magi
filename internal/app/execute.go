@@ -624,6 +624,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		ObserveBackground: observeBackground,
 		StartBackground:   startBackground,
 		SessionID:         sid,
+		ChildSession:      depth > 0,
 		Workdir:           workdir,
 		ScratchLogs:       scratch.logsDir(),
 		ScratchTmp:        scratch.tmpDir(),

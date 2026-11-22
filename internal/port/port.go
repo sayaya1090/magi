@@ -519,6 +519,7 @@ type ToolEnv struct {
 	// message. A tool that waits (wait_for) ends its wait on it, so the message is read at once.
 	PromptArrived func() <-chan struct{}
 	SessionID     session.SessionID
+	ChildSession  bool // this call runs inside a child without top-level turn observations
 	// CallTool runs another tool from inside this call, through the same path a model's call takes
 	// (permission, the start fact, the result), recorded under its own name with this call as its
 	// parent and kept out of the model's history. Only a fixed read-only set may be called, and only

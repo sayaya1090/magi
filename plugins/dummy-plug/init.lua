@@ -2179,7 +2179,7 @@ Compare a candidate version of a routine with its active version, and record the
 
   observe_routine_result = function(r, args, output)
     local session = magi.session_id()
-    if session == "" or type(magi.analyze_async) ~= "function" then return end
+    if session == "" or type(magi.in_child_session) ~= "function" or magi.in_child_session() then return end
     local queue = pending_key(session)
     if stored(queue).name then return end
     local delegation, frozen, text = delegated_development(r)

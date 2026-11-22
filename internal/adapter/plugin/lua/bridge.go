@@ -43,6 +43,10 @@ func installBridge(p *plugin) {
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "analyze_async", L.NewFunction(p.bridgeAnalyzeAsync))
+	L.SetField(t, "in_child_session", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(p.env.ChildSession))
+		return 1
+	}))
 	L.SetField(t, "checkpoint", L.NewFunction(p.bridgeCheckpoint))
 	L.SetField(t, "checkpoint_available", L.NewFunction(func(L *lua.LState) int { L.Push(lua.LBool(p.env.Checkpoint != nil)); return 1 }))
 	L.SetField(t, "analyze_measured", L.NewFunction(p.bridgeAnalyzeMeasured))
