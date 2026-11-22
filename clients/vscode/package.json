@@ -23,13 +23,6 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "panel": [
-        {
-          "id": "magi",
-          "title": "MAGI",
-          "icon": "media/icon.svg"
-        }
-      ],
       "secondarySidebar": [
         {
           "id": "magi-side",
@@ -39,18 +32,18 @@
       ]
     },
     "views": {
-      "magi": [
+      "magi-side": [
         {
           "id": "magi.chat",
           "name": "",
-          "type": "webview"
-        }
-      ],
-      "magi-side": [
+          "type": "webview",
+          "when": "!magi.board"
+        },
         {
           "id": "magi.plan",
           "name": "Plan",
-          "type": "webview"
+          "type": "webview",
+          "when": "magi.board"
         }
       ]
     },
@@ -217,6 +210,12 @@
         "title": "%magi.latest.title%",
         "category": "Magi",
         "icon": "$(go-to-bottom)"
+      },
+      {
+        "command": "magi.toggleBoard",
+        "title": "%magi.toggleBoard.title%",
+        "category": "Magi",
+        "icon": "$(settings-gear)"
       }
     ],
     "submenus": [
@@ -227,6 +226,16 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "magi.toggleBoard",
+          "when": "view == magi.chat",
+          "group": "navigation@0"
+        },
+        {
+          "command": "magi.toggleBoard",
+          "when": "view == magi.plan",
+          "group": "navigation@0"
+        },
         {
           "command": "magi.lookNow",
           "when": "view == magi.chat",

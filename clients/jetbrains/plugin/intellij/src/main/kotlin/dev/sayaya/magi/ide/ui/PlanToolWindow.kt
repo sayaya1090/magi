@@ -44,7 +44,7 @@ import javax.swing.Timer
  * - 데몬 HTTP 엔드포인트(`jobs`, `roster`, `sessions`, `session-new`, `set-model`, `compact`): 외부 작업 및 세션 제어.
  * - 폴링 정책: 도구 창 가시화 중 3초 간격 주기적 폴링 + 패널 확장 시 즉시 갱신을 수행합니다.
  */
-class PlanToolWindow : ToolWindowFactory {
+class PlanToolWindow {
     /**
      * 프로젝트별 도구 창 유효성을 검사합니다(UI Guidelines · Tool window:
      * "don't display the button when the window doesn't apply to the project setup").
@@ -53,9 +53,11 @@ class PlanToolWindow : ToolWindowFactory {
      * 데몬 실행 여부를 기준으로 삼으면 IDE 기동 후 데몬을 실행하는 일반적인 흐름에서 도구 창 버튼이 노출되지 않는 문제가 발생합니다.
      * 유효한 워크스페이스 디렉터리 경로가 존재하는지만 확인합니다.
      */
-    override fun shouldBeAvailable(project: Project) = project.basePath != null
-
-    override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
+    /**
+     * 판을 조립해 돌려준다 — 이제 따로 창을 갖지 않고 채팅 창의 우측 한 자리를 나눠 쓴다
+     * ([ChatBoardSwap]). [toolWindow] 는 그 채팅 창이다: 보일 때만 폴링하고, 닫힐 때 함께 정리한다.
+     */
+    fun build(project: Project, toolWindow: ToolWindow): javax.swing.JComponent {
         val st = state(project)
         val workspace = Workspace(project)
         // 수직 박스 레이아웃 패널 — 자식 컴포넌트의 좌측 정렬(alignmentX = 0f)을 강제합니다.
@@ -332,9 +334,7 @@ class PlanToolWindow : ToolWindowFactory {
             add(plan)
             add(controls)
         }
-        toolWindow.contentManager.addContent(
-            ContentFactory.getInstance().createContent(JBScrollPane(root), null, false)
-        )
+        val board = JBScrollPane(root)
 
         // 스트림이 준 것(계획·컨텍스트·모델)을 그린다 — 데몬 왕복 없음.
         fun refresh() = SwingUtilities.invokeLater {
@@ -921,6 +921,7 @@ class PlanToolWindow : ToolWindowFactory {
                 }
             }
         )
+        return board
     }
 
     /**

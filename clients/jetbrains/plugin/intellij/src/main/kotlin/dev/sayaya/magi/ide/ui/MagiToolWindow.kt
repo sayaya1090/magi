@@ -40,10 +40,7 @@ import java.awt.Color
 import java.awt.FlowLayout
 import javax.swing.BorderFactory
 import javax.swing.JButton
-import javax.swing.JTextPane
 import javax.swing.SwingUtilities
-import javax.swing.text.SimpleAttributeSet
-import javax.swing.text.StyleConstants
 
 /**
  * 대화형 인터페이스 — magi 컴패니언과 상호작용하고 질문 및 승인 요청에 응답하는 창입니다. **하단 도구 창(Bottom Dock)**에 배치됩니다.
@@ -75,6 +72,9 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val view = View(project)
+        // 채팅은 우측 독에 선다. 「MAGI 현황」 판은 같은 자리를 나눠 쓰고, 제목 표시줄 맨 앞의 설정
+        // 단추가 둘을 맞바꾼다(사용자 결정, 2026-11-22 — 예전엔 판이 우측, 채팅이 하단에 따로 섰다).
+        val swap = ChatBoardSwap(view.root, PlanToolWindow().build(project, toolWindow))
         // 상태 표시 위치 설계:
         // 과거 라벨 컴포넌트 시절에는 변경 빈도가 낮은 한 줄 텍스트가 전사 위쪽 영역을 크게 점유했습니다
         // (사용자 실측 피드백: "변하는 데이터도 없는데 너무 넓은 공간을 차지함").
@@ -83,7 +83,10 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         // 실행 중지(Stop) 버튼은 제목 표시줄 타이틀 액션으로 배치하여, 실행 중인 턴을 언제든 중지할 수 있으면서도 전송 버튼 옆 공간을 낭비하지 않도록 했습니다(TUI의 Esc 키와 동급).
         // 정보 카드는 **제목 표시줄** 아이콘으로 접어 둡니다(사용자 요구: Office 리본처럼 축소하여 빠른 접근 지원).
         // 기어 메뉴 대신 팝업 아이콘을 사용하는 이유는 단순 액션 목록이 아닌 상태 정보(상태 인디케이터 및 버전 번호)를 표시하는 전용 UI이기 때문입니다.
-        toolWindow.setTitleActions(listOf(view.runtimeAction(), view.infoAction(), view.latestAction(), object : com.intellij.openapi.actionSystem.AnAction(
+        toolWindow.setTitleActions(listOf(object : com.intellij.openapi.actionSystem.AnAction(
+            MagiBundle.msg("chat.board.toggle"), MagiBundle.msg("chat.board.toggle.tip"), com.intellij.icons.AllIcons.General.Settings) {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = swap.flip()
+        }, view.runtimeAction(), view.infoAction(), view.latestAction(), object : com.intellij.openapi.actionSystem.AnAction(
             MagiBundle.msg("chat.stop"), MagiBundle.msg("chat.stop.tip"), com.intellij.icons.AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                 MagiWindows.of(project)?.interruptFromTitle()
@@ -140,20 +143,15 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         MagiWindows.put(project, view)
         // 도구 창의 생명주기에 바인딩합니다. 등록 해제 누락 시 창이 닫힌 후에도 소켓 스트림 및 리소스가 잔류하게 됩니다.
         Disposer.register(toolWindow.disposable, view)
-        // 채팅 뷰와 지적 사항(Problems) 뷰는 분할(Split) 레이아웃 대신 탭(Tab)으로 분리합니다.
-        // 분할 레이아웃 사용 시 빈 문제 패널이 가로 폭의 35%를 상시 점유하던 문제를 개선하고,
-        // 프로세스별 탭 구조를 따르는 Run 창 등 IDE 표준 레이아웃 관례(`docs/UI.ko.md` §0-5)를 준수합니다.
+        // 콘텐츠는 하나다 — 채팅과 판이 카드로 그 안에 있다([ChatBoardSwap]). 탭 머리는 서지 않는다.
+        // 「지적 사항」 탭은 없앴다(사용자 결정, 2026-11-22: 쓰이지 않았다).
         val make = ContentFactory.getInstance()
         // 기본 탭 닫기 방지:
         // Content의 `isCloseable` 기본값은 true이며, 도구 창 선언의 `canCloseContents="true"`는 창 전체의 탭 닫기를 허용합니다.
         // 기본 탭이 닫힐 경우 `createToolWindowContent`는 재호출되지 않아 UI 복구가 불가능해지고,
         // View는 Content가 아닌 ToolWindow Disposable에 바인딩되어 있어 UI만 닫히고 스트림은 살아 있는 리소스 누수가 발생합니다(리뷰 R1).
         toolWindow.contentManager.addContent(
-            make.createContent(view.root, MagiBundle.msg("chat.tab.chat"), false).apply { isCloseable = false },
-        )
-        toolWindow.contentManager.addContent(
-            make.createContent(view.problemsView, MagiBundle.msg("chat.tab.problems"), false)
-                .apply { isCloseable = false },
+            make.createContent(swap.component, MagiBundle.msg("chat.tab.chat"), false).apply { isCloseable = false },
         )
         view.refresh()
     }
@@ -633,13 +631,6 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          */
         private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
 
-        /**
-         * 문제 판. IntelliJ 자신의 Problems 뷰에 넣지 않았다 — 거기는 IDE 가 자기 인스펙션으로
-         * 채우는 자리이고, 컴패니언이 자기 실행에서 본 것을 섞으면 **누가 언제 말한 것인지**가
-         * 사라진다. §5-4 가 요구하는 것이 정확히 그 두 가지라 따로 세운다.
-         */
-        private val problems = Look.pane()
-        val problemsView: JBScrollPane by lazy { JBScrollPane(problems).apply { border = JBUI.Borders.empty() } }
 
         /**
          * 어느 턴이 무엇을 건드렸나. 전사에서 같이 쌓는다 — 두 번째 스트림을 열지 않는다.
@@ -649,8 +640,6 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
          */
         val authors = Authorship()
 
-        /** 호출 이름 — 결과 파트엔 이름이 없어 지적 사항이 「실패  #9」로 섰다([Problems.callOf]). */
-        private val callNames = java.util.concurrent.ConcurrentHashMap<String, String>()
         private var following: java.io.Closeable? = null
 
         /** 창이 닫히는 중인가. 서면 재접속이 멈춘다 — 닫은 창이 스스로 되살아나면 안 된다. */
@@ -767,11 +756,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     if (!replaying && (e.type == "turn.finished" || e.type == "tool.resolved")) askRecovery()
                     refreshDisk() // 컴패니언이 수정한 디스크 변경사항을 IDE VFS에 동기화(사유: Rows.drainDisk)
                     if (e.seq > lastSeq) lastSeq = e.seq // 영속 사실 이벤트만 커서로 추적(과도기 전이 이벤트는 seq == 0)
-                    // 지적 사항(Problems)은 트랜스크립트 스트림에서 파생 추출합니다.
-                    // 설계 문서 §3 원칙("도구 창당 단일 스트림 점유")에 따라 별도 스트림을 개설하지 않고 동일 프레임 중복 파싱을 방지합니다.
                     authors.feed(e)
-                    Problems.callOf(e)?.let { (id, name) -> callNames[id] = name }
-                    Problems.of(e, callNames::get)?.let { note(it) }
                     // 프롬프트 및 승인 상태 갱신 신호 처리:
                     // 질문 요청(`*.requested`)은 과도기적 전이 이벤트이므로 로그에 영속화되지 않습니다.
                     // 이 신호를 수신할 때 프롬프트를 갱신하지 않으면 창 오픈 후 유입된 질문의 승인 버튼이 생성되지 않습니다(사유: `Transcript.movesPrompt`).
@@ -780,7 +765,6 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     // `permission.decided`와 같은 영속 사실 이벤트는 재생(Replay) 시에도 재수신됩니다.
                     // 이벤트를 갱신 트리거 신호로만 사용하고 실제 표시 데이터는 데몬에 새로 질의(refresh)하여, 재생 시 과거 질문이 최신 질문으로 잘못 렌더링되는 문제를 방지합니다.
                     if (Transcript.movesPrompt(e)) refresh()
-                    Problems.dissentOf(e)?.let { dissent(it) }
                 }
                 // 데몬 측의 커서 재동기화 통보(이벤트 스트림보다 먼저 전달되는 사전 알림):
                 // 이미 렌더링된 내용을 초기화해야 하므로 명시적으로 처리합니다. 무시할 경우 UI에 불일치한 상태가 잔류하게 됩니다.
@@ -789,10 +773,8 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     // 계약에 따라 기존 렌더링 버퍼를 클리어하고 전체 로그를 재생받는 상태로 전환합니다.
                     lastSeq = 0
                     authors.forget()
-                    callNames.clear()
-                    shaper.clear()
-                    SwingUtilities.invokeLater { problems.text = "" }
-                    // ↻ 글리프는 '재연결 중' 상태를 의미하므로, 소켓은 연결되어 있으나 커서만 거절된 현재 상태에서는
+                        shaper.clear()
+                        // ↻ 글리프는 '재연결 중' 상태를 의미하므로, 소켓은 연결되어 있으나 커서만 거절된 현재 상태에서는
                     // 연결 상태(●)에 경고 색상(Look.warn)과 사유를 표기하여 의미적 정확성을 유지합니다(코드 리뷰 지적 사항 반영).
                     mood(Look.warn, "●", why, Phase.Connected)
                     redrawLog()
@@ -1247,9 +1229,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 // 것이 없고, 이 갈림을 아는 자리는 여기뿐이다(비움이 began 에 있던 사유는 그때의
                 // 「커서를 안 보낸다」였다).
                 authors.forget()
-                callNames.clear()
                 shaper.clear()
-                SwingUtilities.invokeLater { problems.text = "" }
                 beginReplay()
             }
             // 스트림보다 **먼저** 적는다 — 워커의 첫 프레임이 대입보다 빨리 오면 위의 세션
@@ -2140,65 +2120,6 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                 if (e is com.intellij.openapi.progress.ProcessCanceledException || e is java.util.concurrent.CancellationException) throw e
                 report(MagiBundle.msg("chat.diff.failed", e.message ?: e.toString()))
             }
-        }
-
-        /** 이벤트 ts 를 이 자리의 시각으로. 못 읽으면 빈칸 — 지어내지 않는다. */
-
-
-        /**
-         * 한 건을 적는다. **언제·어느 호출인지가 같이 간다** — 낡은 문제 목록은 없느니만 못하다는
-         * 것이 §5-4 의 요구이고, 그 답이 목록을 지우는 것이 아니라 **출처를 적는 것**이다.
-         *
-         * `where` 가 없으면 그대로 둔다. 못 읽은 앵커를 지어내면 엉뚱한 줄을 가리키고, 그건 항목이
-         * 안 눌리는 것보다 나쁘다.
-         */
-        /** 전사 행과 같은 지역 시각 — 원문 ISO(마이크로초·오프셋까지)를 그대로 적어 줄이 길었다(2026-09-28 스크린샷). */
-        private fun at(ts: String?): String = RowText.clock(ts).ifEmpty { ts.orEmpty() }
-
-        private fun note(p: Problems.Problem) = SwingUtilities.invokeLater {
-            val head = MagiBundle.msg(if (p.advisory) "problems.did" else "problems.failed")
-            push(problems, head, if (p.advisory) Look.warn else Look.error, bold = true)
-            push(problems, " ${p.tool.orEmpty()}", Look.body)
-            push(problems, "  #${p.seq}  ${at(p.at)}", Look.muted)
-            p.where?.let { push(problems, "  ${it.path}:${it.line}", Look.accent) }
-            push(problems, "\n    " + p.text.trim().lines().firstOrNull().orEmpty().take(160) + "\n",
-                Look.faint)
-            problems.caretPosition = problems.document.length
-        }
-
-        /**
-         * 카운슬의 반대. 문제 판에 같이 서지만 **[Problems.of] 가 고른 것과 섞이지 않게** 자리
-         * 색으로 누가 말했는지를 적는다 — 실패는 붉고, 반대는 그 자리의 색이다. 콘솔이 긋는 선과
-         * 같다: 판정은 판정의 색이고 이름은 누구인지의 색이다(`console.css`).
-         */
-        private fun dissent(d: Problems.Dissent) = SwingUtilities.invokeLater {
-            push(problems, MagiBundle.msg("problems.council"), Look.faint)
-            push(problems, d.member, Look.seat(d.member) ?: Look.faint, bold = true)
-            push(problems, " " + MagiBundle.msg("problems.against"), Look.body)
-            push(problems, "  #${d.seq}  ${at(d.at)}", Look.muted)
-            push(problems, "\n    ${d.why}\n", Look.faint)
-            problems.caretPosition = problems.document.length
-        }
-
-        /**
-         * 판에 글자 한 토막을 얹는다. **여기가 색이 붙는 유일한 자리다.**
-         *
-         * 글자를 정하지 않는다는 것이 규칙이다 — 무엇을 적을지는 부르는 쪽이 이미 정했고 여기는
-         * 그것을 어떻게 보이게 할지만 안다. 반대로 하면(여기서 줄을 조립하면) 같은 서식이 두 군데
-         * 생기고, 그중 한쪽만 고치는 날이 온다.
-         *
-         * 전부 EDT 에서 부른다. 예전 `problems.append` 는 스트림 스레드에서 문서를 고치고 캐럿만
-         * EDT 로 옮겼는데, 그건 Swing 이 금지하는 것을 두 줄 중 한 줄만 지킨 것이다.
-         */
-        private fun push(
-            pane: JTextPane, text: String, colour: Color?,
-            italic: Boolean = false, bold: Boolean = false,
-        ) {
-            val a = SimpleAttributeSet()
-            colour?.let { StyleConstants.setForeground(a, it) }
-            if (italic) StyleConstants.setItalic(a, true)
-            if (bold) StyleConstants.setBold(a, true)
-            pane.styledDocument.insertString(pane.styledDocument.length, text, a)
         }
 
         /**

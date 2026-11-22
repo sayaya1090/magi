@@ -97,14 +97,13 @@
             그대로 뜬다. 글자는 `toolwindow.stripe.<id>` 키에서, 아이콘은 여기서 — 도구창
             아이콘은 IDE 가장자리에 서므로 회색 단색이다(Icons, Tool window).
         -->
-        <toolWindow id="magi" anchor="bottom" canCloseContents="true"
+        <toolWindow id="magi" anchor="right" canCloseContents="true"
                     icon="/icons/magiToolWindow.svg"
                     factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
-        <!-- The right dock's tenant is the PLAN (user decision, 2026-08-29): the one fact worth
-             standing room — a plan that scrolls away is a plan you have to go find. Fed from the
-             transcript stream's todos.changed facts; no new door. -->
-        <toolWindow id="magi.plan" anchor="right" icon="/icons/magiToolWindow.svg"
-                    factoryClass="dev.sayaya.magi.ide.ui.PlanToolWindow"/>
+        <!-- The chat stands in the right dock, and the MAGI board shares that one place: the chat by
+             default, the board behind the settings button in the window's title bar (user decision,
+             2026-11-22, replacing the separate magi.plan window of 2026-08-29). One window, so the
+             board no longer needs its own stripe button. -->
         <!--
             No right-dock facts window any more (user decision, 2026-08-29): the always-on level
             lives on the status bar, and the detailed facts + fleet fold into Settings > Tools >

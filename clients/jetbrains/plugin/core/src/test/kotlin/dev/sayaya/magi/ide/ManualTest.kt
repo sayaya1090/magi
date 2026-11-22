@@ -139,7 +139,8 @@ class ManualTest {
         // 스트라이프 버튼 글자 — 없으면 도구창 **id 가 그대로** 사람 앞에 뜬다(오른쪽 독에
         // `magi.plan` 이 떠 있었다). 창을 새로 만들 때마다 같은 일이 나므로 유도해서 잰다.
         val windows = Regex("""<toolWindow id="([^"]+)"""").findAll(xml).map { it.groupValues[1] }.toList()
-        assertTrue(windows.size >= 2, "plugin.xml 에서 도구창이 ${windows.size}개뿐이다 — 유도가 깨졌다")
+        // 도구창은 하나다(채팅과 판이 우측 한 자리를 나눠 쓴다, 2026-11-22). 0이면 유도가 깨진 것이다.
+        assertTrue(windows.isNotEmpty(), "plugin.xml 에서 도구창을 하나도 못 읽었다 — 유도가 깨졌다")
         for (id in windows) {
             val key = "toolwindow.stripe.$id"
             assertTrue(key in en, "영어 번들에 「$key」 가 없다 — 스트라이프에 id 「$id」 가 그대로 뜬다")
@@ -188,8 +189,7 @@ class ManualTest {
         }
 
         val stories = mapOf(
-            "toolWindow id=\"magi\"" to "하단 독",
-            "toolWindow id=\"magi.plan\"" to "magi.plan",
+            "toolWindow id=\"magi\"" to "우측 독",
             "statusBarWidgetFactory" to "상태 표시줄",
             "inline.completion.provider" to "자동완성",
             "projectConfigurable" to "Settings",

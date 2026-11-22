@@ -29,5 +29,6 @@
   "magi.knowledge.title": "Project memory and skills",
   "magi.profileMaintenance.title": "Internal description session",
   "command.approvals": "Pending approvals and questions",
-  "magi.latest.title": "Jump to latest"
+  "magi.latest.title": "Jump to latest",
+  "magi.toggleBoard.title": "Swap the chat and the MAGI board"
 }

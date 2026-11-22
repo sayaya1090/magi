@@ -15,7 +15,8 @@ import { EditorHand } from './hand';
 import { HandOff } from './handoff';
 import { NO_BINARY, offerToStart } from './start';
 import { getCore } from './getcore';
-import { OwnedCompanion } from '../core/lifecycle';
+import { OwnedCompanion } from '../core/lifecycle';import { BOARD_CONTEXT, nextBoard } from '../core/board';
+
 
 let owned: OwnedCompanion | undefined;
 
@@ -47,6 +48,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // what the far side's transcript will say asked.
   const handoff = new HandOff(companion, folder.name);
 
+  // The chat and the MAGI board share one place on the right; the gear swaps them (see core/board).
+  let board = false;
+  const showBoard = async (b: boolean): Promise<void> => {
+    board = b;
+    await vscode.commands.executeCommand('setContext', BOARD_CONTEXT, b);
+  };
+  void vscode.commands.executeCommand('setContext', BOARD_CONTEXT, false);
   ctx.subscriptions.push(
     owner, companion, status, chat, plan, looking, hand, handoff,
     approvalSupport(companion),
@@ -69,7 +77,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ...handoff.commands(),
     handoff.onChanged((w) => plan.showHanded(w)),
 
-    vscode.commands.registerCommand('magi.focusChat', () => chat.reveal()),
+    vscode.commands.registerCommand('magi.focusChat', () => void showBoard(false).then(() => chat.reveal())),
+    vscode.commands.registerCommand('magi.toggleBoard', async () => {
+      const next = nextBoard(board);
+      await showBoard(next.board);
+      await vscode.commands.executeCommand(next.focus);
+    }),
     vscode.commands.registerCommand('magi.start', async () => {
       // Somebody ran this, so this is the moment to offer to fetch a core if there is none — and the
       // only moment: a window opening is not a request (see offerToStart). A refusal leaves the

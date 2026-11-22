@@ -32,7 +32,7 @@ internal class LookStartup : ProjectActivity {
     private fun stripes(project: Project) {
         val mgr = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
         mgr.invokeLater {
-            for (id in listOf("magi", "magi.plan")) {
+            for (id in listOf("magi")) {
                 mgr.getToolWindow(id)?.stripeTitle = MagiBundle.msg("toolwindow.stripe.$id")
             }
         }

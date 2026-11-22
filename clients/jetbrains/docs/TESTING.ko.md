@@ -2151,3 +2151,8 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 ## 카운슬 한 줄 접기 (2026-11-15)
 
 `CouncilFoldViewTest`는 전사에서 카운슬 한 번이 종합 판정 한 줄(「카운슬: 완료」 또는 「카운슬: 반대」)로 서는지 잽니다. 접혀 있을 때는 `foldCouncils`가 그 소집의 소집·평결 행을 빼고, 종합 판정 행에는 사유가 그려지지 않습니다. `flip`으로 그 줄을 뒤집으면 같은 소집의 행이 모두 돌아오고 사유가 보입니다. 코어 쪽 규칙(`RowText.hiddenByCouncil`·`councilKey`·`councilAccepted`, 행의 `convene`·`closing`)은 `RowsTest`의 「카운슬은 접힌 한 줄로 서고 누르면 그 소집만 펼쳐진다」가 잽니다. 실제 IDE 화면에서 누르는 동작은 확인하지 않았습니다.
+
+
+## 우측 한 자리: 채팅과 MAGI 현황 전환 (2026-11-22)
+
+채팅 창(`magi`)은 우측 독에 서고, 「MAGI 현황」 판은 따로 창을 갖지 않고 같은 자리를 나눠 씁니다. 기본은 채팅이고, 제목 표시줄 맨 앞의 설정 단추가 둘을 맞바꿉니다. 「지적 사항」 탭은 없앴습니다. `ChatBoardSwapTest`가 잽니다: 채팅이 먼저 보이고 `flip`할 때마다 판과 채팅이 같은 자리에서 맞바뀌는지, 그리고 `plugin.xml`의 `magi` 창이 `anchor="right"`이고 `magi.plan` 창이 없는지, `MagiToolWindow`가 `ChatBoardSwap`과 `PlanToolWindow().build`를 쓰고 `problemsView`를 만들지 않는지(소스 읽기). 실제 IDE 화면에서 단추를 눌러 본 것은 아닙니다. 이미 IDE를 쓰던 사람은 창 위치가 저장된 배치로 남을 수 있습니다.
