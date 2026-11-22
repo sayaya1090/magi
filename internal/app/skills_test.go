@@ -156,13 +156,14 @@ func TestExperienceSkillsShareTheWorkspaceCatalog(t *testing.T) {
 	r := newRoutineRig(t, t.TempDir(), routineFile)
 	r.put(t, ".magi/skills/shared.md", []byte("Authored\n\nUse the authored procedure."))
 	r.put(t, ".magi/experience/skills/shared.md", []byte("Learned duplicate\n\nDo something else."))
-	r.put(t, ".magi/experience/skills/learned.md", []byte("---\ndescription: Learn from recovery\nobserved: 2\n---\nUse the recovery trace."))
+	r.put(t, ".magi/skills/learned/learned.md", []byte("---\ndescription: Learn from recovery\nobserved: 2\n---\nUse the recovery trace."))
+	r.put(t, ".magi/experience/skills/learned.md", []byte("Older copy\n\nDo something else."))
 	r.put(t, ".magi/experience/skills/restricted.md", []byte("---\ndescription: Restricted\nagent-groups: [ops]\n---\nGroup procedure."))
 	r.put(t, ".claude/skills/older/SKILL.md", []byte("---\ndescription: Authored older skill\n---\nUse the bundle."))
 	r.put(t, ".magi/experience/skills/older.md", []byte("Learned duplicate\n\nDo something else."))
 
 	catalog := renderSkillBlock(r.a.Skills(r.s.Workdir))
-	if !strings.Contains(catalog, "learned: [workspace experience, observations: 2] Learn from recovery") ||
+	if strings.Count(catalog, "learned:") != 1 || !strings.Contains(catalog, "learned: [workspace experience, observations: 2] Learn from recovery") ||
 		!strings.Contains(catalog, "shared: Authored") || !strings.Contains(catalog, "older: Authored older skill") ||
 		strings.Contains(catalog, "restricted") || strings.Contains(catalog, "Learned duplicate") {
 		t.Fatalf("unexpected unified skill catalog: %s", catalog)
@@ -173,7 +174,7 @@ func TestExperienceSkillsShareTheWorkspaceCatalog(t *testing.T) {
 	if _, ok := r.a.skillBody(r.s.Workdir, "restricted"); ok {
 		t.Fatal("the generic skill tool exposed a group-scoped skill")
 	}
-	r.put(t, ".magi/experience/skills/learned.md", []byte("---\ndescription: Updated observation\n---\nNew recovery trace."))
+	r.put(t, ".magi/skills/learned/learned.md", []byte("---\ndescription: Updated observation\n---\nNew recovery trace."))
 	if body, ok := r.a.skillBody(r.s.Workdir, "learned"); !ok || !strings.Contains(body, "New recovery trace.") {
 		t.Fatalf("the experience skill cache did not refresh: %q", body)
 	}

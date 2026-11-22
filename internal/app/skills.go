@@ -29,8 +29,9 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 	dirs = append(dirs, filepath.Join(workdir, ".magi", "skills"))
 	claudeDir := filepath.Join(workdir, ".claude", "skills")
 	experienceDir := filepath.Join(workdir, ".magi", "experience", "skills")
+	learnedDir := filepath.Join(workdir, ".magi", "skills", "learned")
 
-	sig := dirSignature(append(dirs, claudeDir, experienceDir))
+	sig := dirSignature(append(dirs, claudeDir, learnedDir, experienceDir))
 	a.memMu.Lock()
 	if a.skillCache == nil {
 		a.skillCache = map[string][]port.Skill{}
@@ -122,18 +123,23 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 			})
 		}
 	}
-	if entries, err := os.ReadDir(experienceDir); err == nil {
+	for _, learned := range []string{learnedDir, experienceDir} {
+		entries, err := os.ReadDir(learned)
+		if err != nil {
+			continue
+		}
 		for _, e := range entries {
 			name, ok := strings.CutSuffix(e.Name(), ".md")
 			if !ok || e.IsDir() || seen[name] || strings.HasPrefix(name, ".") {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(experienceDir, e.Name()))
+			data, err := os.ReadFile(filepath.Join(learned, e.Name()))
 			if err != nil {
 				continue
 			}
 			if skill, ok := discoveredExperienceSkill(name, string(data)); ok {
 				skills = append(skills, skill)
+				seen[name] = true
 			}
 		}
 	}
