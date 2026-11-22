@@ -176,8 +176,9 @@ Use it for loops, filtering and many reads whose contents you do not need to see
 
 -- Routines: a code-mode script kept as a skill and run again by name (run_routine).
 --
--- A routine is a skill file whose frontmatter says `kind: routine`: .magi/skills/<name>.md or
--- .claude/skills/<name>/SKILL.md. Besides `description:` it names the tools the script may call
+-- A routine has `kind: routine` in its frontmatter. New definitions sit beside their evaluation
+-- and history files under .magi/routines/<name>/. The older locations are still accepted.
+-- Besides `description:` it names the tools the script may call
 -- (`tools: recall_memory, explore`) and its inputs as a one-line JSON Schema (`inputs: {...}`); the
 -- script is the first ```lua block of the body and reads its arguments from `input`.
 --
@@ -211,11 +212,39 @@ local function frontmatter(text)
   return fm, body
 end
 
+local ROUTINES_DIR = ".magi/routines"
+local LEGACY_SKILLS_DIR = ".magi/skills"
+local CLAUDE_SKILLS_DIR = ".claude/skills"
+
+local function rdir(name) return ROUTINES_DIR .. "/" .. name .. "/" end
+
+local function routine_paths(name)
+  return { rdir(name) .. "routine.md", LEGACY_SKILLS_DIR .. "/" .. name .. ".md",
+    CLAUDE_SKILLS_DIR .. "/" .. name .. "/SKILL.md" }
+end
+
+local function routine_names()
+  local names, seen = {}, {}
+  local function collect(dir, pattern)
+    for _, entry in ipairs(magi.list_files(dir) or {}) do
+      local name = entry:match(pattern)
+      if name and not seen[name] then
+        names[#names + 1], seen[name] = name, true
+      end
+    end
+  end
+  collect(ROUTINES_DIR, "^([%w_%-]+)/$")
+  collect(LEGACY_SKILLS_DIR, "^([%w_%-]+)%.md$")
+  collect(CLAUDE_SKILLS_DIR, "^([%w_%-]+)/$")
+  table.sort(names)
+  return names
+end
+
 local function load_routine(name)
   if type(name) ~= "string" or not name:match("^[%w_%-]+$") then
     return nil, "routine name must be letters, digits, - or _"
   end
-  for _, path in ipairs({ ".magi/skills/" .. name .. ".md", ".claude/skills/" .. name .. "/SKILL.md" }) do
+  for _, path in ipairs(routine_paths(name)) do
     local text = magi.read_file(path)
     if type(text) == "string" then
       local fm, body = frontmatter(text)
@@ -246,7 +275,7 @@ local function load_routine(name)
         script = script, fingerprint = magi.sha256(canon), file_sha256 = magi.sha256(text), status = fm.status }
     end
   end
-  return nil, "no routine named " .. name .. " (.magi/skills/" .. name .. ".md or .claude/skills/" .. name .. "/SKILL.md)"
+  return nil, "no routine named " .. name .. " (looked in " .. table.concat(routine_paths(name), ", ") .. ")"
 end
 
 local function check_inputs(schema, args)
@@ -394,10 +423,8 @@ magi.register_command{
   description = "Clean legacy stored traces and list saved drafts that may contain copied values",
   execute = function()
     clean_traces()
-    local files = magi.list_files(".magi/skills") or {}
-    for _, file in ipairs(files) do
-      if file:match("%.md$") then
-        local path = ".magi/skills/" .. file
+    for _, name in ipairs(routine_names()) do
+      for _, path in ipairs(routine_paths(name)) do
         local text = magi.read_file(path)
         local header = type(text) == "string" and text:match("^%-%-%-\n(.-)\n%-%-%-\n")
         if header and (header:find("\nsource: trace ", 1, true) or header:find("\nsource: repeated stretch ", 1, true))
@@ -475,8 +502,11 @@ end
 -- person has reviewed it and deleted that line.
 local function save_routine(name, description, d, source, dry, draft, automatic)
   if type(name) ~= "string" or not name:match("^[%w_%-]+$") then return nil, "name: letters, digits, - or _" end
-  local path = ".magi/skills/" .. name .. ".md"
-  if type(magi.read_file(path)) == "string" then return nil, path .. " already exists; pick another name" end
+  local paths = routine_paths(name)
+  local path = paths[1]
+  for _, existing in ipairs(paths) do
+    if type(magi.read_file(existing)) == "string" then return nil, existing .. " already exists; pick another name" end
+  end
   local fm = { "---", "kind: routine" }
   if draft then fm[#fm + 1] = "status: draft" end
   if automatic then fm[#fm + 1] = "status: auto-review" end
@@ -497,12 +527,13 @@ end
 local function save_repeated_readers(id, calls, sequence, sid)
   local active, total = 0, 0
   local state = stored(lifecycle_key())
-  for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
-    local name = file:match("^(auto%-t%x+)%.md$")
-    if name then
-      total = total + 1
+  for _, name in ipairs(routine_names()) do
+    if name:match("^auto%-t%x+$") then
       local ok, r = pcall(load_routine, name)
-      if not ok or not r or not lifecycle_state(state[name], r) then active = active + 1 end
+      if ok and r and r.status == "auto-review" then
+        total = total + 1
+        if not lifecycle_state(state[name], r) then active = active + 1 end
+      end
     end
   end
   if active >= AUTO_ROUTINE_LIMIT or total >= 100 then return end
@@ -661,8 +692,7 @@ magi.register_tool{
   execute = function()
     local routines = {}
     local lifecycle = stored(lifecycle_key())
-    for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
-      local name = file:match("^([%w_%-]+)%.md$")
+    for _, name in ipairs(routine_names()) do
       local ok, r = pcall(load_routine, name)
       if ok and r and r.status ~= "draft" and not lifecycle_state(lifecycle[name], r) then
         routines[#routines + 1] = { name = name, description = r.description, tools = r.tools, inputs = r.inputs, status = r.status }
@@ -866,7 +896,7 @@ magi.register_command{
 
 magi.register_command{
   name = "routine-register",
-  description = "Save a reviewed routine candidate as .magi/skills/<name>.md, checked dry (/routine-register <id> <name>)",
+  description = "Save a reviewed candidate as .magi/routines/<name>/routine.md after a dry check (/routine-register <id> <name>)",
   execute = function(args)
     local w = words(args)
     local id, name = w[1], w[2]
@@ -991,7 +1021,6 @@ do
   end
 
 
-  local function rdir(name) return ".magi/routines/" .. name .. "/" end
 
   local function decode(text)
     if type(text) ~= "string" then return nil end
@@ -1133,10 +1162,9 @@ do
     state.last_review = now
     local approvals = stored("routine_approvals")
     local groups, compared, seen = {}, false, {}
-    for _, file in ipairs(magi.list_files(".magi/skills") or {}) do
-      local name = file:match("^(auto%-t%x+)%.md$")
+    for _, name in ipairs(routine_names()) do
       local ok, r = pcall(load_routine, name)
-      if ok and r and r.status == "auto-review" then
+      if ok and r and name:match("^auto%-t%x+$") and r.status == "auto-review" then
         seen[name] = true
         local entry = lifecycle_entry(state, r, now)
         if (entry.status == "paused" or entry.status == "archived") and entry.last_used
@@ -1276,7 +1304,7 @@ do
   end
 
   local TRACE_FAMILY = "client-daemon-call-trace"
-  local TRACE_DIR = ".magi/routines/" .. TRACE_FAMILY .. "/"
+  local TRACE_DIR = rdir(TRACE_FAMILY)
   local TRACE_LESSON = "cite-executable-handoff"
   local TRACE_LESSON_DETAILS = {
     id = TRACE_LESSON,

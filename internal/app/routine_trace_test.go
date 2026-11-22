@@ -60,7 +60,10 @@ func (r *routineRig) file(t *testing.T, rel, body string) {
 
 func (r *routineRig) skill(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(r.s.Workdir, ".magi", "skills", name+".md"))
+	b, err := os.ReadFile(filepath.Join(r.s.Workdir, ".magi", "routines", name, "routine.md"))
+	if os.IsNotExist(err) {
+		b, err = os.ReadFile(filepath.Join(r.s.Workdir, ".magi", "skills", name+".md"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +109,7 @@ func TestAStretchOfTheTraceBecomesARoutineDraftCheckedDry(t *testing.T) {
 	if !failed || len(asks) != 0 || !strings.Contains(out, "is a draft") {
 		t.Fatalf("a draft must not run or ask: %q %+v", out, asks)
 	}
-	r.file(t, filepath.Join(".magi", "skills", "finder.md"), strings.Replace(body, "status: draft\n", "", 1))
+	r.file(t, filepath.Join(".magi", "routines", "finder", "routine.md"), strings.Replace(body, "status: draft\n", "", 1))
 	out, asks, failed = r.call(t, "f2", "run_routine", map[string]any{"name": "finder", "args": args}, "allow")
 	if failed || len(asks) != 1 || !strings.Contains(out, "done: 3 steps") {
 		t.Fatalf("once reviewed, the routine asks once and runs: %q %+v", out, asks)
@@ -134,6 +137,9 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 		t.Fatalf("a stretch seen in two turns was not offered: %q", r.logs.text())
 	}
 	automatic := "auto-" + m[1]
+	if _, err := os.Stat(filepath.Join(r.s.Workdir, ".magi", "routines", automatic, "routine.md")); err != nil {
+		t.Fatalf("generated routine missing from its workspace directory: %v", err)
+	}
 	autoBody := r.skill(t, automatic)
 	if !strings.Contains(autoBody, "status: auto-review") || !strings.Contains(autoBody, "dry_check: passed 2/2") {
 		t.Fatalf("automatic routine lacks a dry check: %s", autoBody)
@@ -457,7 +463,7 @@ func TestAutomaticRoutineLifecycleHidesEquivalentEntriesAndKeepsTheirFiles(t *te
 	dataDir := t.TempDir()
 	r := newRoutineRig(t, dataDir, routineFile)
 	base := strings.Replace(routineFile, "kind: routine\n", "kind: routine\nstatus: auto-review\n", 1)
-	r.put(t, ".magi/skills/auto-t00000001.md", []byte(base))
+	r.put(t, ".magi/routines/auto-t00000001/routine.md", []byte(base))
 	r.put(t, ".magi/skills/auto-t00000002.md", []byte(base))
 	different := strings.Replace(base, "```lua\n", "```lua\n-- a different version\n", 1)
 	r.put(t, ".magi/skills/auto-t00000003.md", []byte(different))

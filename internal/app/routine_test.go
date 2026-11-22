@@ -278,7 +278,7 @@ func TestARepeatedScriptIsOfferedAsARoutineAndRegisteredOnlyByThePerson(t *testi
 	if m == nil || !strings.Contains(out, "glob>read") {
 		t.Fatalf("no candidate id: %q", out)
 	}
-	path := filepath.Join(r.s.Workdir, ".magi", "skills", "countnotes.md")
+	path := filepath.Join(r.s.Workdir, ".magi", "routines", "countnotes", "routine.md")
 	if _, err := os.Stat(path); err == nil {
 		t.Fatal("a candidate was registered before the person registered it")
 	}

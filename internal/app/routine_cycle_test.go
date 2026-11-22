@@ -18,8 +18,8 @@ func setupRPE(t *testing.T) (*routineRig, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.put(t, ".magi/skills/"+rpe+".md", body)
 	dir := ".magi/routines/" + rpe + "/"
+	r.put(t, dir+"routine.md", body)
 	r.put(t, dir+"contract.json", []byte(rpeContract))
 	r.put(t, dir+"tasks.json", rpeTasks(""))
 	if err := r.command(t, "routine-evals-freeze", rpe); err != nil {
