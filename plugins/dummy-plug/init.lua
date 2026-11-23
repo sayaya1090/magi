@@ -1100,13 +1100,28 @@ Run a saved code-mode routine by name. Use routine_catalog to find a routine for
 
 magi.register_tool{
   name = "routine_catalog",
-  description = "Find saved routines and their input schemas. Pass query to filter the whole catalog by name, tool, or words in the description. Returns up to 30 matches.",
+  description = "Find saved routines and their input schemas. Pass query to search names, tools, descriptions, and wording associated with learned tasks. Returns up to 30 matches.",
   schema = { type = "object", properties = {query = {type = "string"}} },
   execute = function(args)
     local query = args and args.query or ""
     if type(query) ~= "string" then return "query must be a string", true end
     local words = {}
     for word in query:lower():gmatch("%S+") do words[#words + 1] = word end
+    local associated = {}
+    if #words > 0 then
+      local terms, request_id = request_terms(query)
+      if next(terms) then
+        local graphs = stored("routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20))
+        for _, entry in pairs(graphs.entries or {}) do
+          if entry.routine and request_overlap(entry.runnable_requests, terms, request_id) >= 2 then
+            associated[entry.routine] = true
+          end
+        end
+        for id, entry in pairs(stored("routine_shapes")) do
+          if entry.write_saved and request_overlap(entry, terms, request_id) >= 2 then associated["write-" .. id] = true end
+        end
+      end
+    end
     local routines = {}
     local lifecycle = stored(lifecycle_key())
     for _, name in ipairs(routine_names()) do
@@ -1119,7 +1134,7 @@ magi.register_tool{
             if not text:find(word, 1, true) then matches = false; break end
           end
         end
-        if matches then
+        if matches or associated[name] then
           routines[#routines + 1] = { name = name, description = r.description, tools = r.tools, inputs = r.inputs, status = r.status }
           if #routines == 30 then break end
         end

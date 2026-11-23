@@ -371,6 +371,11 @@ func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 		if len(fields) != 2 {
 			t.Fatal(text)
 		}
+		catalog, _, failed := r.call(t, "find-"+fields[1], "routine_catalog", map[string]any{"query": scenario.request}, "allow")
+		var results []struct{ Name string }
+		if failed || json.Unmarshal([]byte(catalog), &results) != nil || len(results) != 1 || results[0].Name != fields[1] {
+			t.Fatalf("catalog selected the wrong input layout for %q: %s", scenario.request, catalog)
+		}
 		inputs := map[string]string{"s1_arg2": "current", "s2_arg1": "current/marker"}
 		separate := scenario.want == "test -f {s3_arg2}"
 		if separate {
