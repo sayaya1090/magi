@@ -328,8 +328,6 @@ Automatic discovery saves a reusable routine after a dry check. A/B improvement 
 
   The harness also learns which request words occur with a multi-step routine or an eligible graph. It stores workspace-specific hashes. A later request can match by repeating the earlier phrasing or by sharing at least two terms that occurred on two observed turns. For example, two release-note requests that wrote and then read the same file can yield a routine for the next release-note request. Supply the writing tool’s arguments in `step1`. The read uses the same path. Pass `step2` for optional read settings such as a line limit.
 
-  In the same conversation, a short follow-up such as “continue” can bring back a saved shell routine before the model calls a tool. The harness looks at the last eight turns with successful foreground shell calls. The routine must occur in at least four of them, including both of the latest two. The new request must be a follow-up or share a word with an earlier request for that routine. When two routines tie, the harness skips the suggestion. A matching suggestion appears in the chat once, and the model can call the routine when it knows the inputs.
-
   After a dry check with synthetic arguments, the plug-in saves `.magi/routines/write-<id>/routine.md` with `status: learned-write`. The routine is available in `routine_catalog` and can be suggested in the context of a writing request. The generated version needs no separate routine approval. Each tool call follows the existing permission policy, and editing the saved file restores the usual routine approval check. The dry check verifies the tool calls. Comparing real file effects is a separate step.
 - **Automatic catalog maintenance.** The idle hook reviews automatically saved routines at most once an hour. It hides exact duplicates with the same approval scope and keeps their names, files and history. Different versions can share a catalog entry only when their scopes match and both frozen evaluations confirm the same tool calls and results. A routine is archived after 30 days without execution or paused after three consecutive execution errors. Its name still works with `run_routine`. A successful explicit run restores an archived or paused entry at the next review. Use `/routine-lifecycle` to inspect entries and `/routine-lifecycle restore <name>` to keep one visible. Decisions appear in the routine’s history.
 - **Legacy traces.** On load, the plug-in clears copied arguments and message text from all of
@@ -410,6 +408,34 @@ Automatic discovery saves a reusable routine after a dry check. A/B improvement 
   with `/routine-adopt <name> <version>` when it meets the adoption checks.
 - **Example.** `plugins/dummy-plug/routines/recovery-policy-evidence.md` recalls the recovery policy
   once, hands it to one `explore` per question, and prints each answer under its question.
+
+### How the plug-in discovers and recalls routines
+
+#### Discovery from tool calls
+
+The plug-in starts a new trace turn on `user_message`. Each `tool_finished` adds the tool name, outcome, and dispatch metadata. For a file operation it can also record a workspace-specific hash of the path. These traces keep fingerprints and tool metadata. They supply neither the old tool arguments nor the old prompt when the routine runs again.
+
+Discovery runs at two points. On each tool completion, the plug-in looks back at up to 12 ordered, successful calls within the current turn for a writing sequence. Two non-overlapping occurrences can qualify, so a long turn can yield a routine before it ends. It also detects a write followed by a read of the same path, even with other eligible file operations between them. At turn end it checks sequential stretches of 2–12 calls and complete parallel dispatches of 2–8 readers. A parallel dispatch must have its declared number of calls, unique call IDs, and successful results from every member. Sequential matches preserve tool order. Parallel matches use the set of tools and the number of calls per tool.
+
+For shell calls, the host parser supplies a command fingerprint and dependency graphs. The plug-in counts recurrence by graph and, for runnable templates, by precise input layout. Two calls with the same commands but different argument-sharing relationships can therefore produce different routines. Graphs that qualify for a hint can still lack a runnable template. The rules above describe which simple pipelines and AND-lists can be saved as executable templates.
+
+The dry check uses synthetic inputs and verifies the expected tool calls before automatic saving. The saved definition lives at `.magi/routines/<name>/routine.md`. Discovery counts and request associations live in the plug-in store. Read-only routines use `auto-review`, and writing and runnable shell routines use `learned-write`.
+
+#### Explicit search and automatic recall
+
+| Route | Matching and selection |
+| --- | --- |
+| `routine_catalog` | Takes an optional query. Each query word must occur in the name, description or tool list for a text match. A learned request association is a second route into the results. An exact single-word name comes first, followed by higher association scores and then name order. The limit of 30 applies after filtering. Drafts and entries hidden by catalog maintenance are omitted. Results include the input schema. |
+| Read-only suggestions | The context provider maps request words to read, search and listing tools. Every tool in the saved routine must match a detected intent. It suggests up to three visible automatic reader routines. |
+| Writing and shell suggestions | Writing candidates can use learned wording, a named shell executable, or writing intent. Shell graphs match when the request names all the graph's commands or has enough learned wording in common. A graph becomes an executable suggestion only when a matching saved input layout can be selected. If two runnable layouts for the same command sequence have equal scores, the provider shows the sequence without choosing a layout. |
+
+The request association stores workspace-specific hashes for up to 48 distinct words from the first 4,096 bytes. An exact match to the latest recorded request scores 50 when that request had at least two eligible words. Otherwise the score is the number of matched terms in the most recent non-empty intersection between two observations on different turns. A score of two can qualify for search or context matching. Shell graphs and their runnable layouts track associations separately.
+
+When the direct matches produce neither a routine candidate nor a shell hint, the provider checks the same session's last eight completed turns with successful foreground shell calls. A saved layout must appear in at least four of those turns, including the two latest. The newest shell observation can be at most two request turns back, and only observations within 16 request turns count. The new request must be a recognized follow-up such as “continue” or share a word with an earlier request for the layout. The provider returns at most one fallback. It skips a tie at the highest count.
+
+The `automatic-routine-catalog` context provider runs before the first model call for the request. An executable shell match or a strongly matched same-file write and read can also put a suggestion in the chat as a harness message. The notification must correspond to the current user prompt. The plug-in emits at most one per turn and suppresses consecutive notifications for the same routine. The model still decides whether to call `run_routine`, fills in the current arguments, and uses the normal approval and tool permission paths.
+
+For example, after `cat FILE | sort | uniq -c` recurs while counting lines in several files, a follow-up asking for the count in a new file can retrieve the saved pipeline. The suggestion includes the input key `s1_arg1` and a call example. The model supplies the new path. A recognized follow-up can help find the routine even when the request omits the command names.
 
 ### Proposed design for routine improvement notes
 
