@@ -346,7 +346,11 @@ func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r.fire("tool_finished", "tool", "bash", "args", string(args), "ok", "true", "call_id", fmt.Sprint(i))
+		r.fire("tool_finished", "tool", "bash", "args", string(args), "ok", "true", "order_known", "true", "call_id", fmt.Sprint(i))
+	}
+	files, err := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	if err != nil || len(files) != 2 {
+		t.Fatalf("expected just the two input layouts: %v (%v)", files, err)
 	}
 	for _, scenario := range []struct{ request, want string }{
 		{"prepare marker together", "test -f {s2_arg1}"},

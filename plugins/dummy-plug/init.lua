@@ -774,7 +774,7 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
   local entries = type(state.entries) == "table" and state.entries or {}
   local order = type(state.order) == "table" and state.order or {}
   local occurrence = session .. ":" .. call
-  local runnable = false
+  local has_template = false
   for _, dependency in ipairs(dependencies) do
     local id = dependency.key
     local entry = entries[id]
@@ -811,14 +811,13 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
       end
       if not entry.routine then
         entry.layout, entry.layout_occurrence = layout, occurrence
-      elseif dependency.key == complete_shape then
-        runnable = true
       end
+      if dependency.key == complete_shape and magi.platform() ~= "windows" then has_template = true end
     end
   end
   while #order > 200 do entries[table.remove(order, 1)] = nil end
   magi.store_set(key, { entries = entries, order = order })
-  return runnable
+  return has_template
 end
 
 local function note_run(goal, script, seq)
