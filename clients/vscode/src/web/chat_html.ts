@@ -100,6 +100,11 @@ ${idePaletteCss}
   /* The companion itself, folded away. A gear rather than "…": the card is what this companion is
      RUNNING ON and what you can change about it, and a gear is the word every editor already uses
      for that — "…" says "more of the same", which this is not. */
+  /* The tab row (2026-11-23): the conversation's title, then each running subagent. */
+  #tabrow { display:flex; gap:2px; overflow-x:auto; padding:0 6px; border-bottom:1px solid var(--vscode-panel-border, transparent); }
+  #tabrow button { background:none; border:0; border-bottom:2px solid transparent; color:var(--vscode-foreground); padding:3px 8px; cursor:pointer; white-space:nowrap; font:inherit; opacity:.75; }
+  #tabrow button[aria-selected="true"] { border-bottom-color:var(--vscode-focusBorder); opacity:1; }
+  #tabrow button.done { font-style:italic; }
   #topbar { display:flex; justify-content:space-between; align-items:center; padding:2px 6px 0; }
   .recovery-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
     border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer; font-size:.85em; padding:2px 6px; }
@@ -398,7 +403,7 @@ ${idePaletteCss}
 .slash-commands button:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
 </style></head><body>
 <header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false"><svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg></button></header>
-<aside id="info" aria-label="컴패니언 정보" hidden></aside>
+<nav id="tabrow" role="tablist" aria-label="대화 탭"></nav><aside id="info" aria-label="컴패니언 정보" hidden></aside>
 <div id="plan-strip" hidden><button id="plan-head" type="button" aria-expanded="false" title="눌러서 단계 목록을 펼치거나 접습니다"></button><ol id="plan-list" hidden></ol></div><main id="scroll"><h1 class="sr-only">MAGI Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><p id="empty-note" hidden></p><div id="ask-body" hidden></div></main><div id="restart-strip" role="status" hidden><div id="restart-head"></div><div id="restart-list"></div></div>
 <section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="fold" role="status" aria-label="압축 진행" hidden><progress id="fold-bar" max="1"></progress><span id="fold-text"></span></div><div id="state-note" role="region" aria-label="컴패니언 상태"></div><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>
 <div id="hint" role="region" aria-label="단축키 힌트"></div>

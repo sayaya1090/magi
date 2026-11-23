@@ -33,5 +33,9 @@ class ChatBoardSwapTest : BasePlatformTestCase() {
         assertFalse("the problems tab is still made", "chat.tab.problems" in src || "problemsView" in src)
         assertTrue("the chat window does not hold the board in the same place", "ChatBoardSwap(" in src && "PlanToolWindow().build(" in src)
         assertTrue("no settings button swaps the place", "chat.board.toggle" in src && ".flip()" in src)
+        // 전환은 설정이 아니라 토글이다 — 아이콘도 토글(사용자 요청, 2026-11-23).
+        assertTrue("the swap is not a toggle icon", "AllIcons.Actions.SwapPanels" in src)
+        assertFalse("the swap still shows a settings gear", "AllIcons.General.Settings" in src)
+        assertTrue("no subagent tab strip is attached", "SubagentTabStrip(project, toolWindow, main)" in src)
     }
 }

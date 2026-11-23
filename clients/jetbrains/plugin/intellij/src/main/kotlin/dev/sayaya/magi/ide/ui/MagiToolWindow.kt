@@ -84,7 +84,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         // 정보 카드는 **제목 표시줄** 아이콘으로 접어 둡니다(사용자 요구: Office 리본처럼 축소하여 빠른 접근 지원).
         // 기어 메뉴 대신 팝업 아이콘을 사용하는 이유는 단순 액션 목록이 아닌 상태 정보(상태 인디케이터 및 버전 번호)를 표시하는 전용 UI이기 때문입니다.
         toolWindow.setTitleActions(listOf(object : com.intellij.openapi.actionSystem.AnAction(
-            MagiBundle.msg("chat.board.toggle"), MagiBundle.msg("chat.board.toggle.tip"), com.intellij.icons.AllIcons.General.Settings) {
+            MagiBundle.msg("chat.board.toggle"), MagiBundle.msg("chat.board.toggle.tip"), com.intellij.icons.AllIcons.Actions.SwapPanels) {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) = swap.flip()
         }, view.runtimeAction(), view.infoAction(), view.latestAction(), object : com.intellij.openapi.actionSystem.AnAction(
             MagiBundle.msg("chat.stop"), MagiBundle.msg("chat.stop.tip"), com.intellij.icons.AllIcons.Actions.Suspend) {
@@ -150,9 +150,10 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
         // Content의 `isCloseable` 기본값은 true이며, 도구 창 선언의 `canCloseContents="true"`는 창 전체의 탭 닫기를 허용합니다.
         // 기본 탭이 닫힐 경우 `createToolWindowContent`는 재호출되지 않아 UI 복구가 불가능해지고,
         // View는 Content가 아닌 ToolWindow Disposable에 바인딩되어 있어 UI만 닫히고 스트림은 살아 있는 리소스 누수가 발생합니다(리뷰 R1).
-        toolWindow.contentManager.addContent(
-            make.createContent(swap.component, MagiBundle.msg("chat.tab.chat"), false).apply { isCloseable = false },
-        )
+        val main = make.createContent(swap.component, MagiBundle.msg("chat.tab.chat"), false).apply { isCloseable = false }
+        toolWindow.contentManager.addContent(main)
+        // 첫 탭 이름은 대화 제목, 그 옆에 도는 서브에이전트 탭(사용자 결정, 2026-11-23 — [SubagentTabStrip]).
+        SubagentTabStrip(project, toolWindow, main).also { Disposer.register(toolWindow.disposable, it) }.start()
         view.refresh()
     }
 

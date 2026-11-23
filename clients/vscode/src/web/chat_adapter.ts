@@ -247,6 +247,7 @@ export interface HostMessageHandlers {
   onSlashCommands?(payload: { request: number; commands: {name: string; description?: string}[] }): void;
   onSuggestion?(payload: { text: string; reqId: number; target: string }): void;
   onPrompts?(payload: { texts: string[] }): void;
+  onTabs?(payload: { home: string; homeLabel: string; viewing: string; tabs: { id: string; label: string; running: boolean }[] }): void;
 }
 
 import { parseHostToWebviewMessage } from '../core/webview_protocol';
@@ -289,6 +290,9 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
     return true;
   } else if (m.kind === 'state') {
     handlers.onState?.(m);
+    return true;
+  } else if (m.kind === 'tabs') {
+    handlers.onTabs?.(m);
     return true;
   } else if (m.kind === 'plan') {
     handlers.onPlan?.(m);

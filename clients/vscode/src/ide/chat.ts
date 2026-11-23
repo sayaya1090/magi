@@ -16,7 +16,8 @@ import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath, ActionOriginOptions } from '../core/nav';
 import { parseWebviewToHostMessage, HostToWebviewMessage, PaintedRow, RestartWire } from '../core/webview_protocol';
 import { renderChatHtml } from '../web/chat_html';
-import { splitSlash } from '../core/slash';
+import { splitSlash } from '../core/slash';import { nextTabs, sessionLabel, type SubagentTab } from '../core/subagent_tabs';
+
 
 /**
  * The conversation, in the panel.
@@ -37,6 +38,40 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private events: Event[] = [];
   private refs: Ref[] = [];
   private sid = '';
+  /** The conversation the tab row belongs to; `sid` moves to a subagent while one is looked at. */
+  private home = '';
+  private subTabs: SubagentTab[] = [];
+  private homeTitle: string | undefined;
+  private tabPolls = 0;
+  private tabTimer: ReturnType<typeof setInterval> | null = null;
+  private tabMove = false;
+
+  /**
+   * The tab row (user decision, 2026-11-23): the conversation's title, then a tab per running
+   * subagent of THAT conversation — asked of `home`, not of whatever is on screen.
+   */
+  private async pollTabs(): Promise<void> {
+    const home = this.home || this.sid;
+    if (!home) return;
+    if (!this.home) this.home = home;
+    const r = await this.companion.ask('jobs', { session: home });
+    if (home !== this.home) return;
+    const kids = r?.ok ? r.jobs?.children ?? [] : [];
+    if (this.tabPolls++ % 10 === 0 || this.homeTitle === undefined) {
+      const list = await this.companion.ask('sessions');
+      if (home !== this.home) return;
+      this.homeTitle = (list?.sessions ?? []).find((x) => x.id === home)?.title ?? '';
+    }
+    const selected = this.sid !== home ? this.sid : null;
+    this.subTabs = nextTabs(this.subTabs, kids.map((c) => ({ id: c.id ?? '', task: c.task, running: c.running })), selected);
+    this.post({ kind: 'tabs', home, homeLabel: sessionLabel(this.homeTitle, '채팅'), viewing: this.sid, tabs: this.subTabs });
+  }
+
+  /** Look at another tab of the same conversation without making it the conversation. */
+  private showTab(sid: string): void {
+    this.tabMove = true;
+    try { this.showSession(sid); } finally { this.tabMove = false; }
+  }
   private lastSeq = 0;
   private reconnectEpoch = 0;
   private reconnecting = false;
@@ -231,6 +266,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private replayUntil = 0;
   private runtimeRetry: {until:number;attempt:number;reason:string}|null = null;
   private draw(): void {
+    if (!this.tabTimer) {
+      this.tabTimer = setInterval(() => { void this.pollTabs(); }, 3000);
+      // A poll must not keep a process alive on its own (the unit tests build a Chat and never dispose it).
+      (this.tabTimer as { unref?: () => void }).unref?.();
+      this.subs.push({ dispose: () => { if (this.tabTimer) clearInterval(this.tabTimer); this.tabTimer = null; } });
+    }
     const rawAsk = pendingAsk(this.events);
     const ask = rawAsk
       ? { ...rawAsk, diffKind: determineApprovalDiffKind(rawAsk), filePath: extractAskFilePath(rawAsk) }
@@ -330,6 +371,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /** Read another conversation. The daemon is the source, so this only changes which one we ask for. */
   showSession(sid: string): void {
+    // A tab (or a child row) only moves what is looked at; any other way in is a new conversation.
+    if (!this.tabMove) { this.home = sid; this.subTabs = []; this.homeTitle = undefined; this.tabPolls = 0; }
     this.generation++;
     this.stopReconnect();
     const stream = this.stream;
@@ -740,12 +783,19 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         catch (error) { this.post({ kind: 'note', text: '복사하지 못했습니다: ' + String(error) }); }
         break;
       }
+      case 'tab': {
+        if (m.id === this.home) this.showTab(this.home);
+        else if (this.subTabs.some((t) => t.id === m.id)) this.showTab(m.id);
+        void this.pollTabs();
+        break;
+      }
       case 'child': {
         // Opened only from the screen that showed this conversation: a click that arrives after the
         // panel moved elsewhere names a child of somebody else's row.
         if (!m.session || !m.child) break;
         if (this.session && m.session !== this.session) break;
-        this.showSession(m.child);
+        this.showTab(m.child);
+        void this.pollTabs();
         break;
       }
       case 'output': {

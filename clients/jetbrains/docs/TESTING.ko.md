@@ -2160,3 +2160,8 @@ HTML 본문과 표 바탕은 투명하게 유지합니다. 투명 HTML 아래에
 ## 백엔드 콤보의 프로바이더 (2026-11-22)
 
 정보 창의 「백엔드」 콤보는 `[llm.profiles.*]` 이름 뒤에 지금 서빙 중인 프로바이더(codex·claudecode·antigravity 셰임)를 싣습니다. 목록은 데몬의 `providers` 문이 주고, 그 문은 웹 콘솔·TUI 의 `/providers` 와 같은 `provider.Discover` 를 씁니다. `BackendPickTest`가 잽니다: 프로필 뒤에 프로바이더 주소가 서고 같은 것은 한 번만 서는지, 프로바이더 항목이 주소가 아니라 이름으로 그려지는지, 프로필이 없을 때 지금 백엔드 주소와 같은 프로바이더가 골라져 있는지(끝의 `/` 차이 무시), 주소 항목만 `use-backend` 로 가는지. 데몬 쪽은 Go 의 `TestTheProvidersDoorCrossesTheSocket`·`TestProvidersListsTheShimsThatAnswer` 가 잽니다. 실제 IDE 화면에서 콤보를 열어 본 것은 아닙니다.
+
+## 우측 자리의 탭 줄: 세션 제목과 서브에이전트 (2026-11-23)
+
+우측 도구창의 첫 탭 이름은 지금 대화의 제목이고, 그 옆에 도는 서브에이전트가 하나씩 탭으로 붙습니다. 끝난 서브에이전트의 탭은 보고 있지 않으면 닫히고, 보고 있으면 남았다가 다른 탭으로 옮기면 닫힙니다. 채팅 ↔ MAGI 현황 전환 단추는 톱니 대신 토글 아이콘(`SwapPanels`)입니다. `SubagentTabsTest`가 규칙을 잽니다: 도는 서브에이전트마다 탭이 붙고 이름은 과제의 첫 줄(없으면 id 끝 여섯 자)인지, 끝난 탭이 보고 있을 때만 남는지, 목록에서 사라진 자식도 끝난 것으로 보는지와 탭 순서, 세션 탭 이름의 첫 줄·자르기·대체어. 연결부 `SubagentTabStrip`(3초 폴링, 데몬 `jobs` 의 `children` 과 `sessions` 의 제목)은 `ChatBoardSwapTest`가 소스로만 확인합니다. 실제 IDE 화면에서 탭이 붙고 사라지는 것은 보지 않았습니다.
+

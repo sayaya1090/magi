@@ -215,7 +215,7 @@
         "command": "magi.toggleBoard",
         "title": "%magi.toggleBoard.title%",
         "category": "Magi",
-        "icon": "$(settings-gear)"
+        "icon": "$(arrow-swap)"
       }
     ],
     "submenus": [

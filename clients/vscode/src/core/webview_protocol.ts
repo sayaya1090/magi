@@ -85,6 +85,12 @@ export const OutputMessageSchema = v.object({
   outputId: NonEmptyStringSchema,
 });
 
+// A tab in the row over the chat was picked: the conversation (home) or a subagent (2026-11-23).
+export const TabMessageSchema = v.object({
+  kind: v.literal('tab'),
+  id: NonEmptyStringSchema,
+});
+
 export const ChildMessageSchema = v.object({
   kind: v.literal('child'),
   session: NonEmptyStringSchema,
@@ -142,6 +148,7 @@ export const WebviewToHostMessageSchema = v.union([
   OpenMessageSchema,
   OutputMessageSchema,
   ChildMessageSchema,
+  TabMessageSchema,
   CopyMessageSchema,
   AnswerMessageSchema,
   ReplyMessageSchema,
@@ -541,7 +548,16 @@ export const RestartMessageSchema = v.pipe(
 export const NodeSendResultSchema = v.object({
   kind:v.literal('nodeSendResult'), id:NonEmptyStringSchema, ok:v.boolean(),
 });
+// The tab row over the chat: the conversation's title, then each running subagent (SubagentTabs rule).
+export const TabsMessageSchema = v.object({
+  kind: v.literal('tabs'),
+  home: v.string(),
+  homeLabel: v.string(),
+  viewing: v.string(),
+  tabs: v.array(v.object({ id: v.string(), label: v.string(), running: v.boolean() })),
+});
 export const HostToWebviewMessageSchema = v.union([
+  TabsMessageSchema,
   v.object({kind:v.literal("latest")}),
   NodeSendResultSchema,
   RowsMessageSchema,

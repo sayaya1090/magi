@@ -76,6 +76,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `layering.test.ts` | **아키텍처 계층 엄격 분리 검증.** `src/core/**` 내부에서 `vscode` 모듈을 임포트하는 행위를 정적 분석하여 감지 및 차단합니다 |
 | `manual.test.ts` (상태 레이블) | **매뉴얼 내 상태 어휘 정합성 검증.** 사용자 매뉴얼에 기술된 모든 상태 단어가 `core/activity.ts`의 `label()` 함수가 실제로 생성 가능한 문자열인지 전수 대조합니다 |
 | `board.test.ts` (우측 한 자리) | **대화와 계기판의 자리 공유 검증.** 두 뷰가 보조 사이드바의 같은 컨테이너(`magi-side`)에 대화가 먼저 오도록 있고, 문맥 키 `magi.board`로 서로 반대인 `when`을 가지는지, 두 제목줄에 톱니(`$(settings-gear)`) 버튼 `magi.toggleBoard`가 있는지 봅니다. `core/board.ts`의 `nextBoard`가 키를 뒤집고 보일 뷰에 초점을 주는지, `extension.ts`가 시작 시 대화를 보이고 `magi.focusChat`이 대화로 되돌리는지(소스 읽기)도 잽니다. 실제 VS Code 화면에서 버튼을 눌러 본 것은 아닙니다 |
+| `subagent_tabs.test.ts` (탭 줄) | **대화 제목 탭과 서브에이전트 탭 검증.** `core/subagent_tabs.ts`의 `nextTabs`가 도는 서브에이전트마다 탭을 붙이는지(이름은 과제 첫 줄, 없으면 id 끝 여섯 자), 끝난 탭은 보고 있을 때만 남기는지, 목록에서 사라진 자식을 끝난 것으로 보는지와 순서, `sessionLabel`의 첫 줄·자르기·대체어를 잽니다. 호스트가 화면이 아니라 원래 대화(`home`)의 `jobs`를 묻는지, 웹뷰에 `#tabrow`와 `tab` 메시지가 있는지는 소스로 봅니다. JetBrains의 `SubagentTabs`와 같은 규칙입니다. 실제 VS Code 화면에서 탭이 붙고 사라지는 것은 보지 않았습니다 |
 | `manual.test.ts` (이식 항목 전수) | **JetBrains 매뉴얼 기능 전수 이식 검증.** JetBrains 매뉴얼의 모든 볼드체 기능 항목이 VS Code 이식 설계 문서에 누락 없이 수록되어 있는지 검증합니다 |
 | `handoff.test.ts` (인계 규약) | **컴패니언 간 작업 위임 프로토콜 검증.** 코어 데몬의 규격에 맞추어 인계 대상 컴패니언 식별자 및 상태를 파싱합니다 |
 | `hand.test.ts` (`replaceAll` 의 두 모양) | ★ **`apply_edit`의 불리언 문자열 인자(`"true"`) 허용 검증.** 모델이 `replaceAll` 인자에 불리언 `true` 대신 문자열 `"true"`를 전달하더라도 이를 참으로 안전하게 역직렬화하여 처리하는지 검증합니다. 엄격한 불리언 일치(`=== true`)로 인해 다중 치환 요청이 단일 치환으로 축소되어 불필요하게 거절되는 문제를 방지하고, JetBrains 클라이언트의 파싱 규칙과 일치시킵니다 |

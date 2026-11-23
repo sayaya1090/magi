@@ -995,6 +995,27 @@ const receiveHandlers = createWebviewReceiveHandlers({
   scrollContainer: scrollEl,
   scrollFollowing,
 });
+// The tab row: one button for the conversation, one per running subagent; the host owns the rule.
+function drawTabs(t: { home: string; homeLabel: string; viewing: string; tabs: { id: string; label: string; running: boolean }[] }): void {
+  const row = document.getElementById('tabrow');
+  if (!row) return;
+  row.replaceChildren();
+  const add = (id: string, label: string, done: boolean): void => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'tab');
+    b.dataset.tab = id;
+    b.textContent = (id === t.home ? '' : done ? '⛒ ' : '⛐ ') + label;
+    b.title = label;
+    b.setAttribute('aria-selected', String(id === t.viewing));
+    if (done) b.classList.add('done');
+    b.addEventListener('click', () => vs.postMessage({ kind: 'tab', id }));
+    row.append(b);
+  };
+  add(t.home, t.homeLabel, false);
+  for (const x of t.tabs) add(x.id, x.label, !x.running);
+}
+
 window.addEventListener('message', (e) => {
   const message=parseHostToWebviewMessage(e.data);
   if(message?.kind==='sessionCreated') {
@@ -1006,7 +1027,7 @@ window.addEventListener('message', (e) => {
     for(const sent of nodeSends.values()) if(sent.context===previous) sent.context=next;
   }
   if(message?.kind==='nodeSendResult') {finishNodeSend(message.id,message.ok);return;}
-  dispatchHostMessage(e.data, {...receiveHandlers,onLatest:jumpToLatest});
+  dispatchHostMessage(e.data, {...receiveHandlers,onLatest:jumpToLatest,onTabs:drawTabs});
 });
 actions.ready();
 

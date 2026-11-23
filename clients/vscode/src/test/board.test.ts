@@ -31,7 +31,7 @@ test('the chat and the board share one container in the secondary sidebar, chat 
 test('a gear button on both title bars swaps the place', () => {
   const cmd = (manifest.contributes.commands as { command: string; icon?: string }[])
     .find((c) => c.command === 'magi.toggleBoard');
-  assert.equal(cmd?.icon, '$(settings-gear)', 'the swap is not a gear button');
+  assert.equal(cmd?.icon, '$(arrow-swap)', 'the swap is not a toggle button');
   const nav = (manifest.contributes.menus['view/title'] as { command: string; when: string; group?: string }[])
     .filter((m) => m.command === 'magi.toggleBoard' && (m.group ?? '').startsWith('navigation'));
   for (const v of ['magi.chat', 'magi.plan']) {
