@@ -328,6 +328,61 @@ func TestRoutineLearnsAndExecutesAConditionalWorkspaceTask(t *testing.T) {
 	}
 }
 
+func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires POSIX shell workflows")
+	}
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.a.plat = platform.OS{}
+	for i, observation := range []struct{ request, command string }{
+		{"prepare marker together", "mkdir -p a && touch a/one && test -f a/one"},
+		{"check independent prerequisite", "mkdir -p b && touch b/two && test -f b/three"},
+		{"prepare marker together", "mkdir -p c && touch c/four && test -f c/four"},
+		{"check independent prerequisite", "mkdir -p d && touch d/five && test -f d/six"},
+		{"document dormant examples", "demo() { mkdir -p e && touch e/seven && test -f e/seven; }"},
+	} {
+		r.fire("user_message", "text", observation.request)
+		args, err := json.Marshal(map[string]string{"command": observation.command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.fire("tool_finished", "tool", "bash", "args", string(args), "ok", "true", "call_id", fmt.Sprint(i))
+	}
+	for _, scenario := range []struct{ request, want string }{
+		{"prepare marker together", "test -f {s2_arg1}"},
+		{"check independent prerequisite", "test -f {s3_arg2}"},
+		{"document dormant examples", ""},
+		{"mkdir touch test", ""},
+	} {
+		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
+			SessionID: r.sid, Workdir: r.s.Workdir, Prompt: scenario.request,
+		})
+		if err != nil || len(hints) != 1 {
+			t.Fatalf("context for %q: %+v %v", scenario.request, hints, err)
+		}
+		text := hints[0].Text
+		if strings.Contains(text, "— run_routine") != (scenario.want != "") || !strings.Contains(text, scenario.want) {
+			t.Fatalf("wrong workflow for %q: %s", scenario.request, text)
+		}
+		if scenario.want == "" {
+			continue
+		}
+		fields := regexp.MustCompile(`run_routine (write-[0-9a-f]+) inputs`).FindStringSubmatch(text)
+		if len(fields) != 2 {
+			t.Fatal(text)
+		}
+		inputs := map[string]string{"s1_arg2": "current", "s2_arg1": "current/marker"}
+		separate := scenario.want == "test -f {s3_arg2}"
+		if separate {
+			inputs["s3_arg2"] = "current/missing-prerequisite"
+		}
+		out, _, failed := r.call(t, fields[1], "run_routine", map[string]any{"name": fields[1], "args": inputs}, "allow")
+		if failed != separate {
+			t.Fatalf("wrong file checked for %q: %s", scenario.request, out)
+		}
+	}
+}
+
 func TestRoutineCatalogSearchesPastItsFirstThirtyEntries(t *testing.T) {
 	r := newRoutineRig(t, t.TempDir(), routineFile)
 	for i := range 31 {

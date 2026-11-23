@@ -778,6 +778,13 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
   for _, dependency in ipairs(dependencies) do
     local id = dependency.key
     local entry = entries[id]
+    local layout = dependency.chain and magi.sha256(magi.json_encode(dependency.chain))
+    if layout then
+      local variant = magi.sha256(dependency.key .. ":" .. layout)
+      if entries[variant] or (entry and entry.layout and entry.layout ~= layout) then
+        id, entry = variant, entries[variant]
+      end
+    end
     if not entry then
       entry = { label = dependency.label, hits = 0 }
       entries[id] = entry
@@ -792,14 +799,19 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
     if (tonumber(entry.conditions) or 0) >= 2 or (tonumber(entry.file_edges) or 0) >= 2 or (entry.pipes or 0) >= 2 then
       observe_request(entry, trace.request_terms, session .. ":" .. trace.turn, trace.request_id)
     end
-    if dependency.chain then
-      local layout = magi.sha256(magi.json_encode(dependency.chain))
+    if layout then
+      local requests = entry.runnable_requests or {}
+      if requests.last ~= occurrence then
+        requests.hits, requests.last = (requests.hits or 0) + 1, occurrence
+        observe_request(requests, trace.request_terms, session .. ":" .. trace.turn, trace.request_id)
+      end
+      entry.runnable_requests = requests
       if not entry.routine and entry.layout == layout and entry.layout_occurrence ~= occurrence then
         entry.routine = save_shell_chain(dependency)
       end
       if not entry.routine then
         entry.layout, entry.layout_occurrence = layout, occurrence
-      elseif id == complete_shape and layout == entry.layout then
+      elseif dependency.key == complete_shape then
         runnable = true
       end
     end
@@ -1200,7 +1212,7 @@ pcall(magi.register_context_provider, {
       end
     end
     local dependencies = stored("routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20))
-    local hints, ranked = {}, {}
+    local hints, ranked, alternatives = {}, {}, {}
     for _, id in ipairs(dependencies.order or {}) do
       local entry = dependencies.entries[id]
       if entry and entry.hits >= 2
@@ -1210,14 +1222,28 @@ pcall(magi.register_context_provider, {
           if not command_words[verb:lower()] then matches = false; break end
         end
         local overlap = request_overlap(entry, terms, request_id)
-        if matches or overlap >= 2 then
-          ranked[#ranked + 1] = {entry = entry, score = overlap, id = id}
+        local runnable_overlap = request_overlap(entry.runnable_requests, terms, request_id)
+        if matches or overlap >= 2 or runnable_overlap >= 2 then
+          local executable = entry.routine and (matches or runnable_overlap >= 2)
+          if executable then
+            overlap = runnable_overlap
+            local best = alternatives[entry.label]
+            if not best or overlap > best.score then
+              alternatives[entry.label] = {score = overlap, name = entry.routine}
+            elseif overlap == best.score and entry.routine ~= best.name then
+              best.name = nil
+            end
+          end
+          ranked[#ranked + 1] = {entry = entry, score = overlap, executable = executable, id = id}
         end
       end
     end
+    for _, match in ipairs(ranked) do
+      if match.executable then match.executable = alternatives[match.entry.label].name == match.entry.routine end
+    end
     table.sort(ranked, function(a, b)
+      if (a.executable == true) ~= (b.executable == true) then return a.executable == true end
       if a.score ~= b.score then return a.score > b.score end
-      if (a.entry.routine ~= nil) ~= (b.entry.routine ~= nil) then return a.entry.routine ~= nil end
       if a.entry.hits ~= b.entry.hits then return a.entry.hits > b.entry.hits end
       return a.id < b.id
     end)
@@ -1226,7 +1252,7 @@ pcall(magi.register_context_provider, {
       local entry = match.entry
       if not included[entry.label] then
         local suggestion = entry.label
-        if entry.routine then
+        if match.executable then
           local ok, r = pcall(load_routine, entry.routine)
           if ok and r and r.status == "learned-write" then
             suggestion = suggestion .. " — run_routine " .. entry.routine .. " inputs " ..
