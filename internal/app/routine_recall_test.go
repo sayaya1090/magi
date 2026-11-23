@@ -192,3 +192,52 @@ func TestRoutineSuggestsRepeatedShellFileFlow(t *testing.T) {
 		t.Fatalf("expected a path-independent file flow hint: %+v (%v)", hints, err)
 	}
 }
+
+func TestRoutineFindsLineFiltersByPurpose(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires a POSIX pipeline")
+	}
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.a.plat = platform.OS{}
+	for _, file := range []string{"a.txt", "b.txt"} {
+		r.fire("user_message", "text", "inspect files")
+		raw, _ := json.Marshal(map[string]string{"command": "git diff --no-index -- empty " + file + " | grep -E feature | grep -v obsolete"})
+		r.fire("tool_finished", "tool", "bash", "args", string(raw), "ok", "true", "order_known", "true")
+	}
+	query := "변경 내역에서 원하는 줄만 추려줘"
+	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: query})
+	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, "lines to exclude") {
+		t.Fatalf("purpose hint: %+v (%v)", hints, err)
+	}
+	for _, q := range []string{"파일을 추려줘", "커밋을 보여줘"} {
+		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: q})
+		if err != nil || len(hints) != 0 {
+			t.Fatalf("unexpected hint for %q: %+v (%v)", q, hints, err)
+		}
+	}
+	out, _, failed := r.call(t, "lookup", "routine_catalog", map[string]any{"query": query}, "allow")
+	var entries []struct {
+		Name   string
+		Inputs struct {
+			Properties map[string]struct{ Description string }
+		}
+	}
+	if failed || json.Unmarshal([]byte(out), &entries) != nil || len(entries) != 1 {
+		t.Fatal(out)
+	}
+	args := map[string]string{"s1_arg1": "diff", "s1_arg4": "empty", "s1_arg5": "fresh"}
+	for key, prop := range entries[0].Inputs.Properties {
+		switch prop.Description {
+		case "extended regular expression for lines to keep":
+			args[key] = "feature"
+		case "basic regular expression for lines to exclude":
+			args[key] = "obsolete"
+		}
+	}
+	r.file(t, "empty", "")
+	r.file(t, "fresh", "feature new\nfeature obsolete\nunrelated\n")
+	out, _, failed = r.call(t, "apply", "run_routine", map[string]any{"name": entries[0].Name, "args": args}, "allow")
+	if failed || !strings.Contains(out, "+feature new") || strings.Contains(out, "feature obsolete") || strings.Contains(out, "unrelated") {
+		t.Fatal(out)
+	}
+}

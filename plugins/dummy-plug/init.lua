@@ -537,6 +537,7 @@ local function save_routine(name, description, d, source, dry, draft, automatic,
     or automatic and "Supply arguments from the current request and use only when each step can run with those arguments. The first run asks for approval.\n"
     or draft and "A draft: review it, resolve each TODO, then delete the status line; run_routine refuses a draft.\n"
     or "Review it before its first run; that run asks for approval.\n"
+  if d.purpose then note = d.purpose .. "\n" .. note end
   local body = table.concat(fm, "\n") .. "\n" .. note .. "\n```lua\n" .. d.script .. "\n```\n"
   local ok, err = magi.write_file(path, body)
   if not ok then return nil, "could not write " .. path .. ": " .. tostring(err) end
@@ -716,6 +717,39 @@ local function request_overlap(entry, terms, request_id)
   return count
 end
 
+-- Generated synopses retain option spelling and slot identity, including in older receipts.
+-- Describe only stages whose complete operands are known.
+local function pipeline_filter(description)
+  local source, operands, include, exclude = description:match(
+    "^Shell pipeline: ([%w_%.%-]+) ([^|]+) | grep %-E {(s%d+_arg%d+)} | grep %-v {(s%d+_arg%d+)}$")
+  if not source then return end
+  local roles = {}
+  roles[include] = "extended regular expression for lines to keep"
+  if include == exclude then
+    roles[include] = "shared pattern for both the include and exclude filters"
+  else
+    roles[exclude] = "basic regular expression for lines to exclude"
+  end
+  if source == "git" then
+    local path = operands:match(" %-%- {(s%d+_arg%d+)}$")
+    if path and not roles[path] then roles[path] = "operand after Git's -- separator" end
+  end
+  return {source=source, roles=roles, purpose="Filter " .. source ..
+    " output: keep lines matching the include regex, then remove lines matching the exclude pattern."}
+end
+
+local function filter_intent(prompt, source)
+  local words = " " .. prompt:lower():gsub("[^%w_.%-]+", " ") .. " "
+  local named = words:find(" " .. source:lower() .. " ", 1, true)
+  if source == "git" then
+    named = named or prompt:find("변경 내역", 1, true) or prompt:find("변경 이력", 1, true)
+      or prompt:find("커밋", 1, true) or words:find(" commit ", 1, true) or words:find(" commits ", 1, true)
+  end
+  return named and (prompt:find("추려", 1, true) or prompt:find("걸러", 1, true)
+    or prompt:find("제외", 1, true) or prompt:find("포함", 1, true) or words:find(" filter ", 1, true)
+    or words:find(" exclude ", 1, true) or words:find(" excluding ", 1, true))
+end
+
 local function save_shell_chain(dependency)
   if magi.platform() == "windows" then return end
   local id = magi.sha256("shell chain\n" .. magi.workdir() .. "\n" .. dependency.key ..
@@ -763,7 +797,12 @@ local command = ]] .. table.concat(commands, " .. " .. string.format("%q", join)
 local out, err = call_tool("bash", {command=command})
 if out == nil then error(tostring(err)) end
 print(out)]]
-  local d = { script = script, tools = {"bash"}, inputs = magi.json_encode{
+  local description = (pipeline and "Shell pipeline: " or "Conditional shell workflow: ") .. table.concat(synopsis, join)
+  local filter = pipeline_filter(description)
+  if filter then
+    for key, role in pairs(filter.roles) do props[key].description = role end
+  end
+  local d = { purpose = filter and filter.purpose, script = script, tools = {"bash"}, inputs = magi.json_encode{
     type = "object", properties = props, required = required } }
   local dry, passed = dry_check(script, magi.json_encode(fixture), d.tools, {{tool="bash"}},
     {step1={command=table.concat(example, join)}})
@@ -771,7 +810,7 @@ print(out)]]
     magi.log("[routine] shell workflow dry check: " .. dry)
     return
   end
-  local path, _, digest = save_routine(name, (pipeline and "Shell pipeline: " or "Conditional shell workflow: ") .. table.concat(synopsis, join), d,
+  local path, _, digest = save_routine(name, description, d,
     "repeated shell graph " .. dependency.key, dry .. " (synthetic arguments)", false, false, true)
   if path then
     magi.store_set("routine_learned_write:" .. id, {digest=digest, workspace=magi.workdir()})
@@ -1231,8 +1270,15 @@ magi.register_tool{
             if not text:find(word, 1, true) then matches = false; break end
           end
         end
-        if matches or associated[name] then
-          routines[#routines + 1] = { name = name, description = r.description, tools = r.tools, inputs = r.inputs, status = r.status }
+        local filter = r.status == "learned-write" and pipeline_filter(r.description)
+        if filter then
+          for key, role in pairs(filter.roles) do
+            local prop = (r.inputs.properties or {})[key]
+            if prop then prop.description = role end
+          end
+        end
+        if matches or associated[name] or (filter and filter_intent(query, filter.source)) then
+          routines[#routines + 1] = { name = name, description = filter and (filter.purpose .. " " .. r.description) or r.description, tools = r.tools, inputs = r.inputs, status = r.status }
           if #routines == 30 then break end
         end
       end
@@ -1391,6 +1437,11 @@ pcall(magi.register_context_provider, {
         end
         local overlap = request_overlap(entry, terms, request_id)
         local runnable_overlap = request_overlap(entry.runnable_requests, terms, request_id)
+        local source = entry.label:match("^(%S+) | grep | grep$")
+        if not matches and entry.routine and source and filter_intent(prompt, source) then
+          local ok, r = pcall(load_routine, entry.routine)
+          matches = ok and r and r.status == "learned-write" and pipeline_filter(r.description) ~= nil
+        end
         if matches or overlap >= 2 or runnable_overlap >= 2 then
           local executable = entry.routine and (matches or runnable_overlap >= 2)
           if executable then
@@ -1429,7 +1480,11 @@ pcall(magi.register_context_provider, {
           if ok and r and r.status == "learned-write" then
             if not note_name then note_name, note_description = entry.routine, entry.label end
             local arguments = {}
-            for _, key in ipairs(r.inputs.required or {}) do arguments[key] = "<current value>" end
+            local filter = pipeline_filter(r.description)
+            for _, key in ipairs(r.inputs.required or {}) do
+              arguments[key] = "<" .. (filter and filter.roles[key] or "current value") .. ">"
+            end
+            if filter then suggestion = suggestion .. " — " .. filter.purpose end
             suggestion = suggestion .. " — run_routine " .. entry.routine .. " inputs " ..
               r.description:gsub("^Conditional shell workflow: ", ""):gsub("^Shell pipeline: ", "") ..
               ". Call run_routine with " .. magi.json_encode({name = entry.routine, args = arguments}) ..
