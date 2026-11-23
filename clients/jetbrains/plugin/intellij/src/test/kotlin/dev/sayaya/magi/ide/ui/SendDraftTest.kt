@@ -8,7 +8,9 @@ import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Daemon
+import dev.sayaya.magi.ide.usecase.Rows
 import dev.sayaya.magi.ide.usecase.SendDrafts
+import dev.sayaya.magi.ide.usecase.Who
 import javax.swing.JTextArea
 
 /** Calls the real Enter handler; the connection boundary controls when its work and reply run. */
@@ -66,7 +68,7 @@ class SendDraftTest : BasePlatformTestCase() {
 
     // A plugin's slash command (/routine-draft …) used to reach the model as an ordinary prompt: the
     // window had no path to the daemon's plugin commands. A first word the daemon lists as a command
-    // runs it instead; its refusal or what it logged is shown on the line above the input.
+    // runs it instead. Refusals appear above the input and successful output appears in the transcript.
     private fun commands(h: Harness, run: Response) {
         h.replyOf = { r ->
             when (r.method) {
@@ -88,17 +90,20 @@ class SendDraftTest : BasePlatformTestCase() {
         assertTrue(h.seen.none { it.method == "submit" || it.method == "steer" })
         assertTrue(noticeText(h), noticeText(h).contains("call #8 has no verified sequential order"))
     }
-    fun testAPluginCommandsLogIsShownAndTheInputCleared() = check { h ->
-        commands(h, Response(ok = true, out = "[dummy-plug] [routine] adopted v2"))
+    fun testAPluginCommandAddsACompatibilityTranscriptRowAndClearsTheInput() = check { h ->
+        val output = "[dummy-plug] [routine] adopted v2"
+        commands(h, Response(ok = true, out = output, commandNoted = false))
         h.submit("/routine-draft x"); h.finish()
         assertEquals("", h.input.text)
-        assertTrue(noticeText(h), noticeText(h).contains("[routine] adopted v2"))
+        val row = h.field<Rows>("shaper").list().single { it.text == output }
+        assertEquals(Who.System, row.who)
+        assertFalse(noticeText(h).contains(output))
     }
     // While a turn runs a plugin command is refused before anything is sent, as the TUI refuses it
     // (the daemon refuses it too; this is the window not asking).
     fun testAPluginCommandIsRefusedWhileATurnRuns() = check { h ->
         commands(h, Response(ok = true, out = "ran"))
-        val rows = h.field<dev.sayaya.magi.ide.usecase.Rows>("shaper")
+        val rows = h.field<Rows>("shaper")
         rows.feed(dev.sayaya.magi.ide.model.LogEvent(seq = 1, type = "prompt.submitted",
             data = kotlinx.serialization.json.Json.parseToJsonElement("""{"messageId":"m1","parts":[{"kind":"text","text":"go"}]}""") as kotlinx.serialization.json.JsonObject))
         assertTrue("precondition: a turn is open", rows.open)
