@@ -235,6 +235,7 @@ type ToolObservation struct {
 	ParallelBatch string
 	ParallelSize  int
 	OrderKnown    bool
+	Background    bool // this result acknowledges launch; the work may still be running
 }
 
 type toolDispatchKey struct{}
@@ -843,7 +844,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// An observer that asks hears which tool finished, with what arguments, and whether it
 	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
 	// tool no meaning here; an extension decides what matters to it.
-	observation := ToolObservation{CallID: tc.CallID}
+	observation := ToolObservation{CallID: tc.CallID, Background: res.Background}
 	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
 		observation.ParallelBatch = dispatch.parallelBatch
 		observation.ParallelSize = dispatch.parallelSize

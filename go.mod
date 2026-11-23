@@ -21,6 +21,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.30.0
+	mvdan.cc/sh/v3 v3.13.1
 )
 
 require (

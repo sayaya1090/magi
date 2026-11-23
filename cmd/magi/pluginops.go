@@ -300,7 +300,7 @@ func (o *pluginObserver) ToolFinishedWithDispatch(sid, tool, args string, ok boo
 		h.FireEventWith("tool_finished", map[string]string{
 			"session": sid, "tool": tool, "args": args, "ok": done,
 			"call_id": dispatch.CallID, "parallel_batch": dispatch.ParallelBatch, "order_known": strconv.FormatBool(dispatch.OrderKnown),
-			"parallel_size": strconv.Itoa(dispatch.ParallelSize),
+			"parallel_size": strconv.Itoa(dispatch.ParallelSize), "background": strconv.FormatBool(dispatch.Background),
 		})
 	}
 }

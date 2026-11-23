@@ -62,6 +62,7 @@ func installBridge(p *plugin) {
 	scriptFeatures.RawSetString("explore_request_limit", lua.LTrue)
 	L.SetField(t, "script_features", scriptFeatures)
 	L.SetField(t, "approve", L.NewFunction(p.bridgeApprove))
+	L.SetField(t, "shell_shape", L.NewFunction(bridgeShellShape))
 	L.SetField(t, "sha256", L.NewFunction(func(L *lua.LState) int {
 		sum := sha256.Sum256([]byte(L.CheckString(1)))
 		L.Push(lua.LString(hex.EncodeToString(sum[:])))
@@ -703,7 +704,7 @@ var knownEvents = map[string]bool{
 	"user_message":      true, // {session=, text=} — a genuine user prompt was submitted
 	"turn_finished":     true, // {session=, text=} — a top-level turn ended (text = final assistant answer)
 	"context_compacted": true, // {session=, summary=} — conversation context was compacted into a summary
-	"tool_finished":     true, // {session, tool, args, ok, call_id, parallel_batch, parallel_size, order_known}
+	"tool_finished":     true, // {session, tool, args, ok, call_id, parallel_batch, parallel_size, order_known, background}
 	"idle":              true, // {idle_seconds=} — no user prompt and no turn in flight for the idle period (default 30m), once per quiet period
 }
 
