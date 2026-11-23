@@ -437,6 +437,42 @@ The `automatic-routine-catalog` context provider runs before the first model cal
 
 For example, after `cat FILE | sort | uniq -c` recurs while counting lines in several files, a follow-up asking for the count in a new file can retrieve the saved pipeline. The suggestion includes the input key `s1_arg1` and a call example. The model supplies the new path. A recognized follow-up can help find the routine even when the request omits the command names.
 
+#### Implementing the same flow in another project
+
+Start with a workspace-scoped store and a trace per conversation. The host assigns a unique call ID at dispatch. A completion event carries the session, tool, arguments, success, known-order flag, parallel group ID and size, and background flag. Use the arguments to derive fingerprints and input relationships at observation time. Persist the derived values. Keep a bounded history by session and workspace. Magi keeps up to 300 calls per trace, 500 routine shapes, and 200 shell dependency entries per workspace.
+
+Wire the events and the model entry point in this order. These names describe responsibilities and can be implemented with ordinary functions in another host.
+
+```text
+on user_message:       advance session turn and hash request terms
+before model call:     find saved candidates from the current request
+                       if no direct match, check recent completed shell turns
+                       pass the suggestion and argument schema to the model
+on tool_finished:      record the outcome and compare writing windows and shell shapes
+on turn_finished:      compare reader stretches and complete parallel dispatches
+                       save one observation per shell layout for this turn
+on repeat confirmed:   build a parameterized script and dry-check the expected calls
+                       save the definition and index it for future requests
+```
+
+To reproduce the shell case, parse the command without executing it. Keep the executable order, operators, option names and operand slots. Number equivalent operands by their first occurrence within the chain. For example, `mkdir -p DIR && touch FILE && test -f FILE` becomes `mkdir -p {1} && touch {2} && test -f {2}`. Changing the last operand to a different file gives `{3}`. Count the two layouts independently. When the same runnable layout appears in two distinct calls, dry-check it with placeholder inputs, save its definition and record its file digest as the receipt. Reuse a shell parser that understands quoting and nested syntax.
+
+**Runnable shell templates save automatically as `learned-write`.** The read-only tool restriction applies to `auto-review`. A graph with enough evidence for a hint but without a supported runnable template can still appear as advice. Magi generates a runnable shell template for supported POSIX pipelines and AND-lists of 3–8 stages, subject to its dry check and save cap. The receipt binds the automatically saved file to its workspace and digest. Execution still passes through the ordinary Bash tool and permission policy.
+
+#### Reproducing the tests
+
+The Go tests use a temporary workspace and plug-in store. `routineRig.fire` sends a plug-in event and drains observer work before the next assertion. This lets tests drive discovery directly with fixtures, then call the context provider or execute the saved routine through the real tool entry point. A model is unnecessary for these checks.
+
+| What to reproduce | Test |
+| --- | --- |
+| Two complete parallel reader batches in one turn produce one saved definition. Partial and failed batches contribute no observations. | [TestAParallelReaderRoutineIsSavedWithinOneTurn](../internal/app/routine_discovery_test.go) |
+| A conditional shell chain saves automatically, then uses the current inputs and Bash permission policy. A change in operand sharing produces a distinct layout. | [TestRoutineLearnsAndExecutesAConditionalWorkspaceTask and TestRoutineRemembersAlternatingInputDependencies](../internal/app/routine_discovery_test.go) |
+| The catalog finds a matching routine beyond the first 30 names. | [TestRoutineCatalogSearchesPastItsFirstThirtyEntries](../internal/app/routine_recall_test.go) |
+| Four independent turns can trigger a follow-up suggestion. Repeated observations inside one turn, unrelated prompts and another session do not qualify. Repeated lookup posts only one harness notification. | [TestRoutineSuggestsARepeatedWorkflowForARelatedFollowup](../internal/app/routine_recall_test.go) |
+| A saved pipeline accepts a new filename, including spaces and an apostrophe, and returns the expected counts through the normal Bash permission path. | [TestRoutineReplaysAPipelineWithTheNewRequestsFile](../internal/app/routine_recall_test.go) |
+
+Run the routine and plug-in regression tests with `go test ./internal/app -run 'Routine|DummyPlug' -count=1`. For a chronological replay on real session data, query for suggestions before feeding each turn's tool completions, and include turns without shell calls. Count suggestions and compare them with the exact layouts observed later in the turn. This measures retrieval on past behavior. To measure actual adoption, send the same request and tool set to a model with and without the suggestion, then check the selected tool, input arguments and output.
+
 ### Proposed design for routine improvement notes
 
 The active routine file carries a short improvement section after the Lua block. Record the
