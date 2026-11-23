@@ -69,7 +69,8 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.waitForSelector("body[side=shut]")
                 page.locator("#agentview #workcol #fileview").count() shouldBe 1
                 page.locator("#agentview #workcol #cardtabs").count() shouldBe 1
-                page.locator("#sideToggle .gearic").count() shouldBe 1
+                page.locator("#sideToggle .swapic").count() shouldBe 1
+                page.locator("#sideToggle .gearic").count() shouldBe 0
                 val edge = "(() => { const a = document.getElementById('agentview').getBoundingClientRect();" +
                     " const r = id => document.getElementById(id).getBoundingClientRect();" +
                     " return JSON.stringify({ right: Math.round(a.right)," +

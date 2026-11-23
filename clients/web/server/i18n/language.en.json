@@ -667,5 +667,7 @@
   "retention.since": "Observed since {date}",
   "retention.protected": "In use by an active task",
   "retention.applications": "Successful verification runs: {count}",
-  "retention.last_applied": "Last verified {date}"
+  "retention.last_applied": "Last verified {date}",
+  "tab.row": "Conversation tabs",
+  "tab.chat": "Chat"
 }

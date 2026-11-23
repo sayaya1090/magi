@@ -208,6 +208,19 @@ public class CompanionStore implements CompanionSource.Listener {
 
     private void emitPast() { pastOf.next(pastData); }
 
+    /**
+     * 우측 탭 줄(2026-11-23)이 읽는 것: 이 대화의 서브에이전트와 대화 목록(제목). 자식을 보는
+     * 중에는 서브에이전트를 다시 묻지 않는다 — 그 아이의 행은 자식 층위가 이미 읽는다([subMeta]).
+     */
+    public void tabsData(Consumer<Object> kids, Consumer<Object> hist) {
+        if (ctx == null) return;
+        // 탭 줄은 원래 대화의 것이다 — 자식을 보고 있어도 sub 를 비운 문맥으로 묻는다.
+        CompanionContext home = CompanionContext.of(ctx.socket, ctx.peer, ctx.type, ctx.past, ctx.ui,
+                ctx.uiStyles, ctx.workdir, null);
+        source.subagents(home, kids);
+        source.history(home, hist);
+    }
+
     // ── 자식 층위: 그 아이가 무엇이었나 + 그 아이의 전사 ────────────────────
     private final BehaviorSubject<Object> subOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
     private boolean subMetaRead = false;

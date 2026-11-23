@@ -667,5 +667,7 @@
   "retention.since": "관찰 시작 {date}",
   "retention.protected": "진행 중인 작업에서 참조 중",
   "retention.applications": "검증 실행 성공 {count}회",
-  "retention.last_applied": "최근 검증 {date}"
+  "retention.last_applied": "최근 검증 {date}",
+  "tab.row": "대화 탭",
+  "tab.chat": "채팅"
 }

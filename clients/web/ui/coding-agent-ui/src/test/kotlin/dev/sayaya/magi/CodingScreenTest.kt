@@ -1522,6 +1522,34 @@ internal class CodingScreenTest : GwtTestSpec({
         }
     }
 
+    Given("우측 자리의 탭 줄") {
+        // 사용자 결정(2026-11-23): 첫 탭은 대화 제목, 그 옆에 도는 서브에이전트가 탭으로 붙는다.
+        // 끝난 탭은 보고 있지 않으면 닫히고, 보고 있으면 남았다가 대화로 돌아오면 닫힌다.
+        When("서브에이전트 하나가 돌고 있으면") {
+            page.evaluate("""window.__magi_test_kids('[{"id":"s_run","task":"scan logs\\nmore","running":true}]')""")
+            page.evaluate("window.__magi_test_past(null)")
+            Then("첫 탭은 대화 제목이고, 그 아이가 옆에 탭으로 선다") {
+                page.waitForSelector("#tabrow button[data-tab=\"s_run\"]")
+                page.locator("#tabrow button").first().textContent() shouldBe "the open one"
+                page.locator("#tabrow button[data-tab=\"s_run\"]").textContent() shouldContain "scan logs"
+                page.locator("#tabrow button[data-tab=\"s_run\"]").textContent() shouldNotContain "more"
+            }
+            Then("그 탭을 누르면 그 아이로 가고, 끝나도 보는 동안은 남았다가 대화로 돌아오면 닫힌다") {
+                page.locator("#tabrow button[data-tab=\"s_run\"]").click()
+                page.waitForCondition { page.evaluate("window.__magi_test_went_sub") == "s_run" }
+                page.evaluate("window.__magi_test_sub('s_run')")
+                page.evaluate("""window.__magi_test_kids('[{"id":"s_run","task":"scan logs","running":false}]')""")
+                page.evaluate("window.__magi_test_sub('s_run')")
+                page.waitForSelector("#tabrow button.done[data-tab=\"s_run\"]")
+                page.locator("#tabrow button[data-tab=\"s_run\"][aria-selected=\"true\"]").count() shouldBe 1
+                page.evaluate("window.__magi_test_sub(null)")
+                page.waitForCondition { page.locator("#tabrow button[data-tab=\"s_run\"]").count() == 0 }
+                page.locator("#tabrow button").count() shouldBe 1
+                page.evaluate("window.__magi_test_kids(null)")
+            }
+        }
+    }
+
     Given("자식을 돌린 호출이 있는 대화") {
         When("툴 행이 자기가 돌린 아이를 싣고 오면") {
             page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"},{"who":"tool","tool":"dummy_plug","args":"{}","ok":true,"children":["s_kid"]},{"who":"tool","tool":"read","args":"{}","ok":true}]')""")

@@ -74,6 +74,9 @@ public class FakeCompanionSource implements CompanionSource {
             if (rows != null) rows.accept(Global.JSON.parse(
                     "[{\"who\":\"user\",\"text\":\"weigh it\"}]"));
         });
+        // 탭 줄(2026-11-23): 도는 서브에이전트 목록을 스펙이 갈아 끼운다.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_kids", (RowsHook) json ->
+                Js.asPropertyMap(DomGlobal.window).set("__magi_test_kids_json", json));
         // 재시작이 남긴 것은 셸 스트림의 recovery 프레임으로 온다 — 그 프레임을 스펙이 민다.
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_recovery", (RowsHook) json ->
                 listener.recovery(json == null ? null : Global.JSON.parse(json)));
@@ -113,6 +116,9 @@ public class FakeCompanionSource implements CompanionSource {
     @Override
     public void subagents(CompanionContext ctx, Consumer<Object> cb) {
         if (SLOW.equals(ctx.sub)) { heldList = cb; return; }
+        // 창에 적어 둔 것을 읽는다 — 인스턴스 필드면 훅을 건 인스턴스와 store 의 인스턴스가 다를 수 있다.
+        Object k = Js.asPropertyMap(DomGlobal.window).get("__magi_test_kids_json");
+        if (k != null) { cb.accept(Global.JSON.parse(String.valueOf(k))); return; }
         // 하나면 족하다 — 스펙이 재는 것은 "그 아이의 자리가 서는가"이지 목록의 길이가 아니다.
         // 하나뿐이라는 것이 <b>명단에 없는 아이</b> 갈래도 연다(다른 아이디를 대면 못 찾는다).
         cb.accept(Global.JSON.parse(

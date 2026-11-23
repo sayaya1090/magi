@@ -54,6 +54,11 @@ public class ConversationElement {
     private final Dialogs dialogs;
     private final dev.sayaya.magi.client.usecase.OpenCards open;
     private final HTMLElement root = el("section");
+    /** 우측 자리의 탭 줄(사용자 결정, 2026-11-23): 대화 제목, 그 옆에 도는 서브에이전트. */
+    private final HTMLElement tabRow = el("nav");
+    private final java.util.List<String[]> subTabs = new java.util.ArrayList<>(); // {id, label, "1"=running}
+    private Object tabKids = null;
+    private String tabTitle = null;
     private final HTMLElement log = el("div");
     private final HTMLElement past = el("section");
     private final HTMLFormElement form = Js.uncheckedCast(DomGlobal.document.createElement("form"));
@@ -99,6 +104,11 @@ public class ConversationElement {
         // 전사가 남는 높이를 받아 제 안에서 스크롤한다(운영 규칙). 사이에 상자가 하나라도 끼면
         // 그 사슬이 거기서 끊긴다 — 실측: 전사가 4190px로 자라 기둥 밖으로 흘렀다.
         root.id = "conversation";
+        tabRow.id = "tabrow";
+        tabRow.setAttribute("role", "tablist");
+        tabRow.setAttribute("aria-label", tr("tab.row"));
+        DomGlobal.setInterval(p -> refreshTabs(), 3000);
+        store.onSub(x -> paintTabs());
         // 턴바는 여기 없다 — 창을 가로지르는 줄(운영 css의 left:0;right:0 fixed)은 이 기둥이
         // 기준 상자가 되는 순간 기둥 폭짜리가 된다. 그건 창의 것이고, 켜는 사실(turn 프레임)도
         // 이미 셸에 와 있다(shell-ui TurnbarElement).
@@ -126,7 +136,7 @@ public class ConversationElement {
         recovery.className = "recoverystrip";
         recovery.setAttribute("role", "status");
         recovery.setAttribute("hidden", "");
-        root.append(recovery, planStrip, log, past);
+        root.append(tabRow, recovery, planStrip, log, past);
     }
 
     public void mount(HTMLElement frame) {
@@ -188,6 +198,7 @@ public class ConversationElement {
         String oldTarget = slashTarget();
         pastNow = ctx == null ? null : ctx.past;
         subNow = ctx == null || ctx.sub == null || ctx.sub.isEmpty() ? null : ctx.sub;
+        refreshTabs();
         if (!oldTarget.equals(slashTarget())) clearSlash();
         // 칩은 보고 있는 대화의 것이다 — 지난 일 A에서 B로 넘어가도 조준한 세션은 그대로라 여기서 갈아 끼운다.
         swapNodes();
@@ -321,6 +332,87 @@ public class ConversationElement {
         d.className = cls;
         if (text != null) d.textContent = text;
         return d;
+    }
+
+    // ── 탭 줄: JetBrains SubagentTabs · VS Code subagent_tabs.ts 와 같은 규칙 ─────────────
+    private void refreshTabs() {
+        store.tabsData(kids -> { tabKids = kids; paintTabs(); }, hist -> {
+            String t = null;
+            if (hist != null) {
+                JsArrayLike<Object> l = Js.uncheckedCast(hist);
+                for (int i = 0; i < l.getLength(); i++) {
+                    JsPropertyMap<Object> h = Js.uncheckedCast(l.getAt(i));
+                    if (Js.isTruthy(h.get("current"))) { t = str2(h, "title"); break; }
+                }
+            }
+            tabTitle = t;
+            paintTabs();
+        });
+    }
+
+    private void paintTabs() {
+        java.util.Map<String, String> running = new java.util.LinkedHashMap<>();
+        if (tabKids != null) {
+            JsArrayLike<Object> l = Js.uncheckedCast(tabKids);
+            for (int i = 0; i < l.getLength(); i++) {
+                JsPropertyMap<Object> k = Js.uncheckedCast(l.getAt(i));
+                String id = str2(k, "id");
+                if (!id.isEmpty() && Js.isTruthy(k.get("running"))) running.put(id, tabLabel(id, str2(k, "task")));
+            }
+        }
+        // 보고 있는 아이는 자식 층위가 읽은 그 행이 더 새롭다 — 끝났으면 도는 목록에서 뺀다.
+        Object meta = store.subMeta();
+        if (subNow != null && meta != null) {
+            JsPropertyMap<Object> m = Js.uncheckedCast(meta);
+            if (subNow.equals(str2(m, "id")) && !Js.isTruthy(m.get("running"))) running.remove(subNow);
+        }
+        java.util.List<String[]> next = new java.util.ArrayList<>();
+        for (String[] t : subTabs) {
+            String now = running.get(t[0]);
+            if (now != null) next.add(new String[] {t[0], now, "1"});
+            else if (t[0].equals(subNow)) next.add(new String[] {t[0], t[1], "0"});
+        }
+        for (java.util.Map.Entry<String, String> e : running.entrySet()) {
+            boolean has = false;
+            for (String[] t : next) if (t[0].equals(e.getKey())) { has = true; break; }
+            if (!has) next.add(new String[] {e.getKey(), e.getValue(), "1"});
+        }
+        subTabs.clear();
+        subTabs.addAll(next);
+        tabRow.innerHTML = "";
+        tabRow.append(tabButton("", sessionLabel(tabTitle), false, subNow == null));
+        for (String[] t : subTabs) tabRow.append(tabButton(t[0], t[1], "0".equals(t[2]), t[0].equals(subNow)));
+    }
+
+    private HTMLElement tabButton(String id, String label, boolean done, boolean selected) {
+        HTMLElement b = el("button");
+        b.setAttribute("type", "button");
+        b.setAttribute("role", "tab");
+        b.setAttribute("data-tab", id.isEmpty() ? "home" : id);
+        b.setAttribute("aria-selected", String.valueOf(selected));
+        if (done) b.className = "done";
+        b.textContent = (id.isEmpty() ? "" : done ? "⛒ " : "⛐ ") + label;
+        b.title = label;
+        b.addEventListener("click", e -> GoSharing.sub(id.isEmpty() ? null : id));
+        return b;
+    }
+
+    private static String firstLine(String s) {
+        if (s == null) return "";
+        for (String l : s.split("\n")) { String t = l.trim(); if (!t.isEmpty()) return t; }
+        return "";
+    }
+
+    private static String clip(String s, int max) { return s.length() > max ? s.substring(0, max - 1) + "…" : s; }
+
+    private static String tabLabel(String id, String task) {
+        String f = firstLine(task);
+        return f.isEmpty() ? "·" + (id.length() > 6 ? id.substring(id.length() - 6) : id) : clip(f, 24);
+    }
+
+    private static String sessionLabel(String title) {
+        String f = firstLine(title);
+        return f.isEmpty() ? tr("tab.chat") : clip(f, 32);
     }
 
     private static String str2(JsPropertyMap<Object> m, String k) {

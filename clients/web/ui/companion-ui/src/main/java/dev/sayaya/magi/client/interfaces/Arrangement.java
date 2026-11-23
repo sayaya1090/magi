@@ -107,12 +107,11 @@ public class Arrangement {
         handles.className = "panehandles";
         handle(filesToggle, "files", "M4 5h16v14H4z", "M9 9.5v9.5", "lead");
         handle(sideToggle, "side", "M4 5h16v14H4z", "M15 9.5v9.5", "");
-        // 우측 손잡이는 톱니다 — 우측 자리를 채팅 ↔ 현황판으로 바꾼다(JetBrains·VS Code 와 같은 단추).
-        sideToggle.innerHTML = "<svg class=\"gearic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
-                + "<circle cx=\"12\" cy=\"12\" r=\"3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"/>"
-                + "<circle cx=\"12\" cy=\"12\" r=\"6.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"/>"
-                + "<path d=\"M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1\""
-                + " stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\"/></svg>";
+        // 우측 손잡이는 토글이다 — 우측 자리를 채팅 ↔ 현황판으로 맞바꾼다(설정이 아니라 전환이라 톱니가
+        // 아니라 맞바꿈 화살표, 2026-11-23; JetBrains SwapPanels·VS Code arrow-swap 과 같은 뜻).
+        sideToggle.innerHTML = "<svg class=\"swapic\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" aria-hidden=\"true\">"
+                + "<path d=\"M4 8h13M13 4l4 4-4 4M20 16H7M11 12l-4 4 4 4\" fill=\"none\" stroke=\"currentColor\""
+                + " stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
         handles.append(filesToggle, sideToggle);
         // 도크가 자라고 줄 때마다 다시 잰다(여러 줄 질문·답 상자). 실측 없이는 마지막 줄이 가린다.
         observe(dock, this::measure);

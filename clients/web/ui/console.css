@@ -5543,3 +5543,10 @@ md-linear-progress.foldbar[hidden] { display: none; }
   /* 상자는 남긴다 — bay 의 폭은 main 과 같아야 한다는 계약이 있다(모자와 발). 속만 감춘다. */
   body[at="agent"][side="open"] #dock .bay { visibility:hidden; }
 }
+
+/* 우측 자리의 탭 줄(2026-11-23): 대화 제목, 그 옆에 도는 서브에이전트. */
+#tabrow { display:flex; gap:2px; overflow-x:auto; padding:0 var(--magi-sys-space-300); border-bottom:1px solid var(--md-sys-color-outline-variant, transparent); }
+#tabrow button { background:none; border:0; border-bottom:2px solid transparent; color:var(--md-sys-color-on-surface-variant, inherit); padding:6px 10px; cursor:pointer; white-space:nowrap; font:inherit; }
+#tabrow button[aria-selected="true"] { border-bottom-color:var(--md-sys-color-primary, currentColor); color:var(--md-sys-color-on-surface, inherit); }
+#tabrow button.done { font-style:italic; }
+
