@@ -352,6 +352,11 @@ func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 	if err != nil || len(files) != 2 {
 		t.Fatalf("expected just the two input layouts: %v (%v)", files, err)
 	}
+	for i := range 31 {
+		body := strings.Replace(routineFile, "read a file and say so", "prepare marker together or check independent prerequisite", 1)
+		r.file(t, filepath.Join(".magi", "skills", fmt.Sprintf("reference-%02d.md", i)), body)
+	}
+
 	for _, scenario := range []struct{ request, want string }{
 		{"prepare marker together", "test -f {s2_arg1}"},
 		{"check independent prerequisite", "test -f {s3_arg2}"},
@@ -377,7 +382,7 @@ func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 		}
 		catalog, _, failed := r.call(t, "find-"+fields[1], "routine_catalog", map[string]any{"query": scenario.request}, "allow")
 		var results []struct{ Name string }
-		if failed || json.Unmarshal([]byte(catalog), &results) != nil || len(results) != 1 || results[0].Name != fields[1] {
+		if failed || json.Unmarshal([]byte(catalog), &results) != nil || len(results) != 30 || results[0].Name != fields[1] {
 			t.Fatalf("catalog selected the wrong input layout for %q: %s", scenario.request, catalog)
 		}
 		inputs := map[string]string{"s1_arg2": "current", "s2_arg1": "current/marker"}
@@ -403,6 +408,17 @@ func TestRoutineCatalogSearchesPastItsFirstThirtyEntries(t *testing.T) {
 		if failed || !strings.Contains(out, "z-last") || strings.Contains(out, "sample-00") {
 			t.Fatalf("catalog query %q failed: %s", query, out)
 		}
+	}
+	// Every alphabetically earlier description mentions "unique"; an exact
+	// name must still be reachable within the output limit.
+	for i := range 31 {
+		r.file(t, filepath.Join(".magi", "skills", fmt.Sprintf("sample-%02d.md", i)), strings.Replace(routineFile, "read a file and say so", "List unique records", 1))
+	}
+	r.file(t, filepath.Join(".magi", "skills", "unique.md"), routineFile)
+	out, _, failed := r.call(t, "lookup-exact", "routine_catalog", map[string]any{"query": "UNIQUE"}, "allow")
+	var results []struct{ Name string }
+	if failed || json.Unmarshal([]byte(out), &results) != nil || len(results) != 30 || results[0].Name != "unique" {
+		t.Fatalf("exact routine name lost among description matches: %s", out)
 	}
 }
 

@@ -1112,18 +1112,31 @@ magi.register_tool{
       if next(terms) then
         local graphs = stored("routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20))
         for _, entry in pairs(graphs.entries or {}) do
-          if entry.routine and request_overlap(entry.runnable_requests, terms, request_id) >= 2 then
-            associated[entry.routine] = true
+          local score = request_overlap(entry.runnable_requests, terms, request_id)
+          if entry.routine and score >= 2 then
+            associated[entry.routine] = score
           end
         end
         for id, entry in pairs(stored("routine_shapes")) do
-          if entry.write_saved and request_overlap(entry, terms, request_id) >= 2 then associated["write-" .. id] = true end
+          local score = request_overlap(entry, terms, request_id)
+          if entry.write_saved and score >= 2 then associated["write-" .. id] = score end
         end
       end
     end
     local routines = {}
     local lifecycle = stored(lifecycle_key())
-    for _, name in ipairs(routine_names()) do
+    local names = routine_names()
+    if #words > 0 then
+      local exact = #words == 1 and words[1]
+      table.sort(names, function(a, b)
+        local left, right = a:lower() == exact, b:lower() == exact
+        if left ~= right then return left end
+        local sa, sb = associated[a] or 0, associated[b] or 0
+        if sa ~= sb then return sa > sb end
+        return a < b
+      end)
+    end
+    for _, name in ipairs(names) do
       local ok, r = pcall(load_routine, name)
       if ok and r and r.status ~= "draft" and not lifecycle_state(lifecycle[name], r) then
         local matches = true
