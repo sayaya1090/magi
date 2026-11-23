@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
@@ -35,6 +36,23 @@ func analyzeUsageLine(u pluginlua.AnalyzeUsage) string {
 		status = "failed"
 	}
 	elapsed := (time.Duration(u.Metrics.ElapsedMS) * time.Millisecond).Round(time.Millisecond)
-	return fmt.Sprintf("magi: analyze usage plugin=%s label=%s input=%s output=%s cached_tokens=%s elapsed=%s status=%s",
+	line := fmt.Sprintf("magi: analyze usage plugin=%s label=%s input=%s output=%s cached_tokens=%s elapsed=%s status=%s",
 		u.Plugin, label, input, output, cached, elapsed, status)
+	if u.Err != nil {
+		// WHY it failed, on the same line. The plugin's own message about the failure goes through
+		// pluginLogf, which keeps nothing without MAGI_DEBUG, so "failed" was all the log ever said
+		// (Engram reflection failed 5 times in a row on 2026-11-23 with no reason on disk).
+		line += " reason=" + strconv.Quote(analyzeReason(u.Err.Error()))
+	}
+	return line
+}
+
+// analyzeReason folds an error onto one line and bounds it: a backend may answer a page of HTML.
+func analyzeReason(s string) string {
+	const max = 200
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
 }
