@@ -31,13 +31,15 @@ func bridgeShellShape(L *lua.LState) int {
 		L.Push(lua.LNil)
 		L.Push(lua.LNil)
 		L.Push(edges)
-		return 3
+		L.Push(pipelineObservations(L, file))
+		return 4
 	}
 	sum := sha256.Sum256([]byte(strings.Join(shape.tokens, "\x00")))
 	L.Push(lua.LString(hex.EncodeToString(sum[:])))
 	L.Push(lua.LString(strings.Join(shape.labels, " ")))
 	L.Push(edges)
-	return 3
+	L.Push(pipelineObservations(L, file))
+	return 4
 }
 
 // Each supported binary subtree is a small dependency graph. Its enclosing
@@ -155,9 +157,9 @@ func shellStages(L *lua.LState, stmt *syntax.Stmt, op syntax.BinCmdOperator, sta
 		stage.RawSetString("name", lua.LString(cmd.Args[0].Lit()))
 		slots := L.NewTable()
 		options := true
-		for _, arg := range cmd.Args[1:] {
+		for i, arg := range cmd.Args[1:] {
 			word := shellOperandLiteral(arg)
-			if options && (word == "--" || shellOption.MatchString(word)) {
+			if options && (word == "--" || shellOption.MatchString(word) || i == 0 && len(cmd.Args) > 2 && shellName.MatchString(word) && strings.HasPrefix(shellOperandLiteral(cmd.Args[2]), "-")) {
 				slots.Append(lua.LString(word))
 				options = word != "--"
 			} else {
@@ -327,14 +329,14 @@ func (s *shellShape) statement(stmt *syntax.Stmt, depth int) bool {
 		s.tokens = append(s.tokens, "command", name)
 		s.labels = append(s.labels, name)
 		if len(cmd.Args) > 2 {
-			word, next := cmd.Args[1].Lit(), cmd.Args[2].Lit()
+			word, next := shellOperandLiteral(cmd.Args[1]), shellOperandLiteral(cmd.Args[2])
 			if shellName.MatchString(word) && strings.HasPrefix(next, "-") {
 				s.tokens = append(s.tokens, "leading word", word)
 			}
 		}
 		options := true
 		for _, arg := range cmd.Args[1:] {
-			word := arg.Lit()
+			word := shellOperandLiteral(arg)
 			option, _, assigned := strings.Cut(word, "=")
 			switch {
 			case options && word == "--":

@@ -170,6 +170,7 @@ const defaultIdleAfter = 30 * time.Minute
 const inflightStale = 6 * time.Hour
 
 type firedEvent struct {
+	done    chan struct{}
 	name    string
 	payload map[string]string
 }
@@ -317,6 +318,21 @@ func (h *Host) Has(name string) bool {
 // immediately and one background worker runs the handlers in order; when the
 // queue is full the event is dropped (observation is best-effort).
 func (h *Host) FireEventWith(event string, payload map[string]string) {
+	h.enqueueObservation(event, payload, nil)
+}
+
+// FireBeforeNextStep gives mid-turn observers a bounded opportunity to publish a hint.
+// Slow observers remain queued and never hold up a tool indefinitely.
+func (h *Host) FireBeforeNextStep(event string, payload map[string]string) {
+	done := make(chan struct{})
+	h.enqueueObservation(event, payload, done)
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func (h *Host) enqueueObservation(event string, payload map[string]string, done chan struct{}) {
 	h.noteActivity(event, payload)
 	h.evOnce.Do(func() {
 		h.evQueue = make(chan firedEvent, 128)
@@ -331,15 +347,21 @@ func (h *Host) FireEventWith(event string, payload map[string]string) {
 				for _, p := range plugins {
 					p.fireWith(ev.name, ev.payload)
 				}
+				if ev.done != nil {
+					close(ev.done)
+				}
 				h.evBusy.Done()
 			}
 		}()
 	})
 	h.evBusy.Add(1)
 	select {
-	case h.evQueue <- firedEvent{name: event, payload: payload}:
+	case h.evQueue <- firedEvent{name: event, payload: payload, done: done}:
 	default:
 		h.evBusy.Done()
+		if done != nil {
+			close(done)
+		}
 		h.logf("plugin events: queue full — dropped " + event)
 	}
 }

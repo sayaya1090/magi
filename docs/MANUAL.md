@@ -1329,6 +1329,7 @@ reporting work it never did.
 |---|---|---|
 | `recall_memory` | pull saved team memories/skills — and **wiki pages** (a title match fetches the page, with its editor, tier and staleness) — from the shared experience store by keyword | — |
 | `remember` | contribute a lesson to shared memory, or — with `page` — write/update a canonical **wiki page in place** (team-wide by default; `summary` says what changed) | — |
+| `judge` | With dummy-plug loaded, answer a bounded question using the supplied choices or JSON schema. A single choice needs no model request. | plug-in tool |
 | `skill` | load a named skill's body to follow it | — |
 | `search_sessions` | search **this workspace's earlier sessions** by keyword — chats from other days, with the matching turns restorable verbatim | — |
 

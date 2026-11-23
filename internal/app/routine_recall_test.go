@@ -225,7 +225,7 @@ func TestRoutineFindsLineFiltersByPurpose(t *testing.T) {
 	if failed || json.Unmarshal([]byte(out), &entries) != nil || len(entries) != 1 {
 		t.Fatal(out)
 	}
-	args := map[string]string{"s1_arg1": "diff", "s1_arg4": "empty", "s1_arg5": "fresh"}
+	args := map[string]string{"s1_arg4": "empty", "s1_arg5": "fresh"}
 	for key, prop := range entries[0].Inputs.Properties {
 		switch prop.Description {
 		case "extended regular expression for lines to keep":

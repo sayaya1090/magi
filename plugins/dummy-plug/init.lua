@@ -275,7 +275,7 @@ local function load_routine(name)
       end
       local canon = script .. "\n\0inputs\0" .. magi.json_encode(inputs) .. "\0tools\0" .. table.concat(tools, ",")
       return { name = name, path = path, description = fm.description or "", tools = tools, inputs = inputs,
-        script = script, fingerprint = magi.sha256(canon), file_sha256 = magi.sha256(text), status = fm.status }
+        script = script, fingerprint = magi.sha256(canon), file_sha256 = magi.sha256(text), source = fm.source, status = fm.status }
     end
   end
   return nil, "no routine named " .. name .. " (looked in " .. table.concat(routine_paths(name), ", ") .. ")"
@@ -660,8 +660,8 @@ local function shell_pattern(args)
   local command = body.command
   local exact = magi.sha256(command)
   if magi.shell_shape then
-    local digest, label, dependencies = magi.shell_shape(command)
-    return digest or exact, label, dependencies
+    local digest, label, dependencies, pipelines = magi.shell_shape(command)
+    return digest or exact, label, dependencies, pipelines
   end
   -- Split literal pipelines and lists. Continuations and shell expansions keep
   -- their exact fingerprint.
@@ -721,14 +721,15 @@ end
 -- Describe only stages whose complete operands are known.
 local function pipeline_filter(description)
   local source, operands, include, exclude = description:match(
-    "^Shell pipeline: ([%w_%.%-]+) ([^|]+) | grep %-E {(s%d+_arg%d+)} | grep %-v {(s%d+_arg%d+)}$")
+    "^Shell pipeline: ([%w_%.%-]+) ([^|]+) | grep %-E (%S+) | grep %-v (%S+)$")
   if not source then return end
   local roles = {}
-  roles[include] = "extended regular expression for lines to keep"
-  if include == exclude then
-    roles[include] = "shared pattern for both the include and exclude filters"
-  else
-    roles[exclude] = "basic regular expression for lines to exclude"
+  include = include:match("^{(s%d+_arg%d+)}$")
+  exclude = exclude:match("^{(s%d+_arg%d+)}$")
+  if include then roles[include] = "extended regular expression for lines to keep" end
+  if exclude then
+    roles[exclude] = include == exclude and "shared pattern for both the include and exclude filters"
+      or "basic regular expression for lines to exclude"
   end
   if source == "git" then
     local path = operands:match(" %-%- {(s%d+_arg%d+)}$")
@@ -815,6 +816,212 @@ print(out)]]
   if path then
     magi.store_set("routine_learned_write:" .. id, {digest=digest, workspace=magi.workdir()})
     return name
+  end
+end
+
+-- Only a literal -- in the first stage establishes the variable-width boundary.
+-- The stored layout contains command syntax and input positions, never observed paths.
+local function pipeline_slot(value, index, stage)
+  if type(value) ~= "string" then return {arg=true} end
+  local prefix = value:match("^(%-[%a]*)%d[%d%-]*$")
+  if prefix then return {numeric=prefix} end
+  if value:match("^%-%-?[%a][%w%-]*=?$") or value == "--" or
+      (index == 2 and value:match("^[%a_][%w_.%-]*$") and type(stage[3]) == "string" and stage[3]:sub(1,1) == "-") then
+    return {word=value}
+  end
+  -- A punctuation-only regex may become fixed after independent observations.
+  if #value <= 64 and value:match("^[%[%]%^%$%+%*%.%-%?%(%)|\\]+$") then
+    return {arg=true, pattern=value}
+  end
+  return {arg=true}
+end
+
+local function pipeline_layout(row)
+  local core, tail, syntax, patterns, width = {}, {}, {}, {}, 0
+  for i, stage in ipairs(row) do
+    local layout = {stage[1]}
+    local separated = false
+    for j=2,#stage do
+      if separated then
+        width = width + 1
+      else
+        local slot = pipeline_slot(stage[j], j, stage)
+        local key = "s" .. i .. "_arg" .. (j-1)
+        if i <= 3 and slot.pattern then patterns[key] = slot.pattern end
+        slot.pattern = nil
+        layout[#layout+1] = slot
+        if i == 1 and stage[j] == "--" then separated = true end
+      end
+    end
+    if i == 1 then layout[#layout+1] = {items=true} end
+    if i <= 3 then
+      core[#core+1] = layout
+      syntax[#syntax+1] = stage[1]
+    else tail[#tail+1] = layout end
+  end
+  return core, tail, patterns, width, table.concat(syntax," | ")
+end
+
+local PIPELINE_SCRIPT = [[
+local function quote(v)
+  if type(v) ~= "string" or v:find("%z") then error("literal argument required") end
+  return "'" .. v:gsub("'", "'\\''") .. "'"
+end
+local function argument(slot, v)
+  if slot.word then return quote(slot.word) end
+  if type(v) ~= "string" then error("missing pipeline operand") end
+  if slot.numeric then
+    if v:sub(1,#slot.numeric) ~= slot.numeric or not v:sub(#slot.numeric+1):match("^%d[%d%-]*$") then error("invalid numeric option") end
+  elseif v:sub(1,1) == "-" then error("expected an operand, got an option") end
+  return quote(v)
+end
+local function array(value, minimum, maximum)
+  if type(value) ~= "table" or #value < minimum or #value > maximum then return false end
+  for k in pairs(value) do
+    if type(k) ~= "number" or k ~= math.floor(k) or k < 1 or k > #value then return false end
+  end
+  return true
+end
+local commands = {}
+for i,stage in ipairs(spec.core) do
+  local words = {quote(stage[1])}
+  for j=2,#stage do
+    local slot = stage[j]
+    if slot.items then
+      if not array(input.items,1,32) then error("expected 1 to 32 operands after --") end
+      for _,v in ipairs(input.items) do words[#words+1] = quote(v) end
+    else
+      words[#words+1] = argument(slot,input["s"..i.."_arg"..(j-1)])
+    end
+  end
+  commands[#commands+1] = table.concat(words," ")
+end
+if input.tail and not array(input.tail,0,5) then error("expected an array of pipeline stages") end
+if input.tail and #input.tail > 0 then
+  local found = false
+  for _,form in ipairs(spec.tails) do
+    local rendered, fits = {}, #form == #input.tail
+    for i,stage in ipairs(form) do
+      local argv = input.tail[i]
+      if not array(argv,#stage,#stage) or argv[1] ~= stage[1] then fits=false; break end
+      local words = {quote(stage[1])}
+      for j=2,#stage do
+        if stage[j].word and stage[j].word ~= argv[j] then fits=false; break end
+        local ok, word = pcall(argument,stage[j],argv[j])
+        if not ok then fits=false; break end
+        words[#words+1] = word
+      end
+      rendered[i] = table.concat(words," ")
+    end
+    if fits then for _,v in ipairs(rendered) do commands[#commands+1]=v end; found=true; break end
+  end
+  if not found then error("output pipeline was not observed") end
+end
+local out,err=call_tool("bash",{command=table.concat(commands," | ")})
+if not out then error(tostring(err)) end
+print(out)]]
+
+local function save_pipeline_family(id, core, evidence)
+  local name = "write-" .. id
+  local count = 0
+  for _, n in ipairs(routine_names()) do if n:match("^write%-%x+$") then count=count+1 end end
+  if count >= 100 then return end
+  local props = {items={type="array",items={type="string"},description="Current operands after --, in order"},
+    tail={type="array",description="Optional previously observed output pipeline, each stage a literal argv array"}}
+  local required, sample = {"items"}, {items={"one","two"}}
+  local expected, synopsis = {}, {}
+  for i,stage in ipairs(core) do
+    local words = {stage[1]}
+    for j=2,#stage do
+      local slot, key = stage[j], "s"..i.."_arg"..(j-1)
+      if evidence.patterns[key] then slot.word=evidence.patterns[key] end
+      if slot.items then
+        words[#words+1],words[#words+2]="one","two"
+      elseif slot.word then words[#words+1]=slot.word
+      else
+        props[key]={type="string",description="Operand "..(j-1).." for "..stage[1]}
+        required[#required+1]=key
+        sample[key]=slot.numeric and (slot.numeric.."1") or key
+        words[#words+1]=sample[key]
+      end
+    end
+    local summary = {stage[1]}
+    for j=2,#stage do
+      local slot, key = stage[j], "s"..i.."_arg"..(j-1)
+      summary[#summary+1] = slot.items and "{items...}" or slot.word or ("{"..key.."}")
+      if props[key] and stage[1]=="grep" and j==3 then
+        if stage[2].word=="-E" then props[key].description="Extended regex for lines to keep" end
+        if stage[2].word=="-v" then props[key].description="Basic regex for lines to exclude" end
+      end
+    end
+    synopsis[#synopsis+1] = table.concat(summary," ")
+    for k,v in ipairs(words) do words[k]="'"..v:gsub("'","'\\''").."'" end
+    expected[#expected+1]=table.concat(words," ")
+  end
+  local script="local spec=json_decode("..string.format("%q",magi.json_encode({core=core,tails=evidence.tails}))..")\n"..PIPELINE_SCRIPT
+  local d={script=script,tools={"bash"},inputs=magi.json_encode({type="object",properties=props,required=required})}
+  local dry,passed=dry_check(script,magi.json_encode(sample),d.tools,{{tool="bash"}},{step1={command=table.concat(expected," | ")}})
+  if not passed then return end
+  local path,_,digest=save_routine(name,"Shell pipeline: "..table.concat(synopsis," | "),d,
+    "repeated variable-width pipeline "..id,dry,false,false,true)
+  if path then
+    magi.store_set("routine_learned_write:"..id,{digest=digest,workspace=magi.workdir()})
+    return name
+  end
+end
+
+local function observe_pipeline_families(rows, ev, trace)
+  if not rows or #rows == 0 or magi.platform()=="windows" then return end
+  local store_key="routine_pipeline_families:"..magi.sha256(magi.workdir())
+  local state=stored(store_key)
+  local occurrence=ev.session..":"..(ev.call_id ~= "" and ev.call_id or tostring(trace.next))
+  local candidates={}
+  local changed=false
+  for _,row in ipairs(rows) do
+    local core,tail,patterns,width,label=pipeline_layout(row)
+    local source=magi.sha256(magi.json_encode(core[1]))
+    if #core == 1 then
+      for _,e in pairs(state) do
+        if e.source == source and e.name then candidates[e.name]=e.label end
+      end
+    else
+      local id=magi.sha256("variable pipeline v1\n"..magi.workdir().."\n"..magi.json_encode(core)):sub(1,20)
+      local e=state[id]
+      if not e then
+        local n=0
+        for _ in pairs(state) do n=n+1 end
+        if n < 200 then e={first=occurrence,width=width,patterns=patterns,tails={},source=source,label=label}; state[id]=e end
+      end
+      if e and not e.name then
+        changed=true
+        for key,v in pairs(e.patterns) do
+          if patterns[key] ~= v then e.patterns[key] = nil end
+        end
+        if width ~= e.width then e.varied=true end
+        if #tail>0 and #e.tails<8 then
+          local seen=false
+          for _,form in ipairs(e.tails) do if magi.json_encode(form)==magi.json_encode(tail) then seen=true end end
+          if not seen then e.tails[#e.tails+1]=tail end
+        end
+        if not e.name and e.varied and e.first~=occurrence then e.name=save_pipeline_family(id,core,e) end
+      end
+      if e and e.name then
+        local compatible=true
+        for key,v in pairs(e.patterns) do if patterns[key]~=v then compatible=false end end
+        if compatible then candidates[e.name]=label end
+      end
+    end
+  end
+  if changed then magi.store_set(store_key,state) end
+  local name,label=next(candidates)
+  if name and not next(candidates,name) and not trace.pipeline_hint then
+    local ok,r=pcall(load_routine,name)
+    if ok and r and not lifecycle_state(stored(lifecycle_key())[name],r) then
+      local remark="[routine] "..label.." recurred. If the next operation needs the same stages, run_routine "..
+        name.." accepts current inputs "..table.concat(r.inputs.required,", ")..". "..r.description..". items lists the operands after --. Use tail only for an observed output pipeline."
+      local sent, notified = pcall(magi.notify,ev.session,remark)
+      if sent and notified then trace.pipeline_hint=true end
+    end
   end
 end
 
@@ -1169,6 +1376,7 @@ magi.on("user_message", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
   local t = load_trace(ev.session)
   t.turn = t.turn + 1
+  t.pipeline_hint = nil
   t.file_loop = nil
   t.shell_layouts = nil
   t.request_terms, t.request_id = request_terms(ev.text)
@@ -1191,7 +1399,9 @@ magi.on("tool_finished", function(ev)
   observe_file_loop(t, ev, file_digest)
   if ev.tool == "bash" and ev.ok == "true" and ev.background ~= "true" then
     t.shell_layouts = t.shell_layouts or {}
-    pattern, verb, dependencies = shell_pattern(ev.args)
+    local pipelines
+    pattern, verb, dependencies, pipelines = shell_pattern(ev.args)
+    observe_pipeline_families(pipelines, ev, t)
     runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern)
   end
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
@@ -1603,6 +1813,18 @@ magi.register_tool{
     local learned_key = r.status == "learned-write" and r.name:match("^write%-(%x+)$")
     local learned = learned_key and stored("routine_learned_write:" .. learned_key)
     local generated = learned and learned.workspace == magi.workdir() and learned.digest == r.file_sha256
+    local learned_graph = generated and r.source and r.source:match("^repeated shell graph (%x+)$")
+    if learned_graph then
+      local _, dry_error, calls = magi.run_script(src, {dry=true,tools=r.tools})
+      local matched = false
+      if not dry_error and calls and #calls == 1 and calls[1].tool == "bash" then
+        local _, _, graphs = shell_pattern(calls[1].args)
+        for _, graph in ipairs(graphs or {}) do
+          if graph.key == learned_graph and graph.chain then matched = true end
+        end
+      end
+      if not matched then return "arguments change the observed shell command structure; nothing ran", true end
+    end
     local scope_changed = approval_scopes and (not prev or prev.reader_scope_version ~= 2 or prev.workspace ~= magi.workdir()
       or not covers_reader_scopes(prev.reader_scopes, approval_scopes))
     if not generated and (not prev or prev.fingerprint ~= r.fingerprint or scope_changed) then

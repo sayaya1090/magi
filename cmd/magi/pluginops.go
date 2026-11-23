@@ -297,7 +297,11 @@ func (o *pluginObserver) ToolFinishedWithDispatch(sid, tool, args string, ok boo
 		if ok {
 			done = "true"
 		}
-		h.FireEventWith("tool_finished", map[string]string{
+		fire := h.FireEventWith
+		if ok && tool == "bash" && !dispatch.Background && strings.Contains(args, "--") {
+			fire = h.FireBeforeNextStep
+		}
+		fire("tool_finished", map[string]string{
 			"session": sid, "tool": tool, "args": args, "ok": done,
 			"call_id": dispatch.CallID, "parallel_batch": dispatch.ParallelBatch, "order_known": strconv.FormatBool(dispatch.OrderKnown),
 			"glob_items": dispatch.GlobItems, "parallel_size": strconv.Itoa(dispatch.ParallelSize), "background": strconv.FormatBool(dispatch.Background),
