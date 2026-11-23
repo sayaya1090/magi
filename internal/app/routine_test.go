@@ -56,7 +56,7 @@ func newRoutineRigAnalyzing(t *testing.T, dataDir, routine string, cfg Config, a
 	s := a.sessionInfo(ctx, sid)
 	logs := &logBuf{}
 	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), DataDir: dataDir,
-		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add, Analyzer: an, ContextReg: a})
+		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add, Analyzer: an, ContextReg: a, Notify: a.PluginNote})
 	if _, err := host.Load(ctx, filepath.Join("..", "..", "plugins", "dummy-plug")); err != nil {
 		t.Fatal(err)
 	}

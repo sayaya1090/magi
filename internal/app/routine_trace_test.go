@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -328,6 +329,79 @@ func TestRoutineLearnsAndExecutesAConditionalWorkspaceTask(t *testing.T) {
 	}
 }
 
+func TestRoutineSuggestsARepeatedWorkflowForARelatedFollowup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires POSIX shell routines")
+	}
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	suggested := func(prompt string, sid session.SessionID) bool {
+		t.Helper()
+		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
+			SessionID: sid, Workdir: r.s.Workdir, Prompt: prompt,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, h := range hints {
+			if strings.Contains(h.Text, "— run_routine") {
+				return true
+			}
+		}
+		return false
+	}
+	for i := range 4 {
+		r.fire("user_message", "text", fmt.Sprintf("collection%d", i))
+		for j := range 4 {
+			raw := fmt.Sprintf(`{"command":"cat input%d.txt | sort | uniq -c"}`, j)
+			r.fire("tool_finished", "tool", "bash", "args", raw, "ok", "true", "call_id", fmt.Sprintf("%d-%d", i, j))
+		}
+		r.fire("turn_finished")
+		r.fire("turn_finished")
+		if got := suggested("continue", r.sid); got != (i == 3) {
+			t.Fatalf("after %d independent requests, got suggestion %t", i+1, got)
+		}
+	}
+	countNotes := func() int {
+		events, err := r.a.store.Read(context.Background(), r.sid, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		for _, e := range events {
+			if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorSystem && strings.Contains(string(e.Data), "[routine] Suggested:") {
+				count++
+			}
+		}
+		return count
+	}
+	if countNotes() != 0 {
+		t.Fatal("context preview posted a chat note")
+	}
+	r.fire("user_message", "text", "continue")
+	if !suggested("continue", r.sid) || !suggested("process collection2 please", r.sid) ||
+		suggested("redesign navigation", r.sid) || suggested("continue", session.SessionID("another")) {
+		t.Fatal("follow-up context did not respect the request and session")
+	}
+	if !suggested("continue", r.sid) || countNotes() != 1 {
+		t.Fatal("expected one chat note for repeated context reads")
+	}
+	r.fire("tool_finished", "tool", "bash", "args", `{"command":"pwd"}`, "ok", "true", "call_id", "different")
+	r.fire("turn_finished")
+	r.fire("user_message", "text", "collection4")
+	r.fire("tool_finished", "tool", "bash", "args", `{"command":"cat other.txt | sort | uniq -c"}`, "ok", "true", "call_id", "return")
+	r.fire("turn_finished")
+	if suggested("continue", r.sid) {
+		t.Fatal("a single return to a workflow after a different shell task triggered a suggestion")
+	}
+	for range 8 {
+		r.fire("turn_finished")
+		r.fire("user_message", "text", "redesign navigation")
+	}
+	if suggested("continue", r.sid) {
+		t.Fatal("stale routine suggested after eight unrelated requests")
+	}
+}
+
 func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires POSIX shell workflows")
@@ -459,6 +533,15 @@ func TestRoutineReplaysAPipelineWithTheNewRequestsFile(t *testing.T) {
 	m := regexp.MustCompile(`run_routine (write-[0-9a-f]+) inputs cat \{s1_arg1\} \| sort \| uniq -c`).FindStringSubmatch(hints[0].Text)
 	if len(m) != 2 {
 		t.Fatal(hints[0].Text)
+	}
+	_, example, ok := strings.Cut(hints[0].Text, "Call run_routine with ")
+	var invocation struct {
+		Name string
+		Args map[string]string
+	}
+	if !ok || json.NewDecoder(strings.NewReader(example)).Decode(&invocation) != nil ||
+		invocation.Name != m[1] || invocation.Args["s1_arg1"] != "<current value>" {
+		t.Fatalf("missing runnable argument example: %s", hints[0].Text)
 	}
 	file := "today's records.txt"
 	r.file(t, file, "pear\napple\npear\n")

@@ -800,6 +800,11 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
       observe_request(entry, trace.request_terms, session .. ":" .. trace.turn, trace.request_id)
     end
     if layout then
+      if #trace.shell_layouts < 32 then
+        local observed = false
+        for _, seen in ipairs(trace.shell_layouts) do if seen == id then observed = true; break end end
+        if not observed then trace.shell_layouts[#trace.shell_layouts + 1] = id end
+      end
       local requests = entry.runnable_requests or {}
       if requests.last ~= occurrence then
         requests.hits, requests.last = (requests.hits or 0) + 1, occurrence
@@ -1060,7 +1065,9 @@ magi.on("user_message", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
   local t = load_trace(ev.session)
   t.turn = t.turn + 1
+  t.shell_layouts = nil
   t.request_terms, t.request_id = request_terms(ev.text)
+  t.suggestion_prompt = type(ev.text) == "string" and magi.sha256(magi.workdir() .. "\0suggestion\0" .. ev.text) or nil
   magi.store_set(trace_key(ev.session), t)
   magi.store_set("routine_last_session", ev.session)
 end)
@@ -1077,6 +1084,7 @@ magi.on("tool_finished", function(ev)
     end
   end
   if ev.tool == "bash" and ev.ok == "true" and ev.background ~= "true" then
+    t.shell_layouts = t.shell_layouts or {}
     pattern, verb, dependencies = shell_pattern(ev.args)
     runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern)
   end
@@ -1091,7 +1099,17 @@ magi.on("tool_finished", function(ev)
 end)
 
 magi.on("turn_finished", function(ev)
-  if type(ev) == "table" and type(ev.session) == "string" and ev.session ~= "" then note_repeats(ev.session) end
+  if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
+  note_repeats(ev.session)
+  local t = load_trace(ev.session)
+  if t.shell_layouts then
+    local history = t.recent_shell_turns or {}
+    if history[#history] and history[#history].turn == t.turn then table.remove(history) end
+    history[#history + 1] = {turn = t.turn, layouts = t.shell_layouts, terms = t.request_terms}
+    if #history > 8 then table.remove(history, 1) end
+    t.recent_shell_turns = history
+    magi.store_set(trace_key(ev.session), t)
+  end
 end)
 
 local ROUTINE_USE = [[
@@ -1167,6 +1185,58 @@ local function reader_intents(prompt)
   }
 end
 
+-- A short follow-up often names no commands. Count independent completed
+-- requests, so repeating a command many times in one turn gets just one vote.
+local followups = {continue=true, next=true, ["ㄱㅖㅅㅗㄱ"]=true, ["계속"]=true, ["ㄱㄱ"]=true, ["진행해"]=true, ["다시"]=true, ["다음"]=true}
+local function recurring_shell(trace, entries, terms, prompt)
+  local followup = followups[prompt:match("^%s*(.-)[%.!%?%s]*$")]
+  local history = trace.recent_shell_turns or {}
+  local counts, latest, related, recent_pair = {}, {}, {}, {}
+  if #history < 4 or trace.turn - history[#history].turn > 2 then return end
+  for _, id in ipairs(history[#history - 1].layouts) do recent_pair[id] = true end
+  local oldest = trace.turn - 16
+  for _, past in ipairs(history) do
+    if past.turn >= oldest then
+      local shared = followup
+      if not shared then
+        for term in pairs(past.terms or {}) do if terms[term] then shared = true; break end end
+      end
+      for _, id in ipairs(past.layouts) do
+        counts[id] = (counts[id] or 0) + 1
+        latest[id] = past.turn
+        related[id] = related[id] or shared
+      end
+    end
+  end
+  local best, tied
+  for id, count in pairs(counts) do
+    local entry = entries[id]
+    if count >= 4 and recent_pair[id] and latest[id] == history[#history].turn and related[id] and entry and entry.routine then
+      if not best or count > best.score then
+        best = {entry = entry, id = id, score = count, executable = true}
+        tied = false
+      elseif count == best.score then
+        tied = true
+      end
+    end
+  end
+  if not tied then return best end
+end
+
+-- The context provider can also be queried by tooling. Only announce a
+-- suggestion for the user prompt that actually opened this session turn.
+local function note_suggestion(query, name, description)
+  if not query.session_id or query.session_id == "" or type(magi.notify) ~= "function" then return end
+  local t = load_trace(query.session_id)
+  if t.suggestion_prompt ~= magi.sha256(magi.workdir() .. "\0suggestion\0" .. query.prompt) then return end
+  if t.suggested_name == name or t.suggested_turn == t.turn then return end
+  local ok, sent = pcall(magi.notify, query.session_id, "[routine] Suggested: " .. description .. " (" .. name .. ")")
+  if ok and sent then
+    t.suggested_name, t.suggested_turn = name, t.turn
+    magi.store_set(trace_key(query.session_id), t)
+  end
+end
+
 -- Older hosts and stripped-down rigs may omit context providers. The catalog tool remains available.
 pcall(magi.register_context_provider, {
   name = "automatic-routine-catalog",
@@ -1184,6 +1254,7 @@ pcall(magi.register_context_provider, {
     local terms, request_id = request_terms(query.prompt)
     local shapes = stored("routine_shapes")
     local candidates = {}
+    local note_name, note_description
     for _, name in ipairs(routine_names()) do
       if name:match("^auto%-t%x+$") then
         local ok, r = pcall(load_routine, name)
@@ -1231,7 +1302,10 @@ pcall(magi.register_context_provider, {
           candidates[#candidates + 1] = "For a request to " .. writer ..
             " and read back the same file, use one run_routine tool call. Set name to " .. match.name ..
             " and args.step1 to the arguments for " .. writer .. ". The result includes the file read back from disk."
-          if match.overlap >= 2 and intents.read then break end
+          if match.overlap >= 2 and intents.read then
+            note_name, note_description = match.name, match.description
+            break
+          end
         else
           candidates[#candidates + 1] = match.name .. ": " .. match.description
         end
@@ -1268,6 +1342,10 @@ pcall(magi.register_context_provider, {
     for _, match in ipairs(ranked) do
       if match.executable then match.executable = alternatives[match.entry.label].name == match.entry.routine end
     end
+    if #ranked == 0 and #candidates == 0 and query.session_id and dependencies.entries then
+      local recent = recurring_shell(load_trace(query.session_id), dependencies.entries, terms, prompt)
+      if recent then ranked[1] = recent end
+    end
     table.sort(ranked, function(a, b)
       if (a.executable == true) ~= (b.executable == true) then return a.executable == true end
       if a.score ~= b.score then return a.score > b.score end
@@ -1282,9 +1360,13 @@ pcall(magi.register_context_provider, {
         if match.executable then
           local ok, r = pcall(load_routine, entry.routine)
           if ok and r and r.status == "learned-write" then
+            if not note_name then note_name, note_description = entry.routine, entry.label end
+            local arguments = {}
+            for _, key in ipairs(r.inputs.required or {}) do arguments[key] = "<current value>" end
             suggestion = suggestion .. " — run_routine " .. entry.routine .. " inputs " ..
               r.description:gsub("^Conditional shell workflow: ", ""):gsub("^Shell pipeline: ", "") ..
-              " (use this routine for a matching request; supply the brace names in args)"
+              ". Call run_routine with " .. magi.json_encode({name = entry.routine, args = arguments}) ..
+              ". For a matching task, replace each placeholder with its current literal argument."
           end
         end
         included[entry.label] = true
@@ -1293,6 +1375,7 @@ pcall(magi.register_context_provider, {
       end
     end
     if #candidates == 0 and #hints == 0 then return {} end
+    if note_name then note_suggestion(query, note_name, note_description) end
     local advice = #hints > 0 and ("\nRepeated shell structures (syntax observations, with branch execution unverified):\n" ..
       table.concat(hints, "\n")) or ""
     return { { source = "automatic-routine-catalog", text =
