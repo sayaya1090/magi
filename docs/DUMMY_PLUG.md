@@ -203,6 +203,14 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 `TestDummyPlugKeepsGraphInFinalReportAfterStage`, `TestDummyPlugKeepsFailedAndSkippedGraphTasksAfterStage`,
 `TestDummyPlugKeepsSeparateGraphsWithReusedTaskIDs`.
 
+### Asking a bounded question
+
+The dummy plug registers `judge` as a regular tool. Call it directly with `{"question":"Classify this supplied ticket: duplicate invoice","choices":["billing","support","unknown"]}` or use `local answer, err = judge(question, choices)` inside the script. A saved routine declares `judge` in its tools. The standalone result contains an `answer` field. The Lua helper unwraps it for branching. For extraction pass a JSON Schema object as the second argument, for example `{type="boolean"}` for yes/no. A model reply must be one JSON value satisfying the contract. Handle errors before branching.
+
+A single choice costs zero model calls. Other valid requests send only the question and contract to the sidecar once. The production OpenAI-compatible request caps output at 128 tokens for choices and 512 for schemas, subject to any lower provider ceiling. The input limit is 16 KiB including the contract. Set `judge_model` in `[plugins.dummy-plug]` to select a small model. Otherwise the sidecar uses its default model. A script allows up to four live judge calls. Dry runs use fixtures. Sidecar usage is reported with the `judge` label.
+
+When saving a finished script as a routine, magi parses its Lua source and marks lines where a local `explore` result is immediately compared with a string literal in an `if`. These are migration hints: reuse the original question when its evidence is available in the script. Searches that obtain new evidence still need their reader. This check and ordinary routine matching use zero model calls.
+
 ## 8. What it does not do
 
 - **Only permission asks reach the conversation.** A permission ask raised inside the child is shown
@@ -224,9 +232,7 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
   The child's log is short, so this is cheap now; it was the whole conversation's log before
   `0d483d59d`.
 - **The plugin's lock is held while a script runs.** Other tools of the same plugin wait for it.
-- **No judgment of its own.** A script has no call that asks a model a short question and gets a
-  bounded answer back. It can reach a model only through `explore`, which runs a whole read-only
-  subagent (several model steps and a summary report) for one question. See §10.
+
 
 ## 9. Designs it replaced
 
@@ -240,19 +246,12 @@ that reuse a task ID, or a task named like a step (`s1`), stay apart. Tests:
 
 ## 10. Planned, not built
 
-1. **Output-dependent stretches.** A trace keeps calls, not results, so a drafted stretch whose later
-   call uses a value from an earlier result is saved as a draft with a TODO (§12); the person writes
-   that data flow. The calls of a parallel batch are traced in the order they finished.
+1. **Other output dependencies.** The automatic reader loop in §12 recognizes glob results passed to successive reads. For other dependencies a trace draft leaves a TODO for the step that needs an earlier result.
 2. **Candidates from Engram.** Repeated sequences are counted by the dummy plug itself (§12), not by
    Engram; `propose_experience` writes to the store at once with no review step, so it is not used.
 3. **`ask_user` questions reach the conversation.** Permission asks are already relayed (§8);
    `ask_user` questions are not yet.
-4. **Judgment.** A `judge(question, choices or schema)` block asks a small dedicated model at chosen
-   points (classify, pick, extract, yes/no). The answer is limited to the choices or schema so the
-   script can branch on it. Each judgment is a model step in the child's log, counted against a
-   limit, and its cost is added to the outer call the way a spawned child reports `Metrics`. This is
-   what separates the dummy plug from a plain script: the flow stays code, and the small decisions
-   inside it are a model's.
+
 
 ## 11. Not verified
 
@@ -420,6 +419,8 @@ Discovery runs at two points. On each tool completion, the plug-in looks back at
 For shell calls, the host parser supplies a command fingerprint and dependency graphs. The plug-in counts recurrence by graph and, for runnable templates, by precise input layout. Two calls with the same commands but different argument-sharing relationships can therefore produce different routines. Graphs that qualify for a hint can still lack a runnable template. The rules above describe which simple pipelines and AND-lists can be saved as executable templates.
 
 The dry check uses synthetic inputs and verifies the expected tool calls before automatic saving. The saved definition lives at `.magi/routines/<name>/routine.md`. Discovery counts and request associations live in the plug-in store. Read-only routines use `auto-review`, and writing and runnable shell routines use `learned-write`.
+
+A specific result dependency can produce a variable-length loop. The harness matches the workspace-salted hashes of 2–64 glob results to consecutive successful path-only reads in the same order and turn. After two complete observations of different lengths, such as three files and five files, it saves one reader routine. On reuse, supply `args.search` with the current subdirectory and glob pattern. The loop reads the files returned this time. Approval covers that search and its matching files. Partial, reordered and parallel reads do not establish this dependency.
 
 #### Explicit search and automatic recall
 

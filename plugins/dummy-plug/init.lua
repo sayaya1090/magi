@@ -160,11 +160,14 @@ local function track()
   return globals, on_call, finish
 end
 
+magi.register_judge()
+
 local USE = [[
 Run one Lua script that calls tools for you, as a subagent no model drives: only what it print()s comes back.
 
 In the script:
 - call_tool(name, args) runs a tool and returns its text, or nil and the reason. Open tools: read, grep, glob, list, explore, recall_memory, bash, edit, multiedit, write. Each call follows the conversation's permission mode, as the model's own call would: one the person must approve is asked in the conversation and the script waits for the answer; a refusal comes back as nil and the reason. glob and list return a JSON array: json_decode it.
+- judge(question, choices_or_schema) returns a validated value or nil and an error. Use Lua for exact rules. Only send the evidence needed for an ambiguous decision.
 - call_all({ {name, args}, ... }) runs several calls at the same time (at most 8 at once) and returns { {ok=true, text=} or {ok=false, error=} } in the order asked; one failure does not stop the rest.
 - call_graph({{id="a", tool="glob", args={pattern="docs/*.md"}}, {id="b", tool="read", after={"a"}, args={path="README.md"}}, ...}) runs tasks once their named predecessors succeed. Declare predecessors first. Independent safe calls overlap; a task with multiple predecessors joins their branches. The call returns output by task ID, or stops the script after a failure and skips its dependents.
 - plan({name, ...}) lists the steps ahead (call it first): the person watching sees them all from the start, each updated in place. stage(name) opens the next step (a planned one by that name, or a new one). call_all fills the open step (or opens one) with its tool and k/n.
@@ -192,11 +195,11 @@ local AUTO_READERS = { read = true, grep = true, glob = true, list = true }
 local AUTO_ROUTINE_LIMIT = 20
 -- The tools a routine may call: this plugin's call_tools. Those that may write run one at a time
 -- (run_script serial), and each still passes its own permission gate.
-local CALLABLE = { read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true,
+local CALLABLE = { judge = true, read = true, grep = true, glob = true, list = true, explore = true, recall_memory = true,
   bash = true, edit = true, multiedit = true, write = true }
 local WRITES = { bash = true, edit = true, multiedit = true, write = true }
 -- Calls that carry a judgement (or are routines themselves): a stretch to repeat ends at them.
-local JUDGE = { ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
+local JUDGE = { judge = true, ask_user = true, council = true, todowrite = true, route_interjection = true, remember = true,
   label = true, hand_off = true, rate_handoff = true, skill = true, diagram = true, recall_context = true,
   run_routine = true, routine_catalog = true, dummy_plug = true, routine_improve = true, routine_history = true, routine_autoimprove = true, routine_compare_writes = true, routine_compare_explore = true, routine_trace_path = true, routine_task_families = true, routine_compare_trace_policy = true }
 local CANDIDATE_AFTER = 3
@@ -540,7 +543,7 @@ local function save_routine(name, description, d, source, dry, draft, automatic,
   return path, nil, magi.sha256(body)
 end
 
-local function save_repeated_readers(id, calls, sequence, sid, parallel)
+local function reader_capacity()
   local active, total = 0, 0
   local state = stored(lifecycle_key())
   for _, name in ipairs(routine_names()) do
@@ -552,7 +555,11 @@ local function save_repeated_readers(id, calls, sequence, sid, parallel)
       end
     end
   end
-  if active >= AUTO_ROUTINE_LIMIT or total >= 100 then return end
+  return active < AUTO_ROUTINE_LIMIT and total < 100
+end
+
+local function save_repeated_readers(id, calls, sequence, sid, parallel)
+  if not reader_capacity() then return end
   local d = draft_from_calls(calls, true, parallel)
   if not d then return end
   local dry, passed = dry_check(d.script, magi.json_encode(d.fixtures), d.tools, calls, d.fixtures)
@@ -588,6 +595,11 @@ local function draft_script(name, script, tools, source, description)
   if #list == 0 then return nil, "that run called no tool" end
   local d = { script = script, tools = list, inputs = '{"type":"object","properties":{}}' }
   local dry = dry_check(script, "{}", list, nil)
+  local hints = magi.judge_candidates(script)
+  if #hints > 0 then
+    dry = dry .. "; possible judge at source line(s) " .. table.concat(hints, ", ") ..
+      ": reuse the existing question if its evidence is already supplied; keep explore when it needs to read files"
+  end
   local path, werr = save_routine(name, description, d, source, dry, false)
   if not path then return nil, werr end
   return path, "saved " .. path .. " — dry run " .. dry .. "; its first run asks for approval"
@@ -918,7 +930,7 @@ end
 -- failed call, or unknown order. Overlapping occurrences cannot confirm each other.
 local function learn_completed_writes(sid, trace)
   local last = trace.calls[#trace.calls]
-  if not last.ok or not last.order_known or not CALLABLE[last.tool] then return end
+  if not last.ok or not last.order_known or JUDGE[last.tool] or not CALLABLE[last.tool] then return end
   local shapes, changed = stored("routine_shapes"), false
   if last.tool == "read" and last.file_digest then
     for i = #trace.calls - 1, math.max(1, #trace.calls - 12), -1 do
@@ -937,7 +949,7 @@ local function learn_completed_writes(sid, trace)
   local calls, tokens, labels, writes = {}, {}, {}, false
   for i = #trace.calls, math.max(1, #trace.calls - 11), -1 do
     local c = trace.calls[i]
-    if c.turn ~= last.turn or not c.ok or not c.order_known or not CALLABLE[c.tool]
+    if c.turn ~= last.turn or not c.ok or not c.order_known or JUDGE[c.tool] or not CALLABLE[c.tool]
       or (c.tool == "bash" and not c.shell_pattern) then break end
     table.insert(calls, 1, c)
     table.insert(tokens, 1, c.tool .. ":" .. (c.shell_pattern or ""))
@@ -1061,10 +1073,64 @@ local function note_repeats(sid)
   end
 end
 
+-- Learn the data dependency, counting complete consumption in glob order.
+local EACH_FILE = [[local files = assert(json_decode(assert(call_tool("glob", input.search))))
+if #files > 64 then error("glob result exceeds 64 files") end
+for _, path in ipairs(files) do
+  local text = assert(call_tool("read", {path=path}))
+  print(path, text)
+end]]
+
+local function observe_file_loop(t, ev, digest)
+  local pending = t.file_loop
+  t.file_loop = nil
+  if ev.ok ~= "true" or ev.order_known ~= "true" or (ev.parallel_batch or "") ~= "" or ev.background == "true" then return end
+  if ev.tool == "glob" and (ev.glob_items or "") ~= "" then
+    local ok, items = pcall(magi.json_decode, ev.glob_items)
+    if ok and type(items) == "table" and #items >= 2 and #items <= 64 then
+      t.file_loop = {items = items, index = 1}
+    end
+    return
+  end
+  if ev.tool ~= "read" or not pending or not digest or digest ~= pending.items[pending.index] then return end
+  local ok, args = pcall(magi.json_decode, ev.args)
+  if not ok or type(args) ~= "table" then return end
+  for key in pairs(args) do if key ~= "path" then return end end
+  if pending.index < #pending.items then
+    pending.index = pending.index + 1
+    t.file_loop = pending
+    return
+  end
+  local id = "t" .. magi.sha256("glob-each-read-v1"):sub(1,8)
+  local key = "routine_loop:" .. magi.sha256(magi.workdir()) .. ":" .. id
+  local previous = stored(key)
+  if previous.saved then return end
+  if not previous.count then magi.store_set(key,{count=#pending.items}); return end
+  if previous.count == #pending.items or not reader_capacity() then return end
+  local def = {script=EACH_FILE, tools={"glob","read"}, inputs=magi.json_encode{
+    type="object", properties={search={type="object",description="glob arguments including a subdirectory path and pattern"}},required={"search"}}}
+  local _, err, replay = magi.run_script('local input={search={path="docs",pattern="*"}}\n' .. EACH_FILE,
+    {dry=true, tools=def.tools, fixtures={{tool="glob", text='["docs/a","docs/b"]'}}})
+  if err or not replay or #replay ~= 3 or replay[1].tool ~= "glob" then return end
+  for i,path in ipairs({"docs/a","docs/b"}) do
+    if replay[i+1].tool ~= "read" or magi.json_decode(replay[i+1].args).path ~= path then return end
+  end
+  local path = save_routine("auto-" .. id,"Read every file returned by glob",def,
+    "glob result consumed in order at lengths " .. previous.count .. " and " .. #pending.items,
+    "passed glob and both dependent reads",false,true)
+  if path then
+    magi.store_set(key,{saved=true})
+    local msg="[routine] saved " .. path .. "; reads follow the files matched by glob"
+    magi.log(msg)
+    pcall(magi.notify,ev.session,msg)
+  end
+end
+
 magi.on("user_message", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
   local t = load_trace(ev.session)
   t.turn = t.turn + 1
+  t.file_loop = nil
   t.shell_layouts = nil
   t.request_terms, t.request_id = request_terms(ev.text)
   t.suggestion_prompt = type(ev.text) == "string" and magi.sha256(magi.workdir() .. "\0suggestion\0" .. ev.text) or nil
@@ -1083,6 +1149,7 @@ magi.on("tool_finished", function(ev)
       file_digest = magi.sha256(magi.workdir() .. "\0" .. args.path)
     end
   end
+  observe_file_loop(t, ev, file_digest)
   if ev.tool == "bash" and ev.ok == "true" and ev.background ~= "true" then
     t.shell_layouts = t.shell_layouts or {}
     pattern, verb, dependencies = shell_pattern(ev.args)
@@ -1385,7 +1452,14 @@ pcall(magi.register_context_provider, {
 })
 
 local observe_routine_result
-local function plan_reader_scopes(r, src)
+local function plan_reader_scopes(r, src, args)
+  if r.script == EACH_FILE then
+    local search = args and args.search
+    if type(search) ~= "table" or type(search.pattern) ~= "string" then return nil, "glob pattern required" end
+    local scope, err = magi.reader_scope("glob", magi.json_encode(search))
+    if not scope then return nil, err end
+    return {scope, "read-matched:" .. scope:sub(6) .. ":" .. magi.sha256(magi.json_encode(search))}
+  end
   if type(magi.reader_scope) ~= "function" then return nil, "automatic routines require an updated host" end
   local _, err, calls = magi.run_script(src, { dry = true, tools = r.tools, timeout = 10 })
   if err or type(calls) ~= "table" or #calls == 0 then return nil, "automatic routine could not plan its file reads" end
@@ -1449,7 +1523,7 @@ magi.register_tool{
     local src = "local input = json_decode(" .. string.format("%q", magi.json_encode(a.args or {})) .. ")\n" .. r.script
     local reader_scopes
     if r.status == "auto-review" then
-      reader_scopes, bad = plan_reader_scopes(r, src)
+      reader_scopes, bad = plan_reader_scopes(r, src, a.args)
       if not reader_scopes then return bad, true end
     end
     local approval_scopes = reader_scopes
@@ -1480,6 +1554,9 @@ magi.register_tool{
       local why = prev and ("routine " .. r.name .. " changed since it was approved") or ("run routine " .. r.name .. " for the first time")
       if prev and prev.fingerprint == r.fingerprint and scope_changed then why = "approve new read scope for routine " .. r.name end
       if approval_scopes then why = why .. " within " .. table.concat(approval_scopes, ", ") end
+      if r.script == EACH_FILE then
+        why = why .. "; read each file returned by the proposed glob search"
+      end
       local ok, aerr = magi.approve{
         reason = why .. " — it may call: " .. table.concat(r.tools, ", ") .. (#writes > 0 and (" — it may WRITE with " ..
           table.concat(writes, ", ") .. "; each write still asks as usual, one at a time") or ""),
@@ -3074,7 +3151,7 @@ Compare a candidate version of a routine with its active version, and record the
 
   -- Select on development cases and the contract, then evaluate the selected candidate once.
   -- The final verdict is returned to the caller and never fed back to this generator.
-  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only and preserve its tool allowlist and input schema. Inputs are already available in the local Lua table input. Read an optional field with input.field, for example local query = input.query or "default". Use call_tool(name, args) for tool calls. It returns text on success or nil and an error on failure. Use print to return findings. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
+  local GENERATE_SYSTEM = [[You propose one improved version of a magi code-mode routine (a Lua script run by a dummy plug). Change the script only and preserve its tool allowlist and input schema. Inputs are already available in the local Lua table input. Read an optional field with input.field, for example local query = input.query or "default". Use call_tool(name, args) for tool calls. It returns text on success or nil and an error on failure. If judge is allowed, consider reusing an existing bounded question about supplied evidence; prefer a Lua rule when sufficient. Keep explore for evidence gathering. Use print to return findings. Use the development feedback from earlier rounds to address problems. Reply with exactly one line "HYPOTHESIS: <what this change should improve and why>" followed by the whole script in one ```lua block, and nothing else.]]
 
   local function generation_request(r, problem, feedback)
     return { system = GENERATE_SYSTEM, label = "routine-candidate", text =

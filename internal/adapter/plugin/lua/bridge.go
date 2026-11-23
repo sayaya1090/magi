@@ -31,6 +31,8 @@ func installBridge(p *plugin) {
 	L := p.L
 	t := L.NewTable()
 
+	L.SetField(t, "judge_candidates", L.NewFunction(bridgeJudgeCandidates))
+	L.SetField(t, "register_judge", L.NewFunction(p.bridgeRegisterJudge))
 	L.SetField(t, "register_tool", L.NewFunction(p.bridgeRegisterTool))
 	L.SetField(t, "register_mcp", L.NewFunction(p.bridgeRegisterMCP))
 	L.SetField(t, "register_context_provider", L.NewFunction(p.bridgeRegisterContextProvider))
@@ -1464,6 +1466,7 @@ func (p *plugin) analyze(L *lua.LState, measured bool) int {
 
 type analyzeRequest struct {
 	system, text, model, label string
+	maxOutputTokens            int
 }
 
 func readAnalyzeRequest(spec *lua.LTable) analyzeRequest {
@@ -1478,7 +1481,11 @@ func readAnalyzeRequest(spec *lua.LTable) analyzeRequest {
 
 func (p *plugin) runAnalysis(ctx context.Context, request analyzeRequest) (out string, metrics port.RunMetrics, err error) {
 	started := time.Now()
-	if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); ok {
+	if analyzer, ok := p.host.analyzer.(interface {
+		AnalyzeLimited(context.Context, string, string, string, int) (string, port.RunMetrics, error)
+	}); ok && request.maxOutputTokens > 0 {
+		out, metrics, err = analyzer.AnalyzeLimited(ctx, request.system, request.text, request.model, request.maxOutputTokens)
+	} else if analyzer, ok := p.host.analyzer.(MeasuredAnalyzer); ok {
 		out, metrics, err = analyzer.AnalyzeMeasured(ctx, request.system, request.text, request.model)
 	} else {
 		out, err = p.host.analyzer.Analyze(ctx, request.system, request.text, request.model)

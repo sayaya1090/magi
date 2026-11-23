@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -231,11 +232,28 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 
 // ToolObservation associates a completion with the dispatch that scheduled it.
 type ToolObservation struct {
+	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
 	CallID        string
 	ParallelBatch string
 	ParallelSize  int
 	OrderKnown    bool
 	Background    bool // this result acknowledges launch; the work may still be running
+}
+
+// The observer only needs to correlate results with later read paths.
+func observedGlobItems(workdir string, res session.ToolResult) string {
+	if res.IsError || res.Background || len(res.Content) > 65536 {
+		return ""
+	}
+	var paths []string
+	if json.Unmarshal(res.Content, &paths) != nil || len(paths) < 2 || len(paths) > 64 {
+		return ""
+	}
+	for i, path := range paths {
+		paths[i] = fmt.Sprintf("%x", sha256.Sum256([]byte(workdir+"\x00"+path)))
+	}
+	encoded, _ := json.Marshal(paths)
+	return string(encoded)
 }
 
 type toolDispatchKey struct{}
@@ -853,6 +871,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if to, ok := a.cfg.Observer.(interface {
 		ToolFinishedWithDispatch(sid, tool, args string, ok bool, dispatch ToolObservation)
 	}); ok {
+		if tc.Name == "glob" {
+			observation.GlobItems = observedGlobItems(s.Workdir, res)
+		}
 		to.ToolFinishedWithDispatch(string(sid), tc.Name, string(tc.Args), !res.IsError || res.Advisory, observation)
 	} else if to, ok := a.cfg.Observer.(interface {
 		ToolFinished(sid, tool, args string, ok bool)

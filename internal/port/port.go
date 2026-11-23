@@ -98,9 +98,10 @@ type ChatRequest struct {
 	Tools       []ToolSpec
 	// Params carries per-call sampling pins: "temperature", "top_p", "top_k". A pin outranks the
 	// configured default ([sampling]) for that field only; an unrecognised or unusable key is
-	// ignored, not an error. The output cap is NOT here — it is provider config, applied by the
-	// adapter itself.
+	// ignored, not an error. The adapter applies the output cap separately.
 	Params map[string]any
+	// MaxOutputTokens further narrows the provider ceiling for a short response.
+	MaxOutputTokens int
 }
 
 // ToolSpec describes a tool to the model (name, description, JSON schema).

@@ -2356,13 +2356,17 @@ func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string
 }
 
 func (s sidecarAnalyzer) AnalyzeMeasured(ctx context.Context, system, text, model string) (string, port.RunMetrics, error) {
+	return s.AnalyzeLimited(ctx, system, text, model, 0)
+}
+
+func (s sidecarAnalyzer) AnalyzeLimited(ctx context.Context, system, text, model string, maxTokens int) (string, port.RunMetrics, error) {
 	started := time.Now()
 	metrics := port.RunMetrics{Calls: 1}
 	if model == "" {
 		model = s.defaultModel
 	}
 	stream, err := s.llm.StreamChat(ctx, port.ChatRequest{
-		Model:  model,
+		Model: model, MaxOutputTokens: maxTokens,
 		System: system,
 		Messages: []session.Message{
 			{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: text}}},

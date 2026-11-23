@@ -208,17 +208,18 @@ func WithVision(f func(model string) bool) Option {
 // because a character-based count is approximate and being under by a few tokens costs the same
 // as being over by three hundred thousand.
 //
-// Only ever LOWERS a configured cap, and only when a window is known. With no cap configured the
-// field is still omitted entirely, which is the default and is left alone: sending a computed cap
-// where the operator asked for none would change what every backend receives, and some of them
-// behave differently with an explicit max_tokens than without one.
+// A per-request cap may narrow the configured cap. With neither set the field is omitted.
 func (c *Client) fitMaxTokens(r port.ChatRequest) int {
-	if c.maxTokens <= 0 || c.window == nil {
-		return c.maxTokens
+	cap := c.maxTokens
+	if r.MaxOutputTokens > 0 && (cap <= 0 || r.MaxOutputTokens < cap) {
+		cap = r.MaxOutputTokens
+	}
+	if cap <= 0 || c.window == nil {
+		return cap
 	}
 	window := c.window(r.Model)
 	if window <= 0 {
-		return c.maxTokens // unknown window: nothing to fit under
+		return cap // unknown window: nothing to fit under
 	}
 	room := window - c.inputTokens(r) - windowMargin
 	if room < minOutputTokens {
@@ -227,10 +228,10 @@ func (c *Client) fitMaxTokens(r port.ChatRequest) int {
 		// answer that reads as the model having nothing to say.
 		room = minOutputTokens
 	}
-	if room < c.maxTokens {
+	if room < cap {
 		return room
 	}
-	return c.maxTokens
+	return cap
 }
 
 // inputTokens is what this request costs the window: its text, plus the pictures that will ride

@@ -438,8 +438,8 @@ func ownCallTools(p *plugin) []string {
 	}
 	var own []string
 	for _, t := range p.tools {
-		if open[t.name] {
-			own = append(own, t.name)
+		if _, usesLua := t.(*luaTool); usesLua && open[t.Name()] {
+			own = append(own, t.Name())
 		}
 	}
 	return own
@@ -691,7 +691,7 @@ func (h *Host) unregister(p *plugin) {
 		return
 	}
 	for _, t := range p.tools {
-		h.sink.Unregister(t.name)
+		h.sink.Unregister(t.Name())
 	}
 }
 

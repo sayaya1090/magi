@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -65,4 +66,22 @@ func (p *plugin) bridgeReaderScope(L *lua.LState) int {
 	}
 	L.Push(lua.LString(scope))
 	return 1
+}
+
+// Only actual matches whose resolved files remain under the approved search directory
+// become readable, for the duration of this script.
+func scopedGlobFiles(workdir, dir string, content json.RawMessage) []string {
+	var paths []string
+	if len(content) > 65536 || json.Unmarshal(content, &paths) != nil || len(paths) > 64 {
+		return nil
+	}
+	var scopes []string
+	for _, path := range paths {
+		raw, _ := json.Marshal(map[string]string{"path": path})
+		scope, err := readerScope(workdir, "read", raw)
+		if err == nil && strings.HasPrefix(scope, "file:"+dir+"/") {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
 }

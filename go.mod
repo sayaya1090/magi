@@ -17,6 +17,7 @@ require (
 	github.com/go-ole/go-ole v1.3.0
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/rivo/uniseg v0.4.7
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/slack-go/slack v0.17.3
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/sys v0.50.0

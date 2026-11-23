@@ -4,4 +4,4 @@ description = "Dummy plug: runs a Lua script that calls harness tools through th
 entry = "init.lua"
 capabilities = ["tool", "call_tools", "command", "notify", "analyze", "context-provider"]
 permissions = ["fs:read", "fs:write"]
-call_tools = ["read", "grep", "glob", "list", "explore", "recall_memory", "bash", "edit", "multiedit", "write"]
+call_tools = ["judge", "read", "grep", "glob", "list", "explore", "recall_memory", "bash", "edit", "multiedit", "write"]

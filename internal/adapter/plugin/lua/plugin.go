@@ -27,7 +27,7 @@ type plugin struct {
 
 	mu       sync.Mutex
 	L        *lua.LState
-	tools    []*luaTool
+	tools    []port.Tool
 	gates    []*lua.LFunction // declaration gates (magi.register_declaration_gate)
 	commands []*luaCommand    // slash commands registered via magi.register_command
 	// capture collects magi.log lines while a command runs for RunCommand. Set and cleared under mu,

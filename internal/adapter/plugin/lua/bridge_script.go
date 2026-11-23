@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -138,16 +139,30 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 	var modelCalls, usageReports, inputTokens, outputTokens, cachedTokens int
 	var cacheReported bool
 	var exploreModel, exploreProfile string
+	var judgeCalls atomic.Int32
 	var dryMu sync.Mutex
 	var dryCalls []any
+	var matchedMu sync.Mutex
+	matchedFiles := map[string]bool{}
 	call := func(ctx context.Context, name string, args json.RawMessage) (session.ToolResult, error) {
 		if !declared[name] {
 			return session.ToolResult{}, fmt.Errorf("%s is not declared in call_tools (plugin.toml)", name)
 		}
+		var matchDir string
 		if readerScopes != nil {
 			scope, err := readerScope(readerWorkdir, name, args)
-			if err != nil || !readerScopes[scope] {
+			matchedMu.Lock()
+			allowed := readerScopes[scope] || (name == "read" && matchedFiles[scope])
+			matchedMu.Unlock()
+			if err != nil || !allowed {
 				return session.ToolResult{}, fmt.Errorf("reader call is outside the approved scope")
+			}
+			if name == "glob" {
+				dir := strings.TrimPrefix(scope, "glob:")
+				key := fmt.Sprintf("read-matched:%s:%x", dir, sha256.Sum256(args))
+				if readerScopes[key] {
+					matchDir = dir
+				}
 			}
 			ctx = port.WithBoundedFileSearch(ctx)
 		}
@@ -169,11 +184,28 @@ func (p *plugin) bridgeRunScript(L *lua.LState) int {
 			dryMu.Unlock()
 			return res, nil
 		}
+		if name == "judge" {
+			if isolated || measureExplore {
+				return session.ToolResult{}, errors.New("judge unavailable during isolated comparisons")
+			}
+			if judgeCalls.Add(1) > 4 {
+				return session.ToolResult{}, errors.New("judge call limit exceeded")
+			}
+		}
 		if name == "explore" && exploreScope != "" {
 			ctx = port.WithExploreReadScope(ctx, string(exploreScope))
 		}
 		if !measureExplore || name != "explore" {
-			return host(ctx, name, args)
+			result, err := host(ctx, name, args)
+			if matchDir != "" && err == nil && !result.IsError {
+				files := scopedGlobFiles(readerWorkdir, matchDir, result.Content)
+				matchedMu.Lock()
+				for _, file := range files {
+					matchedFiles[file] = true
+				}
+				matchedMu.Unlock()
+			}
+			return result, err
 		}
 		exploreMu.Lock()
 		if exploreCalls >= 8 {
@@ -647,6 +679,19 @@ func execScript(parent context.Context, call toolCaller, note func(string), para
 		return 1
 	}))
 
+	// Keep dispatch, permissions, fixtures and child history identical to call_tool.
+	if err := S.DoString(`function judge(question, contract)
+		local args = {question = question}
+		if type(contract) ~= "table" then return nil, "judge requires choices or schema" end
+		if contract[1] ~= nil then args.choices = contract else args.schema = contract end
+		local text, err = call_tool("judge", args)
+		if err then return nil, err end
+		local result, why = json_decode(text)
+		if type(result) ~= "table" or result.answer == nil then return nil, why or "missing judge answer" end
+		return result.answer
+	end`); err != nil {
+		return "", err
+	}
 	for name, fn := range hooks.globals {
 		S.SetGlobal(name, S.NewFunction(func(L *lua.LState) int {
 			args := make([]any, L.GetTop())

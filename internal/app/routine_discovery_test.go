@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -396,5 +397,60 @@ func TestAParallelReaderRoutineIsSavedWithinOneTurn(t *testing.T) {
 	})
 	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, "Parallel readers: grep, grep") || strings.Contains(hints[0].Text, name) {
 		t.Fatalf("expected only the matching grep routine: %+v (%v)", hints, err)
+	}
+}
+
+func TestRoutineLearnsGlobResultLoopAcrossDifferentCounts(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	observe := func(size int, full bool) {
+		r.fire("user_message", "text", "read matching files")
+		var paths []string
+		for i := range size {
+			paths = append(paths, fmt.Sprintf("old/%d.txt", i))
+		}
+		body, _ := json.Marshal(paths)
+		r.fire("tool_finished", "tool", "glob", "ok", "true", "order_known", "true", "glob_items", observedGlobItems(r.s.Workdir, session.ToolResult{Content: body}))
+		if !full {
+			paths = paths[:size-1]
+		}
+		for _, path := range paths {
+			raw, _ := json.Marshal(map[string]string{"path": path})
+			r.fire("tool_finished", "tool", "read", "args", string(raw), "order_known", "true", "ok", "true")
+		}
+		r.fire("turn_finished")
+	}
+	name := func() string {
+		files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/auto-*/routine.md"))
+		for _, f := range files {
+			n := filepath.Base(filepath.Dir(f))
+			if strings.Contains(r.skill(t, n), "Read every file returned by glob") {
+				return n
+			}
+		}
+		return ""
+	}
+	observe(3, true)
+	observe(5, false)
+	observe(3, true)
+	if name() != "" {
+		t.Fatal("partial consumption or a fixed count was treated as a variable loop")
+	}
+	observe(5, true)
+	n := name()
+	if n == "" {
+		t.Fatal("two complete observations at lengths 3 and 5 did not produce a routine")
+	}
+	r.put(t, "docs/a.txt", []byte("first"))
+	r.put(t, "docs/b.txt", []byte("second"))
+	r.put(t, "docs/c.md", []byte("excluded"))
+	args := map[string]any{"name": n, "args": map[string]any{"search": map[string]string{"path": "docs", "pattern": "*.txt"}}}
+	out, asks, failed := r.call(t, "new-size", "run_routine", args, "allow")
+	if failed || len(asks) == 0 || !strings.Contains(out, "first") || !strings.Contains(out, "second") || strings.Contains(out, "excluded") {
+		t.Fatalf("new result set: %q, %v", out, asks)
+	}
+	args["args"] = map[string]any{"search": map[string]string{"path": "docs", "pattern": "*.missing"}}
+	out, asks, failed = r.call(t, "empty-search", "run_routine", args, "allow")
+	if failed || len(asks) == 0 || strings.Contains(out, "first") || strings.Contains(out, "second") {
+		t.Fatalf("changed search with zero matches: %q, %v", out, asks)
 	}
 }
