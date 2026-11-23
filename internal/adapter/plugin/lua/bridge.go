@@ -1413,8 +1413,12 @@ func fail(L *lua.LState, msg string) int {
 
 // analyzeTimeout bounds one magi.analyze sidecar call. Generous: observer
 // plugins run analysis off the turn path (the host's event worker), so a slow
-// local model hurts only later observations, never the conversation.
-const analyzeTimeout = 2 * time.Minute
+// local model hurts only later observations, never the conversation. Sized for
+// long answers: Engram reflections wrote 10-15k output tokens at ~120 tokens/s
+// (76-110 s), and under the old 2-minute bound every longer one was cut at
+// exactly 2m0s, so the reflection inbox and the dream queue never drained
+// (2026-11-23). Six minutes holds about twice the longest one that finished.
+const analyzeTimeout = 6 * time.Minute
 
 // magi.analyze{system=, text=, model=?} → raw response text. A one-shot,
 // tool-free LLM call for observation-style plugins (lesson/skill extraction).
