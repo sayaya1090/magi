@@ -1070,6 +1070,22 @@ local function inventory_consumer(target, raw)
   return core,bindings,patterns
 end
 
+-- A previously saved variable-width routine may already implement this call.
+-- Compare its fixed patterns and bind any remaining pattern inputs explicitly.
+local function existing_inventory_family(core,patterns)
+  if #core~=3 then return end
+  local id=magi.sha256("variable pipeline v1\n"..magi.workdir().."\n"..magi.json_encode(core)):sub(1,20)
+  local family=stored("routine_pipeline_families:"..magi.sha256(magi.workdir()))[id]
+  if not family or not family.name then return end
+  local r=load_routine(family.name)
+  local receipt=stored("routine_learned_write:"..id)
+  if not r or receipt.workspace~=magi.workdir() or r.file_sha256~=receipt.digest then return end
+  for k,value in pairs(family.patterns or {}) do if patterns[k]~=value then return end end
+  local constants={}
+  for k,value in pairs(patterns) do if r.inputs.properties[k] then constants[k]=value end end
+  return r.name, constants
+end
+
 magi.on("inventory_routine",function(ev)
   if magi.platform()=="windows" then return end
   local target=magi.json_decode(ev.inventory)
@@ -1093,11 +1109,14 @@ magi.on("inventory_routine",function(ev)
       for field,hash in pairs(edge.first) do
         if magi.sha256(magi.workdir().."\0"..target.fields[field])==hash then return end
       end
-      local name="write-"..id
-      local r=load_routine(name)
-      local receipt=stored("routine_learned_write:"..id)
-      if r and receipt.workspace==magi.workdir() and receipt.digest==r.file_sha256 then edge.name=name
-      else edge.name=save_pipeline_family(id,core,{patterns=patterns,tails={}}) end
+      edge.name,edge.constants=existing_inventory_family(core,patterns)
+      if not edge.name then
+        local name="write-"..id
+        local r=load_routine(name)
+        local receipt=stored("routine_learned_write:"..id)
+        if r and receipt.workspace==magi.workdir() and receipt.digest==r.file_sha256 then edge.name=name
+        else edge.name=save_pipeline_family(id,core,{patterns=patterns,tails={}}) end
+      end
     else return end
     magi.store_set(store_key,edges)
     return
@@ -1105,10 +1124,11 @@ magi.on("inventory_routine",function(ev)
   if not edge or edge.ambiguous or not edge.name then return end
   local r=load_routine(edge.name)
   if not r then edges[target.source]=nil; magi.store_set(store_key,edges); return end
-  local receipt=stored("routine_learned_write:"..edge.id)
+  local receipt=stored("routine_learned_write:"..edge.name:sub(7))
   if receipt.workspace~=magi.workdir() or receipt.digest~=r.file_sha256 or lifecycle_state(stored(lifecycle_key())[r.name],r) then return end
   local args={items=target.items}
   for key,field in pairs(edge.bindings) do args[key]=target.fields[field] end
+  for key,value in pairs(edge.constants or {}) do args[key]=value end
   return magi.json_encode({name=r.name,args=args,expected_digest=r.file_sha256})
 end)
 

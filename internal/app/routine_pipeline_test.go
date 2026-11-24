@@ -192,12 +192,9 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 			t.Logf("provider requests=%d estimated input tokens=%d generated argument/text bytes=%d", model.calls, model.inputEstimate, model.outputBytes)
 		})
 	}
-	for _, f := range files {
-		n := filepath.Base(filepath.Dir(f))
-		if strings.Contains(r.skill(t, n), "Optional array of argv arrays") && strings.Contains(r.skill(t, n), "s2_arg2") {
-			name = n
-			break
-		}
+	after, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
+	if len(after) != len(files) {
+		t.Fatalf("saved a duplicate inventory routine: %v -> %v", files, after)
 	}
 	catalog, _, bad := r.call(t, "help", "routine_catalog", map[string]any{"query": name}, "allow")
 	if bad || !strings.Contains(catalog, "Git revision to inspect") || !strings.Contains(catalog, "without +++/---") || !strings.Contains(catalog, "unknown tail layouts") {
@@ -208,7 +205,6 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 		t.Fatal(readyOut)
 	}
 	args := invocation.Args
-	args["s2_arg2"] = "^[-+]"
 	args["tail"] = [][]string{{"grep", "-v", "^[-+]skip"}, {"cut", "-c1-180"}, {"head", "-110"}}
 	out, asks, failed := r.call(t, "held-out", "run_routine", map[string]any{"name": name, "args": args}, "allow")
 	cmd := exec.Command("sh", "-c", "git show --format= HEAD -- 'changed one' 'changed two'"+inc+" | grep -v '^[-+]skip' | cut -c1-180 | head -110")
