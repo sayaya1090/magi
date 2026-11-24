@@ -1969,9 +1969,8 @@ local function note_suggestion(query, name, description)
 end
 
 -- Older hosts and stripped-down rigs may omit context providers. The catalog tool remains available.
-pcall(magi.register_context_provider, {
-  name = "automatic-routine-catalog",
-  provide = function(query)
+do
+local function catalog_provide(query)
     if not query or query.workdir ~= magi.workdir() or type(query.prompt) ~= "string" then return {} end
     local intents = reader_intents(query.prompt)
     local prompt = query.prompt:lower()
@@ -2056,8 +2055,58 @@ pcall(magi.register_context_provider, {
     end
     if note_name then note_suggestion(query, note_name, note_description) end
     return {{source="automatic-routine-catalog",text="Use run_routine when all steps and inputs match.\n"..table.concat(candidates,"\n")}}
+end
+
+-- Every active routine, listed on every turn so the model can pick one while it plans (like the skill
+-- list). Read from disk each time, so a routine saved mid-session is listed on the next turn. Capped at
+-- 10 entries or 1.5KB, whichever comes first; idle maintenance keeps the active set inside that budget.
+local function routine_index()
+  local key = "routine_index:" .. magi.sha256(magi.workdir())
+  local idx = stored(key)
+  local life = stored(lifecycle_key())
+  local rows = {}
+  for _, name in ipairs(routine_names()) do
+    local ok, r = pcall(load_routine, name)
+    if ok and r and r.status ~= "draft" and not lifecycle_state(life[name], r) then
+      local e = type(idx[name]) == "table" and idx[name] or {}
+      if e.version ~= r.fingerprint then e = { version = r.fingerprint } end
+      idx[name] = e
+      if not e.dropped then rows[#rows + 1] = { name = name, r = r, e = e } end
+    end
+  end
+  if #rows == 0 then return nil end
+  table.sort(rows, function(a, b)
+    local x, y = a.e.adopted or 0, b.e.adopted or 0
+    if x ~= y then return x > y end
+    return a.name < b.name
+  end)
+  local head = "# Saved routines (call run_routine by name when one fits this task; routine_catalog searches every saved routine)"
+  local lines, size, shown = { head }, #head, 0
+  for _, row in ipairs(rows) do
+    local d = (row.r.description or ""):gsub("%s+", " ")
+    if #d > 100 then d = (d:sub(1, 97):gsub("[\192-\255][\128-\191]*$", "")) .. "..." end
+    local line = "- " .. row.name .. ": " .. d
+    if shown == 10 or size + 1 + #line + 80 > 1500 then break end
+    lines[#lines + 1], size, shown = line, size + 1 + #line, shown + 1
+    row.e.exposed = (row.e.exposed or 0) + 1
+  end
+  if shown < #rows then lines[#lines + 1] = "(" .. (#rows - shown) .. " more: search with routine_catalog)" end
+  magi.store_set(key, idx)
+  return table.concat(lines, "\n")
+end
+
+pcall(magi.register_context_provider, { name = "automatic-routine-catalog", provide = catalog_provide })
+-- A separate provider: the recommendation above stays quiet when nothing fits, the list is always there.
+pcall(magi.register_context_provider, {
+  name = "routine-index",
+  provide = function(query)
+    if not query or query.workdir ~= magi.workdir() then return {} end
+    local ok, text = pcall(routine_index)
+    if ok and text then return { { source = "routine-index", text = text } } end
+    return {}
   end,
 })
+end
 
 local observe_routine_result
 local function plan_reader_scopes(r, src, args)
@@ -2122,6 +2171,15 @@ magi.register_tool{
     if r.status == "draft" then
       return "routine " .. r.name .. " is a draft (status: draft in " .. r.path .. "): review it, resolve its TODOs and " ..
         "delete the status line first; nothing ran", true
+    end
+    do -- the model (or the harness) picked this routine: count it for idle index maintenance
+      local key = "routine_index:" .. magi.sha256(magi.workdir())
+      local idx = stored(key)
+      local e = type(idx[r.name]) == "table" and idx[r.name] or {}
+      if e.version ~= r.fingerprint then e = { version = r.fingerprint } end
+      e.adopted, e.dropped = (e.adopted or 0) + 1, nil
+      idx[r.name] = e
+      magi.store_set(key, idx)
     end
     local writes = {}
     for _, t in ipairs(r.tools) do
@@ -2553,6 +2611,16 @@ do
     local state = stored(key)
     if state.last_review and now - state.last_review < 3600 then return end
     state.last_review = now
+    do -- listed 20 times and never run: leave the per-turn index (still runs by name, still in routine_catalog)
+      local ikey = "routine_index:" .. magi.sha256(magi.workdir())
+      local idx, dropped = stored(ikey), false
+      for _, e in pairs(idx) do
+        if type(e) == "table" and not e.dropped and (e.exposed or 0) >= 20 and (e.adopted or 0) == 0 then
+          e.dropped, dropped = true, true
+        end
+      end
+      if dropped then magi.store_set(ikey, idx) end
+    end
     local approvals = stored("routine_approvals")
     local groups, compared, seen = {}, false, {}
     for _, name in ipairs(routine_names()) do

@@ -148,7 +148,9 @@ func TestARepeatedStretchOfTheTraceIsOfferedThroughTheSameDraftPath(t *testing.T
 	if failed || !strings.Contains(catalog, automatic) || !strings.Contains(catalog, "step2") {
 		t.Fatalf("routine is missing from model discovery: %s", catalog)
 	}
-	if len(r.a.contextProviders) != 1 {
+	// The plug-in registers the recommendation provider first ([0], quiet unless a routine fits) and the
+	// always-on routine index second (routine_index_test.go).
+	if len(r.a.contextProviders) != 2 {
 		t.Fatalf("routine context providers: %d", len(r.a.contextProviders))
 	}
 	provider := r.a.contextProviders[0]
