@@ -8,14 +8,64 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
+	luaplugin "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
+
+type reviewPlannerObserver struct {
+	recordingObserver
+	*luaplugin.Host
+}
+
+// The same provider policy in both arms: get inventory, get the diff if it
+// is missing, then finish. Count requests at the provider boundary.
+type reviewProbe struct {
+	inventory, diff                   string
+	calls, inputEstimate, outputBytes int
+	sawDiff                           bool
+}
+
+func (m *reviewProbe) StreamChat(ctx context.Context, req port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	m.calls++
+	tools, _ := json.Marshal(req.Tools)
+	m.inputEstimate += estimateTokens(req.System+string(tools), req.Messages)
+	cmd := m.inventory
+	for _, msg := range req.Messages {
+		for _, p := range msg.Parts {
+			if r := p.ToolResult; r != nil {
+				if strings.Contains(string(r.Content), "+keep second") {
+					m.sawDiff = true
+				}
+				if strings.Contains(string(r.Content), "2 files changed") {
+					cmd = m.diff
+				}
+			}
+		}
+	}
+	events := asideText("done")
+	if !m.sawDiff {
+		raw, _ := json.Marshal(map[string]string{"command": cmd})
+		events = asideCall("bash", string(raw))
+		events[0].ToolCall.CallID = fmt.Sprintf("review-%d", m.calls)
+		m.outputBytes += len(raw)
+	} else {
+		m.outputBytes += len("done")
+	}
+	ch := make(chan port.ProviderEvent, len(events))
+	for _, e := range events {
+		ch <- e
+	}
+	close(ch)
+	return ch, nil
+}
 
 // The held-out command is never fed to the learner. It needs two new paths,
 // another filter, and different numeric cut/head options.
@@ -32,38 +82,33 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 	const inc = " | grep -E '^[-+]' | grep -v '^+++\\|^---'"
 	const tail = " | grep -v '^[-+]skip' | cut -c1-170 | head -60"
 	r.fire("user_message", "text", "review the earlier change")
-	observe("first", "git show --format= $c -- a"+inc+"; git show --format= $c -- b c | grep -E '^[-+@]' | grep -v '^+++\\|^---'")
+	observe("first", "git show --format= $c -- a"+inc+" | cut -c1-180; git show --format= $c -- b c | grep -E '^[-+@]' | grep -v '^+++\\|^---'")
 	observe("second", "git show --format= earlier -- a"+inc+tail)
 	r.fire("user_message", "text", "review the other commits")
 	observe("third", "git show --format= $c -- d e f")
 	observe("fourth", "git show --format= $c -- g"+inc)
+	// Repeat both fixed-width variants and the open-subcommand pipeline.
+	for i := range 2 {
+		observe(fmt.Sprintf("fixed-one-%d", i), "git show --format= HEAD -- one"+inc+tail)
+		observe(fmt.Sprintf("fixed-three-%d", i), "git show --format= HEAD -- one two three"+inc+" | cut -c1-180")
+		observe(fmt.Sprintf("open-verb-%d", i), "git show --format='%b' HEAD | sed '/^$/d' | head -12")
+	}
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
+	for _, path := range files {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), "source: repeated shell graph") {
+			t.Fatalf("redundant fixed pipeline: %s", path)
+		}
+	}
 	events, _ := r.a.store.Read(context.Background(), r.sid, 0)
 	body, _ := json.Marshal(reconstruct(events))
-	names := regexp.MustCompile(`run_routine (write-[0-9a-f]+) accepts current inputs`).FindAllStringSubmatch(string(body), -1)
-	if len(names) != 2 || names[0][1] != names[1][1] {
-		t.Fatalf("expected one hint in each turn: %s", body)
+	if strings.Contains(string(body), "accepts current inputs") {
+		t.Fatal("redundant post-execution hint")
 	}
-	name := names[0][1]
-	// The two inventory calls have the same command structure. Only the first
-	// output contains changed files. No git show pipeline has run in this turn.
-	const inventory = `{"command":"git log --oneline old..HEAD; git show --stat --format= HEAD"}`
-	postInventory := func(id, text string) {
-		raw, _ := json.Marshal("exit 0\nHEAD abc1234 reviewed\norigin/main def1234 ahead 2\n" + text)
-		stat := observedReviewStat(json.RawMessage(inventory), session.ToolResult{Content: raw})
-		r.fire("tool_finished", "tool", "bash", "args", inventory, "ok", "true", "call_id", id, "review_stat", stat)
-	}
-	notes := func() []string {
-		evs, _ := r.a.store.Read(context.Background(), r.sid, 0)
-		var got []string
-		for _, msg := range reconstruct(evs) {
-			for _, part := range msg.Parts {
-				if strings.HasPrefix(part.Text, "[routine] Changed files found.") {
-					got = append(got, part.Text)
-				}
-			}
-		}
-		return got
-	}
+	r.a.cfg.Observer = &reviewPlannerObserver{Host: r.host}
 	git := func(args ...string) {
 		c := exec.Command("git", args...)
 		c.Dir = r.s.Workdir
@@ -83,26 +128,57 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	revision := strings.TrimSpace(string(hash))
-	r.fire("user_message", "text", "다른 세션의 커밋들 검토해 줘")
-	postInventory("empty", "=== per-commit stat\n=== uncommitted tracked\n M misc")
-	if len(notes()) != 0 {
-		t.Fatal("inventory with no new commits triggered a hint")
-	}
-	statText := "=== per-commit stat\n--- " + revision + "\n changed one | 1 +\n changed two | 2 ++\n 2 files changed, 3 insertions(+)\n"
-	postInventory("found", statText)
-	postInventory("again", statText)
-	got := notes()
-	if len(got) != 1 {
-		t.Fatalf("wanted exactly one actionable suggestion: %q", got)
-	}
+	task := "review this commit"
+	inventoryCommand := "git show --format='--- %h' --stat HEAD"
+	rawArgs, _ := json.Marshal(map[string]string{"command": inventoryCommand})
+	rawText, _ := json.Marshal("--- " + revision + "\n changed one | 2 ++\n changed two | 1 +\n 2 files changed, 3 insertions(+)\n")
+	stat := observedReviewStat(rawArgs, session.ToolResult{Content: rawText})
 	var invocation struct {
 		Name string
 		Args map[string]any
 	}
-	_, payload, ok := strings.Cut(got[0], "call run_routine with ")
-	if !ok || json.NewDecoder(strings.NewReader(payload)).Decode(&invocation) != nil || invocation.Name != name ||
-		invocation.Args["s1_arg3"] != revision || fmt.Sprint(invocation.Args["items"]) != "[changed one changed two]" || invocation.Args["s2_arg2"] != "^[-+]" {
-		t.Fatal(got[0])
+	if plan := r.host.ReviewRoutine(r.s.Workdir, task, stat); json.Unmarshal([]byte(plan), &invocation) != nil {
+		t.Fatalf("missing plan: %q", plan)
+	}
+	name := invocation.Name
+	if r.host.ReviewRoutine(r.s.Workdir, "list files", stat) != "" {
+		t.Fatal("unexpected review")
+	}
+	inventoryOut, _, failed := r.callTask(t, "inventory", "bash", map[string]any{"command": inventoryCommand}, "allow", task)
+	if failed || !strings.Contains(inventoryOut, "2 files changed") || !strings.Contains(inventoryOut, "[review routine]") || !strings.Contains(inventoryOut, "+keep second") {
+		t.Fatalf("inventory and diff in one response: %s", inventoryOut)
+	}
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("automatic=%v", enabled), func(t *testing.T) {
+			ctx := context.Background()
+			sid, err := r.a.CreateSession(ctx, command.CreateSession{Workdir: r.s.Workdir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model := &reviewProbe{inventory: inventoryCommand, diff: "git show --format= HEAD -- 'changed one' 'changed two'" + inc}
+			previous, observer, policy := r.a.llm, r.a.cfg.Observer, r.a.Permission()
+			defer func() {
+				r.a.llm, r.a.cfg.Observer = previous, observer
+				r.a.SetPermission(policy)
+				r.a.cfg.Interactive = true
+			}()
+			r.a.llm = model
+			r.a.SetPermission("allow")
+			r.a.cfg.Interactive = false
+			want := 2
+			if !enabled {
+				r.a.cfg.Observer = nil
+				want = 3
+			}
+			if err = r.a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorUser, ID: "reviewer"}, task); err != nil {
+				t.Fatal(err)
+			}
+			_, err = r.a.runLoop(ctx, r.a.sessionInfo(ctx, sid), AgentSpec{Name: "coder"}, 0, 4, true)
+			if err != nil || !model.sawDiff || model.calls != want {
+				t.Fatalf("calls=%d diff=%v err=%v", model.calls, model.sawDiff, err)
+			}
+			t.Logf("provider requests=%d estimated input tokens=%d generated argument/text bytes=%d", model.calls, model.inputEstimate, model.outputBytes)
+		})
 	}
 	catalog, _, bad := r.call(t, "help", "routine_catalog", map[string]any{"query": name}, "allow")
 	if bad || !strings.Contains(catalog, "Git revision to inspect") || !strings.Contains(catalog, "without +++/---") || !strings.Contains(catalog, "unknown tail layouts") {
@@ -158,5 +234,16 @@ func TestLegacyShellFilterRequiresObservedSubcommand(t *testing.T) {
 			t.Fatal(verb, asks, out)
 		}
 		t.Logf("old file %s: %d inner approvals", verb, len(asks))
+	}
+}
+
+func TestReviewInventoryRequiresAnUnambiguousCompleteStat(t *testing.T) {
+	args := json.RawMessage(`{"command":"git show --stat HEAD"}`)
+	const one = "--- abc1234\n a | 1 +\n 1 file changed, 1 insertion(+)\n"
+	for _, output := range []string{one + one, one + "diff --git a/a b/a\n", "--- abc1234\n a | 1 +\n 2 files changed\n"} {
+		raw, _ := json.Marshal(output)
+		if got := observedReviewStat(args, session.ToolResult{Content: raw}); got != "" {
+			t.Fatalf("ambiguous inventory accepted: %s", got)
+		}
 	}
 }

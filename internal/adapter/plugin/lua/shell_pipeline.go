@@ -1,6 +1,8 @@
 package lua
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
@@ -54,6 +56,10 @@ func pipelineObservations(L *lua.LState, file *syntax.File) *lua.LTable {
 			row.Append(stage)
 		}
 		if valid && delimited {
+			var shape shellShape
+			if shape.statement(stmt, 0) {
+				row.RawSetString("graph", lua.LString(fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(shape.tokens, "\x00"))))))
+			}
 			out.Append(row)
 		}
 	}

@@ -717,6 +717,33 @@ func (h *Host) unregister(p *plugin) {
 	}
 }
 
+// ReviewRoutine asks the dummy plug for a receipt-backed invocation. Release the
+// Lua lock before executing the routine, which re-enters the same plugin.
+func (h *Host) ReviewRoutine(workdir, request, inventory string) string {
+	for _, p := range h.snapshot() {
+		if p.name != "dummy-plug" {
+			continue
+		}
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.L == nil || p.env.Workdir != workdir || len(p.hooks["review_inventory"]) != 1 {
+			return ""
+		}
+		L := p.L
+		payload := L.NewTable()
+		L.SetField(payload, "request", lua.LString(request))
+		L.SetField(payload, "inventory", lua.LString(inventory))
+		if err := L.CallByParam(lua.P{Fn: p.hooks["review_inventory"][0], NRet: 1, Protect: true}, payload); err != nil {
+			h.logf(fmt.Sprintf("[dummy-plug] review inventory: %v", err))
+			return ""
+		}
+		value, _ := L.Get(-1).(lua.LString)
+		L.Pop(1)
+		return string(value)
+	}
+	return ""
+}
+
 // RunDeclarationGates asks every plugin gate whether a completion declaration may go to
 // the council. Each gate runs under its plugin's lock with env set (so magi.turn_steps
 // answers) and returns nil to pass or a string to refuse; the refusals come back in

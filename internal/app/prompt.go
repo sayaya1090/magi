@@ -480,16 +480,17 @@ func (a *App) takeMemoryArrivals(sid session.SessionID, n int) []string {
 func (a *App) gatherContextCached(ctx context.Context, s session.Session, q string) string {
 	a.mu.Lock()
 	st := a.stateLocked(s.ID)
-	if st.ragQ == q {
+	cacheKey := s.Model.Model + "\x00" + q
+	if st.ragQ == cacheKey {
 		c := st.ragText
 		a.mu.Unlock()
 		return c
 	}
 	a.mu.Unlock()
-	c := a.gatherContext(ctx, port.ContextQuery{SessionID: s.ID, Workdir: s.Workdir, Prompt: q})
+	c := a.gatherContext(ctx, port.ContextQuery{SessionID: s.ID, Workdir: s.Workdir, Prompt: q, Model: s.Model.Model})
 	a.mu.Lock()
 	st = a.stateLocked(s.ID)
-	st.ragQ, st.ragText = q, c
+	st.ragQ, st.ragText = cacheKey, c
 	a.mu.Unlock()
 	return c
 }

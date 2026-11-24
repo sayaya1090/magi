@@ -698,9 +698,10 @@ func (p *plugin) bridgeRegisterMCP(L *lua.LState) int {
 // knownEvents are the lifecycle points the host fires (magi.on validates
 // against these so a typo'd event name is caught at registration).
 var knownEvents = map[string]bool{
-	"startup":       true, // after plugins load, before the first turn (UI ready)
-	"shutdown":      true, // on exit
-	"session_start": true, // a new top-level session was created
+	"review_inventory": true, // synchronous planner, called on the installed dummy plug
+	"startup":          true, // after plugins load, before the first turn (UI ready)
+	"shutdown":         true, // on exit
+	"session_start":    true, // a new top-level session was created
 	// Observation events (payload table arg; fired asynchronously off the turn
 	// path, best-effort): conversation milestones for observer-style plugins.
 	"user_message":      true, // {session=, text=} — a genuine user prompt was submitted

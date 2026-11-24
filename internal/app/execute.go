@@ -233,14 +233,16 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 
 // ToolObservation associates a completion with the dispatch that scheduled it.
 type ToolObservation struct {
-	JobRef        string // daemon-scoped digest of a job issued by bash or referenced by a consumer
-	ReviewStat    string // bounded, complete git diffstat for the next review step
-	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
-	CallID        string
-	ParallelBatch string
-	ParallelSize  int
-	OrderKnown    bool
-	Background    bool // this result acknowledges launch; the work may still be running
+	AuthoredModel  string // single, top-level model-authored call
+	AuthoredTokens int    // output usage of the tool-only response, zero when unknown
+	ReviewStat     string // complete foreground diffstat before any dependent read
+	JobRef         string // daemon-scoped digest of a job issued by bash or referenced by a consumer
+	GlobItems      string // JSON array of workspace-salted path digests, only for a bounded successful glob
+	CallID         string
+	ParallelBatch  string
+	ParallelSize   int
+	OrderKnown     bool
+	Background     bool // this result acknowledges launch; the work may still be running
 }
 
 // Background job numbers restart with the daemon.
@@ -292,9 +294,11 @@ func observedGlobItems(workdir string, res session.ToolResult) string {
 type toolDispatchKey struct{}
 
 type toolDispatch struct {
-	call          *session.ToolCall
-	parallelBatch string
-	parallelSize  int
+	authoredModel  string
+	authoredTokens int
+	call           *session.ToolCall
+	parallelBatch  string
+	parallelSize   int
 }
 
 // executeTool runs one tool call (with permission gating) and persists the result.
@@ -772,6 +776,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 	res.CallID = tc.CallID
+	var reviewStat string
+	if tc.Name == "bash" {
+		reviewStat = observedReviewStat(tc.Args, res)
+	}
+	if reviewStat != "" && tc.Parent == "" && depth == 0 && !agent.Trial && guard != nil {
+		if planner, ok := a.cfg.Observer.(reviewRoutinePlanner); ok {
+			res.Content = appendReviewDiff(res.Content, planner, guard, workdir, turnTask, reviewStat, func(plan json.RawMessage) (session.ToolResult, error) {
+				return a.callInner(ctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, "run_routine", plan)
+			})
+		}
+	}
 	// Cap a single tool result so one giant output (e.g. reading a 500KB file) can't blow
 	// the model's context window past what compaction can recover (compaction can't summarize
 	// a result that's still in the recent, un-compacted window). Truncate the raw output here,
@@ -895,8 +910,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// An observer that asks hears which tool finished, with what arguments, and whether it
 	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
 	// tool no meaning here; an extension decides what matters to it.
-	observation := ToolObservation{CallID: tc.CallID, Background: res.Background}
+	observation := ToolObservation{CallID: tc.CallID, Background: res.Background, ReviewStat: reviewStat}
 	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
+		observation.AuthoredModel, observation.AuthoredTokens = dispatch.authoredModel, dispatch.authoredTokens
 		observation.ParallelBatch = dispatch.parallelBatch
 		observation.ParallelSize = dispatch.parallelSize
 		observation.OrderKnown = dispatch.parallelBatch == ""
@@ -905,9 +921,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		ToolFinishedWithDispatch(sid, tool, args string, ok bool, dispatch ToolObservation)
 	}); ok {
 		observation.JobRef = observedJobRef(tc.Name, tc.Args, res)
-		if tc.Name == "bash" {
-			observation.ReviewStat = observedReviewStat(tc.Args, res)
-		}
 		if tc.Name == "glob" {
 			observation.GlobItems = observedGlobItems(s.Workdir, res)
 		}

@@ -89,13 +89,17 @@ func (r *routineRig) run(t *testing.T, id string, args map[string]any, decide st
 // call runs a tool and answers each prompt it raises with decide.
 func (r *routineRig) call(t *testing.T, id, tool string, in map[string]any, decide string) (string, []Ask, bool) {
 	t.Helper()
+	return r.callTask(t, id, tool, in, decide, "")
+}
+func (r *routineRig) callTask(t *testing.T, id, tool string, in map[string]any, decide, task string) (string, []Ask, bool) {
+	t.Helper()
 	raw, _ := json.Marshal(in)
 	outer := &session.ToolCall{CallID: id, Name: tool, Args: raw}
 	ctx := context.Background()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r.a.executeTool(ctx, r.s, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), "")
+		r.a.executeTool(ctx, r.s, AgentSpec{Name: "coder"}, 0, event.Actor{Kind: event.ActorAgent, ID: "coder"}, outer, newRunGuard(nil), task)
 	}()
 	var asks []Ask
 	answered := map[string]bool{}

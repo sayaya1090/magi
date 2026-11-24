@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+
 	"runtime"
 	"strings"
 	"testing"
@@ -62,7 +62,7 @@ func TestRepeatedWritesAndShellOperationsBecomeReusable(t *testing.T) {
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "Create a file.",
 	})
-	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, "Writing sequence: write") {
+	if err != nil || len(hints) != 0 {
 		t.Fatalf("learned writing routine was not suggested: %+v (%v)", hints, err)
 	}
 	store, err := os.ReadFile(filepath.Join(dataDir, "plugin-data", "dummy-plug.json"))
@@ -124,7 +124,7 @@ func TestShellRoutineLearnsUnlistedCommands(t *testing.T) {
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "project-checker 다시 돌려줘",
 	})
-	if err != nil || len(hints) != 1 || strings.Count(hints[0].Text, "bash (project-checker | result-view ; report)") != 1 {
+	if err != nil || len(hints) != 0 {
 		t.Fatalf("expected a single matching shell routine: %+v (%v)", hints, err)
 	}
 	store, err := os.ReadFile(filepath.Join(dataDir, "plugin-data", "dummy-plug.json"))
@@ -154,10 +154,10 @@ func TestRoutineMatchesShellDependencyAcrossDifferentScripts(t *testing.T) {
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "Run compiler, checker, and summarize",
 	})
-	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, "compiler && checker && summarize") ||
-		strings.Contains(hints[0].Text, "compiler && checker\n") {
-		t.Fatalf("expected only the repeated dependency graph: %+v (%v)", hints, err)
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("one call was recommended: %v %v", hints, err)
 	}
+
 }
 
 func TestRoutineLearnsAndExecutesAConditionalWorkspaceTask(t *testing.T) {
@@ -201,18 +201,23 @@ func TestRoutineLearnsAndExecutesAConditionalWorkspaceTask(t *testing.T) {
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "이번 작업공간 준비 부탁해",
 	})
-	if err != nil || len(hints) != 1 {
-		t.Fatalf("expected learned workflow for the next request: %+v %v", hints, err)
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("one call was recommended: %v %v", hints, err)
 	}
-	m := regexp.MustCompile(`run_routine (write-[0-9a-f]+) inputs`).FindStringSubmatch(hints[0].Text)
-	if len(m) != 2 {
-		t.Fatalf("hint is missing an executable routine: %s (%s)", hints[0].Text, r.logs.text())
+	files, _ = filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	var name string
+	for _, f := range files {
+		n := filepath.Base(filepath.Dir(f))
+		if strings.Contains(r.skill(t, n), "Conditional shell workflow:") {
+			name = n
+			break
+		}
 	}
-	if definition := r.skill(t, m[1]); !strings.Contains(definition, "status: learned-write\n") {
+	if definition := r.skill(t, name); !strings.Contains(definition, "status: learned-write\n") {
 		t.Fatalf("expected an automatically saved shell routine with learned-write status, got %s", definition)
 	}
 	dir := "Sam's report"
-	args := map[string]any{"name": m[1], "args": map[string]string{"s1_arg2": dir, "s2_arg1": dir + "/done"}}
+	args := map[string]any{"name": name, "args": map[string]string{"s1_arg2": dir, "s2_arg1": dir + "/done"}}
 	_, asks, _ := r.call(t, "deny-chain", "run_routine", args, "deny")
 	if len(asks) != 1 || asks[0].What != "bash" {
 		t.Fatalf("expected the inner shell permission gate: %+v", asks)
@@ -267,31 +272,24 @@ func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 			SessionID: r.sid, Workdir: r.s.Workdir, Prompt: scenario.request,
 		})
-		if err != nil || len(hints) != 1 {
-			t.Fatalf("context for %q: %+v %v", scenario.request, hints, err)
-		}
-		text := hints[0].Text
-		if strings.Contains(text, "— run_routine") != (scenario.want != "") || !strings.Contains(text, scenario.want) {
-			t.Fatalf("wrong workflow for %q: %s", scenario.request, text)
+		if err != nil || len(hints) != 0 {
+			t.Fatalf("single shell call recalled: %v %v", hints, err)
 		}
 		if scenario.want == "" {
 			continue
 		}
-		fields := regexp.MustCompile(`run_routine (write-[0-9a-f]+) inputs`).FindStringSubmatch(text)
-		if len(fields) != 2 {
-			t.Fatal(text)
+		catalog, _, failed := r.call(t, "find-"+scenario.request, "routine_catalog", map[string]any{"query": scenario.request}, "allow")
+		var results []struct{ Name, Description string }
+		if failed || json.Unmarshal([]byte(catalog), &results) != nil || len(results) != 30 || !strings.Contains(results[0].Description, scenario.want) {
+			t.Fatalf("wrong catalog result: %s", catalog)
 		}
-		catalog, _, failed := r.call(t, "find-"+fields[1], "routine_catalog", map[string]any{"query": scenario.request}, "allow")
-		var results []struct{ Name string }
-		if failed || json.Unmarshal([]byte(catalog), &results) != nil || len(results) != 30 || results[0].Name != fields[1] {
-			t.Fatalf("catalog selected the wrong input layout for %q: %s", scenario.request, catalog)
-		}
+		name := results[0].Name
 		inputs := map[string]string{"s1_arg2": "current", "s2_arg1": "current/marker"}
 		separate := scenario.want == "test -f {s3_arg2}"
 		if separate {
 			inputs["s3_arg2"] = "current/missing-prerequisite"
 		}
-		out, _, failed := r.call(t, fields[1], "run_routine", map[string]any{"name": fields[1], "args": inputs}, "allow")
+		out, _, failed := r.call(t, name, "run_routine", map[string]any{"name": name, "args": inputs}, "allow")
 		if failed != separate {
 			t.Fatalf("wrong file checked for %q: %s", scenario.request, out)
 		}

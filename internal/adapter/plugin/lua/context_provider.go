@@ -52,6 +52,7 @@ func (p *luaContextProvider) Provide(ctx context.Context, q port.ContextQuery) (
 	queryTable := L.NewTable()
 	L.SetField(queryTable, "session_id", lua.LString(q.SessionID))
 	L.SetField(queryTable, "workdir", lua.LString(q.Workdir))
+	L.SetField(queryTable, "model", lua.LString(q.Model))
 	L.SetField(queryTable, "prompt", lua.LString(q.Prompt))
 
 	// Call Lua function

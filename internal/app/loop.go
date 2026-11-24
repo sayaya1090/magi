@@ -769,7 +769,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				if ctx.Err() != nil {
 					return lastText, ctx.Err()
 				}
-				callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc})
+				dispatch := toolDispatch{call: tc}
+				if len(toolCalls) == 1 && depth == 0 && (tc.Name == "bash" || tc.Name == "run_routine") {
+					dispatch.authoredModel = a.SessionModel(sid)
+					if usage != nil && text == "" && reasoning == "" {
+						dispatch.authoredTokens = usage.Out
+					}
+				}
+				callCtx := context.WithValue(ctx, toolDispatchKey{}, dispatch)
 				a.executeTool(callCtx, s, agent, depth, agentActor, tc, guard, turnTask)
 			}
 		}

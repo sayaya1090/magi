@@ -27,8 +27,16 @@ func observedReviewStat(args json.RawMessage, result session.ToolResult) string 
 	}
 	var rev string
 	var files []string
+	var complete string
 	for _, line := range strings.Split(output, "\n") {
+		// The caller already fetched a patch.
+		if strings.HasPrefix(line, "diff --git ") {
+			return ""
+		}
 		if m := statRevision.FindStringSubmatch(line); m != nil {
+			if complete != "" {
+				return ""
+			}
 			rev = m[1]
 			files = nil
 			continue
@@ -50,11 +58,34 @@ func observedReviewStat(args json.RawMessage, result session.ToolResult) string 
 				Revision string   `json:"revision"`
 				Files    []string `json:"files"`
 			}{rev, files})
-			return string(b)
+			complete = string(b)
+			rev = ""
 		}
 		if strings.TrimSpace(line) != "" {
 			rev = ""
 		}
 	}
-	return ""
+	return complete
+}
+
+type reviewRoutinePlanner interface {
+	ReviewRoutine(workdir, request, inventory string) string
+}
+
+func appendReviewDiff(content json.RawMessage, planner reviewRoutinePlanner, guard *runGuard, workdir, request, inventory string, run func(json.RawMessage) (session.ToolResult, error)) json.RawMessage {
+	plan := planner.ReviewRoutine(workdir, request, inventory)
+	if plan == "" || !json.Valid([]byte(plan)) {
+		return content
+	}
+	if _, seen := guard.reviewedInventories.LoadOrStore(inventory, true); seen {
+		return content
+	}
+	result, err := run(json.RawMessage(plan))
+	var output string
+	if err != nil {
+		output = err.Error()
+	} else if json.Unmarshal(result.Content, &output) != nil {
+		output = string(result.Content)
+	}
+	return appendToContent(content, "\n\n[review routine] "+output)
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"regexp"
+
 	"runtime"
 	"strings"
 	"testing"
@@ -16,7 +16,7 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-func TestRoutineSuggestsARepeatedWorkflowForARelatedFollowup(t *testing.T) {
+func TestRoutineKeepsSingleCallFollowupsQuiet(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requires POSIX shell routines")
 	}
@@ -44,7 +44,7 @@ func TestRoutineSuggestsARepeatedWorkflowForARelatedFollowup(t *testing.T) {
 		}
 		r.fire("turn_finished")
 		r.fire("turn_finished")
-		if got := suggested("continue", r.sid); got != (i == 3) {
+		if got := suggested("continue", r.sid); got {
 			t.Fatalf("after %d independent requests, got suggestion %t", i+1, got)
 		}
 	}
@@ -65,12 +65,12 @@ func TestRoutineSuggestsARepeatedWorkflowForARelatedFollowup(t *testing.T) {
 		t.Fatal("context preview posted a chat note")
 	}
 	r.fire("user_message", "text", "continue")
-	if !suggested("continue", r.sid) || !suggested("process collection2 please", r.sid) ||
+	if suggested("continue", r.sid) || suggested("process collection2 please", r.sid) ||
 		suggested("redesign navigation", r.sid) || suggested("continue", session.SessionID("another")) {
 		t.Fatal("follow-up context did not respect the request and session")
 	}
-	if !suggested("continue", r.sid) || countNotes() != 1 {
-		t.Fatal("expected one chat note for repeated context reads")
+	if suggested("continue", r.sid) || countNotes() != 0 {
+		t.Fatal("single-call wrappers must not generate chat notes")
 	}
 	r.fire("tool_finished", "tool", "bash", "args", `{"command":"pwd"}`, "ok", "true", "call_id", "different")
 	r.fire("turn_finished")
@@ -145,33 +145,21 @@ func TestRoutineReplaysAPipelineWithTheNewRequestsFile(t *testing.T) {
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "summarize repeated records from the new file",
 	})
-	if err != nil || len(hints) != 1 {
-		t.Fatalf("missing pipeline recommendation: %+v (%v)", hints, err)
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("single Bash wrapper was recommended: %v %v", hints, err)
 	}
-	m := regexp.MustCompile(`run_routine (write-[0-9a-f]+) inputs cat \{s1_arg1\} \| sort \| uniq -c`).FindStringSubmatch(hints[0].Text)
-	if len(m) != 2 {
-		t.Fatal(hints[0].Text)
-	}
-	_, example, ok := strings.Cut(hints[0].Text, "Call run_routine with ")
-	var invocation struct {
-		Name string
-		Args map[string]string
-	}
-	if !ok || json.NewDecoder(strings.NewReader(example)).Decode(&invocation) != nil ||
-		invocation.Name != m[1] || invocation.Args["s1_arg1"] != "<current value>" {
-		t.Fatalf("missing runnable argument example: %s", hints[0].Text)
-	}
+	name := filepath.Base(filepath.Dir(files[0]))
 	file := "today's records.txt"
 	r.file(t, file, "pear\napple\npear\n")
 	out, asks, failed := r.call(t, "count-records", "run_routine", map[string]any{
-		"name": m[1], "args": map[string]string{"s1_arg1": file},
+		"name": name, "args": map[string]string{"s1_arg1": file},
 	}, "allow")
 	if failed || len(asks) != 1 || asks[0].What != "bash" || !strings.Contains(out, "1 apple") || !strings.Contains(out, "2 pear") {
 		t.Fatalf("pipeline output %q approvals %+v", out, asks)
 	}
 }
 
-func TestRoutineSuggestsRepeatedShellFileFlow(t *testing.T) {
+func TestRoutineKeepsSingleShellFileFlowQuiet(t *testing.T) {
 	r := newRoutineRig(t, t.TempDir(), routineFile)
 	r.fire("user_message")
 	for _, command := range []string{
@@ -187,10 +175,10 @@ func TestRoutineSuggestsRepeatedShellFileFlow(t *testing.T) {
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "Run producer, checker, and summarize",
 	})
-	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, "producer → checker → summarize") ||
-		strings.Contains(hints[0].Text, "private-") {
-		t.Fatalf("expected a path-independent file flow hint: %+v (%v)", hints, err)
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("one shell call prompted a recommendation: %v %v", hints, err)
 	}
+
 }
 
 func TestRoutineFindsLineFiltersByPurpose(t *testing.T) {
@@ -206,7 +194,7 @@ func TestRoutineFindsLineFiltersByPurpose(t *testing.T) {
 	}
 	query := "변경 내역에서 원하는 줄만 추려줘"
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: query})
-	if err != nil || len(hints) != 1 || !strings.Contains(hints[0].Text, "lines to exclude") {
+	if err != nil || len(hints) != 0 {
 		t.Fatalf("purpose hint: %+v (%v)", hints, err)
 	}
 	for _, q := range []string{"파일을 추려줘", "커밋을 보여줘"} {
@@ -239,5 +227,39 @@ func TestRoutineFindsLineFiltersByPurpose(t *testing.T) {
 	out, _, failed = r.call(t, "apply", "run_routine", map[string]any{"name": entries[0].Name, "args": args}, "allow")
 	if failed || !strings.Contains(out, "+feature new") || strings.Contains(out, "feature obsolete") || strings.Contains(out, "unrelated") {
 		t.Fatal(out)
+	}
+}
+
+func TestRoutineRecallsBoundShellAfterMeasuredSavings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell pipeline")
+	}
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	const request = "summarize sorted records"
+	fire := func(tool, args string, tokens int, id string) {
+		r.fire("user_message", "text", request)
+		r.fire("tool_finished", "tool", tool, "args", args, "ok", "true", "order_known", "true", "call_id", id, "authored_model", "measured", "authored_tokens", fmt.Sprint(tokens))
+	}
+	const direct = `{"command":"pwd | sort | uniq"}`
+	for i := range 4 {
+		fire("bash", direct, 35, fmt.Sprint(i))
+	}
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
+	if len(files) != 1 {
+		t.Fatalf("expected one measured pipeline: %v", files)
+	}
+	name := filepath.Base(filepath.Dir(files[0]))
+	args, _ := json.Marshal(map[string]string{"name": name})
+	for i := range 2 {
+		fire("run_routine", string(args), 15, fmt.Sprintf("wrapper-%d", i))
+	}
+	for _, tc := range []struct {
+		model, prompt string
+		want          bool
+	}{{"measured", request, true}, {"other", request, false}, {"measured", "other request", false}} {
+		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: tc.prompt, Model: tc.model})
+		if err != nil || (len(hints) > 0) != tc.want || (tc.want && !strings.Contains(hints[0].Text, name)) {
+			t.Fatalf("%+v: %v %v", tc, hints, err)
+		}
 	}
 }

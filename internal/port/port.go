@@ -797,6 +797,7 @@ type ContextProvider interface {
 
 // ContextQuery describes what context is being assembled for.
 type ContextQuery struct {
+	Model     string // selected session model when known
 	SessionID session.SessionID
 	Workdir   string
 	Prompt    string

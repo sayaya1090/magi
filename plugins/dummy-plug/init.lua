@@ -818,6 +818,11 @@ end
 
 local function save_shell_chain(dependency)
   if magi.platform() == "windows" then return end
+  local first = dependency.chain[1]
+  if first.name == "git" then
+    local slots = first.slots or {}
+    if type(slots[1]) ~= "string" then return end
+  end
   local id = magi.sha256("shell chain\n" .. magi.workdir() .. "\n" .. dependency.key ..
     "\n" .. magi.json_encode(dependency.chain)):sub(1, 20)
   local name = "write-" .. id
@@ -977,31 +982,24 @@ local function save_pipeline_family(id, core, evidence)
 end
 
 local function observe_pipeline_families(rows, ev, trace)
-  local target
-  if trace.commit_review and (ev.review_stat or "") ~= "" then
-    local ok,stat=pcall(magi.json_decode,ev.review_stat)
-    if ok and type(stat)=="table" and type(stat.files)=="table" and #stat.files>0 then target=stat end
-  end
-  if (not target and (not rows or #rows == 0)) or magi.platform()=="windows" then return end
+  if not rows or #rows == 0 or magi.platform()=="windows" then return end
   local store_key="routine_pipeline_families:"..magi.sha256(magi.workdir())
   local state=stored(store_key)
   local occurrence=ev.session..":"..(ev.call_id ~= "" and ev.call_id or tostring(trace.next))
-  local candidates={}
   local changed=false
+  local covered={}
   for _,row in ipairs(rows or {}) do
     local core,tail,patterns,width,label=pipeline_layout(row)
-    local source=magi.sha256(magi.json_encode(core[1]))
-    if #core == 1 then
-      for _,e in pairs(state) do
-        if e.source == source and e.name then candidates[e.name]=e.label end
-      end
-    else
+    if #core > 1 then
       local id=magi.sha256("variable pipeline v1\n"..magi.workdir().."\n"..magi.json_encode(core)):sub(1,20)
       local e=state[id]
+      if e and e.name and not magi.read_file(routine_paths(e.name)[1]) then
+        state[id], e, changed = nil, nil, true
+      end
       if not e then
         local n=0
         for _ in pairs(state) do n=n+1 end
-        if n < 200 then e={first=occurrence,width=width,patterns=patterns,tails={},source=source,label=label}; state[id]=e end
+        if n < 200 then e={first=occurrence,width=width,patterns=patterns,tails={},label=label}; state[id]=e end
       end
       if e and not e.name then
         changed=true
@@ -1016,48 +1014,88 @@ local function observe_pipeline_families(rows, ev, trace)
         end
         if not e.name and e.varied and e.first~=occurrence then e.name=save_pipeline_family(id,core,e) end
       end
-      if e and e.name then
-        local compatible=true
-        for key,v in pairs(e.patterns) do if patterns[key]~=v then compatible=false end end
-        if compatible then candidates[e.name]=label end
+      -- A saved family covers only the observed input layout and output stages.
+      if e and e.name and row.graph then
+        local fits=true
+        for k,v in pairs(e.patterns) do if patterns[k]~=v then fits=false end end
+        if #tail>0 then
+          local found=false
+          for _,form in ipairs(e.tails) do if magi.json_encode(form)==magi.json_encode(tail) then found=true; break end end
+          fits=fits and found
+        end
+        if fits then covered[row.graph]=e.name end
       end
     end
   end
   if changed then magi.store_set(store_key,state) end
-  if target and not trace.pipeline_hint then
-    local lifecycle=stored(lifecycle_key())
-    for _,entry in pairs(state) do
-      if entry.name and entry.label=="git | grep | grep" then
-        local ok,r=pcall(load_routine,entry.name)
-        if ok and r and not lifecycle_state(lifecycle[entry.name],r) then
-          local _,revision=routine_usage(r.description,r.inputs,r.source)
-          if revision then candidates[entry.name]=entry.label end
+  return covered
+end
+
+-- Called after a completed inventory and before the model sees its output.
+-- The host runs the single matching family through ordinary tool permissions.
+magi.on("review_inventory", function(ev)
+  local prompt = ev.request:lower()
+  if not ((prompt:find("commit",1,true) or prompt:find("커밋",1,true)) and
+    (prompt:find("review",1,true) or prompt:find("검토",1,true) or prompt:find("리뷰",1,true))) then return end
+  local target = magi.json_decode(ev.inventory)
+  local state = stored("routine_pipeline_families:" .. magi.sha256(magi.workdir()))
+  local lifecycle, plan = stored(lifecycle_key())
+  for id, entry in pairs(state) do
+    if entry.name and entry.label == "git | grep | grep" then
+      local r = load_routine(entry.name)
+      local receipt = stored("routine_learned_write:" .. id)
+      if r and receipt.workspace == magi.workdir() and receipt.digest == r.file_sha256 and not lifecycle_state(lifecycle[r.name],r) then
+        local _,revision,include = routine_usage(r.description,r.inputs,r.source)
+        if revision then
+          if plan then return end
+          local args={items=target.files,[revision]=target.revision}
+          if include then args[include]="^[-+]" end
+          plan={name=r.name,args=args,expected_digest=r.file_sha256}
         end
       end
     end
   end
-  local name,label=next(candidates)
-  if name and not next(candidates,name) and not trace.pipeline_hint then
-    local ok,r=pcall(load_routine,name)
-    if ok and r and not lifecycle_state(stored(lifecycle_key())[name],r) then
-      local remark="[routine] "..label.." recurred. If the next operation needs the same stages, run_routine "..
-        name.." accepts current inputs "..table.concat(r.inputs.required,", ")..". "..r.description..". items lists the operands after --. Use tail only for an observed output pipeline."
-      local usage,revision,include=routine_usage(r.description,r.inputs,r.source)
-      if target and revision then
-        local args={items=target.files,[revision]=target.revision}
-        if include then args[include]="^[-+]" end
-        remark="[routine] Changed files found. To inspect their added and removed lines, call run_routine with "..
-          magi.json_encode({name=name,args=args})..". "..usage.output
-      elseif usage.example then
-        remark=remark.." Example args: "..magi.json_encode(usage.example)
-      end
-      local sent, notified = pcall(magi.notify,ev.session,remark)
-      if sent and notified then trace.pipeline_hint=true end
-    end
+  if plan then return magi.json_encode(plan) end
+end)
+
+-- Compare independent turns for the same request, model and exact generated
+-- definition. An argument-free template is fully bound before a suggestion.
+local function record_shell_cost(name, arm, ev, trace)
+  if not name or not trace.request_id or (ev.authored_model or "") == "" then return end
+  local r=load_routine(name)
+  if not r or not (r.source or ""):match("^repeated shell graph ") or next(r.inputs.properties or {}) then return end
+  local receipt=stored("routine_learned_write:"..name:sub(7))
+  if receipt.digest~=r.file_sha256 or receipt.workspace~=magi.workdir() then return end
+  local key="routine_call_cost:"..name
+  local record=stored(key)
+  if record.digest~=r.file_sha256 or record.request~=trace.request_id or record.model~=ev.authored_model then
+    record={digest=r.file_sha256,request=trace.request_id,model=ev.authored_model}
   end
+  local stats=record[arm] or {count=0,errors=0}
+  local turn=ev.session..":"..trace.turn
+  if stats.last==turn then return end
+  stats.last,stats.count=turn,stats.count+1
+  if ev.ok~="true" then stats.errors=stats.errors+1 end
+  local tokens=tonumber(ev.authored_tokens) or 0
+  if tokens>0 then
+    stats.metered=(stats.metered or 0)+1
+    stats.min=math.min(stats.min or tokens,tokens)
+    stats.max=math.max(stats.max or tokens,tokens)
+  end
+  record[arm]=stats
+  magi.store_set(key,record)
 end
 
-local function observe_shell_dependencies(session, call, dependencies, trace, complete_shape)
+local function measured_shell_match(name,r,request,model)
+  if not request or not model or model=="" or next(r.inputs.properties or {}) then return false end
+  local record=stored("routine_call_cost:"..name)
+  local direct,wrapper=record.direct,record.wrapper
+  if record.digest~=r.file_sha256 or record.request~=request or record.model~=model or not direct or not wrapper then return false end
+  if direct.count<2 or wrapper.count<2 or wrapper.errors>0 then return false end
+  return direct.errors>=2 or ((direct.metered or 0)>=2 and (wrapper.metered or 0)>=2 and wrapper.max<direct.min)
+end
+
+local function observe_shell_dependencies(session, call, dependencies, trace, complete_shape, covered)
   if type(dependencies) ~= "table" or #dependencies == 0 then return end
   local key = "routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20)
   local state = stored(key)
@@ -1080,6 +1118,9 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
       entries[id] = entry
       order[#order + 1] = id
     end
+    if entry.routine and not magi.read_file(routine_paths(entry.routine)[1]) then
+      entry.routine, entry.layout_occurrence = nil, occurrence
+    end
     if entry.last ~= occurrence then
       entry.hits, entry.last = entry.hits + 1, occurrence
     end
@@ -1090,24 +1131,22 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
       observe_request(entry, trace.request_terms, session .. ":" .. trace.turn, trace.request_id)
     end
     if layout then
-      if #trace.shell_layouts < 32 then
-        local observed = false
-        for _, seen in ipairs(trace.shell_layouts) do if seen == id then observed = true; break end end
-        if not observed then trace.shell_layouts[#trace.shell_layouts + 1] = id end
-      end
       local requests = entry.runnable_requests or {}
       if requests.last ~= occurrence then
         requests.hits, requests.last = (requests.hits or 0) + 1, occurrence
         observe_request(requests, trace.request_terms, session .. ":" .. trace.turn, trace.request_id)
       end
       entry.runnable_requests = requests
-      if not entry.routine and entry.layout == layout and entry.layout_occurrence ~= occurrence then
+      entry.covered_by = covered and covered[dependency.key]
+      if not entry.covered_by and not entry.routine and entry.layout == layout and entry.layout_occurrence ~= occurrence then
         entry.routine = save_shell_chain(dependency)
       end
       if not entry.routine then
         entry.layout, entry.layout_occurrence = layout, occurrence
       end
-      if dependency.key == complete_shape and magi.platform() ~= "windows" then has_template = true end
+      if dependency.key == complete_shape and magi.platform() ~= "windows" then
+        has_template = true
+      end
     end
   end
   while #order > 200 do entries[table.remove(order, 1)] = nil end
@@ -1431,11 +1470,6 @@ magi.on("user_message", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
   local t = load_trace(ev.session)
   t.turn = t.turn + 1
-  t.pipeline_hint = nil
-  local prompt=(ev.text or ""):lower()
-  t.commit_review=(prompt:find("commit",1,true) or prompt:find("커밋",1,true)) and
-    (prompt:find("review",1,true) or prompt:find("검토",1,true) or prompt:find("리뷰",1,true)) and true or nil
-  t.shell_layouts = nil
   t.request_terms, t.request_id = request_terms(ev.text)
   t.suggestion_prompt = type(ev.text) == "string" and magi.sha256(magi.workdir() .. "\0suggestion\0" .. ev.text) or nil
   magi.store_set(trace_key(ev.session), t)
@@ -1466,11 +1500,28 @@ magi.on("tool_finished", function(ev)
   local glob_source, complete = observe_file_loop(t, ev, file_digest)
   if complete then learn_file_loop(complete, ev) end
   if ev.tool == "bash" and ev.ok == "true" and ev.background ~= "true" then
-    t.shell_layouts = t.shell_layouts or {}
     local pipelines
     pattern, verb, dependencies, pipelines = shell_pattern(ev.args)
-    observe_pipeline_families(pipelines, ev, t)
-    runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern)
+    local covered=observe_pipeline_families(pipelines, ev, t)
+    runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern, covered)
+  end
+  if (ev.authored_model or "") ~= "" and t.request_id then
+    if ev.tool=="run_routine" then
+      local ok,a=pcall(magi.json_decode,ev.args)
+      if ok and type(a)=="table" and type(a.name)=="string" and a.name:match("^write%-%x+$") and (a.args == nil or type(a.args)=="table" and not next(a.args)) then
+        record_shell_cost(a.name,"wrapper",ev,t)
+      end
+    elseif ev.tool=="bash" and ev.background~="true" then
+      local measured_pattern, edges = pattern, dependencies
+      if not measured_pattern then local label; measured_pattern,label,edges=shell_pattern(ev.args) end
+      for _,d in ipairs(edges or {}) do
+        if d.key==measured_pattern and d.chain then
+          local id=magi.sha256("shell chain\n"..magi.workdir().."\n"..d.key.."\n"..magi.json_encode(d.chain)):sub(1,20)
+          record_shell_cost("write-"..id,"direct",ev,t)
+          break
+        end
+      end
+    end
   end
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
     shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest, glob_source = glob_source,
@@ -1486,15 +1537,7 @@ end)
 magi.on("turn_finished", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
   note_repeats(ev.session)
-  local t = load_trace(ev.session)
-  if t.shell_layouts then
-    local history = t.recent_shell_turns or {}
-    if history[#history] and history[#history].turn == t.turn then table.remove(history) end
-    history[#history + 1] = {turn = t.turn, layouts = t.shell_layouts, terms = t.request_terms}
-    if #history > 8 then table.remove(history, 1) end
-    t.recent_shell_turns = history
-    magi.store_set(trace_key(ev.session), t)
-  end
+
 end)
 
 local ROUTINE_USE = [[
@@ -1509,25 +1552,33 @@ magi.register_tool{
     if type(query) ~= "string" then return "query must be a string", true end
     local words = {}
     for word in query:lower():gmatch("%S+") do words[#words + 1] = word end
-    local associated = {}
-    if #words > 0 then
-      local terms, request_id = request_terms(query)
-      if next(terms) then
-        local graphs = stored("routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20))
-        for _, entry in pairs(graphs.entries or {}) do
-          local score = request_overlap(entry.runnable_requests, terms, request_id)
-          if entry.routine and score >= 2 then
-            associated[entry.routine] = score
+    local associated, represented = {}, {}
+    local terms,request_id=request_terms(query)
+    local graphs=stored("routine_shell_dependencies:"..magi.sha256(magi.workdir()):sub(1,20))
+    local state=stored(lifecycle_key())
+    for _,entry in pairs(graphs.entries or {}) do
+      if entry.routine then
+        local representative
+        if entry.covered_by then
+          local r=load_routine(entry.covered_by)
+          local receipt=stored("routine_learned_write:"..entry.covered_by:sub(7))
+          if r and receipt.workspace==magi.workdir() and receipt.digest==r.file_sha256 and not lifecycle_state(state[r.name],r) then
+            represented[entry.routine],representative=true,r.name
           end
         end
-        for id, entry in pairs(stored("routine_shapes")) do
-          local score = request_overlap(entry, terms, request_id)
-          if entry.write_saved and score >= 2 then associated["write-" .. id] = score end
-        end
+        local score=request_overlap(entry.runnable_requests,terms,request_id)
+        local name=representative or entry.routine
+        if score>=2 then associated[name]=math.max(score,associated[name] or 0) end
+      end
+    end
+    if next(terms) then
+      for id,entry in pairs(stored("routine_shapes")) do
+        local score=request_overlap(entry,terms,request_id)
+        if entry.write_saved and score>=2 then associated["write-"..id]=score end
       end
     end
     local routines = {}
-    local lifecycle = stored(lifecycle_key())
+    local lifecycle = state
     local names = routine_names()
     if #words > 0 then
       local exact = #words == 1 and words[1]
@@ -1541,7 +1592,7 @@ magi.register_tool{
     end
     for _, name in ipairs(names) do
       local ok, r = pcall(load_routine, name)
-      if ok and r and r.status ~= "draft" and not lifecycle_state(lifecycle[name], r) then
+      if ok and r and r.status ~= "draft" and not lifecycle_state(lifecycle[name], r) and (not represented[name] or query==name) then
         local matches = true
         if #words > 0 then
           local text = (name .. " " .. r.description .. " " .. table.concat(r.tools, " ")):lower()
@@ -1576,44 +1627,6 @@ local function reader_intents(prompt)
     glob = words:find(" glob ", 1, true) or words:find(" matching files ", 1, true) or prompt:find("파일 찾아", 1, true),
     list = words:find(" list ", 1, true) or prompt:find("목록", 1, true),
   }
-end
-
--- A short follow-up often names no commands. Count independent completed
--- requests, so repeating a command many times in one turn gets just one vote.
-local followups = {continue=true, next=true, ["ㄱㅖㅅㅗㄱ"]=true, ["계속"]=true, ["ㄱㄱ"]=true, ["진행해"]=true, ["다시"]=true, ["다음"]=true}
-local function recurring_shell(trace, entries, terms, prompt)
-  local followup = followups[prompt:match("^%s*(.-)[%.!%?%s]*$")]
-  local history = trace.recent_shell_turns or {}
-  local counts, latest, related, recent_pair = {}, {}, {}, {}
-  if #history < 4 or trace.turn - history[#history].turn > 2 then return end
-  for _, id in ipairs(history[#history - 1].layouts) do recent_pair[id] = true end
-  local oldest = trace.turn - 16
-  for _, past in ipairs(history) do
-    if past.turn >= oldest then
-      local shared = followup
-      if not shared then
-        for term in pairs(past.terms or {}) do if terms[term] then shared = true; break end end
-      end
-      for _, id in ipairs(past.layouts) do
-        counts[id] = (counts[id] or 0) + 1
-        latest[id] = past.turn
-        related[id] = related[id] or shared
-      end
-    end
-  end
-  local best, tied
-  for id, count in pairs(counts) do
-    local entry = entries[id]
-    if count >= 4 and recent_pair[id] and latest[id] == history[#history].turn and related[id] and entry and entry.routine then
-      if not best or count > best.score then
-        best = {entry = entry, id = id, score = count, executable = true}
-        tied = false
-      elseif count == best.score then
-        tied = true
-      end
-    end
-  end
-  if not tied then return best end
 end
 
 -- The context provider can also be queried by tooling. Only announce a
@@ -1654,7 +1667,7 @@ pcall(magi.register_context_provider, {
         if ok and r and r.status == "auto-review" and not lifecycle_state(state[name], r) then
           local matches = true
           for _, tool in ipairs(r.tools) do if not intents[tool] then matches = false; break end end
-          if matches and #r.tools > 0 then
+          if matches and (#r.tools > 1 or (r.inputs.properties or {}).step2) then
             candidates[#candidates + 1] = name .. ": " .. r.description
             if #candidates == 3 then break end
           end
@@ -1674,7 +1687,9 @@ pcall(magi.register_context_provider, {
               if command_words[verb:lower()] then matches_shell = true; break end
             end
           end
-          if ok and r and r.status == "learned-write"
+          if ok and r and r.status=="learned-write" and not lifecycle_state(state[name],r) and measured_shell_match(name,r,request_id,query.model) then
+            writing_matches[#writing_matches+1]={name=name,description=r.description,overlap=50,ready=true}
+          elseif ok and r and r.status == "learned-write" and (r.inputs.properties or {}).step2
             and not r.description:find("^Conditional shell workflow:") and not r.description:find("^Shell pipeline:")
             and (overlap >= 2 or matches_shell or (writing and not shell and not r.description:find("bash", 1, true)
               and (not r.description:find("^Write and read the same file:") or intents.read))) then
@@ -1691,7 +1706,11 @@ pcall(magi.register_context_provider, {
       end)
       for _, match in ipairs(writing_matches) do
         local writer = match.description:match("^Write and read the same file: (%w+) > read")
-        if writer and match.single_path then
+        if match.ready then
+          candidates[#candidates+1]="For this request the measured routine needs no arguments: run_routine "..magi.json_encode({name=match.name})..". "..match.description
+          note_name,note_description=match.name,match.description
+          break
+        elseif writer and match.single_path then
           candidates[#candidates + 1] = "For a request to " .. writer ..
             " and read back the same file, use one run_routine tool call. Set name to " .. match.name ..
             " and args.step1 to the arguments for " .. writer .. ". The result includes the file read back from disk."
@@ -1705,84 +1724,9 @@ pcall(magi.register_context_provider, {
         if #candidates == 3 then break end
       end
     end
-    local dependencies = stored("routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20))
-    local hints, ranked, alternatives = {}, {}, {}
-    for _, id in ipairs(dependencies.order or {}) do
-      local entry = dependencies.entries[id]
-      if entry and entry.hits >= 2
-        and ((tonumber(entry.conditions) or 0) >= 2 or (tonumber(entry.file_edges) or 0) >= 2 or (entry.pipes or 0) >= 2) then
-        local matches = true
-        for verb in entry.label:gmatch("[%w_.%-]+") do
-          if not command_words[verb:lower()] then matches = false; break end
-        end
-        local overlap = request_overlap(entry, terms, request_id)
-        local runnable_overlap = request_overlap(entry.runnable_requests, terms, request_id)
-        local source = entry.label:match("^(%S+) | grep | grep$")
-        if not matches and entry.routine and source and filter_intent(prompt, source) then
-          local ok, r = pcall(load_routine, entry.routine)
-          matches = ok and r and r.status == "learned-write" and pipeline_filter(r.description) ~= nil
-        end
-        if matches or overlap >= 2 or runnable_overlap >= 2 then
-          local executable = entry.routine and (matches or runnable_overlap >= 2)
-          if executable then
-            overlap = runnable_overlap
-            local best = alternatives[entry.label]
-            if not best or overlap > best.score then
-              alternatives[entry.label] = {score = overlap, name = entry.routine}
-            elseif overlap == best.score and entry.routine ~= best.name then
-              best.name = nil
-            end
-          end
-          ranked[#ranked + 1] = {entry = entry, score = overlap, executable = executable, id = id}
-        end
-      end
-    end
-    for _, match in ipairs(ranked) do
-      if match.executable then match.executable = alternatives[match.entry.label].name == match.entry.routine end
-    end
-    if #ranked == 0 and #candidates == 0 and query.session_id and dependencies.entries then
-      local recent = recurring_shell(load_trace(query.session_id), dependencies.entries, terms, prompt)
-      if recent then ranked[1] = recent end
-    end
-    table.sort(ranked, function(a, b)
-      if (a.executable == true) ~= (b.executable == true) then return a.executable == true end
-      if a.score ~= b.score then return a.score > b.score end
-      if a.entry.hits ~= b.entry.hits then return a.entry.hits > b.entry.hits end
-      return a.id < b.id
-    end)
-    local included = {}
-    for _, match in ipairs(ranked) do
-      local entry = match.entry
-      if not included[entry.label] then
-        local suggestion = entry.label
-        if match.executable then
-          local ok, r = pcall(load_routine, entry.routine)
-          if ok and r and r.status == "learned-write" then
-            if not note_name then note_name, note_description = entry.routine, entry.label end
-            local arguments = {}
-            local filter = pipeline_filter(r.description)
-            for _, key in ipairs(r.inputs.required or {}) do
-              arguments[key] = "<" .. (filter and filter.roles[key] or "current value") .. ">"
-            end
-            if filter then suggestion = suggestion .. " — " .. filter.purpose end
-            suggestion = suggestion .. " — run_routine " .. entry.routine .. " inputs " ..
-              r.description:gsub("^Conditional shell workflow: ", ""):gsub("^Shell pipeline: ", "") ..
-              ". Call run_routine with " .. magi.json_encode({name = entry.routine, args = arguments}) ..
-              ". For a matching task, replace each placeholder with its current literal argument."
-          end
-        end
-        included[entry.label] = true
-        hints[#hints + 1] = suggestion
-        if #hints == 3 then break end
-      end
-    end
-    if #candidates == 0 and #hints == 0 then return {} end
+    if #candidates == 0 then return {} end
     if note_name then note_suggestion(query, note_name, note_description) end
-    local advice = #hints > 0 and ("\nRepeated shell structures (syntax observations, with branch execution unverified):\n" ..
-      table.concat(hints, "\n")) or ""
-    return { { source = "automatic-routine-catalog", text =
-      "Consider these saved routines for this request. Use run_routine directly only if all steps match and their arguments are known. " ..
-      "Use the routine input schema for the current arguments.\n" .. table.concat(candidates, "\n") .. advice } }
+    return {{source="automatic-routine-catalog",text="Use run_routine when all steps and inputs match.\n"..table.concat(candidates,"\n")}}
   end,
 })
 
@@ -1833,6 +1777,7 @@ magi.register_tool{
   schema = {
     type = "object",
     properties = {
+      expected_digest = { type = "string", description = "Optional exact definition digest for a planned call" },
       name = { type = "string", description = "the routine's name (its skill file name)" },
       args = { type = "object", description = "the routine's inputs, as its inputs schema says" },
       timeout = { type = "number", description = "seconds, default 60, at most 300" },
@@ -1844,6 +1789,7 @@ magi.register_tool{
   execute = function(a)
     local r, err = load_routine(a and a.name)
     if not r then return err, true end
+    if a.expected_digest and a.expected_digest ~= r.file_sha256 then return "routine changed since inventory", true end
     if r.status == "draft" then
       return "routine " .. r.name .. " is a draft (status: draft in " .. r.path .. "): review it, resolve its TODOs and " ..
         "delete the status line first; nothing ran", true
