@@ -513,6 +513,88 @@ local function dry_check(script, example, tools, expect, fixtures)
   return "passed " .. #expect .. "/" .. #expect, true
 end
 
+local function pipeline_filter(description)
+  local source, operands, include, exclude = description:match(
+    "^Shell pipeline: ([%w_%.%-]+) ([^|]+) | grep %-E (%S+) | grep %-v (%S+)$")
+  if not source then return end
+  local roles = {}
+  include = include:match("^{(s%d+_arg%d+)}$")
+  exclude = exclude:match("^{(s%d+_arg%d+)}$")
+  if include then roles[include] = "extended regular expression for lines to keep" end
+  if exclude then
+    roles[exclude] = include == exclude and "shared pattern for both the include and exclude filters"
+      or "basic regular expression for lines to exclude"
+  end
+  if source == "git" then
+    local path = operands:match(" %-%- {(s%d+_arg%d+)}$")
+    if path and not roles[path] then roles[path] = "operand after Git's -- separator" end
+  end
+  return {source=source, roles=roles, purpose="Filter " .. source ..
+    " output: keep lines matching the include regex, then remove lines matching the exclude pattern."}
+end
+
+-- Derive the help shown for old receipts from their saved template too. This
+-- keeps the execution fingerprint independent of changes to catalog wording.
+local function routine_usage(description, schema, source)
+  local filter = pipeline_filter(description)
+  local variable = (source or ""):match("^repeated variable%-width pipeline ") ~= nil
+  local roles, example = {}, {}
+  for k,p in pairs(schema.properties or {}) do roles[k] = p.description or p.type end
+  for k,v in pairs(filter and filter.roles or {}) do roles[k]=v end
+  local revision = description:match("^Shell pipeline: git show %-%-format= {(s%d+_arg%d+)} %-%- {items%.%.%.}")
+  local include = description:match(" | grep %-E {(s%d+_arg%d+)} | grep %-v ")
+  local includes_changes = include or description:find(" | grep -E ^[-+] | ",1,true)
+  local review = variable and revision and includes_changes and filter and
+    description:sub(-#("grep -v ^+++\\|^---")) == "grep -v ^+++\\|^---"
+  local usage = {
+    when = filter and filter.purpose or description,
+    parameters = roles,
+    output = "Text printed by the routine; output is bounded by run_routine's output limit.",
+    errors = "Missing, unknown or mistyped inputs are rejected. Each tool call uses the current permission policy."
+  }
+  if description:match("^Shell pipeline:") or description:match("^Conditional shell workflow:") then
+    usage.output="Bash result with exit status and command output; tool failures are reported to the caller."
+  end
+  if description:match("^Parallel readers:") or description:match("^Read%-only sequence:") then
+    usage.when="Use when the requested reads and all their arguments are already known. "..description
+    usage.output="Each step prints its tool name and result in the saved step order."
+    usage.errors=usage.errors.." The first run or a changed read scope needs approval; a failed step identifies its tool."
+  elseif description=="Read every file returned by glob" then
+    usage.when="Use to read every matching file under one workspace subdirectory."
+    roles.search="Glob arguments with the current subdirectory path and filename pattern"
+    usage.output="Matching paths and their read results in glob order. Zero matches produce no file output."
+    usage.errors=usage.errors.." More than 64 matches or a path outside the approved scope stops the run."
+  end
+  if variable then
+    roles.items="1 to 32 literal operands after --, in order"
+    roles.tail="Optional array of argv arrays matching an observed output pipeline. Omit for the core output."
+    usage.errors=usage.errors.." Invalid operand counts, option-like scalar operands and unknown tail layouts are rejected before Bash."
+  end
+  if review then
+    usage.when="Review a known commit's added and removed lines for selected files, after listing changed files."
+    roles[revision]="Git revision to inspect (for example HEAD or a commit hash)"
+    if include then roles[include]="Extended regex selecting diff lines; ^[-+] selects additions and deletions" end
+    roles.items="1 to 32 current Git paths, one array element per path"
+    usage.output="Bash result containing matching diff lines without +++/--- file headers; optional tail further filters or limits output."
+    example[revision],example.items="HEAD",{"docs/example.md"}
+    if include then example[include]="^[-+]" end
+    usage.example=example
+  end
+  return usage, review and revision, review and include
+end
+
+local function usage_markdown(u)
+  local lines={"**When to use.** "..u.when,"","**Inputs**",""}
+  local keys={}
+  for k in pairs(u.parameters) do keys[#keys+1]=k end
+  table.sort(keys)
+  for _,k in ipairs(keys) do lines[#lines+1]="- `"..k.."` — "..u.parameters[k] end
+  lines[#lines+1]="\n**Output.** "..u.output
+  lines[#lines+1]="\n**Errors.** "..u.errors
+  if u.example then lines[#lines+1]="\nExample arguments: `"..magi.json_encode(u.example).."`" end
+  return table.concat(lines,"\n").."\n"
+end
+
 -- save_routine writes the routine file. Saving is choosing what to keep; running it is approved
 -- separately, by its first run_routine. A draft (status: draft) is refused by run_routine until the
 -- person has reviewed it and deleted that line.
@@ -538,6 +620,9 @@ local function save_routine(name, description, d, source, dry, draft, automatic,
     or draft and "A draft: review it, resolve each TODO, then delete the status line; run_routine refuses a draft.\n"
     or "Review it before its first run; that run asks for approval.\n"
   if d.purpose then note = d.purpose .. "\n" .. note end
+  if automatic or learned_write then
+    note = usage_markdown(routine_usage(description,magi.json_decode(d.inputs),source)) .. "\n" .. note
+  end
   local body = table.concat(fm, "\n") .. "\n" .. note .. "\n```lua\n" .. d.script .. "\n```\n"
   local ok, err = magi.write_file(path, body)
   if not ok then return nil, "could not write " .. path .. ": " .. tostring(err) end
@@ -719,26 +804,6 @@ end
 
 -- Generated synopses retain option spelling and slot identity, including in older receipts.
 -- Describe only stages whose complete operands are known.
-local function pipeline_filter(description)
-  local source, operands, include, exclude = description:match(
-    "^Shell pipeline: ([%w_%.%-]+) ([^|]+) | grep %-E (%S+) | grep %-v (%S+)$")
-  if not source then return end
-  local roles = {}
-  include = include:match("^{(s%d+_arg%d+)}$")
-  exclude = exclude:match("^{(s%d+_arg%d+)}$")
-  if include then roles[include] = "extended regular expression for lines to keep" end
-  if exclude then
-    roles[exclude] = include == exclude and "shared pattern for both the include and exclude filters"
-      or "basic regular expression for lines to exclude"
-  end
-  if source == "git" then
-    local path = operands:match(" %-%- {(s%d+_arg%d+)}$")
-    if path and not roles[path] then roles[path] = "operand after Git's -- separator" end
-  end
-  return {source=source, roles=roles, purpose="Filter " .. source ..
-    " output: keep lines matching the include regex, then remove lines matching the exclude pattern."}
-end
-
 local function filter_intent(prompt, source)
   local words = " " .. prompt:lower():gsub("[^%w_.%-]+", " ") .. " "
   local named = words:find(" " .. source:lower() .. " ", 1, true)
@@ -862,65 +927,6 @@ local function pipeline_layout(row)
   return core, tail, patterns, width, table.concat(syntax," | ")
 end
 
-local PIPELINE_SCRIPT = [[
-local function quote(v)
-  if type(v) ~= "string" or v:find("%z") then error("literal argument required") end
-  return "'" .. v:gsub("'", "'\\''") .. "'"
-end
-local function argument(slot, v)
-  if slot.word then return quote(slot.word) end
-  if type(v) ~= "string" then error("missing pipeline operand") end
-  if slot.numeric then
-    if v:sub(1,#slot.numeric) ~= slot.numeric or not v:sub(#slot.numeric+1):match("^%d[%d%-]*$") then error("invalid numeric option") end
-  elseif v:sub(1,1) == "-" then error("expected an operand, got an option") end
-  return quote(v)
-end
-local function array(value, minimum, maximum)
-  if type(value) ~= "table" or #value < minimum or #value > maximum then return false end
-  for k in pairs(value) do
-    if type(k) ~= "number" or k ~= math.floor(k) or k < 1 or k > #value then return false end
-  end
-  return true
-end
-local commands = {}
-for i,stage in ipairs(spec.core) do
-  local words = {quote(stage[1])}
-  for j=2,#stage do
-    local slot = stage[j]
-    if slot.items then
-      if not array(input.items,1,32) then error("expected 1 to 32 operands after --") end
-      for _,v in ipairs(input.items) do words[#words+1] = quote(v) end
-    else
-      words[#words+1] = argument(slot,input["s"..i.."_arg"..(j-1)])
-    end
-  end
-  commands[#commands+1] = table.concat(words," ")
-end
-if input.tail and not array(input.tail,0,5) then error("expected an array of pipeline stages") end
-if input.tail and #input.tail > 0 then
-  local found = false
-  for _,form in ipairs(spec.tails) do
-    local rendered, fits = {}, #form == #input.tail
-    for i,stage in ipairs(form) do
-      local argv = input.tail[i]
-      if not array(argv,#stage,#stage) or argv[1] ~= stage[1] then fits=false; break end
-      local words = {quote(stage[1])}
-      for j=2,#stage do
-        if stage[j].word and stage[j].word ~= argv[j] then fits=false; break end
-        local ok, word = pcall(argument,stage[j],argv[j])
-        if not ok then fits=false; break end
-        words[#words+1] = word
-      end
-      rendered[i] = table.concat(words," ")
-    end
-    if fits then for _,v in ipairs(rendered) do commands[#commands+1]=v end; found=true; break end
-  end
-  if not found then error("output pipeline was not observed") end
-end
-local out,err=call_tool("bash",{command=table.concat(commands," | ")})
-if not out then error(tostring(err)) end
-print(out)]]
-
 local function save_pipeline_family(id, core, evidence)
   local name = "write-" .. id
   local count = 0
@@ -958,7 +964,7 @@ local function save_pipeline_family(id, core, evidence)
     for k,v in ipairs(words) do words[k]="'"..v:gsub("'","'\\''").."'" end
     expected[#expected+1]=table.concat(words," ")
   end
-  local script="local spec=json_decode("..string.format("%q",magi.json_encode({core=core,tails=evidence.tails}))..")\n"..PIPELINE_SCRIPT
+  local script="local spec=json_decode("..string.format("%q",magi.json_encode({core=core,tails=evidence.tails}))..")\nprint(run_pipeline_v1(spec, input))"
   local d={script=script,tools={"bash"},inputs=magi.json_encode({type="object",properties=props,required=required})}
   local dry,passed=dry_check(script,magi.json_encode(sample),d.tools,{{tool="bash"}},{step1={command=table.concat(expected," | ")}})
   if not passed then return end
@@ -971,13 +977,18 @@ local function save_pipeline_family(id, core, evidence)
 end
 
 local function observe_pipeline_families(rows, ev, trace)
-  if not rows or #rows == 0 or magi.platform()=="windows" then return end
+  local target
+  if trace.commit_review and (ev.review_stat or "") ~= "" then
+    local ok,stat=pcall(magi.json_decode,ev.review_stat)
+    if ok and type(stat)=="table" and type(stat.files)=="table" and #stat.files>0 then target=stat end
+  end
+  if (not target and (not rows or #rows == 0)) or magi.platform()=="windows" then return end
   local store_key="routine_pipeline_families:"..magi.sha256(magi.workdir())
   local state=stored(store_key)
   local occurrence=ev.session..":"..(ev.call_id ~= "" and ev.call_id or tostring(trace.next))
   local candidates={}
   local changed=false
-  for _,row in ipairs(rows) do
+  for _,row in ipairs(rows or {}) do
     local core,tail,patterns,width,label=pipeline_layout(row)
     local source=magi.sha256(magi.json_encode(core[1]))
     if #core == 1 then
@@ -1013,12 +1024,33 @@ local function observe_pipeline_families(rows, ev, trace)
     end
   end
   if changed then magi.store_set(store_key,state) end
+  if target and not trace.pipeline_hint then
+    local lifecycle=stored(lifecycle_key())
+    for _,entry in pairs(state) do
+      if entry.name and entry.label=="git | grep | grep" then
+        local ok,r=pcall(load_routine,entry.name)
+        if ok and r and not lifecycle_state(lifecycle[entry.name],r) then
+          local _,revision=routine_usage(r.description,r.inputs,r.source)
+          if revision then candidates[entry.name]=entry.label end
+        end
+      end
+    end
+  end
   local name,label=next(candidates)
   if name and not next(candidates,name) and not trace.pipeline_hint then
     local ok,r=pcall(load_routine,name)
     if ok and r and not lifecycle_state(stored(lifecycle_key())[name],r) then
       local remark="[routine] "..label.." recurred. If the next operation needs the same stages, run_routine "..
         name.." accepts current inputs "..table.concat(r.inputs.required,", ")..". "..r.description..". items lists the operands after --. Use tail only for an observed output pipeline."
+      local usage,revision,include=routine_usage(r.description,r.inputs,r.source)
+      if target and revision then
+        local args={items=target.files,[revision]=target.revision}
+        if include then args[include]="^[-+]" end
+        remark="[routine] Changed files found. To inspect their added and removed lines, call run_routine with "..
+          magi.json_encode({name=name,args=args})..". "..usage.output
+      elseif usage.example then
+        remark=remark.." Example args: "..magi.json_encode(usage.example)
+      end
       local sent, notified = pcall(magi.notify,ev.session,remark)
       if sent and notified then trace.pipeline_hint=true end
     end
@@ -1377,6 +1409,9 @@ magi.on("user_message", function(ev)
   local t = load_trace(ev.session)
   t.turn = t.turn + 1
   t.pipeline_hint = nil
+  local prompt=(ev.text or ""):lower()
+  t.commit_review=(prompt:find("commit",1,true) or prompt:find("커밋",1,true)) and
+    (prompt:find("review",1,true) or prompt:find("검토",1,true) or prompt:find("리뷰",1,true)) and true or nil
   t.file_loop = nil
   t.shell_layouts = nil
   t.request_terms, t.request_id = request_terms(ev.text)
@@ -1429,11 +1464,11 @@ magi.on("turn_finished", function(ev)
 end)
 
 local ROUTINE_USE = [[
-Run a saved code-mode routine by name. Use routine_catalog to find a routine for the current request. For a routine discovered from a tool sequence, use it only if you can supply every step's arguments from the current request and known context. If a later step needs an earlier result to determine its arguments, use ordinary tools instead. Learned writing routines use the normal tool permissions. Other routines ask for approval on first run and when changed.]]
+Run a saved code-mode routine by name. A matching harness suggestion can supply the complete call. Otherwise use routine_catalog for use cases, inputs, results and errors. For a routine discovered from a tool sequence, use it only if you can supply every step's arguments from the current request and known context. If a later step needs an earlier result to determine its arguments, use ordinary tools instead. Learned writing routines use the normal tool permissions. Other routines ask for approval on first run and when changed.]]
 
 magi.register_tool{
   name = "routine_catalog",
-  description = "Find saved routines and their input schemas. Pass query to search names, tools, descriptions, and wording associated with learned tasks. Returns up to 30 matches.",
+  description = "Find saved routines, when to use them, input schemas, expected outputs and failure conditions. Pass query to search names, tools, descriptions, and wording associated with learned tasks. Returns up to 30 matches.",
   schema = { type = "object", properties = {query = {type = "string"}} },
   execute = function(args)
     local query = args and args.query or ""
@@ -1488,7 +1523,8 @@ magi.register_tool{
           end
         end
         if matches or associated[name] or (filter and filter_intent(query, filter.source)) then
-          routines[#routines + 1] = { name = name, description = filter and (filter.purpose .. " " .. r.description) or r.description, tools = r.tools, inputs = r.inputs, status = r.status }
+          local usage=routine_usage(r.description,r.inputs,r.source)
+          routines[#routines + 1] = { name = name, usage=usage, description = filter and (usage.when .. " " .. r.description) or r.description, tools = r.tools, inputs = r.inputs, status = r.status }
           if #routines == 30 then break end
         end
       end

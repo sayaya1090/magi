@@ -232,6 +232,7 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 
 // ToolObservation associates a completion with the dispatch that scheduled it.
 type ToolObservation struct {
+	ReviewStat    string // bounded, complete git diffstat for the next review step
 	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
 	CallID        string
 	ParallelBatch string
@@ -871,6 +872,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if to, ok := a.cfg.Observer.(interface {
 		ToolFinishedWithDispatch(sid, tool, args string, ok bool, dispatch ToolObservation)
 	}); ok {
+		if tc.Name == "bash" {
+			observation.ReviewStat = observedReviewStat(tc.Args, res)
+		}
 		if tc.Name == "glob" {
 			observation.GlobItems = observedGlobItems(s.Workdir, res)
 		}

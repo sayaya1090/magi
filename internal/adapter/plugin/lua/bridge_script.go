@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,9 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+//go:embed run_pipeline.lua
+var pipelineRunner string
 
 const (
 	scriptTimeoutDefault = 60 * time.Second
@@ -680,7 +684,8 @@ func execScript(parent context.Context, call toolCaller, note func(string), para
 	}))
 
 	// Keep dispatch, permissions, fixtures and child history identical to call_tool.
-	if err := S.DoString(`function judge(question, contract)
+	if err := S.DoString(pipelineRunner + `
+function judge(question, contract)
 		local args = {question = question}
 		if type(contract) ~= "table" then return nil, "judge requires choices or schema" end
 		if contract[1] ~= nil then args.choices = contract else args.schema = contract end
