@@ -141,6 +141,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 		result := okText("", msg)
 		result.Background = true
+		result.BackgroundJobID = p.id
 		return result, nil
 	}
 	// `pty` is a background-only capability — this path never reads it, so a caller that asked for

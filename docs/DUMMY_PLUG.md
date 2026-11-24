@@ -432,7 +432,9 @@ For shell calls, the host parser supplies a command fingerprint and dependency g
 
 The dry check uses synthetic inputs and verifies the expected tool calls before automatic saving. The saved definition lives at `.magi/routines/<name>/routine.md`. Discovery counts and request associations live in the plug-in store. Read-only routines use `auto-review`, and writing and runnable shell routines use `learned-write`.
 
-A specific result dependency can produce a variable-length loop. The harness matches the workspace-salted hashes of 2–64 glob results to consecutive successful path-only reads in the same order and turn. After two complete observations of different lengths, such as three files and five files, it saves one reader routine. On reuse, supply `args.search` with the current subdirectory and glob pattern. The loop reads the files returned this time. Approval covers that search and its matching files. Partial, reordered and parallel reads do not establish this dependency.
+The harness keeps up to 16 glob results per session in the current workspace. It compares the workspace-salted hashes of 2–64 returned paths with later reads, across up to 2,048 calls and eight turn changes. `/routine-trace` shows the source glob number beside a matching read. The link is inferred from the path. If several pending searches contain that path, the harness drops those observations. A matching edit or write also disqualifies a search, as does a matching read that fails, runs in parallel, uses extra arguments or arrives out of order. Two complete observations of different lengths, such as three files and five files, establish the loop. On reuse, supply the current subdirectory and pattern in `args.search`. Approval covers that search and the files it returns.
+
+The trace also connects `wait_for(job)` and `bash_output(id)` to the background `bash` call that issued the job. The harness looks back through the last 300 calls in that session and compares a daemon-specific digest of the job ID. These links appear in `/routine-trace`. Only the glob and read pattern above produces a loop from these observations.
 
 #### Explicit search and automatic recall
 

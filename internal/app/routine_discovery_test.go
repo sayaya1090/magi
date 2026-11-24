@@ -402,7 +402,7 @@ func TestAParallelReaderRoutineIsSavedWithinOneTurn(t *testing.T) {
 
 func TestRoutineLearnsGlobResultLoopAcrossDifferentCounts(t *testing.T) {
 	r := newRoutineRig(t, t.TempDir(), routineFile)
-	observe := func(size int, full bool) {
+	observe := func(size, consumed int, ambiguous bool) {
 		r.fire("user_message", "text", "read matching files")
 		var paths []string
 		for i := range size {
@@ -410,9 +410,16 @@ func TestRoutineLearnsGlobResultLoopAcrossDifferentCounts(t *testing.T) {
 		}
 		body, _ := json.Marshal(paths)
 		r.fire("tool_finished", "tool", "glob", "ok", "true", "order_known", "true", "glob_items", observedGlobItems(r.s.Workdir, session.ToolResult{Content: body}))
-		if !full {
-			paths = paths[:size-1]
+		if ambiguous {
+			r.fire("tool_finished", "tool", "glob", "ok", "true", "order_known", "true", "glob_items", observedGlobItems(r.s.Workdir, session.ToolResult{Content: body}))
 		}
+		for i := range 50 {
+			raw, _ := json.Marshal(map[string]string{"path": fmt.Sprintf("unrelated/%d", i)})
+			r.fire("tool_finished", "tool", "read", "args", string(raw), "order_known", "true", "ok", "true")
+		}
+		r.fire("turn_finished")
+		r.fire("user_message", "text", "continue reading")
+		paths = paths[:consumed]
 		for _, path := range paths {
 			raw, _ := json.Marshal(map[string]string{"path": path})
 			r.fire("tool_finished", "tool", "read", "args", string(raw), "order_known", "true", "ok", "true")
@@ -429,13 +436,17 @@ func TestRoutineLearnsGlobResultLoopAcrossDifferentCounts(t *testing.T) {
 		}
 		return ""
 	}
-	observe(3, true)
-	observe(5, false)
-	observe(3, true)
+	observe(3, 3, false)
+	if err := r.command(t, "routine-trace"); err != nil || !strings.Contains(r.logs.text(), "#52 turn 2 read (path matched glob #1)") {
+		t.Fatalf("missing inferred source in trace: %v %s", err, r.logs.text())
+	}
+	observe(5, 1, false)
+	observe(4, 4, true)
+	observe(3, 3, false)
 	if name() != "" {
 		t.Fatal("partial consumption or a fixed count was treated as a variable loop")
 	}
-	observe(5, true)
+	observe(5, 5, false)
 	n := name()
 	if n == "" {
 		t.Fatal("two complete observations at lengths 3 and 5 did not produce a routine")
@@ -452,5 +463,24 @@ func TestRoutineLearnsGlobResultLoopAcrossDifferentCounts(t *testing.T) {
 	out, asks, failed = r.call(t, "empty-search", "run_routine", args, "allow")
 	if failed || len(asks) == 0 || strings.Contains(out, "first") || strings.Contains(out, "second") {
 		t.Fatalf("changed search with zero matches: %q, %v", out, asks)
+	}
+}
+
+func TestRoutineTraceLinksIssuedJobAcrossTurns(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	ref := observedJobRef("bash", nil, session.ToolResult{Background: true, BackgroundJobID: "bg_7"})
+	r.fire("tool_finished", "tool", "bash", "background", "true", "ok", "true", "job_ref", ref)
+	r.fire("user_message", "text", "inspect results")
+	for _, tc := range []struct{ name, args string }{
+		{"wait_for", `{"job":"bg_8"}`}, {"bash_output", `{"id":"bg_7"}`}, {"wait_for", `{"job":"bg_7"}`},
+	} {
+		r.fire("tool_finished", "tool", tc.name, "ok", "true", "order_known", "true", "job_ref", observedJobRef(tc.name, json.RawMessage(tc.args), session.ToolResult{}))
+	}
+	if err := r.command(t, "routine-trace"); err != nil {
+		t.Fatal(err)
+	}
+	trace := r.logs.text()
+	if strings.Count(trace, "(job issued by bash #1)") != 2 || strings.Contains(trace, "#2 turn 1 wait_for (job") || strings.Contains(trace, "bg_7") {
+		t.Fatalf("unexpected job references: %s", trace)
 	}
 }

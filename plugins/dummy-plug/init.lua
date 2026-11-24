@@ -377,7 +377,7 @@ local function load_trace(sid)
   local t = stored(trace_key(sid))
   t.calls = type(t.calls) == "table" and t.calls or {}
   local legacy = t.prompts ~= nil
-  t.prompts = nil
+  t.prompts, t.file_loop = nil, nil
   for _, call in ipairs(t.calls) do
     if call.args ~= nil then legacy = true; call.args = nil end
   end
@@ -1360,25 +1360,48 @@ for _, path in ipairs(files) do
 end]]
 
 local function observe_file_loop(t, ev, digest)
-  local pending = t.file_loop
-  t.file_loop = nil
-  if ev.ok ~= "true" or ev.order_known ~= "true" or (ev.parallel_batch or "") ~= "" or ev.background == "true" then return end
+  local workspace = magi.sha256(magi.workdir())
+  local sources = t.glob_workspace == workspace and t.glob_sources or {}
+  t.glob_sources, t.glob_workspace = sources, workspace
+  for i = #sources, 1, -1 do
+    if t.next - sources[i].n > 2048 or t.turn - sources[i].turn > 8 then table.remove(sources, i) end
+  end
+  local ordered = ev.ok == "true" and ev.order_known == "true" and (ev.parallel_batch or "") == "" and ev.background ~= "true"
   if ev.tool == "glob" and (ev.glob_items or "") ~= "" then
     local ok, items = pcall(magi.json_decode, ev.glob_items)
     if ok and type(items) == "table" and #items >= 2 and #items <= 64 then
-      t.file_loop = {items = items, index = 1}
+      -- Even an unordered result can make attribution to an older search ambiguous.
+      sources[#sources + 1] = {n=t.next, turn=t.turn, items=items, index=1, ordered=ordered}
+      if #sources > 16 then table.remove(sources, 1) end
     end
     return
   end
-  if ev.tool ~= "read" or not pending or not digest or digest ~= pending.items[pending.index] then return end
-  local ok, args = pcall(magi.json_decode, ev.args)
-  if not ok or type(args) ~= "table" then return end
+  if not digest then return end
+  local pending, position
+  local matches = 0
+  for i = #sources, 1, -1 do
+    local source = sources[i]
+    for _, item in ipairs(source.items) do
+      if item == digest then
+        matches = matches + 1
+        position = i
+        pending = table.remove(sources, i)
+        break
+      end
+    end
+  end
+  if matches ~= 1 or ev.tool ~= "read" or not ordered or not pending.ordered or pending.items[pending.index] ~= digest then return end
+  local args = magi.json_decode(ev.args)
   for key in pairs(args) do if key ~= "path" then return end end
   if pending.index < #pending.items then
     pending.index = pending.index + 1
-    t.file_loop = pending
-    return
+    table.insert(sources, position, pending)
+    return pending.n
   end
+  return pending.n, pending
+end
+
+local function learn_file_loop(pending, ev)
   local id = "t" .. magi.sha256("glob-each-read-v1"):sub(1,8)
   local key = "routine_loop:" .. magi.sha256(magi.workdir()) .. ":" .. id
   local previous = stored(key)
@@ -1412,7 +1435,6 @@ magi.on("user_message", function(ev)
   local prompt=(ev.text or ""):lower()
   t.commit_review=(prompt:find("commit",1,true) or prompt:find("커밋",1,true)) and
     (prompt:find("review",1,true) or prompt:find("검토",1,true) or prompt:find("리뷰",1,true)) and true or nil
-  t.file_loop = nil
   t.shell_layouts = nil
   t.request_terms, t.request_id = request_terms(ev.text)
   t.suggestion_prompt = type(ev.text) == "string" and magi.sha256(magi.workdir() .. "\0suggestion\0" .. ev.text) or nil
@@ -1431,7 +1453,18 @@ magi.on("tool_finished", function(ev)
       file_digest = magi.sha256(magi.workdir() .. "\0" .. args.path)
     end
   end
-  observe_file_loop(t, ev, file_digest)
+  local issued_job, job_source
+  if ev.job_ref and ev.job_ref ~= "" then
+    if ev.tool == "bash" and ev.background == "true" then
+      issued_job = ev.job_ref
+    elseif ev.tool == "wait_for" or ev.tool == "bash_output" then
+      for i = #t.calls, 1, -1 do
+        if t.calls[i].issued_job == ev.job_ref then job_source = t.calls[i].n; break end
+      end
+    end
+  end
+  local glob_source, complete = observe_file_loop(t, ev, file_digest)
+  if complete then learn_file_loop(complete, ev) end
   if ev.tool == "bash" and ev.ok == "true" and ev.background ~= "true" then
     t.shell_layouts = t.shell_layouts or {}
     local pipelines
@@ -1440,7 +1473,8 @@ magi.on("tool_finished", function(ev)
     runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern)
   end
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
-    shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest,
+    shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest, glob_source = glob_source,
+    issued_job = issued_job, job_source = job_source,
     call_id = ev.call_id, parallel_batch = ev.parallel_batch, parallel_size = tonumber(ev.parallel_size),
     order_known = ev.order_known == "true" and (ev.parallel_batch or "") == "" }
   t.next = t.next + 1
@@ -2012,7 +2046,9 @@ magi.register_command{
         lines[#lines + 1] = string.format("#%d turn %s %s%s%s", c.n, tostring(c.turn), tostring(c.tool),
           c.ok == false and " (failed)" or "",
           c.parallel_batch and c.parallel_batch ~= "" and (" (parallel batch " .. c.parallel_batch .. ")")
-            or (not c.order_known and " (order unknown)" or ""))
+            or (not c.order_known and " (order unknown)" or "")) ..
+          (c.glob_source and (" (path matched glob #" .. c.glob_source .. ")") or "") ..
+          (c.job_source and (" (job issued by bash #" .. c.job_source .. ")") or "")
       end
     end
     local runs = stored("routine_runs")

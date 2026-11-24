@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -232,6 +233,7 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 
 // ToolObservation associates a completion with the dispatch that scheduled it.
 type ToolObservation struct {
+	JobRef        string // daemon-scoped digest of a job issued by bash or referenced by a consumer
 	ReviewStat    string // bounded, complete git diffstat for the next review step
 	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
 	CallID        string
@@ -239,6 +241,36 @@ type ToolObservation struct {
 	ParallelSize  int
 	OrderKnown    bool
 	Background    bool // this result acknowledges launch; the work may still be running
+}
+
+// Background job numbers restart with the daemon.
+var jobObserverSalt = rand.Text()
+
+func observedJobRef(tool string, args json.RawMessage, res session.ToolResult) string {
+	if res.IsError {
+		return ""
+	}
+	var id string
+	switch tool {
+	case "bash":
+		if res.Background {
+			id = res.BackgroundJobID
+		}
+	case "wait_for", "bash_output":
+		var input struct{ Job, ID string }
+		if json.Unmarshal(args, &input) != nil {
+			return ""
+		}
+		if tool == "wait_for" {
+			id = strings.TrimSpace(input.Job)
+		} else {
+			id = input.ID
+		}
+	}
+	if id == "" {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(jobObserverSalt+"\x00"+id)))
 }
 
 // The observer only needs to correlate results with later read paths.
@@ -872,6 +904,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if to, ok := a.cfg.Observer.(interface {
 		ToolFinishedWithDispatch(sid, tool, args string, ok bool, dispatch ToolObservation)
 	}); ok {
+		observation.JobRef = observedJobRef(tc.Name, tc.Args, res)
 		if tc.Name == "bash" {
 			observation.ReviewStat = observedReviewStat(tc.Args, res)
 		}
