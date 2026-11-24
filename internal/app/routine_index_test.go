@@ -96,3 +96,19 @@ func TestIdleDropsListedButUnusedRoutinesFromTheIndex(t *testing.T) {
 		t.Fatalf("a dropped routine must still run by name: %s", out)
 	}
 }
+
+// The provider runs again on every model step of a turn. Those repeats are one exposure: a single
+// long turn must not count as twenty listings and drop a routine before it had a chance.
+func TestRoutineIndexCountsOneExposurePerRequest(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "unused", "routine.md"), routineDoc("not picked yet"))
+	for range 25 {
+		if idx := routineIndex(t, r, "one long request"); !strings.Contains(idx, "- unused:") {
+			t.Fatalf("not listed:\n%s", idx)
+		}
+	}
+	r.fire("idle")
+	if idx := routineIndex(t, r, "the next request"); !strings.Contains(idx, "- unused:") {
+		t.Fatalf("25 steps of one request counted as 25 exposures and dropped the routine:\n%s", idx)
+	}
+}

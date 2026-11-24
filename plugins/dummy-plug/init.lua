@@ -2060,8 +2060,10 @@ end
 -- Every active routine, listed on every turn so the model can pick one while it plans (like the skill
 -- list). Read from disk each time, so a routine saved mid-session is listed on the next turn. Capped at
 -- 10 entries or 1.5KB, whichever comes first; idle maintenance keeps the active set inside that budget.
-local function routine_index()
+local function routine_index(query)
   local key = "routine_index:" .. magi.sha256(magi.workdir())
+  -- The provider runs again on every model step of a request; count one exposure per request.
+  local request = magi.sha256(tostring(query and query.session_id or "") .. "\0" .. tostring(query and query.prompt or "")):sub(1, 20)
   local idx = stored(key)
   local life = stored(lifecycle_key())
   local rows = {}
@@ -2088,7 +2090,7 @@ local function routine_index()
     local line = "- " .. row.name .. ": " .. d
     if shown == 10 or size + 1 + #line + 80 > 1500 then break end
     lines[#lines + 1], size, shown = line, size + 1 + #line, shown + 1
-    row.e.exposed = (row.e.exposed or 0) + 1
+    if row.e.seen ~= request then row.e.exposed, row.e.seen = (row.e.exposed or 0) + 1, request end
   end
   if shown < #rows then lines[#lines + 1] = "(" .. (#rows - shown) .. " more: search with routine_catalog)" end
   magi.store_set(key, idx)
@@ -2101,7 +2103,7 @@ pcall(magi.register_context_provider, {
   name = "routine-index",
   provide = function(query)
     if not query or query.workdir ~= magi.workdir() then return {} end
-    local ok, text = pcall(routine_index)
+    local ok, text = pcall(routine_index, query)
     if ok and text then return { { source = "routine-index", text = text } } end
     return {}
   end,
