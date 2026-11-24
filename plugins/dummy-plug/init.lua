@@ -352,7 +352,11 @@ function RV.record(name, calls, fallback)
   if not steps then steps, basis = fallback, "estimated" end
   if not steps then return end
   local all = stored(RV.key())
-  all[name] = { version = r.fingerprint, steps = steps, sites = RV.sites(r.script), basis = basis }
+  local sig = {}
+  for _, c in ipairs(calls or {}) do sig[#sig + 1] = c.tool end
+  -- learned from two observed occurrences of the same stretch
+  all[name] = { version = r.fingerprint, steps = steps, sites = RV.sites(r.script), basis = basis,
+    sig = #sig > 0 and sig or nil, occ = 2 }
   magi.store_set(RV.key(), all)
 end
 function RV.of(r)
@@ -365,20 +369,54 @@ function RV.of(r)
     end
     return nil
   end
-  if s.version == r.fingerprint then return { steps = s.steps, saved = s.steps - 1 - judges, basis = s.basis } end
+  if s.version == r.fingerprint then
+    return { steps = s.steps, saved = s.steps - 1 - judges, basis = s.basis, sig = s.sig, occ = s.occ }
+  end
   local steps = math.max(1, s.steps + RV.sites(r.script) - (s.sites or 0))
   return { steps = steps, saved = steps - 1 - judges, basis = "estimated" }
 end
--- Successful runs, halving every 14 days, so the value is the saving times recent use.
-function RV.score(e, now)
-  local score, at = tonumber(e.score) or 0, tonumber(e.at)
-  if at and now and now > at then score = score * 0.5 ^ ((now - at) / (14 * 86400)) end
-  return score
+-- Successful runs and listings, each halving every 14 days.
+function RV.decay(v, at, now)
+  v, at = tonumber(v) or 0, tonumber(at)
+  if at and now and now > at then v = v * 0.5 ^ ((now - at) / (14 * 86400)) end
+  return v
 end
-function RV.value(e, sv, now)
+function RV.score(e, now) return RV.decay(e.score, e.at, now) end
+-- Listings are charged in the same unit as savings: a listed line costs its tokens, and one saved model
+-- call is counted as STEP_TOKENS tokens. That number is an assumption (a step re-sends at least the
+-- conversation so far), not a measurement.
+RV.STEP_TOKENS = 2000
+-- A learned routine with few runs of its own borrows half of the mean run score of routines here; the
+-- borrowed part shrinks as its own runs grow.
+RV.SHRINK = 0.5
+function RV.prior(idx, now)
+  local sum, n = 0, 0
+  for _, e in pairs(idx) do
+    if type(e) == "table" then
+      local score = RV.score(e, now)
+      if score > 0 then sum, n = sum + score, n + 1 end
+    end
+  end
+  return n > 0 and sum / n or 0
+end
+function RV.value(e, sv, now, prior)
   local score = RV.score(e, now)
-  if sv then return sv.saved * score - (tonumber(e.failed) or 0) end
-  return score
+  local listing = RV.decay(e.xscore, e.xat, now) * (tonumber(e.line_tokens) or 0) / RV.STEP_TOKENS
+  local base = score
+  if sv then base = sv.saved * (score + RV.SHRINK * (prior or 0) / (1 + (tonumber(e.runs) or 0))) end
+  return base - (tonumber(e.failed) or 0) - listing
+end
+-- Whether the tool sequence short occurs contiguously inside the longer one.
+function RV.contains(long, short)
+  if #short >= #long then return false end
+  for i = 1, #long - #short + 1 do
+    local same = true
+    for j = 1, #short do
+      if long[i + j - 1] ~= short[j] then same = false; break end
+    end
+    if same then return true end
+  end
+  return false
 end
 
 local function record_routine_use(r, succeeded)
@@ -2135,11 +2173,30 @@ local function routine_index(query)
       local sv = RV.of(r)
       -- a learned routine that saves no model call is not worth a line in every turn
       if not e.dropped and not (sv and sv.saved <= 0) then
-        rows[#rows + 1] = { name = name, r = r, e = e, sv = sv, value = RV.value(e, sv, lifecycle_now()) }
+        rows[#rows + 1] = { name = name, r = r, e = e, sv = sv }
       end
     end
   end
   if #rows == 0 then return nil end
+  local now = lifecycle_now()
+  local prior = RV.prior(idx, now)
+  for _, row in ipairs(rows) do row.value = RV.value(row.e, row.sv, now, prior) end
+  -- Overlapping learned routines are counted once: when one learned stretch contains another, list only
+  -- the one worth more over its occurrences (observed occurrences plus recent runs, times saved calls).
+  local keep = {}
+  for _, a in ipairs(rows) do
+    local hidden = false
+    for _, b in ipairs(rows) do
+      if a ~= b and a.sv and b.sv and a.sv.sig and b.sv.sig and
+        (RV.contains(a.sv.sig, b.sv.sig) or RV.contains(b.sv.sig, a.sv.sig)) then
+        local wa = a.sv.saved * ((a.sv.occ or 0) + RV.score(a.e, now))
+        local wb = b.sv.saved * ((b.sv.occ or 0) + RV.score(b.e, now))
+        if wb > wa or (wb == wa and b.name < a.name) then hidden = true; break end
+      end
+    end
+    if not hidden then keep[#keep + 1] = a end
+  end
+  rows = keep
   table.sort(rows, function(a, b)
     if a.value ~= b.value then return a.value > b.value end
     return a.name < b.name
@@ -2156,7 +2213,11 @@ local function routine_index(query)
     end
     if shown == 10 or size + 1 + #line + 80 > 1500 then break end
     lines[#lines + 1], size, shown = line, size + 1 + #line, shown + 1
-    if row.e.seen ~= request then row.e.exposed, row.e.seen = (row.e.exposed or 0) + 1, request end
+    row.e.line_tokens = math.ceil(#line / 4)
+    if row.e.seen ~= request then
+      row.e.exposed, row.e.seen = (row.e.exposed or 0) + 1, request
+      row.e.xscore, row.e.xat = RV.decay(row.e.xscore, row.e.xat, now) + 1, now
+    end
   end
   if shown < #rows then lines[#lines + 1] = "(" .. (#rows - shown) .. " more: search with routine_catalog)" end
   magi.store_set(key, idx)
@@ -2334,6 +2395,7 @@ magi.register_tool{
       local idx, now = stored(key), lifecycle_now()
       local e = type(idx[r.name]) == "table" and idx[r.name] or { version = r.fingerprint }
       e.score, e.at = RV.score(e, now) + (rerr == nil and 1 or 0), now
+      e.runs = (tonumber(e.runs) or 0) + (rerr == nil and 1 or 0)
       if rerr ~= nil then e.failed = (tonumber(e.failed) or 0) + 1 end
       idx[r.name] = e
       magi.store_set(key, idx)
@@ -2688,12 +2750,16 @@ do
     local state = stored(key)
     if state.last_review and now - state.last_review < 3600 then return end
     state.last_review = now
-    do -- listed 20 times and never run: leave the per-turn index (still runs by name, still in routine_catalog)
+    do -- listed 20 times and worth nothing by the same value the index ranks by: leave the per-turn index
+      -- (still runs by name, still in routine_catalog; a later run brings it back)
       local ikey = "routine_index:" .. magi.sha256(magi.workdir())
       local idx, dropped = stored(ikey), false
-      for _, e in pairs(idx) do
-        if type(e) == "table" and not e.dropped and (e.exposed or 0) >= 20 and (e.adopted or 0) == 0 then
-          e.dropped, dropped = true, true
+      local prior = RV.prior(idx, now)
+      for name, e in pairs(idx) do
+        if type(e) == "table" and not e.dropped and (e.exposed or 0) >= 20 then
+          local ok, r = pcall(load_routine, name)
+          local sv = ok and r and RV.of(r) or nil
+          if RV.value(e, sv, now, prior) <= 0 then e.dropped, dropped = true, true end
         end
       end
       if dropped then magi.store_set(ikey, idx) end

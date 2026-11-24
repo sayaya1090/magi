@@ -192,3 +192,80 @@ func TestRoutineIndexOrdersByValueFromSuccessfulRuns(t *testing.T) {
 		t.Fatalf("a successful run should raise readit's value above the unrun routine:\n%s", after)
 	}
 }
+
+// Each listing costs the tokens of its line, so a routine listed for a while and never run is worth less
+// than one just added.
+func TestRoutineValueChargesItsListings(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "aaa", "routine.md"), routineDoc("listed for a while"))
+	for i := range 5 {
+		routineIndex(t, r, fmt.Sprintf("request %d", i))
+	}
+	r.put(t, filepath.Join(".magi", "routines", "bbb", "routine.md"), routineDoc("just added"))
+	idx := routineIndex(t, r, "one more")
+	if strings.Index(idx, "- bbb:") > strings.Index(idx, "- aaa:") {
+		t.Fatalf("listings cost nothing:\n%s", idx)
+	}
+}
+
+// Idle maintenance drops by value, not by whether the routine was ever picked: one that was run but failed
+// and kept being listed is worth less than nothing.
+func TestIdleDropsByValueNotByAdoption(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	if _, _, failed := r.run(t, "f1", map[string]any{"file": "missing.txt"}, "allow"); !failed {
+		t.Fatal("the run was meant to fail")
+	}
+	for i := range 20 {
+		routineIndex(t, r, fmt.Sprintf("turn %d", i))
+	}
+	r.fire("idle")
+	if idx := routineIndex(t, r, "after idle"); strings.Contains(idx, "- readit:") {
+		t.Fatalf("a failed, much-listed routine kept its place:\n%s", idx)
+	}
+}
+
+// learnStretch learns one reader stretch from two turns, each call in its own model response.
+func learnStretch(t *testing.T, r *routineRig, tag string, reads int) {
+	t.Helper()
+	for i := range 2 {
+		file := fmt.Sprintf("%s%d0f9e8d7.txt", tag, i)
+		r.file(t, file, "x\n")
+		r.fire("user_message", "text", "open "+file)
+		r.fire("tool_finished", "order_known", "true", "tool", "grep", "args", `{"path":"notes.txt","pattern":"hello"}`, "ok", "true", "response_id", fmt.Sprintf("%s-%d-g", tag, i))
+		for k := range reads {
+			path := file
+			if k > 0 {
+				path = "notes.txt"
+			}
+			r.fire("tool_finished", "order_known", "true", "tool", "read", "args", `{"path":"`+path+`"}`, "ok", "true", "response_id", fmt.Sprintf("%s-%d-r%d", tag, i, k))
+		}
+		r.fire("turn_finished")
+	}
+}
+
+// Overlapping routines are counted once: when one learned stretch is contained in another, only the one
+// worth more (occurrences × saved calls) is listed. The other still runs by name.
+func TestOverlappingRoutinesListOnlyTheOneWorthMore(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	learnStretch(t, r, "s", 1)
+	learnStretch(t, r, "l", 2)
+	idx := routineIndex(t, r, "anything")
+	if !strings.Contains(idx, "grep>read>read (saves 2 model calls per run)") || strings.Contains(idx, "grep>read (saves 1") {
+		t.Fatalf("want only the longer stretch listed:\n%s", idx)
+	}
+}
+
+// A learned routine that has not run yet is valued by shrinking toward how often listed routines here are
+// run, so it is not ranked as worthless next to a hand-written routine nobody runs.
+func TestANewRoutineIsValuedByShrinkingTowardOthers(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "aaa", "routine.md"), routineDoc("hand-written, never run"))
+	if out, _, failed := r.run(t, "ok1", map[string]any{"file": "notes.txt"}, "allow"); failed {
+		t.Fatal(out)
+	}
+	name := learnReaders(t, r, func(turn, call int) string { return fmt.Sprintf("resp-%d-%d", turn, call) })
+	idx := routineIndex(t, r, "anything")
+	if strings.Index(idx, "- "+name+":") > strings.Index(idx, "- aaa:") {
+		t.Fatalf("a new learned routine ranked as worthless:\n%s", idx)
+	}
+}
