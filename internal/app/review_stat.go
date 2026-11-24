@@ -186,6 +186,13 @@ func resultInventory(tool string, args json.RawMessage, res session.ToolResult) 
 	return string(b)
 }
 
+func inventoryIdentity(workdir, inventory string) string {
+	if inventory == "" {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(workdir+"\x00"+inventory)))
+}
+
 // Observers need only correlate literal operands. Keep the raw inventory
 // and its scalar fields inside the planner.
 func inventoryItemDigests(workdir, inventory string) string {

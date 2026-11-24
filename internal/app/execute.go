@@ -233,9 +233,10 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 
 // ToolObservation associates a completion with the dispatch that scheduled it.
 type ToolObservation struct {
-	InventoryItems string // transient input for matching literal pipeline stage operands
-	AuthoredModel  string // single, top-level model-authored call
-	AuthoredTokens int    // output usage of the tool-only response, zero when unknown
+	InventoryRead, InventoryProduced string // workspace-scoped identities for the observed inventory edge
+	InventoryItems                   string // transient input for matching literal pipeline stage operands
+	AuthoredModel                    string // single, top-level model-authored call
+	AuthoredTokens                   int    // output usage of the tool-only response, zero when unknown
 
 	JobRef        string // daemon-scoped digest of a job issued by bash or referenced by a consumer
 	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
@@ -791,12 +792,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 	res.CallID = tc.CallID
+	var producedInventory string
 	if tc.Parent == "" && depth == 0 && !agent.Trial && guard != nil {
 		if planner, ok := a.cfg.Observer.(inventoryRoutinePlanner); ok {
 			inventory := ""
 			eligible := !dispatch.grouped && !res.IsError && !res.Background && ctx.Err() == nil
 			if eligible {
 				inventory = resultInventory(tc.Name, tc.Args, res)
+				producedInventory = inventory
 			}
 			if !dispatch.grouped {
 				guard.mu.Lock()
@@ -941,7 +944,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if dispatch.grouped {
 		priorInventory = dispatch.inventory
 	}
-	observation := ToolObservation{InventoryItems: inventoryItemDigests(workdir, priorInventory), CallID: tc.CallID, Background: res.Background}
+	observation := ToolObservation{InventoryRead: inventoryIdentity(workdir, priorInventory), InventoryProduced: inventoryIdentity(workdir, producedInventory), InventoryItems: inventoryItemDigests(workdir, priorInventory), CallID: tc.CallID, Background: res.Background}
 	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
 		observation.AuthoredModel, observation.AuthoredTokens = dispatch.authoredModel, dispatch.authoredTokens
 		observation.ParallelBatch = dispatch.parallelBatch

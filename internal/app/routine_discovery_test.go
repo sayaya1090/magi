@@ -301,7 +301,7 @@ func TestRoutineReusesSameFileDependencyDespiteDifferentInterveningCalls(t *test
 	for i, path := range []string{"observed-a.txt", "observed-b.txt"} {
 		r.fire("user_message", "text", "릴리스 노트 작성하고 확인해 "+path)
 		r.fire("tool_finished", "tool", "write", "args", fmt.Sprintf(`{"path":%q}`, path), "ok", "true", "order_known", "true")
-		for range i + 1 {
+		for range i + 14 {
 			r.fire("tool_finished", "tool", "list", "ok", "true", "order_known", "true")
 		}
 		r.fire("tool_finished", "tool", "read", "args", fmt.Sprintf(`{"path":%q}`, path), "ok", "true", "order_known", "true")

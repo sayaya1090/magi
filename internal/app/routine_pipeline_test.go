@@ -411,3 +411,48 @@ func TestRoutineTraceSeparatesPipeStagesFromTheirBashCall(t *testing.T) {
 		}
 	}
 }
+
+func TestDependencyGraphRecallsSharedInputsAcrossDifferentPipelineTails(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	const prompt = "inspect selected artifacts"
+	observe := func(item, later, tail string) {
+		t.Helper()
+		inventory := fmt.Sprintf(`{"items":[%q,"unused"]}`, item)
+		id := inventoryIdentity(r.s.Workdir, inventory)
+		r.fire("user_message", "text", prompt)
+		r.fire("tool_finished", "tool", "list", "args", "{}", "ok", "true", "order_known", "true", "inventory_produced", id)
+		for range 15 {
+			r.fire("tool_finished", "tool", "read", "args", `{"path":"elsewhere"}`, "ok", "true", "order_known", "true")
+		}
+		args, _ := json.Marshal(map[string]string{"command": "collect -- " + item + " | reduce -- " + later + " | " + tail})
+		r.fire("tool_finished", "tool", "bash", "args", string(args), "ok", "true", "order_known", "true",
+			"inventory_read", id, "inventory_items", inventoryItemDigests(r.s.Workdir, inventory))
+	}
+	hint := func(prompt string) string {
+		t.Helper()
+		h, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: prompt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(h) == 0 {
+			return ""
+		}
+		return h[0].Text
+	}
+	observe("private-a", "private-a", "summarize")
+	if got := hint(prompt); got != "" {
+		t.Fatalf("one observation: %s", got)
+	}
+	observe("private-b", "different", "finish")
+	if got := hint(prompt); !strings.Contains(got, "list → collect") || strings.Contains(got, "reduce") {
+		t.Fatalf("distinct operand binding: %s", got)
+	}
+	observe("private-c", "private-c", "archive")
+	got := hint(prompt)
+	if !strings.Contains(got, "list → collect → reduce") || strings.Contains(got, "archive") || strings.Contains(got, "private-") || strings.Contains(got, "elsewhere") {
+		t.Fatalf("expected shared dependency slice: %s", got)
+	}
+	if got := hint("unrelated request"); got != "" {
+		t.Fatalf("unrelated recall: %s", got)
+	}
+}

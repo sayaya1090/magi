@@ -27,9 +27,31 @@ func pipelineObservations(L *lua.LState, file *syntax.File) (*lua.LTable, *lua.L
 			nodes := L.NewTable()
 			graph.RawSetString("stages", nodes)
 			graph.RawSetString("statement", lua.LNumber(stmtIndex+1))
-			for _, cmd := range stages {
+			var statement shellShape
+			if statement.statement(stmt, 0) {
+				graph.RawSetString("shape", lua.LString(fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(statement.tokens, "\x00"))))))
+			}
+			templates := L.NewTable()
+			literal := shellStages(L, stmt, syntax.Pipe, templates, make(map[string]int))
+			graph.RawSetString("matchable", lua.LBool(literal))
+			for i, cmd := range stages {
 				node := L.NewTable()
 				node.RawSetString("command", lua.LString(cmd.Args[0].Lit()))
+				var shape shellShape
+				shape.statement(&syntax.Stmt{Cmd: cmd}, 0)
+				node.RawSetString("shape", lua.LString(fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(shape.tokens, "\x00"))))))
+				if literal {
+					// Use the executable template's argument equivalence classes. Retain
+					// operand positions, with zero marking fixed syntax.
+					template := templates.RawGetInt(i + 1).(*lua.LTable)
+					slots := template.RawGetString("slots").(*lua.LTable)
+					bindings := L.NewTable()
+					for j := 1; j <= slots.Len(); j++ {
+						slot, _ := slots.RawGetInt(j).(lua.LNumber)
+						bindings.Append(slot)
+					}
+					node.RawSetString("slots", bindings)
+				}
 				operands := L.NewTable()
 				after := false
 				for _, arg := range cmd.Args[1:] {

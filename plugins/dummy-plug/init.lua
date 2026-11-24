@@ -1332,17 +1332,12 @@ local function learn_completed_writes(sid, trace)
   local last = trace.calls[#trace.calls]
   if not last.ok or not last.order_known or JUDGE[last.tool] or not CALLABLE[last.tool] then return end
   local shapes, changed = stored("routine_shapes"), false
-  if last.tool == "read" and last.file_digest then
-    for i = #trace.calls - 1, math.max(1, #trace.calls - 12), -1 do
-      local c = trace.calls[i]
-      if c.turn ~= last.turn or not c.ok or not c.order_known or JUDGE[c.tool] then break end
-      if not AUTO_READERS[c.tool] and not (WRITES[c.tool] and c.file_digest) then break end
-      if WRITES[c.tool] then
-        if not c.file_digest then break end
-        if c.file_digest == last.file_digest then
-          changed = observe_write(shapes, sid, {c, last}, {"same-file", c.tool, "read"}, {c.tool, "read"}, true, trace.request_terms, trace.request_id)
-          break
-        end
+  if last.file_source then
+    for i=#trace.calls-1,1,-1 do
+      local c=trace.calls[i]
+      if c.n==last.file_source then
+        changed=observe_write(shapes,sid,{c,last},{"same-file",c.tool,"read"},{c.tool,"read"},true,trace.request_terms,trace.request_id)
+        break
       end
     end
   end
@@ -1549,6 +1544,233 @@ local function learn_file_loop(pending, ev)
   end
 end
 
+-- Workspace patterns contain roles and argument positions only. Trace numbers
+-- identify observations locally and are never part of a pattern's identity.
+local graph_observe, graph_recall
+do
+  local function store_key() return "routine_graph_index_v1:" .. magi.sha256(magi.workdir()) end
+
+  local function node(graph, role, title, parents)
+    graph[#graph+1] = {role=role, title=title, parents=parents or {}}
+    return #graph
+  end
+
+  -- Backward slice. Parent IDs can point to much older calls in the trace.
+  -- Compact IDs are topological, with the requested result last.
+  local function slice(graph, root)
+    local result, ids = {}, {}
+    local function visit(i)
+      if ids[i] then return ids[i] end
+      local v, parents = graph[i], {}
+      for _, edge in ipairs(v.parents) do
+        parents[#parents+1] = {visit(edge[1]), edge[2]}
+      end
+      ids[i] = node(result, v.role, v.title, parents)
+      return ids[i]
+    end
+    visit(root)
+    return result
+  end
+
+  -- Two rounds of directed WL refinement. Incoming neighborhoods stay
+  -- comparable when a later observation adds more downstream consumers.
+  local function colors(graph)
+    local labels = {}
+    for i,v in ipairs(graph) do labels[i] = v.role end
+    for round=1,2 do
+      local next_labels = {}
+      for i,v in ipairs(graph) do
+        local incoming = {}
+        for _,e in ipairs(v.parents) do incoming[#incoming+1] = e[2] .. ":" .. labels[e[1]] end
+        table.sort(incoming)
+        next_labels[i] = magi.sha256(labels[i] .. "\0" .. table.concat(incoming,"\0")):sub(1,24)
+      end
+      labels = next_labels
+    end
+    return labels
+  end
+
+  -- VF2-style directed frontier search starting at the result. Edge labels
+  -- include operand positions. Injectivity preserves shared-input identity.
+  local function embeds(pattern, host, root)
+    local mapping,used,frontier = {},{},{{#pattern,root}}
+    while #frontier>0 do
+      local pair=table.remove(frontier)
+      local p,h=pair[1],pair[2]
+      if mapping[p] then
+        if mapping[p]~=h then return false end
+      else
+        if used[h] then return false end
+        local a,b=pattern[p],host[h]
+        if a.role~=b.role or #a.parents~=#b.parents then return false end
+        mapping[p],used[h]=h,true
+        -- Position labels make every predecessor choice unique. Only the
+        -- initial host vertex has alternatives (enumerated through the index).
+        local targets={}
+        for _,edge in ipairs(b.parents) do targets[edge[2]]=edge[1] end
+        for _,edge in ipairs(a.parents) do
+          local target=targets[edge[2]]
+          if not target then return false end
+          frontier[#frontier+1]={edge[1],target}
+        end
+      end
+    end
+    return true
+  end
+
+  local function index_graph(state, graph, sid, first, call, trace)
+    if #graph < 2 or #graph > 40 then return end
+    local labels = colors(graph)
+    local root = labels[#labels]
+    local same, partial
+    for i,label in ipairs(labels) do
+      for _,id in ipairs(state.buckets[label] or {}) do
+        local entry = state.entries[id]
+        if #entry.graph <= #graph and embeds(entry.graph,graph,i) then
+          if i == #graph and #entry.graph == #graph then same=id
+          elseif (entry.session~=sid or entry.last<first) and (not partial or #entry.graph > #state.entries[partial].graph) then partial=id end
+        end
+      end
+    end
+    local id = same
+    if not id then
+      if #state.order >= 96 then
+        local old = table.remove(state.order,1)
+        local bucket = state.buckets[state.entries[old].root]
+        for i,v in ipairs(bucket) do if v == old then table.remove(bucket,i); break end end
+        if #bucket == 0 then state.buckets[state.entries[old].root] = nil end
+        state.entries[old] = nil
+      end
+      id = magi.sha256(magi.json_encode(graph)):sub(1,24)
+      state.order[#state.order+1] = id
+      local bucket = state.buckets[root] or {}
+      bucket[#bucket+1],state.buckets[root] = id,bucket
+      state.entries[id] = {graph=graph,root=root,hits=0}
+    end
+    local entry = state.entries[id]
+    if entry.session ~= sid or first > entry.last then
+      entry.hits = entry.hits + 1
+      entry.session,entry.last = sid,call.n
+      observe_request(entry,trace.request_terms,sid..":"..trace.turn,trace.request_id)
+    end
+    if entry.hits >= 2 or partial then
+      call.graph_matches = call.graph_matches or {}
+      call.graph_matches[#call.graph_matches+1] = (same and "repeat " or partial and "contains " or "pattern ") .. (same or partial or id)
+    end
+    return entry
+  end
+
+  graph_observe = function(trace,sid)
+    local calls,call = trace.calls,trace.calls[#trace.calls]
+    if not call.ok or not (call.pipe_graphs or call.glob_source or call.job_source or (call.tool=="read" and call.file_digest)) then return end
+    local sources,by_number = {},{}
+    for i=#calls-1,1,-1 do
+      local c = calls[i]
+      by_number[c.n]=c
+      if c.n == call.glob_source then sources.glob=c end
+      if c.n == call.job_source then sources.job=c end
+      if not sources.inventory and call.inventory_read and c.inventory_produced == call.inventory_read then sources.inventory=c end
+    end
+    if call.tool == "read" and call.file_digest and call.order_known then
+      for i=#calls-1,1,-1 do
+        local c=calls[i]
+        if not c.ok or not c.order_known or not (AUTO_READERS[c.tool] or (WRITES[c.tool] and c.file_digest)) then break end
+        if WRITES[c.tool] and c.file_digest == call.file_digest then sources.file=c; break end
+      end
+    end
+    if not next(sources) and not call.pipe_graphs then return end
+    local state = stored(store_key())
+    state.order,state.entries,state.buckets = state.order or {},state.entries or {},state.buckets or {}
+    local graph,parents,first = {},{},call.n
+    local prior,updated={},false
+    local function ancestor(c)
+      if prior[c.n] then return prior[c.n] end
+      local links={}
+      for _,kind in ipairs({"file","glob","job"}) do
+        local parent=by_number[c[kind.."_source"]]
+        if parent and parent.n<c.n and parent.ok then links[#links+1]={ancestor(parent),kind} end
+      end
+      first=math.min(first,c.n)
+      prior[c.n]=node(graph,c.tool..":"..(c.shell_pattern or ""),c.tool,links)
+      return prior[c.n]
+    end
+    for _,kind in ipairs({"file","glob","job"}) do
+      local c=sources[kind]
+      if c and c.ok then parents[#parents+1]={ancestor(c),kind} end
+    end
+    if #parents>0 then
+      local root=node(graph,call.tool..":"..(call.shell_pattern or ""),call.tool,parents)
+      updated=index_graph(state,slice(graph,root),sid,first,call,trace)~=nil
+      if sources.file then call.file_source=sources.file.n end
+    end
+    for _,pipe in ipairs(call.pipe_graphs or {}) do
+      local stages,slots={},{}
+      graph,prior,first={},{},call.n
+      local producer = sources.inventory
+      local source = producer and ancestor(producer)
+      local prior_matches=#(call.graph_matches or {})
+      local linked=false
+      for _,stage in ipairs(pipe.stages) do
+        parents={}
+        if #stages>0 then parents[#parents+1]={stages[#stages],"pipe"} end
+        local selected={}
+        for _,slot in ipairs(stage.item_slots or {}) do selected[slot]=true end
+        for j,slot in ipairs(stage.slots or {}) do
+          if slot>0 then
+            if not slots[slot] then slots[slot]=node(graph,"argument","input") end
+            parents[#parents+1]={slots[slot],"arg:"..j}
+            if source and selected[slot] then
+              parents[#parents+1]={source,(stage.matched==stage.total and "all:" or "selected:")..j}
+              linked=true
+            end
+          end
+        end
+        stages[#stages+1]=node(graph,"stage:"..(stage.shape or stage.command),stage.command,parents)
+        if pipe.matchable and #graph<=40 and (#stages>=3 or linked) then
+          local entry=index_graph(state,slice(graph,stages[#stages]),sid,linked and first or call.n,call,trace)
+          updated=updated or entry~=nil
+          if entry and #stages==#pipe.stages and pipe.routine then entry.routine=pipe.routine end
+        end
+      end
+      if call.graph_matches and #call.graph_matches>prior_matches+1 then
+        local longest=call.graph_matches[#call.graph_matches]
+        while #call.graph_matches>prior_matches do table.remove(call.graph_matches) end
+        call.graph_matches[#call.graph_matches+1]=longest
+      end
+    end
+    if updated then magi.store_set(store_key(),state) end
+  end
+
+  graph_recall = function(terms,request_id)
+    local best,score,routine
+    for _,entry in pairs(stored(store_key()).entries or {}) do
+      local overlap=request_overlap(entry,terms,request_id)
+      if entry.hits>=2 and overlap>=2 then
+        local titles,cross,selected={},false,false
+        for _,v in ipairs(entry.graph) do
+          if v.role~="argument" then titles[#titles+1]=v.title end
+          for _,edge in ipairs(v.parents) do
+            if edge[2]:match("^selected:") then selected=true end
+            if edge[2]~="pipe" and not edge[2]:match("^arg:") then cross=true end
+          end
+        end
+        local rank=overlap*100+#titles
+        local text=table.concat(titles," → ")
+        if selected then text=text.." (use the items selected for the current task)" end
+        if cross and (not score or rank>score or (rank==score and text<best)) then best,score,routine=text,rank,entry.routine end
+      end
+    end
+    if routine then
+      local ok,r=pcall(load_routine,routine)
+      local receipt=stored("routine_learned_write:"..routine:sub(7))
+      if ok and r and receipt.workspace==magi.workdir() and receipt.digest==r.file_sha256 and not lifecycle_state(stored(lifecycle_key())[routine],r) then
+        best=best..". For the pipeline step, inspect routine_catalog with query "..routine
+      end
+    end
+    return best
+  end
+end
+
 magi.on("user_message", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
   local t = load_trace(ev.session)
@@ -1587,10 +1809,19 @@ magi.on("tool_finished", function(ev)
     pattern, verb, dependencies, pipelines, pipe_graphs = shell_pattern(ev.args)
     local inventory=ev.inventory_items and ev.inventory_items~="" and magi.json_decode(ev.inventory_items)
     for _,graph in ipairs(pipe_graphs or {}) do
+      local items={}
+      for _,value in ipairs(inventory or {}) do items[value]=true end
       for _,node in ipairs(graph.stages) do
         if inventory then
           local seen={}
-          for _,operand in ipairs(node.operands) do seen[magi.sha256(magi.workdir().."\0"..operand)]=true end
+          for j,operand in ipairs(node.operands) do
+            local key=magi.sha256(magi.workdir().."\0"..operand)
+            seen[key]=true
+            if items[key] and node.slots then
+              node.item_slots=node.item_slots or {}
+              node.item_slots[#node.item_slots+1]=node.slots[#node.slots-#node.operands+j]
+            end
+          end
           local hits=0
           for _,value in ipairs(inventory) do if seen[value] then hits=hits+1 end end
           if hits>0 then node.matched=hits; node.total=#inventory end
@@ -1599,6 +1830,7 @@ magi.on("tool_finished", function(ev)
       end
     end
     local covered=observe_pipeline_families(pipelines, ev, t)
+    for _,pipe in ipairs(pipe_graphs or {}) do pipe.routine=covered and covered[pipe.shape] end
     runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern, covered)
   end
   if (ev.authored_model or "") ~= "" and t.request_id then
@@ -1621,9 +1853,11 @@ magi.on("tool_finished", function(ev)
   end
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
     pipe_graphs=pipe_graphs and #pipe_graphs>0 and pipe_graphs or nil, shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest, glob_source = glob_source,
+    inventory_read = ev.inventory_read ~= "" and ev.inventory_read or nil, inventory_produced = ev.inventory_produced ~= "" and ev.inventory_produced or nil,
     issued_job = issued_job, job_source = job_source,
     call_id = ev.call_id, parallel_batch = ev.parallel_batch, parallel_size = tonumber(ev.parallel_size),
     order_known = ev.order_known == "true" and (ev.parallel_batch or "") == "" }
+  graph_observe(t,ev.session)
   t.next = t.next + 1
   while #t.calls > TRACE_KEEP do table.remove(t.calls, 1) end
   magi.store_set(trace_key(ev.session), t)
@@ -1820,7 +2054,11 @@ pcall(magi.register_context_provider, {
         if #candidates == 3 then break end
       end
     end
-    if #candidates == 0 then return {} end
+    if #candidates == 0 then
+      local flow=graph_recall(terms,request_id)
+      if flow then return {{source="automatic-routine-catalog",text="Earlier matching tasks used this observed dependency flow: "..flow..". Choose current inputs from this request."}} end
+      return {}
+    end
     if note_name then note_suggestion(query, note_name, note_description) end
     return {{source="automatic-routine-catalog",text="Use run_routine when all steps and inputs match.\n"..table.concat(candidates,"\n")}}
   end,
@@ -2091,6 +2329,7 @@ magi.register_command{
             or (not c.order_known and " (order unknown)" or "")) ..
           (c.glob_source and (" (path matched glob #" .. c.glob_source .. ")") or "") ..
           (c.job_source and (" (job issued by bash #" .. c.job_source .. ")") or "")
+        for _,match in ipairs(c.graph_matches or {}) do lines[#lines+1]="  dependency graph "..match end
         for _,graph in ipairs(c.pipe_graphs or {}) do
           local stages={}
           for _,node in ipairs(graph.stages) do
