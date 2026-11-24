@@ -50,17 +50,22 @@ func TestRepeatedWritesAndShellOperationsBecomeReusable(t *testing.T) {
 		r.fire("tool_finished", "tool", "read", "ok", "true", "order_known", "true")
 		r.fire("tool_finished", "tool", "todowrite", "ok", "true", "order_known", "true")
 	}
-	if files := drafts(); len(files) != 2 {
-		t.Fatalf("expected mkdir and mkdir→read to be learned before turn_finished: %v", files)
+	if files := drafts(); len(files) != 1 {
+		t.Fatalf("expected only mkdir→read to be learned before turn_finished: %v", files)
 	}
 	observe("write", `{"path":"private-first","content":"private-content"}`, 0, 0)
 	observe("write", `{"path":"private-second","content":"private-content"}`, 0, 0)
+	if files := drafts(); len(files) != 1 {
+		t.Fatalf("standalone repeated write created a wrapper: %v", files)
+	}
+	observe("write", `{"path":"private-first","content":"private-content"}`, 0, 1)
+	observe("write", `{"path":"private-second","content":"private-content"}`, 0, 1)
 	files := drafts()
-	if len(files) != 3 {
-		t.Fatalf("expected routines for mkdir, mkdir→read, and write: %v", files)
+	if len(files) != 2 {
+		t.Fatalf("expected routines for mkdir→read and write→read: %v", files)
 	}
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
-		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "Create a file.",
+		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "Explain this design.",
 	})
 	if err != nil || len(hints) != 0 {
 		t.Fatalf("learned writing routine was not suggested: %+v (%v)", hints, err)
@@ -82,9 +87,10 @@ func TestRepeatedWritesAndShellOperationsBecomeReusable(t *testing.T) {
 		if failed || !strings.Contains(catalog, name) {
 			t.Fatalf("learned routine is missing from the catalog: %s", catalog)
 		}
-		if strings.Contains(body, "tools: write\n") {
+		if strings.Contains(body, "Writing sequence: write > read") {
 			args := map[string]any{"name": name, "args": map[string]any{
 				"step1": map[string]string{"path": "out.txt", "content": "current request"},
+				"step2": map[string]string{"path": "out.txt"},
 			}}
 			out, asks, _ := r.call(t, "learned-deny", "run_routine", args, "deny")
 			if len(asks) != 1 || asks[0].What != "write" || !strings.Contains(out, "denied by user") {
@@ -94,7 +100,7 @@ func TestRepeatedWritesAndShellOperationsBecomeReusable(t *testing.T) {
 				t.Fatalf("refused write changed the workspace: %v", err)
 			}
 			out, asks, failed = r.call(t, "learned-allow", "run_routine", args, "allow")
-			if failed || len(asks) != 1 || asks[0].What != "write" || !strings.Contains(out, "done: 1 steps") {
+			if failed || len(asks) != 1 || asks[0].What != "write" || !strings.Contains(out, "done: 2 steps") {
 				t.Fatalf("expected the permitted write to run: %q %+v", out, asks)
 			}
 			r.file(t, filepath.Join(".magi", "routines", name, "routine.md"), body+"\n")

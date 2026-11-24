@@ -1178,14 +1178,13 @@ local function measured_shell_match(name,r,request,model)
   return direct.errors>=2 or ((direct.metered or 0)>=2 and (wrapper.metered or 0)>=2 and wrapper.max<direct.min)
 end
 
-local function observe_shell_dependencies(session, call, dependencies, trace, complete_shape, covered)
+local function observe_shell_dependencies(session, call, dependencies, trace, covered)
   if type(dependencies) ~= "table" or #dependencies == 0 then return end
   local key = "routine_shell_dependencies:" .. magi.sha256(magi.workdir()):sub(1, 20)
   local state = stored(key)
   local entries = type(state.entries) == "table" and state.entries or {}
   local order = type(state.order) == "table" and state.order or {}
   local occurrence = session .. ":" .. call
-  local has_template = false
   for _, dependency in ipairs(dependencies) do
     local id = dependency.key
     local entry = entries[id]
@@ -1227,14 +1226,10 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
       if not entry.routine then
         entry.layout, entry.layout_occurrence = layout, occurrence
       end
-      if dependency.key == complete_shape and magi.platform() ~= "windows" then
-        has_template = true
-      end
     end
   end
   while #order > 200 do entries[table.remove(order, 1)] = nil end
   magi.store_set(key, { entries = entries, order = order })
-  return has_template
 end
 
 local function note_run(goal, script, seq)
@@ -1350,7 +1345,7 @@ local function learn_completed_writes(sid, trace)
     table.insert(tokens, 1, c.tool .. ":" .. (c.shell_pattern or ""))
     table.insert(labels, 1, c.shell_verb and (c.tool .. " (" .. c.shell_verb .. ")") or c.tool)
     writes = writes or WRITES[c.tool] == true
-    if writes and (#calls > 1 or not c.shell_routine)
+    if writes and #calls >= 2
       and observe_write(shapes, sid, calls, tokens, labels, false, trace.request_terms, trace.request_id) then changed = true end
   end
   if changed then
@@ -1784,7 +1779,7 @@ end)
 magi.on("tool_finished", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" or type(ev.tool) ~= "string" then return end
   local t = load_trace(ev.session)
-  local pattern, verb, dependencies, runnable, pipe_graphs
+  local pattern, verb, dependencies, pipe_graphs
   local file_digest
   if ev.tool == "read" or ev.tool == "write" or ev.tool == "edit" or ev.tool == "multiedit" then
     local ok, args = pcall(magi.json_decode, ev.args or "")
@@ -1831,7 +1826,7 @@ magi.on("tool_finished", function(ev)
     end
     local covered=observe_pipeline_families(pipelines, ev, t)
     for _,pipe in ipairs(pipe_graphs or {}) do pipe.routine=covered and covered[pipe.shape] end
-    runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern, covered)
+    observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, covered)
   end
   if (ev.authored_model or "") ~= "" and t.request_id then
     if ev.tool=="run_routine" then
@@ -1852,7 +1847,7 @@ magi.on("tool_finished", function(ev)
     end
   end
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
-    pipe_graphs=pipe_graphs and #pipe_graphs>0 and pipe_graphs or nil, shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest, glob_source = glob_source,
+    pipe_graphs=pipe_graphs and #pipe_graphs>0 and pipe_graphs or nil, shell_pattern = pattern, shell_verb = verb, file_digest = file_digest, glob_source = glob_source,
     inventory_read = ev.inventory_read ~= "" and ev.inventory_read or nil, inventory_produced = ev.inventory_produced ~= "" and ev.inventory_produced or nil,
     issued_job = issued_job, job_source = job_source,
     call_id = ev.call_id, parallel_batch = ev.parallel_batch, parallel_size = tonumber(ev.parallel_size),
