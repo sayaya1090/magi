@@ -965,6 +965,12 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
             })
             input.addKeyListener(object : java.awt.event.KeyAdapter() {
                 override fun keyPressed(e: java.awt.event.KeyEvent) {
+                    // ↑/↓ 가 입력란에 닿는지(2026-11-24: 되불러오기가 멎었는데 "recall miss" 가 0건이었다 —
+                    // IDE 가 키를 먼저 소비하는지, 이 창 안에서 다른 분기로 가는지 가르려고 남긴다).
+                    if (e.keyCode == java.awt.event.KeyEvent.VK_UP || e.keyCode == java.awt.event.KeyEvent.VK_DOWN)
+                        com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info(
+                            "magi: arrow key reached input code=${e.keyCode} consumed=${e.isConsumed} mods=${e.modifiersEx} " +
+                                "bound=${input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED).get(javax.swing.KeyStroke.getKeyStrokeForEvent(e))}")
                     inputGate.onKeyPressed(e.keyCode == java.awt.event.KeyEvent.VK_ENTER)
                 }
                 override fun keyReleased(e: java.awt.event.KeyEvent) {
@@ -1008,6 +1014,7 @@ class MagiToolWindow : ToolWindowFactory, com.intellij.openapi.project.DumbAware
                     override fun actionPerformed(e: java.awt.event.ActionEvent) {
                         val list = slashList
                         if (slashPopup?.isVisible == true && list != null && list.model.size > 0) {
+                            com.intellij.openapi.diagnostic.Logger.getInstance(javaClass).info("magi: arrow moved the slash palette key=$name")
                             val size = list.model.size
                             list.selectedIndex = Math.floorMod(list.selectedIndex + if (older) -1 else 1, size)
                             list.ensureIndexIsVisible(list.selectedIndex)

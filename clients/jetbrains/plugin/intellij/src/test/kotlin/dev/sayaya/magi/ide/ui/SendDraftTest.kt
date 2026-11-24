@@ -66,6 +66,25 @@ class SendDraftTest : BasePlatformTestCase() {
         assertEquals("unfinished draft", h.input.text)
     }
 
+    // The real key, not the action by name: ↑ must reach the recall action through the input's key
+    // bindings (2026-11-24 report: arrows stopped recalling; idea.log had no "recall miss" at all).
+    fun testUpKeyReachesRecallThroughKeyBindings() = check { h ->
+        val recall = h.field<dev.sayaya.magi.ide.usecase.PromptRecall>("recall")
+        recall.load(listOf("previous prompt"))
+        h.input.text = ""
+        val up = javax.swing.KeyStroke.getKeyStroke("UP")
+        val bound = h.input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED).get(up)
+        assertEquals("↑ is not bound to recall", "magi.recallOlder", bound)
+        val ev = java.awt.event.KeyEvent(h.input, java.awt.event.KeyEvent.KEY_PRESSED,
+            System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_UP, java.awt.event.KeyEvent.CHAR_UNDEFINED)
+        val m = javax.swing.JComponent::class.java.getDeclaredMethod("processKeyBinding", javax.swing.KeyStroke::class.java,
+            java.awt.event.KeyEvent::class.java, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+        // Swing's own binding step, as the focused input would run it (a headless dispatchEvent has no
+        // focus owner and never reaches the bindings).
+        assertEquals(true, m.invoke(h.input, up, ev, javax.swing.JComponent.WHEN_FOCUSED, true))
+        assertEquals("previous prompt", h.input.text)
+    }
+
     // A plugin's slash command (/routine-draft …) used to reach the model as an ordinary prompt: the
     // window had no path to the daemon's plugin commands. A first word the daemon lists as a command
     // runs it instead. Refusals appear above the input and successful output appears in the transcript.
