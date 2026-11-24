@@ -818,10 +818,11 @@ end
 
 local function save_shell_chain(dependency)
   if magi.platform() == "windows" then return end
-  local first = dependency.chain[1]
-  if first.name == "git" then
-    local slots = first.slots or {}
-    if type(slots[1]) ~= "string" then return end
+  -- A leading open slot in a multi-argument stage could select the
+  -- operation itself. Keep the observation without minting that template.
+  for _,stage in ipairs(dependency.chain) do
+    local slots = stage.slots or {}
+    if #slots > 1 and type(slots[1]) ~= "string" then return end
   end
   local id = magi.sha256("shell chain\n" .. magi.workdir() .. "\n" .. dependency.key ..
     "\n" .. magi.json_encode(dependency.chain)):sub(1, 20)
@@ -990,7 +991,7 @@ local function observe_pipeline_families(rows, ev, trace)
   local covered={}
   for _,row in ipairs(rows or {}) do
     local core,tail,patterns,width,label=pipeline_layout(row)
-    if #core > 1 then
+    if #core >= 3 then
       local id=magi.sha256("variable pipeline v1\n"..magi.workdir().."\n"..magi.json_encode(core)):sub(1,20)
       local e=state[id]
       if e and e.name and not magi.read_file(routine_paths(e.name)[1]) then
@@ -1031,31 +1032,84 @@ local function observe_pipeline_families(rows, ev, trace)
   return covered
 end
 
--- Called after a completed inventory and before the model sees its output.
--- The host runs the single matching family through ordinary tool permissions.
-magi.on("review_inventory", function(ev)
-  local prompt = ev.request:lower()
-  if not ((prompt:find("commit",1,true) or prompt:find("커밋",1,true)) and
-    (prompt:find("review",1,true) or prompt:find("검토",1,true) or prompt:find("리뷰",1,true))) then return end
-  local target = magi.json_decode(ev.inventory)
-  local state = stored("routine_pipeline_families:" .. magi.sha256(magi.workdir()))
-  local lifecycle, plan = stored(lifecycle_key())
-  for id, entry in pairs(state) do
-    if entry.name and entry.label == "git | grep | grep" then
-      local r = load_routine(entry.name)
-      local receipt = stored("routine_learned_write:" .. id)
-      if r and receipt.workspace == magi.workdir() and receipt.digest == r.file_sha256 and not lifecycle_state(lifecycle[r.name],r) then
-        local _,revision,include = routine_usage(r.description,r.inputs,r.source)
-        if revision then
-          if plan then return end
-          local args={items=target.files,[revision]=target.revision}
-          if include then args[include]="^[-+]" end
-          plan={name=r.name,args=args,expected_digest=r.file_sha256}
+-- Only a complete standalone invocation can teach a producer/consumer edge.
+-- Literal operands must come from this result, or be fixed punctuation patterns.
+local function inventory_consumer(target, raw)
+  local digest, _, _, rows=shell_pattern(raw)
+  if not rows or #rows~=1 or not digest or rows[1].graph~=digest then return end
+  local row=rows[1]
+  local core,tail,_,width=pipeline_layout(row)
+  if width~=#target.items then return end
+  local first=row[1]
+  for i,v in ipairs(target.items) do
+    if first[#first-width+i]~=v then return end
+  end
+  for _,stage in ipairs(tail) do core[#core+1]=stage end
+  local bindings,patterns={},{}
+  for i,stage in ipairs(core) do
+    if #stage>2 and not stage[2].word then return end
+    for j=2,#stage do
+      local slot=stage[j]
+      if not slot.word and not slot.items then
+        local value=row[i][j]
+        if type(value)~="string" then return end
+        local key="s"..i.."_arg"..(j-1)
+        local field
+        for k,v in pairs(target.fields) do
+          if v==value then
+            if field then return end
+            field=k
+          end
         end
+        if field then bindings[key]=field
+        elseif pipeline_slot(value,j,row[i]).pattern then patterns[key]=value
+        else return end
       end
     end
   end
-  if plan then return magi.json_encode(plan) end
+  return core,bindings,patterns
+end
+
+magi.on("inventory_routine",function(ev)
+  if magi.platform()=="windows" then return end
+  local target=magi.json_decode(ev.inventory)
+  local store_key="routine_inventory_edges:"..magi.sha256(magi.workdir())
+  local edges=stored(store_key)
+  local edge=edges[target.source]
+  if ev.consumer~="" then
+    local core,bindings,patterns=inventory_consumer(target,ev.consumer)
+    if not core then return end
+    local id=magi.sha256("inventory edge v1\n"..magi.workdir().."\n"..magi.json_encode({core,bindings,patterns})):sub(1,20)
+    if edge and edge.id~=id then
+      edge.ambiguous=true
+    elseif not edge then
+      local count=0
+      for _ in pairs(edges) do count=count+1 end
+      if count>=200 then return end
+      local first={}
+      for _,field in pairs(bindings) do first[field]=magi.sha256(magi.workdir().."\0"..target.fields[field]) end
+      edges[target.source]={id=id,width=#target.items,first=first,bindings=bindings}
+    elseif not edge.ambiguous and not edge.name and edge.width~=#target.items then
+      for field,hash in pairs(edge.first) do
+        if magi.sha256(magi.workdir().."\0"..target.fields[field])==hash then return end
+      end
+      local name="write-"..id
+      local r=load_routine(name)
+      local receipt=stored("routine_learned_write:"..id)
+      if r and receipt.workspace==magi.workdir() and receipt.digest==r.file_sha256 then edge.name=name
+      else edge.name=save_pipeline_family(id,core,{patterns=patterns,tails={}}) end
+    else return end
+    magi.store_set(store_key,edges)
+    return
+  end
+  if not edge or edge.ambiguous or not edge.name then return end
+  local r=load_routine(edge.name)
+  if not r then edges[target.source]=nil; magi.store_set(store_key,edges); return end
+  local receipt=stored("routine_learned_write:"..edge.id)
+  if receipt.workspace~=magi.workdir() or receipt.digest~=r.file_sha256 or lifecycle_state(stored(lifecycle_key())[r.name],r) then return end
+  local args={items=target.items}
+  for key,field in pairs(edge.bindings) do args[key]=target.fields[field] end
+  return magi.json_encode({name=r.name,args=args,expected_digest=r.file_sha256})
 end)
 
 -- Compare independent turns for the same request, model and exact generated

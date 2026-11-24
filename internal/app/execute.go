@@ -235,14 +235,14 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 type ToolObservation struct {
 	AuthoredModel  string // single, top-level model-authored call
 	AuthoredTokens int    // output usage of the tool-only response, zero when unknown
-	ReviewStat     string // complete foreground diffstat before any dependent read
-	JobRef         string // daemon-scoped digest of a job issued by bash or referenced by a consumer
-	GlobItems      string // JSON array of workspace-salted path digests, only for a bounded successful glob
-	CallID         string
-	ParallelBatch  string
-	ParallelSize   int
-	OrderKnown     bool
-	Background     bool // this result acknowledges launch; the work may still be running
+
+	JobRef        string // daemon-scoped digest of a job issued by bash or referenced by a consumer
+	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
+	CallID        string
+	ParallelBatch string
+	ParallelSize  int
+	OrderKnown    bool
+	Background    bool // this result acknowledges launch; the work may still be running
 }
 
 // Background job numbers restart with the daemon.
@@ -294,6 +294,7 @@ func observedGlobItems(workdir string, res session.ToolResult) string {
 type toolDispatchKey struct{}
 
 type toolDispatch struct {
+	grouped        bool
 	authoredModel  string
 	authoredTokens int
 	call           *session.ToolCall
@@ -308,6 +309,12 @@ type toolDispatch struct {
 func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, guard *runGuard, turnTask string) {
 	sid := s.ID
 	workdir := s.Workdir
+	var priorInventory string
+	if tc.Parent == "" && depth == 0 && guard != nil {
+		guard.mu.Lock()
+		priorInventory, guard.previousInventory = guard.previousInventory, ""
+		guard.mu.Unlock()
+	}
 	toolMsgID := "m_" + newID()
 
 	// A panic anywhere under one tool call used to end the whole run. Observed live: an off-by-one
@@ -776,15 +783,25 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 	res.CallID = tc.CallID
-	var reviewStat string
-	if tc.Name == "bash" {
-		reviewStat = observedReviewStat(tc.Args, res)
-	}
-	if reviewStat != "" && tc.Parent == "" && depth == 0 && !agent.Trial && guard != nil {
-		if planner, ok := a.cfg.Observer.(reviewRoutinePlanner); ok {
-			res.Content = appendReviewDiff(res.Content, planner, guard, workdir, turnTask, reviewStat, func(plan json.RawMessage) (session.ToolResult, error) {
-				return a.callInner(ctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, "run_routine", plan)
-			})
+	if tc.Parent == "" && depth == 0 && !agent.Trial && guard != nil {
+		if planner, ok := a.cfg.Observer.(inventoryRoutinePlanner); ok {
+			dispatch, _ := ctx.Value(toolDispatchKey{}).(toolDispatch)
+			inventory := ""
+			eligible := !dispatch.grouped && !res.IsError && !res.Background && ctx.Err() == nil
+			if eligible {
+				inventory = resultInventory(tc.Name, tc.Args, res)
+			}
+			guard.mu.Lock()
+			guard.previousInventory = inventory
+			guard.mu.Unlock()
+			if eligible && priorInventory != "" && tc.Name == "bash" {
+				planner.InventoryRoutine(workdir, priorInventory, string(tc.Args))
+			}
+			if inventory != "" {
+				res.Content = appendInventoryResult(res.Content, planner, guard, workdir, inventory, func(plan json.RawMessage) (session.ToolResult, error) {
+					return a.callInner(ctx, s, agent, depth, actor, tc, guard, turnTask, &innerCalls, innerSlots, "run_routine", plan)
+				})
+			}
 		}
 	}
 	// Cap a single tool result so one giant output (e.g. reading a 500KB file) can't blow
@@ -910,7 +927,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// An observer that asks hears which tool finished, with what arguments, and whether it
 	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
 	// tool no meaning here; an extension decides what matters to it.
-	observation := ToolObservation{CallID: tc.CallID, Background: res.Background, ReviewStat: reviewStat}
+	observation := ToolObservation{CallID: tc.CallID, Background: res.Background}
 	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
 		observation.AuthoredModel, observation.AuthoredTokens = dispatch.authoredModel, dispatch.authoredTokens
 		observation.ParallelBatch = dispatch.parallelBatch

@@ -60,6 +60,7 @@ const (
 // loop if nothing changed between calls — so re-running a test after editing the file
 // under test (the correct thing to do) is allowed, instead of being blocked blind.
 type runGuard struct {
+	previousInventory   string   // transient producer result for the next top-level model call
 	reviewedInventories sync.Map // avoid repeating the same dependent read in a turn
 	experience          *turnExperience
 	mu                  sync.Mutex

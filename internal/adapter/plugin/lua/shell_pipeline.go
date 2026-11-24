@@ -18,7 +18,7 @@ func pipelineObservations(L *lua.LState, file *syntax.File) *lua.LTable {
 			break
 		}
 		var stages []*syntax.CallExpr
-		if !literalPipeline(stmt, &stages) || len(stages) == 2 {
+		if !literalPipeline(stmt, &stages) {
 			continue
 		}
 		row := L.NewTable()

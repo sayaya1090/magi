@@ -132,20 +132,32 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 	inventoryCommand := "git show --format='--- %h' --stat HEAD"
 	rawArgs, _ := json.Marshal(map[string]string{"command": inventoryCommand})
 	rawText, _ := json.Marshal("--- " + revision + "\n changed one | 2 ++\n changed two | 1 +\n 2 files changed, 3 insertions(+)\n")
-	stat := observedReviewStat(rawArgs, session.ToolResult{Content: rawText})
+	stat := resultInventory("bash", rawArgs, session.ToolResult{Content: rawText})
 	var invocation struct {
 		Name string
 		Args map[string]any
 	}
-	if plan := r.host.ReviewRoutine(r.s.Workdir, task, stat); json.Unmarshal([]byte(plan), &invocation) != nil {
-		t.Fatalf("missing plan: %q", plan)
+	for _, pair := range []struct {
+		rev   string
+		paths []string
+	}{{"1111111", []string{"a", "b"}}, {"2222222", []string{"c", "d", "e"}}} {
+		var text strings.Builder
+		fmt.Fprintf(&text, "--- %s\n", pair.rev)
+		for _, path := range pair.paths {
+			fmt.Fprintf(&text, " %s | 1 +\n", path)
+		}
+		fmt.Fprintf(&text, " %d files changed\n", len(pair.paths))
+		raw, _ := json.Marshal(text.String())
+		inventory := resultInventory("bash", rawArgs, session.ToolResult{Content: raw})
+		consumer, _ := json.Marshal(map[string]string{"command": "git show --format= " + pair.rev + " -- " + strings.Join(pair.paths, " ") + inc})
+		r.host.InventoryRoutine(r.s.Workdir, inventory, string(consumer))
+	}
+	if plan := r.host.InventoryRoutine(r.s.Workdir, stat, ""); json.Unmarshal([]byte(plan), &invocation) != nil {
+		t.Fatalf("missing plan %q", plan)
 	}
 	name := invocation.Name
-	if r.host.ReviewRoutine(r.s.Workdir, "list files", stat) != "" {
-		t.Fatal("unexpected review")
-	}
 	inventoryOut, _, failed := r.callTask(t, "inventory", "bash", map[string]any{"command": inventoryCommand}, "allow", task)
-	if failed || !strings.Contains(inventoryOut, "2 files changed") || !strings.Contains(inventoryOut, "[review routine]") || !strings.Contains(inventoryOut, "+keep second") {
+	if failed || !strings.Contains(inventoryOut, "2 files changed") || !strings.Contains(inventoryOut, "[inventory routine]") || !strings.Contains(inventoryOut, "+keep second") {
 		t.Fatalf("inventory and diff in one response: %s", inventoryOut)
 	}
 	for _, enabled := range []bool{false, true} {
@@ -180,6 +192,13 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 			t.Logf("provider requests=%d estimated input tokens=%d generated argument/text bytes=%d", model.calls, model.inputEstimate, model.outputBytes)
 		})
 	}
+	for _, f := range files {
+		n := filepath.Base(filepath.Dir(f))
+		if strings.Contains(r.skill(t, n), "Optional array of argv arrays") && strings.Contains(r.skill(t, n), "s2_arg2") {
+			name = n
+			break
+		}
+	}
 	catalog, _, bad := r.call(t, "help", "routine_catalog", map[string]any{"query": name}, "allow")
 	if bad || !strings.Contains(catalog, "Git revision to inspect") || !strings.Contains(catalog, "without +++/---") || !strings.Contains(catalog, "unknown tail layouts") {
 		t.Fatal(catalog)
@@ -189,6 +208,7 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 		t.Fatal(readyOut)
 	}
 	args := invocation.Args
+	args["s2_arg2"] = "^[-+]"
 	args["tail"] = [][]string{{"grep", "-v", "^[-+]skip"}, {"cut", "-c1-180"}, {"head", "-110"}}
 	out, asks, failed := r.call(t, "held-out", "run_routine", map[string]any{"name": name, "args": args}, "allow")
 	cmd := exec.Command("sh", "-c", "git show --format= HEAD -- 'changed one' 'changed two'"+inc+" | grep -v '^[-+]skip' | cut -c1-180 | head -110")
@@ -244,6 +264,120 @@ func TestReviewInventoryRequiresAnUnambiguousCompleteStat(t *testing.T) {
 		raw, _ := json.Marshal(output)
 		if got := observedReviewStat(args, session.ToolResult{Content: raw}); got != "" {
 			t.Fatalf("ambiguous inventory accepted: %s", got)
+		}
+	}
+}
+
+// The producer has no review vocabulary and the consumer is a workspace CLI.
+// All three turns use different wording. The held-out list is generated afresh.
+func TestInventoryLearnsUnknownConsumerFromActualCalls(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell")
+	}
+	r := newRoutineRigWith(t, t.TempDir(), routineFile, Config{Permission: "allow"})
+	r.a.cfg.Observer = &reviewPlannerObserver{Host: r.host}
+	r.a.plat = platform.OS{}
+	dir := t.TempDir()
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for name, body := range map[string]string{"queue-scan": "cat queue.json", "bundle-labels": "printf 'bundle %s\\n' \"$@\""} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body+"\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	for i, x := range []struct {
+		prompt  string
+		items   []string
+		scope   string
+		partial bool
+	}{
+		{"what is queued?", []string{"one", "two", "three"}, "batchA", true},
+		{"다음 묶음을 정리해", []string{"four", "five"}, "batchB", false},
+		{"assemble this set", []string{"six", "seven", "eight"}, "batchC", false},
+		{"새 묶음 부탁해", []string{"nine", "ten", "eleven", "twelve"}, "batchD", false},
+	} {
+		payload, _ := json.Marshal(map[string]any{"tickets": x.items, "cycle": x.scope})
+		r.file(t, "queue.json", string(payload))
+		ids := x.items
+		if x.partial {
+			ids = ids[:1]
+		}
+		scan, _ := json.Marshal(map[string]string{"command": fmt.Sprintf("queue-scan -- job%d", i)})
+		steps := [][]port.ProviderEvent{asideCall("bash", string(scan))}
+		if i < 3 {
+			raw, _ := json.Marshal(map[string]string{"command": "bundle-labels --cycle " + x.scope + " -- " + strings.Join(ids, " ")})
+			next := asideCall("bash", string(raw))
+			next[0].ToolCall.CallID = "use-list"
+			steps = append(steps, next)
+		}
+		steps = append(steps, asideText("done"))
+		r.a.llm = &scriptLLM{steps: steps}
+		sid, err := r.a.CreateSession(ctx, command.CreateSession{Workdir: r.s.Workdir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = r.a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorUser, ID: "u"}, x.prompt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = r.a.runLoop(ctx, r.a.sessionInfo(ctx, sid), AgentSpec{Name: "coder"}, 0, 4, true); err != nil {
+			t.Fatal(err)
+		}
+		events, _ := r.a.store.Read(ctx, sid, 0)
+		var found bool
+		for _, msg := range reconstruct(events) {
+			for _, part := range msg.Parts {
+				if res := part.ToolResult; res != nil && res.CallID == "c_bash" && strings.Contains(string(res.Content), "[inventory routine]") {
+					found = true
+					if !strings.Contains(string(res.Content), "bundle twelve") || !strings.Contains(string(res.Content), "bundle batchD") {
+						t.Fatalf("wrong held-out values: %s", res.Content)
+					}
+				}
+			}
+		}
+		if found != (i == 3) {
+			t.Fatalf("turn %d automatic=%v, log=%s", i, found, r.logs.text())
+		}
+	}
+}
+
+func TestInventoryEdgeRequiresCompleteUniqueBindings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell")
+	}
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	feed := func(items []string, consumer string) string {
+		raw, _ := json.Marshal(map[string]any{"rows": items, "field": "constant"})
+		inventory := resultInventory("custom-index", json.RawMessage(`{"view":"open"}`), session.ToolResult{Content: raw})
+		if consumer != "" {
+			cmd, _ := json.Marshal(map[string]string{"command": consumer})
+			r.host.InventoryRoutine(r.s.Workdir, inventory, string(cmd))
+		}
+		return r.host.InventoryRoutine(r.s.Workdir, inventory, "")
+	}
+	for _, tc := range []struct {
+		ids []string
+		cmd string
+	}{
+		{[]string{"a", "b"}, "processor -- a"},
+		{[]string{"c", "d", "e"}, "processor -- e d c"},
+		{[]string{"f", "g"}, "processor --select unrelated -- f g"},
+		{[]string{"h", "i"}, "processor --select constant -- h i"},
+		{[]string{"j", "k", "l"}, "processor --select constant -- j k l"},
+	} {
+		if got := feed(tc.ids, tc.cmd); got != "" {
+			t.Fatalf("unverified binding: %s", got)
+		}
+	}
+	// A different observed complete consumer makes the producer ambiguous.
+	if got := feed([]string{"m", "n"}, "another -- m n"); got != "" {
+		t.Fatal(got)
+	}
+	if got := feed([]string{"p", "q", "r"}, "another -- p q r"); got != "" {
+		t.Fatal(got)
+	}
+	for _, body := range []string{`["a","a"]`, `{"rows":["a"],"more":["b"]}`, `["a",null]`, `[]`} {
+		if resultInventory("custom-index", nil, session.ToolResult{Content: json.RawMessage(body)}) != "" {
+			t.Fatalf("invalid inventory: %s", body)
 		}
 	}
 }

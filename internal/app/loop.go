@@ -756,7 +756,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						case <-ctx.Done():
 						}
 					}
-					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, parallelBatch: batch, parallelSize: len(toolCalls)})
+					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, grouped: true, parallelBatch: batch, parallelSize: len(toolCalls)})
 					a.executeTool(callCtx, s, agent, depth, agentActor, tc, guard, turnTask)
 				}(tc)
 			}
@@ -769,7 +769,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				if ctx.Err() != nil {
 					return lastText, ctx.Err()
 				}
-				dispatch := toolDispatch{call: tc}
+				dispatch := toolDispatch{call: tc, grouped: len(toolCalls) > 1}
 				if len(toolCalls) == 1 && depth == 0 && (tc.Name == "bash" || tc.Name == "run_routine") {
 					dispatch.authoredModel = a.SessionModel(sid)
 					if usage != nil && text == "" && reasoning == "" {
