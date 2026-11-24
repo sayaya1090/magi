@@ -739,6 +739,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				consumers = make([]json.RawMessage, len(toolCalls))
 			}
 		}
+		// One identity per model response, carried by every call it wrote: an observer counts the model
+		// steps a stretch of work took from these, whatever order the calls then ran in.
+		response, responseTokens := newID(), 0
+		if usage != nil {
+			responseTokens = usage.Out
+		}
 		if len(toolCalls) > 1 && a.allParallelSafe(toolCalls) {
 			// The turn can be cut while a batch is being launched, and the sequential branch below
 			// checks for it between calls. This one did not: an interrupted turn still started
@@ -766,7 +772,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						case <-ctx.Done():
 						}
 					}
-					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, inventory: groupInventory, consumers: consumers, index: i, grouped: true, parallelBatch: batch, parallelSize: len(toolCalls)})
+					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, inventory: groupInventory, consumers: consumers, index: i, grouped: true, parallelBatch: batch, parallelSize: len(toolCalls), responseID: response, responseTokens: responseTokens})
 					a.executeTool(callCtx, s, agent, depth, agentActor, tc, guard, turnTask)
 				}(tc)
 			}
@@ -779,7 +785,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				if ctx.Err() != nil {
 					return lastText, ctx.Err()
 				}
-				dispatch := toolDispatch{call: tc, inventory: groupInventory, consumers: consumers, index: i, grouped: len(toolCalls) > 1}
+				dispatch := toolDispatch{call: tc, inventory: groupInventory, consumers: consumers, index: i, grouped: len(toolCalls) > 1, responseID: response, responseTokens: responseTokens}
 				if len(toolCalls) == 1 && depth == 0 && (tc.Name == "bash" || tc.Name == "run_routine") {
 					dispatch.authoredModel = a.SessionModel(sid)
 					if usage != nil && text == "" && reasoning == "" {

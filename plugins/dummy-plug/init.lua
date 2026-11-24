@@ -325,6 +325,62 @@ local function lifecycle_state(entry, r)
   if type(entry) == "table" and entry.version == r.fingerprint then return entry.status end
 end
 
+-- What a routine is worth: the model steps the stretch it was learned from took, less the run_routine call
+-- that replaces them and any judge calls inside it. Measured once per version when it is saved (from the
+-- response identities on the recorded calls); an edited version adds or removes the call sites it changed,
+-- as an estimate. Nothing here calls a model.
+local RV = {}
+function RV.key() return "routine_saving:" .. magi.sha256(magi.workdir()) end
+function RV.count(script, pattern)
+  local n = 0
+  for _ in (script or ""):gmatch(pattern) do n = n + 1 end
+  return n
+end
+function RV.sites(script) return RV.count(script, "call_tool%s*%(") + RV.count(script, "run_pipeline_v1%s*%(") end
+function RV.steps(calls)
+  local seen, n = {}, 0
+  for _, c in ipairs(calls or {}) do
+    if not c.response then return nil end
+    if not seen[c.response] then seen[c.response], n = true, n + 1 end
+  end
+  return n > 0 and n or nil
+end
+function RV.record(name, calls, fallback)
+  local ok, r = pcall(load_routine, name)
+  if not ok or not r then return end
+  local steps, basis = RV.steps(calls), "observed"
+  if not steps then steps, basis = fallback, "estimated" end
+  if not steps then return end
+  local all = stored(RV.key())
+  all[name] = { version = r.fingerprint, steps = steps, sites = RV.sites(r.script), basis = basis }
+  magi.store_set(RV.key(), all)
+end
+function RV.of(r)
+  local s = stored(RV.key())[r.name]
+  local judges = RV.count(r.script, "judge%s*%(")
+  if type(s) ~= "table" then
+    local d = r.description or ""
+    if r.status == "learned-write" and (d:find("^Shell pipeline:") or d:find("^Conditional shell workflow:")) then
+      return { steps = 1, saved = 0 - judges, basis = "observed" } -- learned from one bash call: one model step
+    end
+    return nil
+  end
+  if s.version == r.fingerprint then return { steps = s.steps, saved = s.steps - 1 - judges, basis = s.basis } end
+  local steps = math.max(1, s.steps + RV.sites(r.script) - (s.sites or 0))
+  return { steps = steps, saved = steps - 1 - judges, basis = "estimated" }
+end
+-- Successful runs, halving every 14 days, so the value is the saving times recent use.
+function RV.score(e, now)
+  local score, at = tonumber(e.score) or 0, tonumber(e.at)
+  if at and now and now > at then score = score * 0.5 ^ ((now - at) / (14 * 86400)) end
+  return score
+end
+function RV.value(e, sv, now)
+  local score = RV.score(e, now)
+  if sv then return sv.saved * score - (tonumber(e.failed) or 0) end
+  return score
+end
+
 local function record_routine_use(r, succeeded)
   if r.status ~= "auto-review" and r.status ~= "learned-write" then return end
   local now = lifecycle_now()
@@ -654,6 +710,7 @@ local function save_repeated_readers(id, calls, sequence, sid, parallel)
   local description = (parallel and "Parallel readers: " or "Read-only sequence: ") .. sequence
   local check = parallel and " (synthetic arguments; unordered dispatch group)" or " (synthetic arguments; observed completion order)"
   local path = save_routine(name, description, d, "repeated stretch " .. id, dry .. check, false, true)
+  if path then RV.record(name, calls, parallel and 1 or #calls) end
   if path then
     local message = "[routine] saved " .. path .. "; review at its first run"
     magi.log(message)
@@ -1306,6 +1363,7 @@ end
           if same_file then description = description .. " (supply step1; read reuses its path)" end
           path, _, digest = save_routine(name, description,
             d, "repeated stretch " .. key, dry .. " (synthetic arguments; observed completion order)", false, false, true)
+          if path then RV.record(name, calls, #calls) end
         end
         if path then
           seen.write_saved = true
@@ -1851,6 +1909,7 @@ magi.on("tool_finished", function(ev)
     inventory_read = ev.inventory_read ~= "" and ev.inventory_read or nil, inventory_produced = ev.inventory_produced ~= "" and ev.inventory_produced or nil,
     issued_job = issued_job, job_source = job_source,
     call_id = ev.call_id, parallel_batch = ev.parallel_batch, parallel_size = tonumber(ev.parallel_size),
+    response = (ev.response_id or "") ~= "" and ev.response_id or nil,
     order_known = ev.order_known == "true" and (ev.parallel_batch or "") == "" }
   graph_observe(t,ev.session)
   t.next = t.next + 1
@@ -2073,13 +2132,16 @@ local function routine_index(query)
       local e = type(idx[name]) == "table" and idx[name] or {}
       if e.version ~= r.fingerprint then e = { version = r.fingerprint } end
       idx[name] = e
-      if not e.dropped then rows[#rows + 1] = { name = name, r = r, e = e } end
+      local sv = RV.of(r)
+      -- a learned routine that saves no model call is not worth a line in every turn
+      if not e.dropped and not (sv and sv.saved <= 0) then
+        rows[#rows + 1] = { name = name, r = r, e = e, sv = sv, value = RV.value(e, sv, lifecycle_now()) }
+      end
     end
   end
   if #rows == 0 then return nil end
   table.sort(rows, function(a, b)
-    local x, y = a.e.adopted or 0, b.e.adopted or 0
-    if x ~= y then return x > y end
+    if a.value ~= b.value then return a.value > b.value end
     return a.name < b.name
   end)
   local head = "# Saved routines (call run_routine by name when one fits this task; routine_catalog searches every saved routine)"
@@ -2088,6 +2150,10 @@ local function routine_index(query)
     local d = (row.r.description or ""):gsub("%s+", " ")
     if #d > 100 then d = (d:sub(1, 97):gsub("[\192-\255][\128-\191]*$", "")) .. "..." end
     local line = "- " .. row.name .. ": " .. d
+    if row.sv then
+      line = line .. " (saves " .. row.sv.saved .. " model call" .. (row.sv.saved == 1 and "" or "s") .. " per run" ..
+        (row.sv.basis == "observed" and "" or ", estimated") .. ")"
+    end
     if shown == 10 or size + 1 + #line + 80 > 1500 then break end
     lines[#lines + 1], size, shown = line, size + 1 + #line, shown + 1
     if row.e.seen ~= request then row.e.exposed, row.e.seen = (row.e.exposed or 0) + 1, request end
@@ -2263,6 +2329,15 @@ magi.register_tool{
     })
     finish(rerr == nil)
     record_routine_use(r, rerr == nil)
+    do -- value: successful runs decay; a failed run costs the call it wasted
+      local key = "routine_index:" .. magi.sha256(magi.workdir())
+      local idx, now = stored(key), lifecycle_now()
+      local e = type(idx[r.name]) == "table" and idx[r.name] or { version = r.fingerprint }
+      e.score, e.at = RV.score(e, now) + (rerr == nil and 1 or 0), now
+      if rerr ~= nil then e.failed = (tonumber(e.failed) or 0) + 1 end
+      idx[r.name] = e
+      magi.store_set(key, idx)
+    end
     if observe_routine_result then
       local observed, why = pcall(observe_routine_result, r, a.args or {}, rerr and "" or (out or ""))
       if not observed then magi.log("routine failure observation failed: " .. tostring(why)) end

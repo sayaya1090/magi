@@ -237,6 +237,8 @@ type ToolObservation struct {
 	InventoryItems                   string // transient input for matching literal pipeline stage operands
 	AuthoredModel                    string // single, top-level model-authored call
 	AuthoredTokens                   int    // output usage of the tool-only response, zero when unknown
+	ResponseID                       string // the model response that wrote this call, shared by all of its calls
+	ResponseTokens                   int    // that response's output usage, zero when unknown
 
 	JobRef        string // daemon-scoped digest of a job issued by bash or referenced by a consumer
 	GlobItems     string // JSON array of workspace-salted path digests, only for a bounded successful glob
@@ -305,6 +307,8 @@ type toolDispatch struct {
 	call           *session.ToolCall
 	parallelBatch  string
 	parallelSize   int
+	responseID     string
+	responseTokens int
 }
 
 // executeTool runs one tool call (with permission gating) and persists the result.
@@ -949,6 +953,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		observation.AuthoredModel, observation.AuthoredTokens = dispatch.authoredModel, dispatch.authoredTokens
 		observation.ParallelBatch = dispatch.parallelBatch
 		observation.ParallelSize = dispatch.parallelSize
+		observation.ResponseID, observation.ResponseTokens = dispatch.responseID, dispatch.responseTokens
 		observation.OrderKnown = dispatch.parallelBatch == ""
 	}
 	if to, ok := a.cfg.Observer.(interface {

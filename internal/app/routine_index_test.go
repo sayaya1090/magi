@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -110,5 +112,83 @@ func TestRoutineIndexCountsOneExposurePerRequest(t *testing.T) {
 	r.fire("idle")
 	if idx := routineIndex(t, r, "the next request"); !strings.Contains(idx, "- unused:") {
 		t.Fatalf("25 steps of one request counted as 25 exposures and dropped the routine:\n%s", idx)
+	}
+}
+
+// learnReaders repeats a grep→read stretch in two turns; respond names the model response that wrote each
+// call, so the plug-in can count the model steps the stretch took. It returns the saved routine's name.
+func learnReaders(t *testing.T, r *routineRig, respond func(turn, call int) string) string {
+	t.Helper()
+	r.file(t, "a1b2c3d4.txt", "a\n")
+	r.file(t, "f9e8d7c6.txt", "f\n")
+	for i, file := range []string{"a1b2c3d4.txt", "f9e8d7c6.txt"} {
+		r.fire("user_message", "text", "open "+file)
+		r.fire("tool_finished", "order_known", "true", "tool", "grep", "args", `{"path":"notes.txt","pattern":"hello"}`, "ok", "true", "response_id", respond(i, 0))
+		r.fire("tool_finished", "order_known", "true", "tool", "read", "args", `{"path":"`+file+`"}`, "ok", "true", "response_id", respond(i, 1))
+		r.fire("turn_finished")
+	}
+	m := regexp.MustCompile(`candidate (t[0-9a-f]{8})`).FindStringSubmatch(r.logs.text())
+	if m == nil {
+		t.Fatalf("no routine learned: %q", r.logs.text())
+	}
+	return "auto-" + m[1]
+}
+
+// A routine is worth the model steps it replaces. A stretch the model wrote in two responses saves one
+// model call per run (two steps become one run_routine call), and the index says so.
+func TestRoutineIndexStatesTheModelCallsARoutineSaves(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	name := learnReaders(t, r, func(turn, call int) string { return fmt.Sprintf("resp-%d-%d", turn, call) })
+	if idx := routineIndex(t, r, "anything"); !strings.Contains(idx, "- "+name+":") || !strings.Contains(idx, "saves 1 model call per run)") {
+		t.Fatalf("two responses, one run: want one saved call listed:\n%s", idx)
+	}
+}
+
+// The same stretch written in one response saved nothing: the model already did it in one step. The
+// routine stays on disk and runs by name, but is not worth a line in every turn's context.
+func TestRoutineIndexLeavesOutRoutinesThatSaveNoModelCall(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	name := learnReaders(t, r, func(turn, _ int) string { return fmt.Sprintf("resp-%d", turn) })
+	if _, err := os.Stat(filepath.Join(r.s.Workdir, ".magi", "routines", name, "routine.md")); err != nil {
+		t.Fatalf("routine not saved: %v", err)
+	}
+	if idx := routineIndex(t, r, "anything"); strings.Contains(idx, "- "+name+":") || !strings.Contains(idx, "- readit:") {
+		t.Fatalf("a routine saving no call was listed (or the hand-written one was lost):\n%s", idx)
+	}
+}
+
+// A changed version is valued by the increment over the observed original: one more tool call in the
+// script adds one model step, and the value is marked as an estimate.
+func TestRoutineValueOfAChangedVersionIsTheIncrementOverTheOriginal(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	name := learnReaders(t, r, func(turn, call int) string { return fmt.Sprintf("resp-%d-%d", turn, call) })
+	path := filepath.Join(".magi", "routines", name, "routine.md")
+	body := r.skill(t, name)
+	i := strings.Index(body, "```lua\n")
+	if i < 0 {
+		t.Fatalf("no script: %s", body)
+	}
+	i += len("```lua\n")
+	r.put(t, path, []byte(body[:i]+"call_tool(\"read\", {path=\"notes.txt\"})\n"+body[i:]))
+	if idx := routineIndex(t, r, "anything"); !strings.Contains(idx, "saves 2 model calls per run, estimated") {
+		t.Fatalf("changed version: want the increment as an estimate:\n%s", idx)
+	}
+}
+
+// The index is ordered by value, not by name: a routine that just ran successfully moves ahead of one
+// that has not run yet.
+func TestRoutineIndexOrdersByValueFromSuccessfulRuns(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	name := learnReaders(t, r, func(turn, call int) string { return fmt.Sprintf("resp-%d-%d", turn, call) })
+	before := routineIndex(t, r, "anything")
+	if strings.Index(before, "- "+name+":") > strings.Index(before, "- readit:") {
+		t.Fatalf("with no runs the order should fall back to names:\n%s", before)
+	}
+	if out, _, failed := r.run(t, "v1", map[string]any{"file": "notes.txt"}, "allow"); failed {
+		t.Fatal(out)
+	}
+	after := routineIndex(t, r, "another request")
+	if strings.Index(after, "- readit:") > strings.Index(after, "- "+name+":") {
+		t.Fatalf("a successful run should raise readit's value above the unrun routine:\n%s", after)
 	}
 }

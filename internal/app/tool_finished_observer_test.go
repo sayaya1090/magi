@@ -116,3 +116,47 @@ func TestToolObserverDistinguishesParallelAndSequentialDispatch(t *testing.T) {
 		t.Fatalf("sequential dispatch: %v", got)
 	}
 }
+
+// Calls written in one model response share a response identity even when they run one after another,
+// so an observer can count the model steps a stretch of work took (a parallel batch id cannot: a
+// sequential multi-call response has none).
+func TestToolObserverNamesTheResponseThatWroteEachCall(t *testing.T) {
+	obs := &dispatchObserver{completed: make(chan ToolObservation, 3)}
+	first := asideCall("read", `{"path":"a.txt"}`)[0]
+	second := asideCall("write", `{"path":"b.txt","content":"x"}`)[0]
+	second.ToolCall.CallID = "second"
+	solo := asideCall("read", `{"path":"a.txt"}`)
+	solo[0].ToolCall.CallID = "solo"
+	llm := &scriptLLM{steps: [][]port.ProviderEvent{{first, second, {Type: port.ProviderFinish}}, solo, asideText("done")}}
+	a, wd := newApp(t, llm, Config{Observer: obs, Permission: "allow"})
+	if err := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid,
+		Parts: []session.Part{{Kind: session.PartText, Text: "read and write"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]ToolObservation)
+	for range 3 {
+		select {
+		case dispatch := <-obs.completed:
+			got[dispatch.CallID] = dispatch
+		case <-ctx.Done():
+			t.Fatalf("waiting for completions: %v", got)
+		}
+	}
+	if got["second"].ParallelBatch != "" {
+		t.Fatalf("read+write should run one after another: %v", got)
+	}
+	one := got["c_read"].ResponseID
+	if one == "" || got["second"].ResponseID != one || got["solo"].ResponseID == "" || got["solo"].ResponseID == one {
+		t.Fatalf("response identities: %v", got)
+	}
+}
