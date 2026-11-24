@@ -11,15 +11,39 @@ import (
 
 // Describe simple top-level pipelines. Values are transient: the observer hashes
 // literal operands before persisting evidence. A scalar expansion stays an input.
-func pipelineObservations(L *lua.LState, file *syntax.File) *lua.LTable {
+func pipelineObservations(L *lua.LState, file *syntax.File) (*lua.LTable, *lua.LTable) {
 	out := L.NewTable()
-	for _, stmt := range file.Stmts {
-		if out.Len() >= 16 {
+	graphs := L.NewTable()
+	for stmtIndex, stmt := range file.Stmts {
+		if out.Len() >= 16 || graphs.Len() >= 16 {
 			break
 		}
 		var stages []*syntax.CallExpr
 		if !literalPipeline(stmt, &stages) {
 			continue
+		}
+		if len(stages) > 1 {
+			graph := L.NewTable()
+			nodes := L.NewTable()
+			graph.RawSetString("stages", nodes)
+			graph.RawSetString("statement", lua.LNumber(stmtIndex+1))
+			for _, cmd := range stages {
+				node := L.NewTable()
+				node.RawSetString("command", lua.LString(cmd.Args[0].Lit()))
+				operands := L.NewTable()
+				after := false
+				for _, arg := range cmd.Args[1:] {
+					v := shellOperandLiteral(arg)
+					if after {
+						operands.Append(lua.LString(v))
+					} else if v == "--" {
+						after = true
+					}
+				}
+				node.RawSetString("operands", operands)
+				nodes.Append(node)
+			}
+			graphs.Append(graph)
 		}
 		row := L.NewTable()
 		valid := true
@@ -63,7 +87,7 @@ func pipelineObservations(L *lua.LState, file *syntax.File) *lua.LTable {
 			out.Append(row)
 		}
 	}
-	return out
+	return out, graphs
 }
 
 func literalPipeline(stmt *syntax.Stmt, stages *[]*syntax.CallExpr) bool {

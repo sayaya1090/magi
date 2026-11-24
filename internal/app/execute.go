@@ -233,6 +233,7 @@ func (a *App) gateStaleAnchor(ctx context.Context, s session.Session, actor even
 
 // ToolObservation associates a completion with the dispatch that scheduled it.
 type ToolObservation struct {
+	InventoryItems string // transient input for matching literal pipeline stage operands
 	AuthoredModel  string // single, top-level model-authored call
 	AuthoredTokens int    // output usage of the tool-only response, zero when unknown
 
@@ -294,6 +295,9 @@ func observedGlobItems(workdir string, res session.ToolResult) string {
 type toolDispatchKey struct{}
 
 type toolDispatch struct {
+	inventory      string
+	consumers      []json.RawMessage // one writer per dispatch index, inspected after the batch joins
+	index          int
 	grouped        bool
 	authoredModel  string
 	authoredTokens int
@@ -310,7 +314,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	sid := s.ID
 	workdir := s.Workdir
 	var priorInventory string
-	if tc.Parent == "" && depth == 0 && guard != nil {
+	dispatch, _ := ctx.Value(toolDispatchKey{}).(toolDispatch)
+	if dispatch.call != tc {
+		dispatch = toolDispatch{}
+	}
+	if tc.Parent == "" && depth == 0 && guard != nil && !dispatch.grouped {
 		guard.mu.Lock()
 		priorInventory, guard.previousInventory = guard.previousInventory, ""
 		guard.mu.Unlock()
@@ -785,15 +793,18 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	res.CallID = tc.CallID
 	if tc.Parent == "" && depth == 0 && !agent.Trial && guard != nil {
 		if planner, ok := a.cfg.Observer.(inventoryRoutinePlanner); ok {
-			dispatch, _ := ctx.Value(toolDispatchKey{}).(toolDispatch)
 			inventory := ""
 			eligible := !dispatch.grouped && !res.IsError && !res.Background && ctx.Err() == nil
 			if eligible {
 				inventory = resultInventory(tc.Name, tc.Args, res)
 			}
-			guard.mu.Lock()
-			guard.previousInventory = inventory
-			guard.mu.Unlock()
+			if !dispatch.grouped {
+				guard.mu.Lock()
+				guard.previousInventory = inventory
+				guard.mu.Unlock()
+			} else if tc.Name == "bash" && !res.IsError && !res.Background && len(dispatch.consumers) > 0 {
+				dispatch.consumers[dispatch.index] = tc.Args
+			}
 			if eligible && priorInventory != "" && tc.Name == "bash" {
 				planner.InventoryRoutine(workdir, priorInventory, string(tc.Args))
 			}
@@ -927,7 +938,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// An observer that asks hears which tool finished, with what arguments, and whether it
 	// succeeded (an advisory note on a completed edit still counts as success). The core gives the
 	// tool no meaning here; an extension decides what matters to it.
-	observation := ToolObservation{CallID: tc.CallID, Background: res.Background}
+	if dispatch.grouped {
+		priorInventory = dispatch.inventory
+	}
+	observation := ToolObservation{InventoryItems: inventoryItemDigests(workdir, priorInventory), CallID: tc.CallID, Background: res.Background}
 	if dispatch, ok := ctx.Value(toolDispatchKey{}).(toolDispatch); ok && dispatch.call == tc {
 		observation.AuthoredModel, observation.AuthoredTokens = dispatch.authoredModel, dispatch.authoredTokens
 		observation.ParallelBatch = dispatch.parallelBatch

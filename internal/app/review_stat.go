@@ -186,6 +186,20 @@ func resultInventory(tool string, args json.RawMessage, res session.ToolResult) 
 	return string(b)
 }
 
+// Observers need only correlate literal operands. Keep the raw inventory
+// and its scalar fields inside the planner.
+func inventoryItemDigests(workdir, inventory string) string {
+	var v struct{ Items []string }
+	if inventory == "" || json.Unmarshal([]byte(inventory), &v) != nil || len(v.Items) == 0 {
+		return ""
+	}
+	for i, item := range v.Items {
+		v.Items[i] = fmt.Sprintf("%x", sha256.Sum256([]byte(workdir+"\x00"+item)))
+	}
+	raw, _ := json.Marshal(v.Items)
+	return string(raw)
+}
+
 type inventoryRoutinePlanner interface {
 	InventoryRoutine(workdir, inventory, consumer string) string
 }

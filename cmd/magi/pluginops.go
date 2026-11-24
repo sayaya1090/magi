@@ -311,7 +311,7 @@ func (o *pluginObserver) ToolFinishedWithDispatch(sid, tool, args string, ok boo
 		fire("tool_finished", map[string]string{
 			"session": sid, "tool": tool, "args": args, "ok": done,
 			"call_id": dispatch.CallID, "parallel_batch": dispatch.ParallelBatch, "order_known": strconv.FormatBool(dispatch.OrderKnown),
-			"glob_items": dispatch.GlobItems, "job_ref": dispatch.JobRef, "authored_model": dispatch.AuthoredModel, "authored_tokens": strconv.Itoa(dispatch.AuthoredTokens), "parallel_size": strconv.Itoa(dispatch.ParallelSize), "background": strconv.FormatBool(dispatch.Background),
+			"inventory_items": dispatch.InventoryItems, "glob_items": dispatch.GlobItems, "job_ref": dispatch.JobRef, "authored_model": dispatch.AuthoredModel, "authored_tokens": strconv.Itoa(dispatch.AuthoredTokens), "parallel_size": strconv.Itoa(dispatch.ParallelSize), "background": strconv.FormatBool(dispatch.Background),
 		})
 	}
 }

@@ -31,15 +31,19 @@ func bridgeShellShape(L *lua.LState) int {
 		L.Push(lua.LNil)
 		L.Push(lua.LNil)
 		L.Push(edges)
-		L.Push(pipelineObservations(L, file))
-		return 4
+		rows, graphs := pipelineObservations(L, file)
+		L.Push(rows)
+		L.Push(graphs)
+		return 5
 	}
 	sum := sha256.Sum256([]byte(strings.Join(shape.tokens, "\x00")))
 	L.Push(lua.LString(hex.EncodeToString(sum[:])))
 	L.Push(lua.LString(strings.Join(shape.labels, " ")))
 	L.Push(edges)
-	L.Push(pipelineObservations(L, file))
-	return 4
+	rows, graphs := pipelineObservations(L, file)
+	L.Push(rows)
+	L.Push(graphs)
+	return 5
 }
 
 // Each supported binary subtree is a small dependency graph. Its enclosing

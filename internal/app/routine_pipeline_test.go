@@ -301,10 +301,12 @@ func TestInventoryLearnsUnknownConsumerFromActualCalls(t *testing.T) {
 		scan, _ := json.Marshal(map[string]string{"command": fmt.Sprintf("queue-scan -- job%d", i)})
 		steps := [][]port.ProviderEvent{asideCall("bash", string(scan))}
 		if i < 3 {
-			raw, _ := json.Marshal(map[string]string{"command": "bundle-labels --cycle " + x.scope + " -- " + strings.Join(ids, " ")})
+			raw, _ := json.Marshal(map[string]string{"command": "bundle-labels --cycle " + x.scope + " -- " + strings.Join(ids, " ") + " | cat"})
 			next := asideCall("bash", string(raw))
 			next[0].ToolCall.CallID = "use-list"
-			steps = append(steps, next)
+			peer := asideCall("bash", `{"command":"true"}`)[0]
+			peer.ToolCall.CallID = "unrelated"
+			steps = append(steps, append([]port.ProviderEvent{peer}, next...))
 		}
 		steps = append(steps, asideText("done"))
 		r.a.llm = &scriptLLM{steps: steps}
@@ -374,6 +376,38 @@ func TestInventoryEdgeRequiresCompleteUniqueBindings(t *testing.T) {
 	for _, body := range []string{`["a","a"]`, `{"rows":["a"],"more":["b"]}`, `["a",null]`, `[]`} {
 		if resultInventory("custom-index", nil, session.ToolResult{Content: json.RawMessage(body)}) != "" {
 			t.Fatalf("invalid inventory: %s", body)
+		}
+	}
+}
+
+func TestRoutineTraceSeparatesPipeStagesFromTheirBashCall(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	inventory := `{"items":["private-a","private-b","private-c"]}`
+	for i := range 2 {
+		r.fire("user_message", "text", "inspect selected paths")
+		r.fire("tool_finished", "tool", "bash", "args", `{"command":"echo heading; collect -- private-a private-c | retain-lines | summarize"}`, "ok", "true", "call_id", fmt.Sprint(i), "order_known", "true", "inventory_items", inventoryItemDigests(r.s.Workdir, inventory))
+		r.fire("turn_finished")
+	}
+	if err := r.command(t, "routine-trace", "2"); err != nil {
+		t.Fatal(err)
+	}
+	log := r.logs.text()
+	for _, s := range []string{"#1 statement 2: collect [2/3 inventory items] | retain-lines | summarize", "#2 statement 2: collect [2/3 inventory items] | retain-lines | summarize"} {
+		if !strings.Contains(log, s) {
+			t.Fatalf("missing %q: %s", s, log)
+		}
+	}
+	if strings.Contains(log, "private-a") {
+		t.Fatal("trace copied operand")
+	}
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/*/routine.md"))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "description: Writing sequence: bash") {
+			t.Fatal("pipeline also learned as an opaque Bash wrapper")
 		}
 	}
 }

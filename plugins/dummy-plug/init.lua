@@ -745,8 +745,8 @@ local function shell_pattern(args)
   local command = body.command
   local exact = magi.sha256(command)
   if magi.shell_shape then
-    local digest, label, dependencies, pipelines = magi.shell_shape(command)
-    return digest or exact, label, dependencies, pipelines
+    local digest, label, dependencies, pipelines, graphs = magi.shell_shape(command)
+    return digest or exact, label, dependencies, pipelines, graphs
   end
   -- Split literal pipelines and lists. Continuations and shell expansions keep
   -- their exact fingerprint.
@@ -1093,7 +1093,16 @@ magi.on("inventory_routine",function(ev)
   local edges=stored(store_key)
   local edge=edges[target.source]
   if ev.consumer~="" then
-    local core,bindings,patterns=inventory_consumer(target,ev.consumer)
+    local calls=magi.json_decode(ev.consumer)
+    if calls.command then calls={calls} end
+    local core,bindings,patterns
+    for _,call in ipairs(calls) do
+      local stages,fields,fixed=inventory_consumer(target,magi.json_encode(call))
+      if stages then
+        if core then return end
+        core,bindings,patterns=stages,fields,fixed
+      end
+    end
     if not core then return end
     local id=magi.sha256("inventory edge v1\n"..magi.workdir().."\n"..magi.json_encode({core,bindings,patterns})):sub(1,20)
     if edge and edge.id~=id then
@@ -1341,7 +1350,7 @@ local function learn_completed_writes(sid, trace)
   for i = #trace.calls, math.max(1, #trace.calls - 11), -1 do
     local c = trace.calls[i]
     if c.turn ~= last.turn or not c.ok or not c.order_known or JUDGE[c.tool] or not CALLABLE[c.tool]
-      or (c.tool == "bash" and not c.shell_pattern) then break end
+      or (c.tool == "bash" and (not c.shell_pattern or c.pipe_graphs)) then break end
     table.insert(calls, 1, c)
     table.insert(tokens, 1, c.tool .. ":" .. (c.shell_pattern or ""))
     table.insert(labels, 1, c.shell_verb and (c.tool .. " (" .. c.shell_verb .. ")") or c.tool)
@@ -1553,7 +1562,7 @@ end)
 magi.on("tool_finished", function(ev)
   if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" or type(ev.tool) ~= "string" then return end
   local t = load_trace(ev.session)
-  local pattern, verb, dependencies, runnable
+  local pattern, verb, dependencies, runnable, pipe_graphs
   local file_digest
   if ev.tool == "read" or ev.tool == "write" or ev.tool == "edit" or ev.tool == "multiedit" then
     local ok, args = pcall(magi.json_decode, ev.args or "")
@@ -1575,7 +1584,20 @@ magi.on("tool_finished", function(ev)
   if complete then learn_file_loop(complete, ev) end
   if ev.tool == "bash" and ev.ok == "true" and ev.background ~= "true" then
     local pipelines
-    pattern, verb, dependencies, pipelines = shell_pattern(ev.args)
+    pattern, verb, dependencies, pipelines, pipe_graphs = shell_pattern(ev.args)
+    local inventory=ev.inventory_items and ev.inventory_items~="" and magi.json_decode(ev.inventory_items)
+    for _,graph in ipairs(pipe_graphs or {}) do
+      for _,node in ipairs(graph.stages) do
+        if inventory then
+          local seen={}
+          for _,operand in ipairs(node.operands) do seen[magi.sha256(magi.workdir().."\0"..operand)]=true end
+          local hits=0
+          for _,value in ipairs(inventory) do if seen[value] then hits=hits+1 end end
+          if hits>0 then node.matched=hits; node.total=#inventory end
+        end
+        node.operands=nil
+      end
+    end
     local covered=observe_pipeline_families(pipelines, ev, t)
     runnable = observe_shell_dependencies(ev.session, ev.call_id ~= "" and ev.call_id or t.next, dependencies, t, pattern, covered)
   end
@@ -1598,7 +1620,7 @@ magi.on("tool_finished", function(ev)
     end
   end
   t.calls[#t.calls + 1] = { n = t.next, turn = t.turn, tool = ev.tool, ok = ev.ok == "true",
-    shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest, glob_source = glob_source,
+    pipe_graphs=pipe_graphs and #pipe_graphs>0 and pipe_graphs or nil, shell_pattern = pattern, shell_verb = verb, shell_routine = runnable or nil, file_digest = file_digest, glob_source = glob_source,
     issued_job = issued_job, job_source = job_source,
     call_id = ev.call_id, parallel_batch = ev.parallel_batch, parallel_size = tonumber(ev.parallel_size),
     order_known = ev.order_known == "true" and (ev.parallel_batch or "") == "" }
@@ -2069,6 +2091,13 @@ magi.register_command{
             or (not c.order_known and " (order unknown)" or "")) ..
           (c.glob_source and (" (path matched glob #" .. c.glob_source .. ")") or "") ..
           (c.job_source and (" (job issued by bash #" .. c.job_source .. ")") or "")
+        for _,graph in ipairs(c.pipe_graphs or {}) do
+          local stages={}
+          for _,node in ipairs(graph.stages) do
+            stages[#stages+1]=node.command..(node.matched and (" ["..node.matched.."/"..node.total.." inventory items]") or "")
+          end
+          lines[#lines+1]="  #"..c.n.." statement "..graph.statement..": "..table.concat(stages," | ")
+        end
       end
     end
     local runs = stored("routine_runs")

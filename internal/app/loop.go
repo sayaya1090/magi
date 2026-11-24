@@ -729,6 +729,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// them concurrently; otherwise (writes, permissioned, or task) keep the
 		// deterministic sequential order.
 		usedTools = true // this turn did real work → the council gate applies
+		var groupInventory string
+		var consumers []json.RawMessage
+		if len(toolCalls) > 1 && depth == 0 && guard != nil {
+			guard.mu.Lock()
+			groupInventory, guard.previousInventory = guard.previousInventory, ""
+			guard.mu.Unlock()
+			if groupInventory != "" {
+				consumers = make([]json.RawMessage, len(toolCalls))
+			}
+		}
 		if len(toolCalls) > 1 && a.allParallelSafe(toolCalls) {
 			// The turn can be cut while a batch is being launched, and the sequential branch below
 			// checks for it between calls. This one did not: an interrupted turn still started
@@ -740,7 +750,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// once are ten concurrent model streams. The rest wait for a slot rather than being
 			// refused. Plain read tools run unslotted, as they always did.
 			slots := make(chan struct{}, a.cfg.MaxParallelChildren)
-			for _, tc := range toolCalls {
+			for i, tc := range toolCalls {
 				if ctx.Err() != nil {
 					break
 				}
@@ -756,7 +766,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						case <-ctx.Done():
 						}
 					}
-					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, grouped: true, parallelBatch: batch, parallelSize: len(toolCalls)})
+					callCtx := context.WithValue(ctx, toolDispatchKey{}, toolDispatch{call: tc, inventory: groupInventory, consumers: consumers, index: i, grouped: true, parallelBatch: batch, parallelSize: len(toolCalls)})
 					a.executeTool(callCtx, s, agent, depth, agentActor, tc, guard, turnTask)
 				}(tc)
 			}
@@ -765,11 +775,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				return lastText, ctx.Err()
 			}
 		} else {
-			for _, tc := range toolCalls {
+			for i, tc := range toolCalls {
 				if ctx.Err() != nil {
 					return lastText, ctx.Err()
 				}
-				dispatch := toolDispatch{call: tc, grouped: len(toolCalls) > 1}
+				dispatch := toolDispatch{call: tc, inventory: groupInventory, consumers: consumers, index: i, grouped: len(toolCalls) > 1}
 				if len(toolCalls) == 1 && depth == 0 && (tc.Name == "bash" || tc.Name == "run_routine") {
 					dispatch.authoredModel = a.SessionModel(sid)
 					if usage != nil && text == "" && reasoning == "" {
@@ -778,6 +788,21 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				}
 				callCtx := context.WithValue(ctx, toolDispatchKey{}, dispatch)
 				a.executeTool(callCtx, s, agent, depth, agentActor, tc, guard, turnTask)
+			}
+		}
+
+		if len(consumers) > 0 && ctx.Err() == nil {
+			var completed []json.RawMessage
+			for _, c := range consumers {
+				if c != nil {
+					completed = append(completed, c)
+				}
+			}
+			if len(completed) > 0 {
+				if planner, ok := a.cfg.Observer.(inventoryRoutinePlanner); ok {
+					raw, _ := json.Marshal(completed)
+					planner.InventoryRoutine(s.Workdir, groupInventory, string(raw))
+				}
 			}
 		}
 
