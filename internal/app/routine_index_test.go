@@ -269,3 +269,77 @@ func TestANewRoutineIsValuedByShrinkingTowardOthers(t *testing.T) {
 		t.Fatalf("a new learned routine ranked as worthless:\n%s", idx)
 	}
 }
+
+// learnSeq learns one reader stretch (tools in order, each call in its own model response) from two turns
+// and returns the saved routine's name, found by its description.
+func learnSeq(t *testing.T, r *routineRig, tag string, tools ...string) string {
+	t.Helper()
+	for i := range 2 {
+		file := fmt.Sprintf("%s%d7c6b5a4.txt", tag, i)
+		r.file(t, file, "x\n")
+		r.fire("user_message", "text", "open "+file)
+		for k, tool := range tools {
+			args := `{"path":"` + file + `"}`
+			if tool == "grep" {
+				args = `{"path":"docs","pattern":"hello"}`
+			}
+			r.fire("tool_finished", "order_known", "true", "tool", tool, "args", args, "ok", "true", "response_id", fmt.Sprintf("%s-%d-%d", tag, i, k))
+		}
+		r.fire("turn_finished")
+	}
+	want := "description: Read-only sequence: " + strings.Join(tools, ">") + "\n"
+	ents, _ := os.ReadDir(filepath.Join(r.s.Workdir, ".magi", "routines"))
+	for _, e := range ents {
+		if strings.Contains(r.skill(t, e.Name()), want) {
+			return e.Name()
+		}
+	}
+	t.Fatalf("%s not learned: %q", strings.Join(tools, ">"), r.logs.text())
+	return ""
+}
+
+// A routine hidden by an overlapping one cannot hide a third: b contains both a and c, c outweighs b and b
+// outweighs a. c hides b, and a, which overlaps only b, must stay listed.
+func TestAHiddenRoutineDoesNotHideAnother(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join("docs", "x.txt"), []byte("hello\n"))
+	a := learnSeq(t, r, "a", "grep", "read")
+	c := learnSeq(t, r, "c", "read", "grep")
+	b := learnSeq(t, r, "b", "grep", "read", "grep")
+	for i := range 3 {
+		args := map[string]any{"step1": map[string]string{"path": "notes.txt"}, "step2": map[string]string{"path": "docs", "pattern": "hello"}}
+		if out, _, failed := r.call(t, fmt.Sprintf("c%d", i), "run_routine", map[string]any{"name": c, "args": args}, "allow"); failed {
+			t.Fatal(out)
+		}
+	}
+	idx := routineIndex(t, r, "anything")
+	if !strings.Contains(idx, "- "+a+":") || !strings.Contains(idx, "- "+c+":") || strings.Contains(idx, "- "+b+":") {
+		t.Fatalf("want a and c listed, b hidden:\n%s", idx)
+	}
+}
+
+// A dropped routine returns to the index only after a run that succeeds: a call refused before it runs
+// (here: an unknown input) leaves it out.
+func TestADroppedRoutineReturnsOnlyAfterASuccessfulRun(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "unused", "routine.md"), routineDoc("never picked"))
+	for i := range 20 {
+		routineIndex(t, r, fmt.Sprintf("turn %d", i))
+	}
+	r.fire("idle")
+	if idx := routineIndex(t, r, "after idle"); strings.Contains(idx, "- unused:") {
+		t.Fatalf("not dropped:\n%s", idx)
+	}
+	if _, _, failed := r.call(t, "bad", "run_routine", map[string]any{"name": "unused", "args": map[string]any{"bogus": "x"}}, "allow"); !failed {
+		t.Fatal("the call was meant to be refused")
+	}
+	if idx := routineIndex(t, r, "after a refused call"); strings.Contains(idx, "- unused:") {
+		t.Fatalf("a call that never ran brought the routine back:\n%s", idx)
+	}
+	if out, _, failed := r.call(t, "good", "run_routine", map[string]any{"name": "unused"}, "allow"); failed {
+		t.Fatal(out)
+	}
+	if idx := routineIndex(t, r, "after a run"); !strings.Contains(idx, "- unused:") {
+		t.Fatalf("a successful run did not bring the routine back:\n%s", idx)
+	}
+}

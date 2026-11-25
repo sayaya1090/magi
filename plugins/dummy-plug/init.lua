@@ -2183,16 +2183,23 @@ local function routine_index(query)
   for _, row in ipairs(rows) do row.value = RV.value(row.e, row.sv, now, prior) end
   -- Overlapping learned routines are counted once: when one learned stretch contains another, list only
   -- the one worth more over its occurrences (observed occurrences plus recent runs, times saved calls).
+  -- Decided heaviest first, and only a routine already kept can hide another: one that is hidden itself
+  -- does not take a third out of the list with it.
+  for _, row in ipairs(rows) do
+    row.weight = row.sv and row.sv.saved * ((row.sv.occ or 0) + RV.score(row.e, now)) or 0
+  end
+  local order = {}
+  for i, row in ipairs(rows) do order[i] = row end
+  table.sort(order, function(a, b)
+    if a.weight ~= b.weight then return a.weight > b.weight end
+    return a.name < b.name
+  end)
   local keep = {}
-  for _, a in ipairs(rows) do
+  for _, a in ipairs(order) do
     local hidden = false
-    for _, b in ipairs(rows) do
-      if a ~= b and a.sv and b.sv and a.sv.sig and b.sv.sig and
-        (RV.contains(a.sv.sig, b.sv.sig) or RV.contains(b.sv.sig, a.sv.sig)) then
-        local wa = a.sv.saved * ((a.sv.occ or 0) + RV.score(a.e, now))
-        local wb = b.sv.saved * ((b.sv.occ or 0) + RV.score(b.e, now))
-        if wb > wa or (wb == wa and b.name < a.name) then hidden = true; break end
-      end
+    for _, b in ipairs(keep) do
+      if a.sv and b.sv and a.sv.sig and b.sv.sig and
+        (RV.contains(a.sv.sig, b.sv.sig) or RV.contains(b.sv.sig, a.sv.sig)) then hidden = true; break end
     end
     if not hidden then keep[#keep + 1] = a end
   end
@@ -2301,15 +2308,6 @@ magi.register_tool{
       return "routine " .. r.name .. " is a draft (status: draft in " .. r.path .. "): review it, resolve its TODOs and " ..
         "delete the status line first; nothing ran", true
     end
-    do -- the model (or the harness) picked this routine: count it for idle index maintenance
-      local key = "routine_index:" .. magi.sha256(magi.workdir())
-      local idx = stored(key)
-      local e = type(idx[r.name]) == "table" and idx[r.name] or {}
-      if e.version ~= r.fingerprint then e = { version = r.fingerprint } end
-      e.adopted, e.dropped = (e.adopted or 0) + 1, nil
-      idx[r.name] = e
-      magi.store_set(key, idx)
-    end
     local writes = {}
     for _, t in ipairs(r.tools) do
       if r.status == "auto-review" and not AUTO_READERS[t] then return "automatic routines only support file readers", true end
@@ -2393,8 +2391,11 @@ magi.register_tool{
     do -- value: successful runs decay; a failed run costs the call it wasted
       local key = "routine_index:" .. magi.sha256(magi.workdir())
       local idx, now = stored(key), lifecycle_now()
-      local e = type(idx[r.name]) == "table" and idx[r.name] or { version = r.fingerprint }
+      local e = type(idx[r.name]) == "table" and idx[r.name] or {}
+      if e.version ~= r.fingerprint then e = { version = r.fingerprint } end
       e.score, e.at = RV.score(e, now) + (rerr == nil and 1 or 0), now
+      -- only a run that succeeded brings a dropped routine back to the per-turn index
+      if rerr == nil then e.dropped = nil end
       e.runs = (tonumber(e.runs) or 0) + (rerr == nil and 1 or 0)
       if rerr ~= nil then e.failed = (tonumber(e.failed) or 0) + 1 end
       idx[r.name] = e
