@@ -436,7 +436,9 @@ func memoryFingerprint(m port.Memory) string {
 // again. The ordinary count pointer still offers recall_memory in the new context.
 // Because compaction summarizes away the recent conversation window (and rewrites the
 // transcript prefix anyway), this is also the single mid-session boundary where the
-// pinned `# Core memory` block is refreshed alongside process/session restart.
+// pinned `# Core memory` block is refreshed alongside process/session restart. The skill list is
+// re-frozen at the same boundary: skills added since the head was written move into it, removed ones
+// leave it, and skillBlockFor rebuilds what the session has been told so none is announced again.
 func (a *App) resetMemoryDelivery(sid session.SessionID) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -444,6 +446,7 @@ func (a *App) resetMemoryDelivery(sid session.SessionID) {
 	st.expPtrQ, st.expPtr = "", ""
 	st.excerptSent = nil
 	st.coreBlock, st.coreBlockSet = "", false
+	st.skillBlock, st.skillBlockSet = "", false
 	st.turnSys, st.turnSysSet = "", false
 }
 

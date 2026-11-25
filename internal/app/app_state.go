@@ -100,7 +100,9 @@ type sessionState struct {
 	// So the head keeps the snapshot it opened with and anything discovered afterwards is
 	// APPENDED — a one-line note per skill, once. The model ends up reading the frozen list plus
 	// the notes, which is the same information in the order it arrived, and the next session's
-	// prompt consolidates them for free.
+	// prompt consolidates them for free. A skill removed mid-session stays in the head until then.
+	// Compaction is the one mid-session boundary that re-freezes it (resetMemoryDelivery), because
+	// it rewrites the transcript prefix anyway.
 	skillBlock    string
 	skillBlockSet bool
 	skillSeen     map[string]bool

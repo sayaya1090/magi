@@ -1635,7 +1635,7 @@ down.
 ## 8. Skills
 
 `<config>/skills/*.md` or `<workdir>/.magi/skills/*.md` (first line = description, rest = body), plus the **skill-creator layout** `<workdir>/.claude/skills/<slug>/SKILL.md` (frontmatter `description` = trigger) — the standard skill-creator format that common agent tooling and the bundled engram plugin produce, readable without conversion.
-The list is exposed in the system prompt, and the model loads a body with the `skill` tool to follow it. The skill list refreshes when the source dirs change (mtime), so a skill engram saves mid-session is available on the next turn without a restart.
+The list is exposed in the system prompt, and the model loads a body with the `skill` tool to follow it. The list is fixed when a session starts and again after each compaction, so the head of the request is not rewritten mid-session. A skill saved in between (by engram, the agent or a person) is announced once as a one-line note and can be loaded on the next turn without a restart; a skill removed in between stays named until the next fixing, and loading it then fails.
 
 Learned workspace skills appear in the same catalog. It reads `.magi/skills/learned/` and the older `.magi/experience/skills/` location, with authored skills taking precedence on a name collision. Group-restricted experience skills remain available through recall for their assigned groups. Routines live under `.magi/routines/<name>/routine.md`. [Routine guide](DUMMY_PLUG.md#12-routines)
 

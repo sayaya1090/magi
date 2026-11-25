@@ -92,3 +92,50 @@ func TestANewSessionOpensWithTheSkillsThatExistNow(t *testing.T) {
 		t.Fatalf("nothing is new to a session that just listed them: %v", got)
 	}
 }
+
+// Removing a skill mid-session leaves the head alone too: the skill tool refuses a name it cannot
+// find, which costs one failed call, while editing the head would cost the whole prefix.
+func TestRemovingASkillLeavesTheHeadAlone(t *testing.T) {
+	work := t.TempDir()
+	sk := filepath.Join(work, ".magi", "skills")
+	writeSkill(t, sk, "alpha", "does the first thing")
+	writeSkill(t, sk, "beta", "does a second thing")
+
+	a := &App{states: map[session.SessionID]*sessionState{}}
+	first := a.skillBlockFor("s1", work)
+	if err := os.Remove(filepath.Join(sk, "beta.md")); err != nil {
+		t.Fatal(err)
+	}
+	if again := a.skillBlockFor("s1", work); again != first {
+		t.Fatalf("the head moved when a skill was removed:\n  was: %q\n  now: %q", first, again)
+	}
+}
+
+// Compaction rewrites the transcript prefix anyway, so it is the one mid-session moment the head is
+// re-frozen from what exists now: added skills move into the list, removed ones leave it, and nothing
+// in the new head is announced again.
+func TestCompactionReFreezesTheSkillHead(t *testing.T) {
+	work := t.TempDir()
+	sk := filepath.Join(work, ".magi", "skills")
+	writeSkill(t, sk, "alpha", "does the first thing")
+
+	a := &App{states: map[session.SessionID]*sessionState{}}
+	_ = a.skillBlockFor("s1", work)
+	writeSkill(t, sk, "beta", "does a second thing")
+	_ = a.skillArrivals("s1", work)
+	if err := os.Remove(filepath.Join(sk, "alpha.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	a.resetMemoryDelivery("s1") // the compaction boundary
+	head := a.skillBlockFor("s1", work)
+	if !strings.Contains(head, "beta") || strings.Contains(head, "alpha") {
+		t.Fatalf("after compaction the head should list what exists now (beta, not alpha), got %q", head)
+	}
+	if got := a.skillArrivals("s1", work); got != nil {
+		t.Fatalf("a skill in the re-frozen head must not be announced again: %v", got)
+	}
+	if again := a.skillBlockFor("s1", work); again != head {
+		t.Fatalf("the re-frozen head must hold until the next boundary:\n  was: %q\n  now: %q", head, again)
+	}
+}

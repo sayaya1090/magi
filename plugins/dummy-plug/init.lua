@@ -2154,10 +2154,11 @@ local function catalog_provide(query)
     return {{source="automatic-routine-catalog",text="Use run_routine when all steps and inputs match.\n"..table.concat(candidates,"\n")}}
 end
 
--- Every active routine, listed on every turn so the model can pick one while it plans (like the skill
--- list). Read from disk each time, so a routine saved mid-session is listed on the next turn. Capped at
--- 10 entries or 1.5KB, whichever comes first; idle maintenance keeps the active set inside that budget.
-local function routine_index(query)
+-- The routines worth listing, ranked by value: what reaches the model as skills (sync_routine_skills) and
+-- what /routine-skills shows. Read from disk each time. Capped at 10 entries or 1.5KB, whichever comes
+-- first; idle maintenance keeps the active set inside that budget. count: this is a request, so each
+-- listed routine is charged one exposure (once per request).
+local function routine_index(query, count)
   local key = "routine_index:" .. magi.sha256(magi.workdir())
   -- The provider runs again on every model step of a request; count one exposure per request.
   local request = magi.sha256(tostring(query and query.session_id or "") .. "\0" .. tostring(query and query.prompt or "")):sub(1, 20)
@@ -2177,7 +2178,7 @@ local function routine_index(query)
       end
     end
   end
-  if #rows == 0 then return nil end
+  if #rows == 0 then return nil, {} end
   local now = lifecycle_now()
   local prior = RV.prior(idx, now)
   for _, row in ipairs(rows) do row.value = RV.value(row.e, row.sv, now, prior) end
@@ -2209,7 +2210,7 @@ local function routine_index(query)
     return a.name < b.name
   end)
   local head = "# Saved routines (call run_routine by name when one fits this task; routine_catalog searches every saved routine)"
-  local lines, size, shown = { head }, #head, 0
+  local lines, size, shown, listed = { head }, #head, 0, {}
   for _, row in ipairs(rows) do
     local d = (row.r.description or ""):gsub("%s+", " ")
     if #d > 100 then d = (d:sub(1, 97):gsub("[\192-\255][\128-\191]*$", "")) .. "..." end
@@ -2220,28 +2221,77 @@ local function routine_index(query)
     end
     if shown == 10 or size + 1 + #line + 80 > 1500 then break end
     lines[#lines + 1], size, shown = line, size + 1 + #line, shown + 1
+    listed[#listed + 1] = row
     row.e.line_tokens = math.ceil(#line / 4)
-    if row.e.seen ~= request then
+    if count and row.e.seen ~= request then
       row.e.exposed, row.e.seen = (row.e.exposed or 0) + 1, request
       row.e.xscore, row.e.xat = RV.decay(row.e.xscore, row.e.xat, now) + 1, now
     end
   end
   if shown < #rows then lines[#lines + 1] = "(" .. (#rows - shown) .. " more: search with routine_catalog)" end
   magi.store_set(key, idx)
-  return table.concat(lines, "\n")
+  return table.concat(lines, "\n"), listed
 end
 
-pcall(magi.register_context_provider, { name = "automatic-routine-catalog", provide = catalog_provide })
--- A separate provider: the recommendation above stays quiet when nothing fits, the list is always there.
-pcall(magi.register_context_provider, {
-  name = "routine-index",
-  provide = function(query)
-    if not query or query.workdir ~= magi.workdir() then return {} end
-    local ok, text = pcall(routine_index, query)
-    if ok and text then return { { source = "routine-index", text = text } } end
-    return {}
+-- Routines reach the model as skills: each listed routine under .magi/routines gets a one-line skill file
+-- .magi/skills/<name>.routine.md that says to call run_routine directly. The host freezes the skill list
+-- at session start and re-freezes it at compaction; a file added in between is announced in one line and
+-- a file removed in between stays named until then, so the head is not rewritten mid-session. A routine
+-- that already is a skill file is not listed twice. Only files carrying the mark are ever removed.
+local SKILL_MARK = "source: routine-skill"
+local function routine_skill_text(row)
+  local d = (row.r.description or ""):gsub("%s+", " ")
+  if #d > 100 then d = (d:sub(1, 97):gsub("[\192-\255][\128-\191]*$", "")) .. "..." end
+  local saves = ""
+  if row.sv then
+    saves = " (saves " .. row.sv.saved .. " model call" .. (row.sv.saved == 1 and "" or "s") .. " per run" ..
+      (row.sv.basis == "observed" and "" or ", estimated") .. ")"
+  end
+  local names = {}
+  for k in pairs(type(row.r.inputs.properties) == "table" and row.r.inputs.properties or {}) do names[#names + 1] = k end
+  table.sort(names)
+  local args = #names > 0 and (" with args " .. table.concat(names, ", ")) or ""
+  return "---\ndescription: Saved routine: " .. d .. saves .. ". Run it directly: run_routine " ..
+    magi.json_encode({ name = row.name }) .. args .. "; no need to load this skill.\n" .. SKILL_MARK .. "\n---\n" ..
+    "Advertises the saved routine " .. row.name .. " (" .. row.r.path .. "). Call run_routine with its name.\n"
+end
+local function sync_routine_skills(listed)
+  local want = {}
+  for _, row in ipairs(listed or {}) do
+    if row.r.path:sub(1, #ROUTINES_DIR + 1) == ROUTINES_DIR .. "/" then want[row.name] = routine_skill_text(row) end
+  end
+  for name, text in pairs(want) do
+    local path = LEGACY_SKILLS_DIR .. "/" .. name .. ".routine.md"
+    if magi.read_file(path) ~= text then magi.write_file(path, text) end
+  end
+  for _, entry in ipairs(magi.list_files(LEGACY_SKILLS_DIR) or {}) do
+    local name = entry:match("^([%w_%-]+)%.routine%.md$")
+    if name and not want[name] then
+      local path = LEGACY_SKILLS_DIR .. "/" .. entry
+      local text = magi.read_file(path)
+      if type(text) == "string" and text:find("\n" .. SKILL_MARK .. "\n", 1, true) then magi.remove_file(path) end
+    end
+  end
+end
+
+magi.on("user_message", function(ev)
+  if type(ev) ~= "table" or type(ev.session) ~= "string" or ev.session == "" then return end
+  pcall(function()
+    local _, listed = routine_index({ session_id = ev.session, prompt = ev.text }, true)
+    sync_routine_skills(listed)
+  end)
+end)
+
+magi.register_command{
+  name = "routine-skills",
+  description = "Show the saved routines offered to the model as skills, in value order",
+  execute = function()
+    local ok, text = pcall(routine_index, nil, false)
+    magi.log(ok and text or "# Saved routines: none listed")
   end,
-})
+}
+
+pcall(magi.register_context_provider, { name = "automatic-routine-catalog", provide = catalog_provide })
 end
 
 local observe_routine_result

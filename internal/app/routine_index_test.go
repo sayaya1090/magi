@@ -1,15 +1,12 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/sayaya1090/magi/internal/port"
 )
 
 // routineDoc is a minimal reader routine with the given one-line description.
@@ -20,16 +17,15 @@ func routineDoc(desc string) []byte {
 // routineIndex returns the always-on routine list the plug-in adds to this turn's context ("" if none).
 func routineIndex(t *testing.T, r *routineRig, prompt string) string {
 	t.Helper()
-	for _, p := range r.a.contextProviders {
-		hints, err := p.Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: prompt})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, h := range hints {
-			if strings.Contains(h.Text, "# Saved routines") {
-				return h.Text
-			}
-		}
+	// A request arrives (the plug-in counts it and refreshes the routine skills), then the person's view
+	// of what was chosen, in value order.
+	r.fire("user_message", "text", prompt)
+	if err := r.command(t, "routine-skills"); err != nil {
+		t.Fatal(err)
+	}
+	text := r.logs.text()
+	if i := strings.LastIndex(text, "# Saved routines"); i >= 0 {
+		return text[i:]
 	}
 	return ""
 }
@@ -341,5 +337,57 @@ func TestADroppedRoutineReturnsOnlyAfterASuccessfulRun(t *testing.T) {
 	}
 	if idx := routineIndex(t, r, "after a run"); !strings.Contains(idx, "- unused:") {
 		t.Fatalf("a successful run did not bring the routine back:\n%s", idx)
+	}
+}
+
+// routineSkill finds the skill the model is offered for a routine ("" if none).
+func routineSkill(r *routineRig, name string) string {
+	for _, sk := range r.a.availableSkills(r.s.Workdir) {
+		if sk.Name == name {
+			return sk.Description
+		}
+	}
+	return ""
+}
+
+// Routines reach the model the way skills do: each chosen routine becomes a <name>.routine skill whose
+// one line says to call run_routine directly. A routine that already is a flat skill file is not listed
+// twice, and the skill files never show up as routines of their own.
+func TestSavedRoutinesReachTheModelAsSkills(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "later", "routine.md"), routineDoc("count lines saved mid-session"))
+	r.fire("user_message", "text", "hello there")
+	desc := routineSkill(r, "later.routine")
+	if !strings.Contains(desc, "count lines saved mid-session") || !strings.Contains(desc, `run_routine {"name":"later"}`) {
+		t.Fatalf("routine not offered as a skill: %q", desc)
+	}
+	if routineSkill(r, "readit.routine") != "" {
+		t.Fatal("a routine that already is a skill file was listed twice")
+	}
+	catalog, _, failed := r.call(t, "cat", "routine_catalog", nil, "allow")
+	if failed || strings.Contains(catalog, "later.routine") || !strings.Contains(catalog, "later") {
+		t.Fatalf("skill files leaked into the routine catalog: %s", catalog)
+	}
+}
+
+// A routine taken out of the list loses its skill file; files the plug-in did not write are left alone.
+func TestARoutineLeftOutOfTheListLeavesTheSkills(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "unused", "routine.md"), routineDoc("never picked"))
+	mine := filepath.Join(".magi", "skills", "mine.routine.md")
+	r.put(t, mine, []byte("written by a person\nbody\n"))
+	for i := range 20 {
+		r.fire("user_message", "text", fmt.Sprintf("turn %d", i))
+	}
+	if routineSkill(r, "unused.routine") == "" {
+		t.Fatal("not offered before the review")
+	}
+	r.fire("idle")
+	r.fire("user_message", "text", "after idle")
+	if routineSkill(r, "unused.routine") != "" {
+		t.Fatal("a routine dropped from the list is still offered as a skill")
+	}
+	if _, err := os.Stat(filepath.Join(r.s.Workdir, mine)); err != nil {
+		t.Fatalf("a skill file the plug-in did not write was removed: %v", err)
 	}
 }

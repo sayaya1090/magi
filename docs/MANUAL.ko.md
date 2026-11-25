@@ -1424,7 +1424,7 @@ flowchart TD
 
 ## 8. 스킬
 
-`<config>/skills/*.md` 또는 `<workdir>/.magi/skills/*.md` (첫 줄=설명, 이하=본문), 그리고 **skill-creator 규격** `<workdir>/.claude/skills/<slug>/SKILL.md`(frontmatter `description`=트리거) — 표준 skill-creator 규격으로, 흔한 에이전트 도구와 번들 engram 플러그인이 만드는 형식을 변환 없이 읽습니다. 스킬 목록은 소스 디렉토리 변경(mtime) 시 갱신되므로, engram이 세션 중 저장한 스킬도 재시작 없이 다음 턴부터 쓸 수 있습니다.
+`<config>/skills/*.md` 또는 `<workdir>/.magi/skills/*.md` (첫 줄=설명, 이하=본문), 그리고 **skill-creator 규격** `<workdir>/.claude/skills/<slug>/SKILL.md`(frontmatter `description`=트리거) — 표준 skill-creator 규격으로, 흔한 에이전트 도구와 번들 engram 플러그인이 만드는 형식을 변환 없이 읽습니다. 스킬 목록은 세션 시작 때와 컴팩션 뒤에만 고정되므로, 세션 중에는 요청 머리를 다시 쓰지 않습니다. 그 사이에 저장된 스킬(engram, 에이전트, 사람)은 한 줄 알림으로 한 번 알리고 재시작 없이 다음 턴부터 불러올 수 있습니다. 그 사이에 지운 스킬은 다음 고정 때까지 이름이 남고, 그때 불러오면 실패합니다.
 시스템 프롬프트에 목록이 노출되고, 모델이 `skill` 툴로 본문을 로드해 따릅니다.
 
 작업공간에서 배운 스킬도 같은 목록에 표시됩니다. `.magi/skills/learned/`와 기존 `.magi/experience/skills/`를 읽으며, 작성한 스킬과 이름이 같으면 작성한 스킬이 우선합니다. 에이전트 그룹으로 제한된 경험 스킬은 해당 그룹의 회상에서 사용할 수 있습니다. 루틴은 `.magi/routines/<이름>/routine.md`에서 관리합니다. [루틴 사용법](DUMMY_PLUG.ko.md#12-루틴)
