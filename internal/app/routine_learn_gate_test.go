@@ -78,3 +78,55 @@ func TestOutputShapeVariantsOfAnInventoryConsumerAreOneRoutine(t *testing.T) {
 		t.Fatalf("plan should carry the latest width: %+v", plan)
 	}
 }
+
+// A head count is output shape too, written either way: head -N or head -n N. Consumers that differ only
+// in the count are one routine, and the next plan uses the count seen last.
+func TestHeadCountVariantsOfAnInventoryConsumerAreOneRoutine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX pipeline")
+	}
+	for _, tc := range []struct {
+		name, first, second, key, want string
+	}{
+		{"dash-count", "head -40", "head -80", "s3_arg1", "-80"},
+		{"n-option", "head -n 40", "head -n 80", "s3_arg2", "80"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRoutineRig(t, t.TempDir(), routineFile)
+			r.a.plat = platform.OS{}
+			rawArgs, _ := json.Marshal(map[string]string{"command": "git show --format='--- %h' --stat HEAD"})
+			var last string
+			for _, pair := range []struct {
+				rev, head string
+				paths     []string
+			}{{"1111111", tc.first, []string{"a", "b"}}, {"2222222", tc.second, []string{"c", "d", "e"}}} {
+				var text strings.Builder
+				fmt.Fprintf(&text, "--- %s\n", pair.rev)
+				for _, path := range pair.paths {
+					fmt.Fprintf(&text, " %s | 1 +\n", path)
+				}
+				fmt.Fprintf(&text, " %d files changed\n", len(pair.paths))
+				raw, _ := json.Marshal(text.String())
+				inventory := resultInventory("bash", rawArgs, session.ToolResult{Content: raw})
+				consumer, _ := json.Marshal(map[string]string{"command": "git show --format= " + pair.rev + " -- " + strings.Join(pair.paths, " ") + " | grep -E '^[-+]' | " + pair.head})
+				r.host.InventoryRoutine(r.s.Workdir, inventory, string(consumer))
+				last = inventory
+			}
+			files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
+			if len(files) != 1 {
+				t.Fatalf("consumers differing only in the head count should be one routine: %v", files)
+			}
+			var plan struct{ Args map[string]any }
+			if raw := r.host.InventoryRoutine(r.s.Workdir, last, ""); json.Unmarshal([]byte(raw), &plan) != nil || plan.Args[tc.key] != tc.want {
+				t.Fatalf("plan should carry the latest count %s=%s: %+v", tc.key, tc.want, plan)
+			}
+			// The count stays a count: an option in its place is refused before bash is asked.
+			var name struct{ Name string }
+			_ = json.Unmarshal([]byte(r.host.InventoryRoutine(r.s.Workdir, last, "")), &name)
+			plan.Args[tc.key] = "-rf"
+			if _, asks, failed := r.call(t, "bad-count", "run_routine", map[string]any{"name": name.Name, "args": plan.Args}, "allow"); !failed || len(asks) != 0 {
+				t.Fatalf("an option in the count slot reached bash: asks=%+v failed=%v", asks, failed)
+			}
+		})
+	}
+}

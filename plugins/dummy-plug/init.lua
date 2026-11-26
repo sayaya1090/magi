@@ -991,6 +991,10 @@ local function pipeline_slot(value, index, stage)
   if type(value) ~= "string" then return {arg=true} end
   local prefix = value:match("^(%-[%a]*)%d[%d%-]*$")
   if prefix then return {numeric=prefix} end
+  -- A bare count right after a one-letter option (head -n 60, tail -n 20) is output shape as well.
+  if index > 2 and value:match("^%d+$") and type(stage[index-1]) == "string" and stage[index-1]:match("^%-%a$") then
+    return {numeric=""}
+  end
   if value:match("^%-%-?[%a][%w%-]*=?$") or value == "--" or
       (index == 2 and value:match("^[%a_][%w_.%-]*$") and type(stage[3]) == "string" and stage[3]:sub(1,1) == "-") then
     return {word=value}
