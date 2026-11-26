@@ -2262,6 +2262,10 @@ end
 do
   local LK = { TOOLS = { read = true, grep = true, glob = true, list = true, bash = true }, PH = "{{value}}" }
   LK.EXTRACT = [[local function extract(text, rule)
+  if rule.pattern then
+    local ok, v = pcall(string.match, text or "", rule.pattern)
+    return ok and v or nil
+  end
   local l = 0
   for line in ((text or "") .. "\n"):gmatch("([^\n]*)\n") do
     l = l + 1
@@ -2274,6 +2278,51 @@ do
   end
 end
 ]]
+  -- The same reading the routine script does (LK.EXTRACT), for checking a proposed rule here.
+  function LK.extract(text, rule)
+    if rule.pattern then
+      local ok, v = pcall(string.match, text or "", rule.pattern)
+      return ok and v or nil
+    end
+    local l = 0
+    for line in ((text or "") .. "\n"):gmatch("([^\n]*)\n") do
+      l = l + 1
+      local fs = {}
+      for f in line:gmatch("%S+") do fs[#fs + 1] = f end
+      if rule.line and l == rule.line then return fs[rule.field] end
+      if rule.after then
+        for k = 1, #fs - 1 do if fs[k] == rule.after then return fs[k + 1] end end
+      end
+    end
+  end
+  -- No fixed spot fits: ask the model for a rule, from the results it was taken from. Kept only if it
+  -- reads every observed value back exactly; a failure, refusal or malformed answer is dropped.
+  function LK.ask(list)
+    local parts = {}
+    for i, o in ipairs(list) do
+      if i > 3 then break end
+      parts[#parts + 1] = "Result " .. i .. ":\n" .. o.output:sub(1, 2000) .. "\nValue taken from it: " .. o.value
+    end
+    local ok, raw = pcall(magi.analyze, { label = "routine-link", text = table.concat(parts, "\n\n"),
+      system = "Each result below is a tool output and the value a later call took from it. Give one rule that " ..
+        "reads that value from any such output, as JSON only: {\"line\":N,\"field\":K} (whitespace fields), " ..
+        "{\"after\":\"word\"} (the token after a fixed word) or {\"pattern\":\"Lua pattern with one capture\"}." })
+    if not ok or type(raw) ~= "string" then return end
+    local text = raw:match("%b{}")
+    if not text then return end
+    local okd, rule = pcall(magi.json_decode, text)
+    if not okd or type(rule) ~= "table" then return end
+    local clean = {}
+    if type(rule.pattern) == "string" and #rule.pattern <= 200 then clean.pattern = rule.pattern
+    elseif type(rule.after) == "string" and #rule.after <= 24 and not rule.after:find("%s") then clean.after = rule.after
+    elseif tonumber(rule.line) and tonumber(rule.field) then
+      clean.line, clean.field = math.floor(tonumber(rule.line)), math.floor(tonumber(rule.field))
+    else return end
+    for _, o in ipairs(list) do
+      if LK.extract(o.output, clean) ~= o.value then return end
+    end
+    return clean
+  end
   function LK.position(text, value)
     local l = 0
     for line in ((text or "") .. "\n"):gmatch("([^\n]*)\n") do
@@ -2330,8 +2379,9 @@ end
                   if LK.TOOLS[a.name] and not a.failed and not a.pending and type(a.output) == "string" then
                     local rule = LK.position(a.output, tok)
                     local key, tmpl = LK.template(b.args, tok)
-                    if rule and key then
-                      found[#found + 1] = { a = a, b = b, rule = rule, key = key, tmpl = tmpl, value = tok, j = j }
+                    if key and (rule or a.output:find(tok, 1, true)) then
+                      found[#found + 1] = { a = a, b = b, rule = rule, key = key, tmpl = tmpl, value = tok, j = j,
+                        output = a.output }
                       done = true
                     end
                     break
@@ -2356,13 +2406,14 @@ end
       "args[" .. string.format("%q", c.key) .. "] = s:sub(1, i - 1) .. value .. s:sub(i + " .. #LK.PH .. ")\n" ..
       "print(first)\nprint(assert(call_tool(" .. string.format("%q", c.b.name) .. ", args)))"
   end
-  function LK.save(c, sig, occ)
+  function LK.save(c, sig, occ, real, expect)
     local name = "link-" .. sig:sub(1, 12)
     local script = LK.script(c)
     local tools = { c.a.name }
     if c.b.name ~= c.a.name then tools[2] = c.b.name end
-    local fixture
-    if c.rule.line then
+    local fixture, mark = real, expect or "LINKVALUE7"
+    if fixture then
+    elseif c.rule.line then
       local lines = {}
       for _ = 1, c.rule.line - 1 do lines[#lines + 1] = "x" end
       lines[#lines + 1] = ("f "):rep(c.rule.field - 1) .. "LINKVALUE7"
@@ -2373,8 +2424,9 @@ end
     local _, err, replay = magi.run_script(script, { dry = true, tools = tools, fixtures = { { tool = c.a.name, text = fixture } } })
     if err or type(replay) ~= "table" or #replay ~= 2 or replay[2].tool ~= c.b.name then return end
     local ok, got = pcall(magi.json_decode, replay[2].args)
-    if not ok or type(got) ~= "table" or type(got[c.key]) ~= "string" or not got[c.key]:find("LINKVALUE7", 1, true) then return end
-    local where = c.rule.line and ("line " .. c.rule.line .. " field " .. c.rule.field) or ("the token after " .. c.rule.after)
+    if not ok or type(got) ~= "table" or type(got[c.key]) ~= "string" or not got[c.key]:find(mark, 1, true) then return end
+    local where = c.rule.line and ("line " .. c.rule.line .. " field " .. c.rule.field)
+      or c.rule.after and ("the token after " .. c.rule.after) or "the match of a pattern"
     local def = { script = script, tools = tools, inputs = '{"type":"object","properties":{}}',
       purpose = "Runs " .. c.a.name .. ", takes " .. where .. " of its result and passes it to " .. c.b.name .. "." }
     local path = save_routine(name, "Value from a result: " .. c.a.name .. " then " .. c.b.name .. " (" .. c.key .. " from " .. where .. ")",
@@ -2396,9 +2448,18 @@ end
     local n = 0
     for _ in pairs(state.seen) do n = n + 1 end
     if n > 2000 then state.seen = {} end
+    local pend = {}
     for _, sess in ipairs(past) do
       for _, c in ipairs(LK.candidates(sess.steps or {})) do
-        local sig = magi.sha256(magi.json_encode({ c.a.name, c.a.args or {}, c.b.name, c.key, c.tmpl, c.rule }))
+        local sig = magi.sha256(magi.json_encode({ c.a.name, c.a.args or {}, c.b.name, c.key, c.tmpl, c.rule or "model" }))
+        if not c.rule then
+          -- kept in memory for this review only, to show the model where the values came from
+          local list = pend[sig] or {}
+          local vh, dup = magi.sha256(c.value):sub(1, 16), false
+          for _, o in ipairs(list) do if o.vh == vh then dup = true end end
+          if not dup then list[#list + 1] = { output = c.output, value = c.value, vh = vh, c = c } end
+          pend[sig] = list
+        end
         local at = magi.sha256(tostring(sess.session) .. "#" .. tostring(c.b.turn) .. "#" .. c.j .. "#" .. sig):sub(1, 20)
         if not state.seen[at] then
           state.seen[at] = true
@@ -2407,8 +2468,20 @@ end
           link.n = link.n + 1
           local distinct = 0
           for _ in pairs(link.values) do distinct = distinct + 1 end
-          if distinct >= 2 and not link.saved then link.saved = LK.save(c, sig, link.n) end
+          if c.rule and distinct >= 2 and not link.saved then link.saved = LK.save(c, sig, link.n) end
           state.links[sig] = link
+        end
+      end
+    end
+    for sig, list in pairs(pend) do
+      local link = state.links[sig]
+      if #list >= 2 and type(link) == "table" and not link.saved and not link.asked then
+        link.asked = true
+        local rule = LK.ask(list)
+        if rule then
+          local last = list[#list]
+          last.c.rule = rule
+          link.saved = LK.save(last.c, sig, link.n, last.output, last.value)
         end
       end
     end

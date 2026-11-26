@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 
 // newRoutineRigWithHistory is the routine rig with a fixed record of past tool calls behind
 // magi.recent_tool_steps.
-func newRoutineRigWithHistory(t *testing.T, dataDir string, past []port.SessionSteps) *routineRig {
+func newRoutineRigWithHistory(t *testing.T, dataDir string, past []port.SessionSteps, an luaplugin.Analyzer) *routineRig {
 	t.Helper()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "ask", Interactive: true, AnswerWait: 5 * time.Second})
 	ctx := context.Background()
@@ -23,7 +24,7 @@ func newRoutineRigWithHistory(t *testing.T, dataDir string, past []port.SessionS
 	logs := &logBuf{}
 	recent := func(context.Context, string, int) ([]port.SessionSteps, error) { return past, nil }
 	host := luaplugin.NewHostWithConfig(luaplugin.HostConfig{ToolSink: a.tools.(luaplugin.ToolSink), DataDir: dataDir,
-		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add, ContextReg: a, Notify: a.PluginNote, RecentSteps: recent})
+		Runtime: luaplugin.RuntimeInfo{Workdir: s.Workdir}, Logf: logs.add, ContextReg: a, Notify: a.PluginNote, RecentSteps: recent, Analyzer: an})
 	if _, err := host.Load(ctx, filepath.Join("..", "..", "plugins", "dummy-plug")); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,13 @@ func TestIdleLearnsAnArgumentTakenFromAPreviousResult(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			data := t.TempDir()
-			r := newRoutineRigWithHistory(t, data, tc.past)
+			model := &fakeAnalyzer{err: errors.New("not expected")}
+			r := newRoutineRigWithHistory(t, data, tc.past, model)
+			defer func() {
+				if model.calls != 0 {
+					t.Errorf("a fixed spot fits; the model must not be asked (%d calls)", model.calls)
+				}
+			}()
 			r.fire("idle")
 			_ = filepath.Walk(data, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() {
@@ -105,6 +112,78 @@ func TestIdleLearnsAnArgumentTakenFromAPreviousResult(t *testing.T) {
 			if got := routineIndex(t, r, "show the latest change"); !strings.Contains(got, "saves 1 model call per run") {
 				t.Fatalf("the learned routine should save one model call: %s", got)
 			}
+		})
+	}
+}
+
+// fakeAnalyzer answers magi.analyze with a fixed reply or error and counts the calls.
+type fakeAnalyzer struct {
+	calls  int
+	answer string
+	err    error
+}
+
+func (f *fakeAnalyzer) Analyze(context.Context, string, string, string) (string, error) {
+	f.calls++
+	return f.answer, f.err
+}
+
+// The value sits on line eight after an arrow: no fixed spot of the deterministic rules fits.
+func deepTurn(turn int, value string) []port.ChildStep {
+	steps := linkTurn(turn, value)
+	steps[0].Output = "x\nx\nx\nx\nx\nx\nx\n  -> " + value + "\n"
+	return steps
+}
+
+// When the same link repeats with different values but no fixed spot fits, the idle review asks the
+// model for an extraction rule. A rule is kept only if it yields each observed value and the routine
+// replays; a refusal or a wrong rule saves nothing. Observed values are still never stored.
+func TestIdleAsksTheModelWhenNoFixedSpotFits(t *testing.T) {
+	past := []port.SessionSteps{
+		{Session: "s_b", Steps: deepTurn(4, "def5678a")},
+		{Session: "s_a", Steps: deepTurn(2, "abc1234f")},
+	}
+	for _, tc := range []struct {
+		name  string
+		model *fakeAnalyzer
+		saved bool
+	}{
+		{"accepted", &fakeAnalyzer{answer: "Here it is: {\"pattern\": \"%-> (%S+)\"}"}, true},
+		{"refused", &fakeAnalyzer{err: errors.New("declined")}, false},
+		{"wrong-rule", &fakeAnalyzer{answer: `{"line": 1, "field": 1}`}, false},
+		// Reads the last occurrence (and would replay) but not the other one: an overfit rule is refused.
+		{"overfit", &fakeAnalyzer{answer: `{"pattern": "(abc1234f)"}`}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := t.TempDir()
+			r := newRoutineRigWithHistory(t, data, past, tc.model)
+			r.fire("idle")
+			if tc.model.calls != 1 {
+				t.Fatalf("want one model call, got %d", tc.model.calls)
+			}
+			files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/link-*/routine.md"))
+			if !tc.saved {
+				if len(files) != 0 {
+					t.Fatalf("saved from a refused or wrong rule: %v", files)
+				}
+				return
+			}
+			if len(files) != 1 {
+				t.Fatalf("want one routine from the model's rule, got %v\nlog: %s", files, r.logs.text())
+			}
+			body, _ := os.ReadFile(files[0])
+			if strings.Contains(string(body), "abc1234f") || strings.Contains(string(body), "def5678a") {
+				t.Fatalf("the routine keeps an observed value:\n%s", body)
+			}
+			_ = filepath.Walk(data, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				if raw, _ := os.ReadFile(path); strings.Contains(string(raw), "abc1234f") || strings.Contains(string(raw), "def5678a") {
+					t.Fatalf("plug-in data keeps an observed value: %s", path)
+				}
+				return nil
+			})
 		})
 	}
 }
