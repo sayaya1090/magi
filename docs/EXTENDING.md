@@ -457,6 +457,11 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > **`magi.council_enabled()`** says whether a council judges declarations in this run — a plugin with
 > a finishing door of its own (landing's `land`) registers a gate instead when it does: one door.
 >
+> **`magi.recent_tool_steps(n)`** — needs capability `"history"`: the past tool calls of the plugin's own
+> workspace, newest top-level session first (at most 16 sessions, the last 300 calls of each), as
+> `{ {session=, steps={ {name=, args=, failed=, output=, turn=}, … }}, … }`. Results are clipped as in
+> `turn_steps`; `turn` counts user turns from 1. Meant for a background review in an `idle` hook.
+>
 > **`magi.turn_steps()`** — inside a tool call only: the tool calls of the turn this call belongs
 > to, oldest first, as `{name=, args=(decoded), failed=, output=, output_bytes=}` — `output` is the result text, whole when the call failed and clipped at 6 KB when it succeeded (a door reads the ⚠ a tool attached to a success),
 > the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did

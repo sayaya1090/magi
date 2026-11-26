@@ -408,6 +408,13 @@ type ChildStep struct {
 	Pending     bool   // call has no persisted result yet
 	Output      string // failures verbatim; turn/trial readers also include bounded successful output
 	OutputBytes int    // size of the result, set whether or not Output is carried
+	Turn        int    // the user turn the call belongs to, counted from 1 by the session-wide readers
+}
+
+// SessionSteps is one session's tool calls in order, as a reader of past work sees them.
+type SessionSteps struct {
+	Session string
+	Steps   []ChildStep
 }
 
 // RestoredPath is one file a restore tried to put back. How is "journal" (magi wrote the original

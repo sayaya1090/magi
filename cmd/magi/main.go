@@ -1310,12 +1310,13 @@ func startPluginHost(p hostParams, sid *session.SessionID) *pluginlua.Host {
 	// magi.set_model to the live session; the closure captures it by reference so it
 	// resolves the current session at call time (plugins call set_model mid-session).
 	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
-		ToolSink:   p.reg,
-		MCPMgr:     p.mcpMgr,
-		ContextReg: p.app,
-		LLMReg:     p.llm,
-		BaseReg:    p.llm,
-		EmbedReg:   p.embedder,
+		ToolSink:    p.reg,
+		MCPMgr:      p.mcpMgr,
+		ContextReg:  p.app,
+		RecentSteps: p.app.RecentToolSteps,
+		LLMReg:      p.llm,
+		BaseReg:     p.llm,
+		EmbedReg:    p.embedder,
 		ModelReg: modelSetter{
 			setModel: func(m string) { p.app.SetModel(*sid, m) },
 			setWindow: func(model string, tokens int) error {

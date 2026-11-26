@@ -120,11 +120,12 @@ type Host struct {
 	modelReg           ModelRegistry
 	userReg            UserLabelRegistry
 	runtime            RuntimeInfo
-	pluginConfigs      map[string]map[string]any    // [plugins.<name>] sections from config.toml
-	configPath         string                       // path to the user's config.toml (magi.get/set_config_key)
-	dataDir            string                       // base dir for per-plugin persistent stores
-	prompter           prompt.Prompter              // interactive prompts (magi.ask); nil = unavailable
-	analyzer           Analyzer                     // sidecar LLM analysis (magi.analyze); nil = unavailable
+	pluginConfigs      map[string]map[string]any // [plugins.<name>] sections from config.toml
+	configPath         string                    // path to the user's config.toml (magi.get/set_config_key)
+	dataDir            string                    // base dir for per-plugin persistent stores
+	prompter           prompt.Prompter           // interactive prompts (magi.ask); nil = unavailable
+	analyzer           Analyzer                  // sidecar LLM analysis (magi.analyze); nil = unavailable
+	recentSteps        func(ctx context.Context, workdir string, sessions int) ([]port.SessionSteps, error)
 	experience         port.ExperienceStore         // D13 team store (magi.propose_experience); nil = unavailable
 	notify             func(sessionID, text string) // session note sink (magi.notify); nil = unavailable
 	finish             func(sessionID string)       // turn ender (magi.finish); nil = unavailable
@@ -209,12 +210,15 @@ type HostConfig struct {
 	BaseReg    BaseURLRegistry         // optional: enables magi.set_base_url()
 	// EmbedReg, when set, enables magi.set_embed_endpoint: a plugin that starts a local embedding
 	// server hands its address to the client recall already uses.
-	EmbedReg   EmbedEndpointRegistry
-	ModelReg   ModelRegistry                // optional: enables magi.set_model()
-	UserReg    UserLabelRegistry            // optional: enables magi.set_user_label()
-	Analyzer   Analyzer                     // optional: enables magi.analyze (sidecar LLM analysis)
-	Experience port.ExperienceStore         // optional: enables magi.propose_experience (D13 team store)
-	Notify     func(sessionID, text string) // optional: enables magi.notify (session transcript note)
+	EmbedReg EmbedEndpointRegistry
+	ModelReg ModelRegistry     // optional: enables magi.set_model()
+	UserReg  UserLabelRegistry // optional: enables magi.set_user_label()
+	Analyzer Analyzer          // optional: enables magi.analyze (sidecar LLM analysis)
+	// RecentSteps reads the past tool calls of a workspace (magi.recent_tool_steps, capability "history").
+	// nil = unavailable.
+	RecentSteps func(ctx context.Context, workdir string, sessions int) ([]port.SessionSteps, error)
+	Experience  port.ExperienceStore         // optional: enables magi.propose_experience (D13 team store)
+	Notify      func(sessionID, text string) // optional: enables magi.notify (session transcript note)
 	// Finish, when set, enables magi.finish: a tool that ends the turn it was called in. The
 	// landing plugin's `land` is the case — without it the turn ended only when the model's next
 	// step carried no call, and a model that kept re-calling land never produced one.
@@ -262,6 +266,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		dataDir:            cfg.DataDir,
 		prompter:           cfg.Prompter,
 		analyzer:           cfg.Analyzer,
+		recentSteps:        cfg.RecentSteps,
 		experience:         cfg.Experience,
 		notify:             cfg.Notify,
 		finish:             cfg.Finish,

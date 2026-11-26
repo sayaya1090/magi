@@ -57,6 +57,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "spawn_all", L.NewFunction(p.bridgeSpawnAll))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "turn_steps", L.NewFunction(p.bridgeTurnSteps))
+	L.SetField(t, "recent_tool_steps", L.NewFunction(p.bridgeRecentToolSteps))
 	L.SetField(t, "run_script", L.NewFunction(p.bridgeRunScript))
 	scriptFeatures := L.NewTable()
 	scriptFeatures.RawSetString("file_fixture", lua.LTrue)
@@ -393,6 +394,9 @@ func stepsTable(L *lua.LState, steps []port.ChildStep) *lua.LTable {
 		L.SetField(row, "pending", lua.LBool(st.Pending))
 		L.SetField(row, "output", lua.LString(st.Output))
 		L.SetField(row, "output_bytes", lua.LNumber(st.OutputBytes))
+		if st.Turn > 0 {
+			L.SetField(row, "turn", lua.LNumber(st.Turn))
+		}
 		out.Append(row)
 	}
 	return out
@@ -434,6 +438,31 @@ func (p *plugin) bridgeTurnSteps(L *lua.LState) int {
 		return fail(L, "turn_steps: "+err.Error())
 	}
 	L.Push(stepsTable(L, steps))
+	return 1
+}
+
+// magi.recent_tool_steps(sessions) -> { {session=, steps={ {name=, args=, failed=, output=, turn=}, … }}, … }
+//
+// The past tool calls of this plugin's own workspace, newest session first, for a background review
+// (an idle hook) that learns from earlier work. Results come as the turn readers clip them. Needs the
+// "history" capability; the host reads only the workspace it runs in.
+func (p *plugin) bridgeRecentToolSteps(L *lua.LState) int {
+	p.requireCap(L, "history")
+	if p.host == nil || p.host.recentSteps == nil || p.host.runtime.Workdir == "" {
+		return fail(L, "recent_tool_steps: unavailable in this host")
+	}
+	got, err := p.host.recentSteps(p.spawnCtx(), p.host.runtime.Workdir, L.OptInt(1, 4))
+	if err != nil {
+		return fail(L, "recent_tool_steps: "+err.Error())
+	}
+	out := L.NewTable()
+	for _, s := range got {
+		row := L.NewTable()
+		L.SetField(row, "session", lua.LString(s.Session))
+		L.SetField(row, "steps", stepsTable(L, s.Steps))
+		out.Append(row)
+	}
+	L.Push(out)
 	return 1
 }
 

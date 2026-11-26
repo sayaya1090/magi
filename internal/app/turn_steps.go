@@ -43,7 +43,11 @@ func stepsOfMode(evs []event.Event, turnOnly, includeSuccess bool) []port.ChildS
 	var out []port.ChildStep
 	var answered []bool
 	at := map[string]int{}
+	turn := 0
 	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			turn++
+		}
 		if turnOnly && e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			out, answered, at = nil, nil, map[string]int{}
 			continue
@@ -58,7 +62,7 @@ func stepsOfMode(evs []event.Event, turnOnly, includeSuccess bool) []port.ChildS
 		switch {
 		case d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil:
 			at[d.Part.ToolCall.CallID] = len(out)
-			out = append(out, port.ChildStep{Name: d.Part.ToolCall.Name, Args: d.Part.ToolCall.Args})
+			out = append(out, port.ChildStep{Name: d.Part.ToolCall.Name, Args: d.Part.ToolCall.Args, Turn: turn})
 			answered = append(answered, false)
 		case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil:
 			i, ok := at[d.Part.ToolResult.CallID]

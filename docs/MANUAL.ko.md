@@ -1452,7 +1452,7 @@ flowchart TD
 디렉터리라면 공정한 거래지만, 클론에 딸려 온 디렉터리라면 전혀 그렇지 않습니다. 그래서
 `<workdir>/.magi/plugins/`는 **신뢰한 워크스페이스에서만** 로드됩니다(`magi --trust`, §설정 참고).
 신뢰하지 않은 워크스페이스에서는 magi가 무엇을 찾았고 무엇을 건너뛰었는지 이름을 대 줍니다. 한 번만
-쓰려면 `magi -plugins .magi/plugins`. capability(호스트가 실제로 강제하는 집합): `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`ui`·`doctor`·`spawn`·`analyze`·`experience`(magi.propose_experience — 플러그인이 학습한 교훈/스킬을 D13 공유 스토어 리뷰 큐로 제안)·`notify`(magi.notify — 세션 트랜스크립트에 시스템 ⟳ 노트 추가, 능동 알림 채널; 모델도 다음 턴에 봄). `magi.remove_file`은 fs:write 권한으로 워크디렉토리 파일/디렉토리 삭제 — 산출물 쓰는 플러그인의 undo 반쪽. 파일 변경 시 **핫리로드**.
+쓰려면 `magi -plugins .magi/plugins`. capability(호스트가 실제로 강제하는 집합): `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`ui`·`doctor`·`spawn`·`analyze`·`history`(작업공간의 과거 도구 호출, `magi.recent_tool_steps`)·`experience`(magi.propose_experience — 플러그인이 학습한 교훈/스킬을 D13 공유 스토어 리뷰 큐로 제안)·`notify`(magi.notify — 세션 트랜스크립트에 시스템 ⟳ 노트 추가, 능동 알림 채널; 모델도 다음 턴에 봄). `magi.remove_file`은 fs:write 권한으로 워크디렉토리 파일/디렉토리 삭제 — 산출물 쓰는 플러그인의 undo 반쪽. 파일 변경 시 **핫리로드**.
 샌드박스(위험 stdlib 차단) + 매니페스트 권한(`fs:read`, `net`, `exec`) 집행.
 예제: `plugins/examples/wordcount`.
 

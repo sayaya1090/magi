@@ -419,6 +419,11 @@ magi.register_mcp{
 > 카운슬이 선언을 심사하는지 여부를 반환합니다 — 끝내는 문이 따로 있는 플러그인(landing의 `land`)은 그때 문 대신 게이트를
 > 겁니다: 문은 하나여야 합니다.
 >
+> **`magi.recent_tool_steps(n)`** — capability `"history"`가 필요합니다. 플러그인 자신의 작업공간에서
+> 최근 최상위 세션부터(최대 16개, 세션마다 마지막 호출 300개) 과거 툴 호출을
+> `{ {session=, steps={ {name=, args=, failed=, output=, turn=}, … }}, … }`로 돌려줍니다. 결과는
+> `turn_steps`와 같은 규칙으로 잘리고, `turn`은 사용자 턴을 1부터 셉니다. `idle` 훅의 백그라운드 점검용입니다.
+>
 > **`magi.turn_steps()`** — 툴 호출 안에서만: 이 호출이 속한 턴의 툴 호출들을 오래된 순으로
 > `{name=, args=(디코드됨), failed=, output=, output_bytes=}` 로 돌려줍니다. `output` 은 결과 본문으로, 실패한 호출은 통째로, 성공한 호출은 6 KB 에서 잘립니다(문이 성공 답에 실린 ⚠ 를 읽는 자리입니다). 지금
 > 도는 호출(자기 자신)은 빠집니다. 턴을 판정하는 문(landing 의 `land`)이 모델의 신고 대신 기록에서

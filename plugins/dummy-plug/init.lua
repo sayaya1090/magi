@@ -2255,6 +2255,176 @@ end
 -- at session start and re-freezes it at compaction; a file added in between is announced in one line and
 -- a file removed in between stays named until then, so the head is not rewritten mid-session. A routine
 -- that already is a skill file is not listed twice. Only files carrying the mark are ever removed.
+-- Arguments taken from a previous result. The idle review reads past turns (magi.recent_tool_steps) and
+-- finds a value the model read off one call's result and passed to the next call: a token on a fixed spot
+-- (line and field near the top, or right after a fixed word). Seen twice with different values, the pair
+-- becomes a two-step routine that saves the model response in between. Only hashes are stored.
+do
+  local LK = { TOOLS = { read = true, grep = true, glob = true, list = true, bash = true }, PH = "{{value}}" }
+  LK.EXTRACT = [[local function extract(text, rule)
+  local l = 0
+  for line in ((text or "") .. "\n"):gmatch("([^\n]*)\n") do
+    l = l + 1
+    local fs = {}
+    for f in line:gmatch("%S+") do fs[#fs + 1] = f end
+    if rule.line and l == rule.line then return fs[rule.field] end
+    if rule.after then
+      for k = 1, #fs - 1 do if fs[k] == rule.after then return fs[k + 1] end end
+    end
+  end
+end
+]]
+  function LK.position(text, value)
+    local l = 0
+    for line in ((text or "") .. "\n"):gmatch("([^\n]*)\n") do
+      l = l + 1
+      if l > 40 then return end
+      local fs = {}
+      for f in line:gmatch("%S+") do fs[#fs + 1] = f end
+      for k, f in ipairs(fs) do
+        if f == value then
+          if l <= 5 then return { line = l, field = k } end
+          local w = fs[k - 1]
+          if w and #w <= 24 and w:match("^%a[%w_%-]*:?$") then return { after = w } end
+          return
+        end
+      end
+    end
+  end
+  -- The second call's arguments with the value as a placeholder; the value must be one whole token of one field.
+  function LK.template(args, value)
+    local key, out, hits = nil, {}, 0
+    for k, v in pairs(args) do
+      out[k] = v
+      if type(v) == "string" then
+        for start, tok, stop in v:gmatch("()(%S+)()") do
+          if tok == value then
+            hits, key = hits + 1, k
+            out[k] = v:sub(1, start - 1) .. LK.PH .. v:sub(stop)
+          end
+        end
+      end
+    end
+    if hits == 1 then return key, out end
+  end
+  function LK.candidates(steps)
+    local found = {}
+    for j, b in ipairs(steps) do
+      if LK.TOOLS[b.name] and type(b.args) == "table" and not b.pending and not b.failed then
+        local said = {}
+        for i = 1, j - 1 do
+          if steps[i].turn == b.turn then said[#said + 1] = magi.json_encode(steps[i].args or {}) end
+        end
+        local done = false
+        for _, v in pairs(b.args) do
+          if done or type(v) ~= "string" then goto next_field end
+          for tok in v:gmatch("%S+") do
+            if done then break end
+            if #tok >= 4 and #tok <= 200 and tok:match("%w") and not tok:match("^%-") then
+              local known = false
+              for _, text in ipairs(said) do if text:find(tok, 1, true) then known = true; break end end
+              if not known then
+                for i = j - 1, 1, -1 do
+                  local a = steps[i]
+                  if a.turn ~= b.turn then break end
+                  if LK.TOOLS[a.name] and not a.failed and not a.pending and type(a.output) == "string" then
+                    local rule = LK.position(a.output, tok)
+                    local key, tmpl = LK.template(b.args, tok)
+                    if rule and key then
+                      found[#found + 1] = { a = a, b = b, rule = rule, key = key, tmpl = tmpl, value = tok, j = j }
+                      done = true
+                    end
+                    break
+                  end
+                end
+              end
+            end
+          end
+          ::next_field::
+        end
+      end
+    end
+    return found
+  end
+  function LK.script(c)
+    return LK.EXTRACT .. "local first = assert(call_tool(" .. string.format("%q", c.a.name) .. ", json_decode(" ..
+      string.format("%q", magi.json_encode(c.a.args or {})) .. ")))\n" ..
+      "local value = extract(first, json_decode(" .. string.format("%q", magi.json_encode(c.rule)) .. "))\n" ..
+      "if not value then error(\"no value at the learned position of the " .. c.a.name .. " result\") end\n" ..
+      "local args = json_decode(" .. string.format("%q", magi.json_encode(c.tmpl)) .. ")\n" ..
+      "local s = args[" .. string.format("%q", c.key) .. "]\nlocal i = s:find(" .. string.format("%q", LK.PH) .. ", 1, true)\n" ..
+      "args[" .. string.format("%q", c.key) .. "] = s:sub(1, i - 1) .. value .. s:sub(i + " .. #LK.PH .. ")\n" ..
+      "print(first)\nprint(assert(call_tool(" .. string.format("%q", c.b.name) .. ", args)))"
+  end
+  function LK.save(c, sig, occ)
+    local name = "link-" .. sig:sub(1, 12)
+    local script = LK.script(c)
+    local tools = { c.a.name }
+    if c.b.name ~= c.a.name then tools[2] = c.b.name end
+    local fixture
+    if c.rule.line then
+      local lines = {}
+      for _ = 1, c.rule.line - 1 do lines[#lines + 1] = "x" end
+      lines[#lines + 1] = ("f "):rep(c.rule.field - 1) .. "LINKVALUE7"
+      fixture = table.concat(lines, "\n")
+    else
+      fixture = "x\n" .. c.rule.after .. " LINKVALUE7"
+    end
+    local _, err, replay = magi.run_script(script, { dry = true, tools = tools, fixtures = { { tool = c.a.name, text = fixture } } })
+    if err or type(replay) ~= "table" or #replay ~= 2 or replay[2].tool ~= c.b.name then return end
+    local ok, got = pcall(magi.json_decode, replay[2].args)
+    if not ok or type(got) ~= "table" or type(got[c.key]) ~= "string" or not got[c.key]:find("LINKVALUE7", 1, true) then return end
+    local where = c.rule.line and ("line " .. c.rule.line .. " field " .. c.rule.field) or ("the token after " .. c.rule.after)
+    local def = { script = script, tools = tools, inputs = '{"type":"object","properties":{}}',
+      purpose = "Runs " .. c.a.name .. ", takes " .. where .. " of its result and passes it to " .. c.b.name .. "." }
+    local path = save_routine(name, "Value from a result: " .. c.a.name .. " then " .. c.b.name .. " (" .. c.key .. " from " .. where .. ")",
+      def, "result value reused " .. sig:sub(1, 20), "passed: the second call received the value", false, false, true)
+    if not path then return end
+    local okr, r = pcall(load_routine, name)
+    if okr and r then
+      local all = stored(RV.key())
+      all[name] = { version = r.fingerprint, steps = 2, sites = RV.sites(r.script), basis = "observed", sig = tools, occ = occ }
+      magi.store_set(RV.key(), all)
+    end
+    magi.log("[routine] saved " .. path .. "; it takes an argument from the previous result")
+    return true
+  end
+  function LK.learn(state)
+    local ok, past = pcall(magi.recent_tool_steps, 8)
+    if not ok or type(past) ~= "table" then return end
+    state.links, state.seen = type(state.links) == "table" and state.links or {}, type(state.seen) == "table" and state.seen or {}
+    local n = 0
+    for _ in pairs(state.seen) do n = n + 1 end
+    if n > 2000 then state.seen = {} end
+    for _, sess in ipairs(past) do
+      for _, c in ipairs(LK.candidates(sess.steps or {})) do
+        local sig = magi.sha256(magi.json_encode({ c.a.name, c.a.args or {}, c.b.name, c.key, c.tmpl, c.rule }))
+        local at = magi.sha256(tostring(sess.session) .. "#" .. tostring(c.b.turn) .. "#" .. c.j .. "#" .. sig):sub(1, 20)
+        if not state.seen[at] then
+          state.seen[at] = true
+          local link = type(state.links[sig]) == "table" and state.links[sig] or { values = {}, n = 0 }
+          link.values[magi.sha256(c.value):sub(1, 16)] = true
+          link.n = link.n + 1
+          local distinct = 0
+          for _ in pairs(link.values) do distinct = distinct + 1 end
+          if distinct >= 2 and not link.saved then link.saved = LK.save(c, sig, link.n) end
+          state.links[sig] = link
+        end
+      end
+    end
+  end
+  magi.on("idle", function()
+    if magi.workdir() == "" then return end
+    local key = "routine_links:" .. magi.sha256(magi.workdir())
+    local state = stored(key)
+    local now = lifecycle_now()
+    if now and state.last and now - state.last < 3600 then return end
+    state.last = now
+    pcall(LK.learn, state)
+    magi.store_set(key, state)
+  end)
+end
+
 local SKILL_MARK = "source: routine-skill"
 local function routine_skill_text(row)
   local d = (row.r.description or ""):gsub("%s+", " ")
