@@ -210,34 +210,13 @@ func TestRoutineLearnsAndExecutesAConditionalWorkspaceTask(t *testing.T) {
 	if err != nil || len(hints) != 0 {
 		t.Fatalf("one call was recommended: %v %v", hints, err)
 	}
-	files, _ = filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
-	var name string
-	for _, f := range files {
-		n := filepath.Base(filepath.Dir(f))
-		if strings.Contains(r.skill(t, n), "Conditional shell workflow:") {
-			name = n
-			break
-		}
+	// One bash call is one model response; a routine for it would save no model call, so none is saved
+	// (routine_learn_gate_test.go).
+	saved, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	if len(saved) != 0 {
+		t.Fatalf("a one-call shell command was saved as a routine: %v", saved)
 	}
-	if definition := r.skill(t, name); !strings.Contains(definition, "status: learned-write\n") {
-		t.Fatalf("expected an automatically saved shell routine with learned-write status, got %s", definition)
-	}
-	dir := "Sam's report"
-	args := map[string]any{"name": name, "args": map[string]string{"s1_arg2": dir, "s2_arg1": dir + "/done"}}
-	_, asks, _ := r.call(t, "deny-chain", "run_routine", args, "deny")
-	if len(asks) != 1 || asks[0].What != "bash" {
-		t.Fatalf("expected the inner shell permission gate: %+v", asks)
-	}
-	if _, err := os.Stat(filepath.Join(r.s.Workdir, dir)); !os.IsNotExist(err) {
-		t.Fatalf("denied chain changed the workspace: %v", err)
-	}
-	output, _, failed := r.call(t, "allowed-chain", "run_routine", args, "allow")
-	if failed {
-		t.Fatal(output)
-	}
-	if _, err := os.Stat(filepath.Join(r.s.Workdir, dir, "done")); err != nil {
-		t.Fatalf("the workflow did not produce the requested file: %v (%s)", err, output)
-	}
+
 }
 
 func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
@@ -260,46 +239,21 @@ func TestRoutineRemembersAlternatingInputDependencies(t *testing.T) {
 		}
 		r.fire("tool_finished", "tool", "bash", "args", string(args), "ok", "true", "order_known", "true", "call_id", fmt.Sprint(i))
 	}
-	files, err := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
-	if err != nil || len(files) != 2 {
-		t.Fatalf("expected just the two input layouts: %v (%v)", files, err)
+	// One bash call is one model response; a routine for it would save no model call, so none is saved
+	// (routine_learn_gate_test.go).
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	if len(files) != 0 {
+		t.Fatalf("a one-call shell command was saved as a routine: %v", files)
 	}
-	for i := range 31 {
-		body := strings.Replace(routineFile, "read a file and say so", "prepare marker together or check independent prerequisite", 1)
-		r.file(t, filepath.Join(".magi", "skills", fmt.Sprintf("reference-%02d.md", i)), body)
-	}
-
-	for _, scenario := range []struct{ request, want string }{
-		{"prepare marker together", "test -f {s2_arg1}"},
-		{"check independent prerequisite", "test -f {s3_arg2}"},
-		{"document dormant examples", ""},
-		{"mkdir touch test", ""},
-	} {
+	for _, request := range []string{"prepare marker together", "check independent prerequisite", "mkdir touch test"} {
 		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
-			SessionID: r.sid, Workdir: r.s.Workdir, Prompt: scenario.request,
+			SessionID: r.sid, Workdir: r.s.Workdir, Prompt: request,
 		})
 		if err != nil || len(hints) != 0 {
 			t.Fatalf("single shell call recalled: %v %v", hints, err)
 		}
-		if scenario.want == "" {
-			continue
-		}
-		catalog, _, failed := r.call(t, "find-"+scenario.request, "routine_catalog", map[string]any{"query": scenario.request}, "allow")
-		var results []struct{ Name, Description string }
-		if failed || json.Unmarshal([]byte(catalog), &results) != nil || len(results) != 30 || !strings.Contains(results[0].Description, scenario.want) {
-			t.Fatalf("wrong catalog result: %s", catalog)
-		}
-		name := results[0].Name
-		inputs := map[string]string{"s1_arg2": "current", "s2_arg1": "current/marker"}
-		separate := scenario.want == "test -f {s3_arg2}"
-		if separate {
-			inputs["s3_arg2"] = "current/missing-prerequisite"
-		}
-		out, _, failed := r.call(t, name, "run_routine", map[string]any{"name": name, "args": inputs}, "allow")
-		if failed != separate {
-			t.Fatalf("wrong file checked for %q: %s", scenario.request, out)
-		}
 	}
+
 }
 
 func TestRoutineReusesSameFileDependencyDespiteDifferentInterveningCalls(t *testing.T) {

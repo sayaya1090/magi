@@ -156,6 +156,11 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 		t.Fatalf("missing plan %q", plan)
 	}
 	name := invocation.Name
+	// The inventory edge saves its own routine: the consumer it replaces is a model response of its own.
+	learned, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
+	if len(learned) != len(files)+1 {
+		t.Fatalf("expected one inventory routine: %v -> %v", files, learned)
+	}
 	inventoryOut, _, failed := r.callTask(t, "inventory", "bash", map[string]any{"command": inventoryCommand}, "allow", task)
 	if failed || !strings.Contains(inventoryOut, "2 files changed") || !strings.Contains(inventoryOut, "[inventory routine]") || !strings.Contains(inventoryOut, "+keep second") {
 		t.Fatalf("inventory and diff in one response: %s", inventoryOut)
@@ -193,8 +198,8 @@ func TestPipelineRecommendationBeforeHeldOutCall(t *testing.T) {
 		})
 	}
 	after, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
-	if len(after) != len(files) {
-		t.Fatalf("saved a duplicate inventory routine: %v -> %v", files, after)
+	if len(after) != len(learned) {
+		t.Fatalf("saved a duplicate inventory routine: %v -> %v", learned, after)
 	}
 	catalog, _, bad := r.call(t, "help", "routine_catalog", map[string]any{"query": name}, "allow")
 	if bad || !strings.Contains(catalog, "Git revision to inspect") || !strings.Contains(catalog, "without +++/---") || !strings.Contains(catalog, "unknown tail layouts") {

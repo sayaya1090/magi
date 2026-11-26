@@ -138,9 +138,11 @@ func TestRoutineReplaysAPipelineWithTheNewRequestsFile(t *testing.T) {
 		}
 		r.fire("tool_finished", "tool", "bash", "args", string(raw), "ok", "true", "order_known", "true", "call_id", fmt.Sprint(i))
 	}
-	files, err := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
-	if err != nil || len(files) != 1 {
-		t.Fatalf("expected one pipeline routine after two complete observations: %v (%v)", files, err)
+	// One bash call is one model response; a routine for it would save no model call, so none is saved
+	// (routine_learn_gate_test.go).
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	if len(files) != 0 {
+		t.Fatalf("a one-call shell command was saved as a routine: %v", files)
 	}
 	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{
 		SessionID: r.sid, Workdir: r.s.Workdir, Prompt: "summarize repeated records from the new file",
@@ -148,15 +150,7 @@ func TestRoutineReplaysAPipelineWithTheNewRequestsFile(t *testing.T) {
 	if err != nil || len(hints) != 0 {
 		t.Fatalf("single Bash wrapper was recommended: %v %v", hints, err)
 	}
-	name := filepath.Base(filepath.Dir(files[0]))
-	file := "today's records.txt"
-	r.file(t, file, "pear\napple\npear\n")
-	out, asks, failed := r.call(t, "count-records", "run_routine", map[string]any{
-		"name": name, "args": map[string]string{"s1_arg1": file},
-	}, "allow")
-	if failed || len(asks) != 1 || asks[0].What != "bash" || !strings.Contains(out, "1 apple") || !strings.Contains(out, "2 pear") {
-		t.Fatalf("pipeline output %q approvals %+v", out, asks)
-	}
+
 }
 
 func TestRoutineKeepsSingleShellFileFlowQuiet(t *testing.T) {
@@ -203,31 +197,13 @@ func TestRoutineFindsLineFiltersByPurpose(t *testing.T) {
 			t.Fatalf("unexpected hint for %q: %+v (%v)", q, hints, err)
 		}
 	}
-	out, _, failed := r.call(t, "lookup", "routine_catalog", map[string]any{"query": query}, "allow")
-	var entries []struct {
-		Name   string
-		Inputs struct {
-			Properties map[string]struct{ Description string }
-		}
+	// One bash call is one model response; a routine for it would save no model call, so none is saved
+	// (routine_learn_gate_test.go).
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	if len(files) != 0 {
+		t.Fatalf("a one-call shell command was saved as a routine: %v", files)
 	}
-	if failed || json.Unmarshal([]byte(out), &entries) != nil || len(entries) != 1 {
-		t.Fatal(out)
-	}
-	args := map[string]string{"s1_arg4": "empty", "s1_arg5": "fresh"}
-	for key, prop := range entries[0].Inputs.Properties {
-		switch prop.Description {
-		case "extended regular expression for lines to keep":
-			args[key] = "feature"
-		case "basic regular expression for lines to exclude":
-			args[key] = "obsolete"
-		}
-	}
-	r.file(t, "empty", "")
-	r.file(t, "fresh", "feature new\nfeature obsolete\nunrelated\n")
-	out, _, failed = r.call(t, "apply", "run_routine", map[string]any{"name": entries[0].Name, "args": args}, "allow")
-	if failed || !strings.Contains(out, "+feature new") || strings.Contains(out, "feature obsolete") || strings.Contains(out, "unrelated") {
-		t.Fatal(out)
-	}
+
 }
 
 func TestRoutineRecallsBoundShellAfterMeasuredSavings(t *testing.T) {
@@ -244,22 +220,15 @@ func TestRoutineRecallsBoundShellAfterMeasuredSavings(t *testing.T) {
 	for i := range 4 {
 		fire("bash", direct, 35, fmt.Sprint(i))
 	}
-	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
-	if len(files) != 1 {
-		t.Fatalf("expected one measured pipeline: %v", files)
+	// One bash call is one model response; a routine for it would save no model call, so none is saved
+	// (routine_learn_gate_test.go).
+	files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi", "routines", "write-*", "routine.md"))
+	if len(files) != 0 {
+		t.Fatalf("a one-call shell command was saved as a routine: %v", files)
 	}
-	name := filepath.Base(filepath.Dir(files[0]))
-	args, _ := json.Marshal(map[string]string{"name": name})
-	for i := range 2 {
-		fire("run_routine", string(args), 15, fmt.Sprintf("wrapper-%d", i))
+	hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: request, Model: "measured"})
+	if err != nil || len(hints) != 0 {
+		t.Fatalf("a one-call pipeline was recommended: %v %v", hints, err)
 	}
-	for _, tc := range []struct {
-		model, prompt string
-		want          bool
-	}{{"measured", request, true}, {"other", request, false}, {"measured", "other request", false}} {
-		hints, err := r.a.contextProviders[0].Provide(context.Background(), port.ContextQuery{SessionID: r.sid, Workdir: r.s.Workdir, Prompt: tc.prompt, Model: tc.model})
-		if err != nil || (len(hints) > 0) != tc.want || (tc.want && !strings.Contains(hints[0].Text, name)) {
-			t.Fatalf("%+v: %v %v", tc, hints, err)
-		}
-	}
+
 }

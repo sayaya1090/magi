@@ -1108,7 +1108,7 @@ local function observe_pipeline_families(rows, ev, trace)
           for _,form in ipairs(e.tails) do if magi.json_encode(form)==magi.json_encode(tail) then seen=true end end
           if not seen then e.tails[#e.tails+1]=tail end
         end
-        if not e.name and e.varied and e.first~=occurrence then e.name=save_pipeline_family(id,core,e) end
+        -- Not saved: one bash call is one model response, so a routine for it saves no model call.
       end
       -- A saved family covers only the observed input layout and output stages.
       if e and e.name and row.graph then
@@ -1140,12 +1140,16 @@ local function inventory_consumer(target, raw)
     if first[#first-width+i]~=v then return end
   end
   for _,stage in ipairs(tail) do core[#core+1]=stage end
-  local bindings,patterns={},{}
+  -- shape: output settings such as cut -c1-200 or head -60. They are not part of the edge's identity, so
+  -- consumers that differ only in width are one routine; the latest value fills the next plan.
+  local bindings,patterns,shape={},{},{}
   for i,stage in ipairs(core) do
     if #stage>2 and not stage[2].word then return end
     for j=2,#stage do
       local slot=stage[j]
-      if not slot.word and not slot.items then
+      if slot.numeric then
+        shape["s"..i.."_arg"..(j-1)]=row[i][j]
+      elseif not slot.word and not slot.items then
         local value=row[i][j]
         if type(value)~="string" then return end
         local key="s"..i.."_arg"..(j-1)
@@ -1162,7 +1166,7 @@ local function inventory_consumer(target, raw)
       end
     end
   end
-  return core,bindings,patterns
+  return core,bindings,patterns,shape
 end
 
 -- A previously saved variable-width routine may already implement this call.
@@ -1190,12 +1194,12 @@ magi.on("inventory_routine",function(ev)
   if ev.consumer~="" then
     local calls=magi.json_decode(ev.consumer)
     if calls.command then calls={calls} end
-    local core,bindings,patterns
+    local core,bindings,patterns,shape
     for _,call in ipairs(calls) do
-      local stages,fields,fixed=inventory_consumer(target,magi.json_encode(call))
+      local stages,fields,fixed,form=inventory_consumer(target,magi.json_encode(call))
       if stages then
         if core then return end
-        core,bindings,patterns=stages,fields,fixed
+        core,bindings,patterns,shape=stages,fields,fixed,form
       end
     end
     if not core then return end
@@ -1208,7 +1212,7 @@ magi.on("inventory_routine",function(ev)
       if count>=200 then return end
       local first={}
       for _,field in pairs(bindings) do first[field]=magi.sha256(magi.workdir().."\0"..target.fields[field]) end
-      edges[target.source]={id=id,width=#target.items,first=first,bindings=bindings}
+      edges[target.source]={id=id,width=#target.items,first=first,bindings=bindings,shape=shape}
     elseif not edge.ambiguous and not edge.name and edge.width~=#target.items then
       for field,hash in pairs(edge.first) do
         if magi.sha256(magi.workdir().."\0"..target.fields[field])==hash then return end
@@ -1219,8 +1223,15 @@ magi.on("inventory_routine",function(ev)
         local r=load_routine(name)
         local receipt=stored("routine_learned_write:"..id)
         if r and receipt.workspace==magi.workdir() and receipt.digest==r.file_sha256 then edge.name=name
-        else edge.name=save_pipeline_family(id,core,{patterns=patterns,tails={}}) end
+        else
+          -- Output pipelines observed for the same three stages (one-call runs are observed, not saved).
+          local family=#core==3 and stored("routine_pipeline_families:"..magi.sha256(magi.workdir()))[
+            magi.sha256("variable pipeline v1\n"..magi.workdir().."\n"..magi.json_encode(core)):sub(1,20)]
+          edge.name=save_pipeline_family(id,core,{patterns=patterns,tails=type(family)=="table" and family.tails or {}})
+        end
       end
+      edge.shape=shape
+    elseif not edge.ambiguous then edge.shape=shape
     else return end
     magi.store_set(store_key,edges)
     return
@@ -1233,6 +1244,9 @@ magi.on("inventory_routine",function(ev)
   local args={items=target.items}
   for key,field in pairs(edge.bindings) do args[key]=target.fields[field] end
   for key,value in pairs(edge.constants or {}) do args[key]=value end
+  for key,value in pairs(edge.shape or {}) do
+    if (r.inputs.properties or {})[key] then args[key]=value end
+  end
   return magi.json_encode({name=r.name,args=args,expected_digest=r.file_sha256})
 end)
 
@@ -1315,9 +1329,8 @@ local function observe_shell_dependencies(session, call, dependencies, trace, co
       end
       entry.runnable_requests = requests
       entry.covered_by = covered and covered[dependency.key]
-      if not entry.covered_by and not entry.routine and entry.layout == layout and entry.layout_occurrence ~= occurrence then
-        entry.routine = save_shell_chain(dependency)
-      end
+      -- The layout is remembered for hints and graphs but not saved as a routine: the chain was one bash
+      -- call, one model response, so running it as a routine would save no model call.
       if not entry.routine then
         entry.layout, entry.layout_occurrence = layout, occurrence
       end
