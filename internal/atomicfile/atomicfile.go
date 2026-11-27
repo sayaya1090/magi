@@ -35,6 +35,20 @@ func Write(path string, data []byte, perm os.FileMode) error {
 	if info, err := os.Stat(path); err == nil {
 		perm = info.Mode().Perm()
 	}
+	return publish(path, data, perm, Replace)
+}
+
+// Create publishes a complete file only if the destination does not exist.
+func Create(path string, data []byte, perm os.FileMode) error {
+	return publish(path, data, perm, func(tmp, dst string) error {
+		if err := os.Link(tmp, dst); err != nil {
+			return err
+		}
+		return os.Remove(tmp)
+	})
+}
+
+func publish(path string, data []byte, perm os.FileMode, commit func(string, string) error) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
@@ -68,7 +82,7 @@ func Write(path string, data []byte, perm os.FileMode) error {
 	}
 	// replace, not os.Rename: on Windows a destination somebody is reading cannot be renamed over,
 	// and a reader is the state this package is written for. See rename_windows.go.
-	if err := Replace(name, path); err != nil {
+	if err := commit(name, path); err != nil {
 		os.Remove(name)
 		return err
 	}

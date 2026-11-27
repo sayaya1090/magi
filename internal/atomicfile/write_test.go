@@ -96,3 +96,17 @@ func TestWriteFollowsASymlink(t *testing.T) {
 		t.Fatalf("the pointed-to file is the one replaced, got %q", b)
 	}
 }
+
+func TestCreatePreservesExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skill")
+	if err := Create(path, []byte("first"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Create(path, []byte("second"), 0600); !os.IsExist(err) {
+		t.Fatalf("expected existing file error, got %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || string(b) != "first" {
+		t.Fatalf("file changed: %q %v", b, err)
+	}
+}

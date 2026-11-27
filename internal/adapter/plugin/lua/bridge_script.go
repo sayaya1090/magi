@@ -527,6 +527,7 @@ func execScript(parent context.Context, call toolCaller, note func(string), para
 		out.WriteString(line)
 		return 0
 	}))
+	S.SetGlobal("bind_shell_operand", S.NewFunction(bindShellOperand))
 	S.SetGlobal("call_tool", S.NewFunction(func(L *lua.LState) int {
 		name := L.CheckString(1)
 		args := json.RawMessage(`{}`)

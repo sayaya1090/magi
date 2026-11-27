@@ -460,7 +460,7 @@ Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdi
 > **`magi.recent_tool_steps(n)`** — needs capability `"history"`: the past tool calls of the plugin's own
 > workspace, newest top-level session first (at most 16 sessions, the last 300 calls of each), as
 > `{ {session=, steps={ {name=, args=, failed=, output=, turn=}, … }}, … }`. Results are clipped as in
-> `turn_steps`; `turn` counts user turns from 1. Meant for a background review in an `idle` hook.
+> `turn_steps`; `turn` counts user turns from 1. For a model-authored call, `response` identifies its assistant message and `call_order` and `result_order` give its event positions within the session. Zero means unknown. Meant for a background review in an `idle` hook.
 >
 > **`magi.turn_steps()`** — inside a tool call only: the tool calls of the turn this call belongs
 > to, oldest first, as `{name=, args=(decoded), failed=, output=, output_bytes=}` — `output` is the result text, whole when the call failed and clipped at 6 KB when it succeeded (a door reads the ⚠ a tool attached to a success),

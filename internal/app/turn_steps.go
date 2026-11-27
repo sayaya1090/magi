@@ -44,7 +44,7 @@ func stepsOfMode(evs []event.Event, turnOnly, includeSuccess bool) []port.ChildS
 	var answered []bool
 	at := map[string]int{}
 	turn := 0
-	for _, e := range evs {
+	for eventIndex, e := range evs {
 		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			turn++
 		}
@@ -62,13 +62,18 @@ func stepsOfMode(evs []event.Event, turnOnly, includeSuccess bool) []port.ChildS
 		switch {
 		case d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil:
 			at[d.Part.ToolCall.CallID] = len(out)
-			out = append(out, port.ChildStep{Name: d.Part.ToolCall.Name, Args: d.Part.ToolCall.Args, Turn: turn})
+			step := port.ChildStep{Name: d.Part.ToolCall.Name, Args: d.Part.ToolCall.Args, Turn: turn}
+			if d.Role == session.RoleAssistant && d.Part.ToolCall.Parent == "" {
+				step.ResponseID, step.CallOrder = d.MessageID, eventIndex+1
+			}
+			out = append(out, step)
 			answered = append(answered, false)
 		case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil:
 			i, ok := at[d.Part.ToolResult.CallID]
 			if !ok {
 				continue
 			}
+			out[i].ResultOrder = eventIndex + 1
 			text := resultText(d.Part.ToolResult.Content)
 			out[i].OutputBytes = len(text)
 			out[i].Failed = d.Part.ToolResult.IsError

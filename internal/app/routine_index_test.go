@@ -100,9 +100,10 @@ func TestIdleDropsListedButUnusedRoutinesFromTheIndex(t *testing.T) {
 func TestRoutineIndexCountsOneExposurePerRequest(t *testing.T) {
 	r := newRoutineRig(t, t.TempDir(), routineFile)
 	r.put(t, filepath.Join(".magi", "routines", "unused", "routine.md"), routineDoc("not picked yet"))
+	routineIndex(t, r, "one long request")
 	for range 25 {
-		if idx := routineIndex(t, r, "one long request"); !strings.Contains(idx, "- unused:") {
-			t.Fatalf("not listed:\n%s", idx)
+		if err := r.command(t, "routine-skills"); err != nil {
+			t.Fatal(err)
 		}
 	}
 	r.fire("idle")
@@ -376,8 +377,8 @@ func TestARoutineLeftOutOfTheListLeavesTheSkills(t *testing.T) {
 	r.put(t, filepath.Join(".magi", "routines", "unused", "routine.md"), routineDoc("never picked"))
 	mine := filepath.Join(".magi", "skills", "mine.routine.md")
 	r.put(t, mine, []byte("written by a person\nbody\n"))
-	for i := range 20 {
-		r.fire("user_message", "text", fmt.Sprintf("turn %d", i))
+	for range 20 {
+		r.fire("user_message", "text", "continue")
 	}
 	if routineSkill(r, "unused.routine") == "" {
 		t.Fatal("not offered before the review")
@@ -389,5 +390,18 @@ func TestARoutineLeftOutOfTheListLeavesTheSkills(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.s.Workdir, mine)); err != nil {
 		t.Fatalf("a skill file the plug-in did not write was removed: %v", err)
+	}
+}
+
+func TestRoutineSkillCollisionPreservesAuthoredFile(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	r.put(t, filepath.Join(".magi", "routines", "status", "routine.md"), routineDoc("status"))
+	p := filepath.Join(".magi", "skills", "status.routine.md")
+	const body = "---\ndescription: handmade\n---\nsource: routine-skill\n"
+	r.put(t, p, []byte(body))
+	r.fire("user_message", "text", "status")
+	b, err := os.ReadFile(filepath.Join(r.s.Workdir, p))
+	if err != nil || string(b) != body {
+		t.Fatalf("authored skill changed: %s (%v)", b, err)
 	}
 }

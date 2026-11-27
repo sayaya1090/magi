@@ -50,6 +50,9 @@ func TestRecentToolStepsReadsPastTurnsWithTheirResults(t *testing.T) {
 		!strings.Contains(string(steps[1].Args), "b.txt") {
 		t.Fatalf("steps: %+v", steps)
 	}
+	if steps[0].ResponseID == "" || steps[0].ResponseID == steps[1].ResponseID || steps[0].CallOrder <= 0 || steps[0].ResultOrder <= steps[0].CallOrder || steps[0].ResultOrder >= steps[1].CallOrder {
+		t.Fatalf("missing causal evidence: %+v", steps)
+	}
 	if other, _ := a.RecentToolSteps(ctx, t.TempDir(), 4); len(other) != 0 {
 		t.Fatalf("another workspace's sessions were read: %+v", other)
 	}

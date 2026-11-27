@@ -65,6 +65,7 @@ func installBridge(p *plugin) {
 	scriptFeatures.RawSetString("explore_request_limit", lua.LTrue)
 	L.SetField(t, "script_features", scriptFeatures)
 	L.SetField(t, "approve", L.NewFunction(p.bridgeApprove))
+	L.SetField(t, "bind_shell_operand", L.NewFunction(bindShellOperand))
 	L.SetField(t, "shell_shape", L.NewFunction(bridgeShellShape))
 	L.SetField(t, "sha256", L.NewFunction(func(L *lua.LState) int {
 		sum := sha256.Sum256([]byte(L.CheckString(1)))
@@ -394,6 +395,11 @@ func stepsTable(L *lua.LState, steps []port.ChildStep) *lua.LTable {
 		L.SetField(row, "pending", lua.LBool(st.Pending))
 		L.SetField(row, "output", lua.LString(st.Output))
 		L.SetField(row, "output_bytes", lua.LNumber(st.OutputBytes))
+		if st.ResponseID != "" {
+			L.SetField(row, "response", lua.LString(st.ResponseID))
+			L.SetField(row, "call_order", lua.LNumber(st.CallOrder))
+			L.SetField(row, "result_order", lua.LNumber(st.ResultOrder))
+		}
 		if st.Turn > 0 {
 			L.SetField(row, "turn", lua.LNumber(st.Turn))
 		}
@@ -1380,7 +1386,7 @@ func (p *plugin) bridgeListFiles(L *lua.LState) int {
 	return 1
 }
 
-// magi.write_file(path, content) -> true | (nil, error)
+// magi.write_file(path, content[, create_only]) -> true | (nil, error)
 func (p *plugin) bridgeWriteFile(L *lua.LState) int {
 	rel := L.CheckString(1)
 	content := L.CheckString(2)
@@ -1394,7 +1400,11 @@ func (p *plugin) bridgeWriteFile(L *lua.LState) int {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return fail(L, err.Error())
 	}
-	if err := atomicfile.Write(abs, []byte(content), 0o644); err != nil {
+	write := atomicfile.Write
+	if L.OptBool(3, false) {
+		write = atomicfile.Create
+	}
+	if err := write(abs, []byte(content), 0o644); err != nil {
 		return fail(L, err.Error())
 	}
 	L.Push(lua.LTrue)

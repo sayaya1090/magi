@@ -40,8 +40,8 @@ func linkTurn(turn int, value string) []port.ChildStep {
 		return raw
 	}
 	return []port.ChildStep{
-		{Name: "bash", Args: args("git log --oneline -3"), Output: value + " fix the parser\n1234567 an older change\n", Turn: turn},
-		{Name: "bash", Args: args("git show " + value + " --stat"), Output: " a.go | 2 +-\n", Turn: turn},
+		{Name: "bash", ResponseID: "one", CallOrder: 1, ResultOrder: 2, Args: args("git log --oneline -3"), Output: value + " fix the parser\n1234567 an older change\n", Turn: turn},
+		{Name: "bash", ResponseID: "two", CallOrder: 3, ResultOrder: 4, Args: args("git show " + value + " --stat"), Output: " a.go | 2 +-\n", Turn: turn},
 	}
 }
 
@@ -185,5 +185,46 @@ func TestIdleAsksTheModelWhenNoFixedSpotFits(t *testing.T) {
 				return nil
 			})
 		})
+	}
+}
+
+func TestLinkLearningRequiresCausalResponseAndReplay(t *testing.T) {
+	for _, test := range []string{"same response", "late output", "unknown response", "repeated anchor", "shell syntax position"} {
+		t.Run(test, func(t *testing.T) {
+			var past []port.SessionSteps
+			for _, v := range []string{"alpha123", "bravo456"} {
+				s := linkTurn(1, v)
+				switch test {
+				case "same response":
+					s[1].ResponseID = s[0].ResponseID
+				case "late output":
+					s[0].ResultOrder = s[1].CallOrder + 1
+				case "unknown response":
+					s[0].ResponseID = ""
+				case "repeated anchor":
+					s[0].Output = "id other\na\nb\nc\nd\ne\nid " + v
+				case "shell syntax position":
+					s[1].Args, _ = json.Marshal(map[string]string{"command": v + " --stat"})
+				}
+				past = append(past, port.SessionSteps{Session: v, Steps: s})
+			}
+			r := newRoutineRigWithHistory(t, t.TempDir(), past, nil)
+			r.fire("idle")
+			files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/link-*/routine.md"))
+			if len(files) > 0 {
+				t.Fatalf("unexpected learned link %v", files)
+			}
+		})
+	}
+}
+
+func TestLegacyResultLinkRequiresRelearningBeforeExecution(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	const name = "link-aaaaaaaabbbb"
+	body := strings.Replace(string(routineDoc("obsolete link")), "kind: routine", "kind: routine\nstatus: learned-write\nsource: result value reused aaaaaaaabbbb", 1)
+	r.put(t, filepath.Join(".magi", "routines", name, "routine.md"), []byte(body))
+	out, asks, failed := r.call(t, "legacy-link", "run_routine", map[string]any{"name": name}, "allow")
+	if !failed || len(asks) != 0 || !strings.Contains(out, "needs fresh evidence") {
+		t.Fatalf("legacy link reached execution: %q %+v", out, asks)
 	}
 }

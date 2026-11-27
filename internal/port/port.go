@@ -402,13 +402,15 @@ type ScheduleChange struct {
 // from Name and Args. Ordinary child footprints omit successful output; trial and
 // current-turn readers include it within a byte limit. OutputBytes preserves its original size.
 type ChildStep struct {
-	Name        string          // the tool the child called
-	Args        json.RawMessage // its arguments, exactly as the child sent them
-	Failed      bool
-	Pending     bool   // call has no persisted result yet
-	Output      string // failures verbatim; turn/trial readers also include bounded successful output
-	OutputBytes int    // size of the result, set whether or not Output is carried
-	Turn        int    // the user turn the call belongs to, counted from 1 by the session-wide readers
+	ResponseID             string          // assistant message that authored the call, when known
+	CallOrder, ResultOrder int             // positions in the same session event log; zero if unknown
+	Name                   string          // the tool the child called
+	Args                   json.RawMessage // its arguments, exactly as the child sent them
+	Failed                 bool
+	Pending                bool   // call has no persisted result yet
+	Output                 string // failures verbatim; turn/trial readers also include bounded successful output
+	OutputBytes            int    // size of the result, set whether or not Output is carried
+	Turn                   int    // the user turn the call belongs to, counted from 1 by the session-wide readers
 }
 
 // SessionSteps is one session's tool calls in order, as a reader of past work sees them.

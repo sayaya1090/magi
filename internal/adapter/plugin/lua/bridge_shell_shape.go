@@ -14,6 +14,30 @@ import (
 var shellName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 var shellOption = regexp.MustCompile(`^--?[A-Za-z][A-Za-z0-9-]*$`)
 
+// Bind one standalone argument in a simple POSIX command. The parser supplies the
+// byte range; quoting never depends on the contents of the observed tool result.
+func bindShellOperand(L *lua.LState) int {
+	const marker = "{{value}}"
+	command, value := L.CheckString(1), L.CheckString(2)
+	if len(command) > 65536 || strings.Count(command, marker) != 1 || value == "" || strings.HasPrefix(value, "-") || strings.ContainsRune(value, 0) {
+		return fail(L, "invalid shell operand")
+	}
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangPOSIX)).Parse(strings.NewReader(command), "")
+	if err == nil && len(file.Stmts) == 1 {
+		stmt := file.Stmts[0]
+		if call, ok := stmt.Cmd.(*syntax.CallExpr); ok && len(call.Assigns) == 0 && len(stmt.Redirs) == 0 && !stmt.Background && len(call.Args) > 1 && shellName.MatchString(call.Args[0].Lit()) {
+			for _, arg := range call.Args[1:] {
+				start, end := arg.Pos().Offset(), arg.End().Offset()
+				if command[start:end] == marker && arg.Lit() == marker {
+					L.Push(lua.LString(command[:start] + "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" + command[end:]))
+					return 1
+				}
+			}
+		}
+	}
+	return fail(L, "expected one literal shell argument placeholder")
+}
+
 // bridgeShellShape parses for observation only. The digest is never used to
 // authorize a tool call. The caller can fall back to an exact digest for unsupported syntax.
 func bridgeShellShape(L *lua.LState) int {

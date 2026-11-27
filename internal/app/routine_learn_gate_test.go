@@ -90,6 +90,7 @@ func TestHeadCountVariantsOfAnInventoryConsumerAreOneRoutine(t *testing.T) {
 	}{
 		{"dash-count", "head -40", "head -80", "s3_arg1", "-80"},
 		{"n-option", "head -n 40", "head -n 80", "s3_arg2", "80"},
+		{"numeric-regex", "grep -e 404", "grep -e 500", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRoutineRig(t, t.TempDir(), routineFile)
@@ -113,6 +114,12 @@ func TestHeadCountVariantsOfAnInventoryConsumerAreOneRoutine(t *testing.T) {
 				last = inventory
 			}
 			files, _ := filepath.Glob(filepath.Join(r.s.Workdir, ".magi/routines/write-*/routine.md"))
+			if tc.key == "" {
+				if len(files) != 0 || r.host.InventoryRoutine(r.s.Workdir, last, "") != "" {
+					t.Fatal("numeric regex was reused as output width")
+				}
+				return
+			}
 			if len(files) != 1 {
 				t.Fatalf("consumers differing only in the head count should be one routine: %v", files)
 			}
