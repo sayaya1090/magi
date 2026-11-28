@@ -371,6 +371,28 @@ func TestSavedRoutinesReachTheModelAsSkills(t *testing.T) {
 	}
 }
 
+func TestBashSequenceSkillExplainsTheRequiredCommands(t *testing.T) {
+	r := newRoutineRig(t, t.TempDir(), routineFile)
+	def := strings.Replace(string(routineDoc("Writing sequence: bash (cd && tool-a) > bash (cd && tool-b)")), "tools: read", `status: learned-write
+tools: bash
+inputs: {"type":"object","properties":{"step1":{"type":"object"},"step2":{"type":"object"}},"required":["step1","step2"]}`, 1)
+	r.put(t, filepath.Join(".magi", "routines", "batch", "routine.md"), []byte(def))
+	r.fire("user_message", "text", "hello")
+	desc := routineSkill(r, "batch.routine")
+	if !strings.Contains(desc, "Batch 2 Bash commands") || !strings.Contains(desc, "known before the first runs") {
+		t.Fatal(desc)
+	}
+	body, err := os.ReadFile(filepath.Join(r.s.Workdir, ".magi", "skills", "batch.routine.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"cd && tool-a", "cd && tool-b", "current command for step 2", "**Output.**", "**Errors.**", "run_routine with name batch"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("skill missing %q", want)
+		}
+	}
+}
+
 // A routine taken out of the list loses its skill file; files the plug-in did not write are left alone.
 func TestARoutineLeftOutOfTheListLeavesTheSkills(t *testing.T) {
 	r := newRoutineRig(t, t.TempDir(), routineFile)

@@ -2525,20 +2525,41 @@ end
 
 local SKILL_MARK = "source: routine-skill"
 local function routine_skill_text(row)
-  local d = (row.r.description or ""):gsub("%s+", " ")
-  if #d > 100 then d = (d:sub(1, 97):gsub("[\192-\255][\128-\191]*$", "")) .. "..." end
-  local saves = ""
-  if row.sv then
-    saves = " (saves " .. row.sv.saved .. " model call" .. (row.sv.saved == 1 and "" or "s") .. " per run" ..
-      (row.sv.basis == "observed" and "" or ", estimated") .. ")"
+  local r = row.r
+  local usage = routine_usage(r.description or "", r.inputs, r.source)
+  local shapes, groups = {}, {}
+  if r.status == "learned-write" and (r.description or ""):match("^Writing sequence: bash ") then
+    for shape in r.description:gmatch("bash %(([^()]*)%)") do
+      local names, seen = {}, {}
+      for command in shape:gmatch("[%w_./%-]+") do
+        if not seen[command] then names[#names + 1], seen[command] = command, true end
+      end
+      shapes[#shapes + 1] = shape
+      groups[#groups + 1] = table.concat(names, "/")
+    end
   end
-  local names = {}
-  for k in pairs(type(row.r.inputs.properties) == "table" and row.r.inputs.properties or {}) do names[#names + 1] = k end
-  table.sort(names)
-  local args = #names > 0 and (" with args " .. table.concat(names, ", ")) or ""
-  return "---\ndescription: Saved routine: " .. d .. saves .. ". Run it directly: run_routine " ..
-    magi.json_encode({ name = row.name }) .. args .. "; no need to load this skill.\n" .. SKILL_MARK .. "\n---\n" ..
-    "Advertises the saved routine " .. row.name .. " (" .. row.r.path .. "). Call run_routine with its name.\n"
+  if #shapes > 0 and r.description == "Writing sequence: bash (" .. table.concat(shapes, ") > bash (") .. ")" then
+    usage.when = "Batch " .. #shapes .. " Bash commands in order (" .. table.concat(groups, " then ") ..
+      ") when every command is known before the first runs."
+    usage.example = {}
+    for i, shape in ipairs(shapes) do
+      usage.example["step" .. i] = {command = "<current command for step " .. i .. ">"}
+      usage.parameters["step" .. i] = "Bash arguments with a required command string. Observed command order: " .. shape
+    end
+    usage.output = "Each step prints its Bash result in order, followed by the completed step count."
+    usage.errors = usage.errors .. " A tool error stops the sequence at that step. Use separate calls when a later command depends on earlier output."
+  end
+  local call = "run_routine " .. magi.json_encode({name = row.name})
+  local guide
+  if next(r.inputs.properties or {}) then
+    call = "Call run_routine with name " .. row.name .. " and args as described below."
+    guide = "\n**Argument schema for `args`**\n\n```json\n" .. magi.json_encode(r.inputs) .. "\n```\n"
+  end
+  local summary = usage.when:gsub("%s+", " ")
+  if #summary > 240 then summary = summary:sub(1, 237):gsub("[\192-\255][\128-\191]*$", "") .. "..." end
+  local headline = guide and summary or (summary .. " " .. call)
+  return "---\ndescription: " .. headline .. "\n" .. SKILL_MARK .. "\n---\n\n" ..
+    usage_markdown(usage) .. "\n" .. call .. "\n" .. (guide or "")
 end
 local function is_routine_skill(text)
   local fm = type(text) == "string" and frontmatter(text)
