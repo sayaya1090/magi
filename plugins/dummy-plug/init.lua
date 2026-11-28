@@ -1193,6 +1193,15 @@ local function existing_inventory_family(core,patterns)
   return r.name, constants
 end
 
+-- Reordering the same operands does not provide independent evidence. Keep only
+-- a workspace-scoped digest of the set, separate from the ordered binding check.
+local function inventory_set_digest(items)
+  local sorted={}
+  for i,item in ipairs(items) do sorted[i]=item end
+  table.sort(sorted)
+  return magi.sha256(magi.workdir().."\0"..magi.json_encode(sorted))
+end
+
 magi.on("inventory_routine",function(ev)
   if magi.platform()=="windows" then return end
   local target=magi.json_decode(ev.inventory)
@@ -1220,8 +1229,18 @@ magi.on("inventory_routine",function(ev)
       if count>=200 then return end
       local first={}
       for _,field in pairs(bindings) do first[field]=magi.sha256(magi.workdir().."\0"..target.fields[field]) end
-      edges[target.source]={id=id,width=#target.items,first=first,bindings=bindings,shape=shape}
-    elseif not edge.ambiguous and not edge.name and edge.width~=#target.items then
+      edges[target.source]={id=id,width=#target.items,items_digest=inventory_set_digest(target.items),first=first,bindings=bindings,shape=shape}
+    elseif not edge.ambiguous and not edge.name then
+      if edge.width==#target.items then
+        if not edge.items_digest then
+          -- Older pending records have no set evidence. Start at this observation.
+          edge.items_digest=inventory_set_digest(target.items)
+          for field in pairs(edge.first) do edge.first[field]=magi.sha256(magi.workdir().."\0"..target.fields[field]) end
+          magi.store_set(store_key,edges)
+          return
+        end
+        if edge.items_digest==inventory_set_digest(target.items) then return end
+      end
       for field,hash in pairs(edge.first) do
         if magi.sha256(magi.workdir().."\0"..target.fields[field])==hash then return end
       end
@@ -1238,13 +1257,16 @@ magi.on("inventory_routine",function(ev)
           edge.name=save_pipeline_family(id,core,{patterns=patterns,tails=type(family)=="table" and family.tails or {}})
         end
       end
+      if edge.name and edge.width==#target.items then edge.fixed_width=edge.width end
       edge.shape=shape
-    elseif not edge.ambiguous then edge.shape=shape
+    elseif not edge.ambiguous then
+      if edge.fixed_width and edge.fixed_width~=#target.items then edge.fixed_width=nil end
+      edge.shape=shape
     else return end
     magi.store_set(store_key,edges)
     return
   end
-  if not edge or edge.ambiguous or not edge.name then return end
+  if not edge or edge.ambiguous or not edge.name or (edge.fixed_width and edge.fixed_width~=#target.items) then return end
   local r=load_routine(edge.name)
   if not r then edges[target.source]=nil; magi.store_set(store_key,edges); return end
   local receipt=stored("routine_learned_write:"..edge.name:sub(7))

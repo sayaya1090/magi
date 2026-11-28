@@ -287,15 +287,21 @@ func TestInventoryLearnsUnknownConsumerFromActualCalls(t *testing.T) {
 	}
 	ctx := context.Background()
 	for i, x := range []struct {
-		prompt  string
-		items   []string
-		scope   string
-		partial bool
+		prompt                     string
+		items                      []string
+		scope                      string
+		partial, manual, automatic bool
 	}{
-		{"what is queued?", []string{"one", "two", "three"}, "batchA", true},
-		{"다음 묶음을 정리해", []string{"four", "five"}, "batchB", false},
-		{"assemble this set", []string{"six", "seven", "eight"}, "batchC", false},
-		{"새 묶음 부탁해", []string{"nine", "ten", "eleven", "twelve"}, "batchD", false},
+		{"what is queued?", []string{"one", "two", "three"}, "batchA", true, true, false},
+		{"다음 묶음을 정리해", []string{"four", "five", "six"}, "batchB", false, true, false},
+		{"repeat the same evidence", []string{"four", "five", "six"}, "batchB", false, true, false},
+		{"same items with new field", []string{"four", "five", "six"}, "batchBB", false, true, false},
+		{"reordered items", []string{"six", "five", "four"}, "batchBC", false, true, false},
+		{"assemble this set", []string{"seven", "eight", "nine"}, "batchC", false, true, false},
+		{"다른 요청으로 세 개", []string{"x", "y", "z"}, "batchD", false, false, true},
+		{"unseen width", []string{"j", "k"}, "batchE", false, false, false},
+		{"confirm new width", []string{"k", "l"}, "batchF", false, true, false},
+		{"새 묶음 부탁해", []string{"nine", "ten", "eleven", "twelve"}, "batchG", false, false, true},
 	} {
 		payload, _ := json.Marshal(map[string]any{"tickets": x.items, "cycle": x.scope})
 		r.file(t, "queue.json", string(payload))
@@ -305,7 +311,7 @@ func TestInventoryLearnsUnknownConsumerFromActualCalls(t *testing.T) {
 		}
 		scan, _ := json.Marshal(map[string]string{"command": fmt.Sprintf("queue-scan -- job%d", i)})
 		steps := [][]port.ProviderEvent{asideCall("bash", string(scan))}
-		if i < 3 {
+		if x.manual {
 			raw, _ := json.Marshal(map[string]string{"command": "bundle-labels --cycle " + x.scope + " -- " + strings.Join(ids, " ") + " | cat"})
 			next := asideCall("bash", string(raw))
 			next[0].ToolCall.CallID = "use-list"
@@ -331,13 +337,13 @@ func TestInventoryLearnsUnknownConsumerFromActualCalls(t *testing.T) {
 			for _, part := range msg.Parts {
 				if res := part.ToolResult; res != nil && res.CallID == "c_bash" && strings.Contains(string(res.Content), "[inventory routine]") {
 					found = true
-					if !strings.Contains(string(res.Content), "bundle twelve") || !strings.Contains(string(res.Content), "bundle batchD") {
+					if !strings.Contains(string(res.Content), "bundle "+x.items[len(x.items)-1]) || !strings.Contains(string(res.Content), "bundle "+x.scope) {
 						t.Fatalf("wrong held-out values: %s", res.Content)
 					}
 				}
 			}
 		}
-		if found != (i == 3) {
+		if found != x.automatic {
 			t.Fatalf("turn %d automatic=%v, log=%s", i, found, r.logs.text())
 		}
 	}
